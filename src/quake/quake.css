@@ -1,0 +1,876 @@
+* { box-sizing: border-box; }
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+body {
+  background: #050505;
+  color: #f6f1df;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+#quake-poc-app {
+  position: fixed;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #050505;
+  isolation: isolate;
+}
+#quake-host {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  outline: none;
+  touch-action: none;
+}
+#quake-host s {
+  image-rendering: pixelated;
+}
+#quake-viewmodel-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  transform-style: preserve-3d;
+}
+#quake-viewmodel-stage {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+#quake-hud {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.cssquake-logo {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 4;
+  display: block;
+  width: min(260px, calc(100vw - 92px));
+  height: auto;
+  opacity: 0.8;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 2px 0 #000000) drop-shadow(0 8px 18px rgba(0, 0, 0, 0.42));
+  pointer-events: none;
+  user-select: none;
+}
+.btn-github {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 10;
+  display: block;
+  width: 55px;
+  height: 55px;
+  color: rgb(4 5 12);
+  line-height: 0;
+  pointer-events: auto;
+}
+.btn-github svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0.8;
+  fill: currentColor;
+}
+.btn-github .octo-arm {
+  transform-origin: 130px 106px;
+}
+.btn-github:hover .octo-arm {
+  animation: octocat-wave 560ms ease-in-out;
+}
+.btn-github:focus-visible {
+  outline: 2px solid #f0ad5c;
+  outline-offset: -2px;
+}
+.quake-copyright-notice {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  z-index: 4;
+  margin: 0;
+  color: rgba(246, 241, 223, 0.5);
+  font-family: ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  letter-spacing: 0;
+  text-shadow: 0 1px 0 #000000;
+  pointer-events: none;
+  user-select: none;
+}
+.quake-copyright-notice span {
+  display: block;
+}
+@media (max-width: 940px) {
+  .quake-copyright-notice {
+    bottom: calc(8vw + 10px);
+  }
+}
+@keyframes octocat-wave {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  20%,
+  60% {
+    transform: rotate(-26deg);
+  }
+  40%,
+  80% {
+    transform: rotate(12deg);
+  }
+}
+#quake-hud::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  background: var(--quake-hud-flash-color, rgba(190, 0, 0, 0.36));
+  opacity: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+body[data-quake-damage-flash] #quake-hud::before {
+  --quake-hud-flash-color: rgba(190, 0, 0, 0.36);
+  animation: quake-damage-flash 260ms ease-out both;
+}
+#quake-hud::after {
+  content: attr(data-quake-level-complete);
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  z-index: 7;
+  display: none;
+  padding: 10px 14px;
+  border: 1px solid rgba(205, 112, 40, 0.72);
+  background: rgba(0, 0, 0, 0.78);
+  color: #d86f2d;
+  font-family: ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
+  font-size: clamp(18px, 3vw, 44px);
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 2px 0 #000000;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
+body[data-quake-level-complete] #quake-hud::after {
+  display: block;
+}
+#quake-main-menu {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  background: rgba(0, 0, 0, 0.62);
+  cursor: crosshair;
+  outline: none;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+#quake-main-menu[data-hover-selectable="true"] {
+  cursor: pointer;
+}
+#quake-main-menu:focus,
+#quake-main-menu:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+#quake-main-menu[hidden] {
+  display: none;
+}
+#quake-main-menu-art {
+  --quake-main-menu-active-x: 0%;
+  --quake-main-menu-cursor-y: 12%;
+  --quake-main-menu-offset-y: 13.5%;
+  position: relative;
+  display: block;
+  width: min(960px, calc(100vw - 32px), calc(160vh - 52px));
+  aspect-ratio: 320 / 200;
+  background-image: url("/local/quake/main-menu.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+  transform: translateY(var(--quake-main-menu-offset-y));
+}
+
+@media (orientation: landscape) and (max-height: 560px) {
+  #quake-main-menu-art {
+    --quake-main-menu-offset-y: 6.5%;
+    width: min(960px, calc(100vw - 32px), calc(141dvh - 45px));
+  }
+}
+#quake-main-menu-active-row {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background-image: url("/local/quake/main-menu-active.png");
+  background-repeat: no-repeat;
+  background-position: var(--quake-main-menu-active-x) 0;
+  background-size: 400% 100%;
+  filter: brightness(1.42) saturate(1.18);
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+#quake-main-menu-cursor {
+  position: absolute;
+  left: 15.625%;
+  top: var(--quake-main-menu-cursor-y);
+  display: block;
+  width: 5%;
+  height: 12%;
+  background-image: url("/local/quake/main-menu-cursor.png");
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: 600% 100%;
+  image-rendering: pixelated;
+  animation: quake-main-menu-cursor-frame 600ms steps(1, end) infinite;
+}
+.quake-menu-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: clamp(16px, 3vw, 36px);
+  border: 0;
+  background: rgba(0, 0, 0, 0.72);
+  cursor: default;
+  outline: none;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+.quake-menu-panel[hidden] {
+  display: none;
+}
+.quake-menu-panel:focus,
+.quake-menu-panel:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.quake-menu-card {
+  position: relative;
+  width: min(780px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: clamp(22px, 3.4vw, 34px);
+  border: 1px solid rgba(132, 73, 38, 0.82);
+  border-radius: 2px;
+  background-color: #070403;
+  background-image: url("/local/quake/menu-panel-texture.png");
+  background-repeat: repeat;
+  background-position: left top;
+  background-size: 128px 128px;
+  color: #f6f1df;
+  font-family: ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
+  image-rendering: pixelated;
+  line-height: 1.5;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.72),
+    inset 0 0 34px rgba(0, 0, 0, 0.78),
+    0 20px 48px rgba(0, 0, 0, 0.78);
+  cursor: auto;
+}
+.quake-menu-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: rgba(5, 3, 2, 0.5);
+  pointer-events: none;
+}
+.quake-menu-card > * {
+  position: relative;
+  z-index: 1;
+}
+.quake-bitmap-source {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.quake-bitmap-host {
+  font-size: 0;
+  line-height: 0;
+}
+.quake-bitmap-text {
+  --quake-bitmap-glyph-size: 14px;
+  --quake-bitmap-sheet-size: 224px;
+  --quake-bitmap-space-size: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px var(--quake-bitmap-space-size);
+  max-width: 100%;
+  image-rendering: pixelated;
+  pointer-events: none;
+  vertical-align: top;
+}
+.quake-bitmap-text--key {
+  gap: 0;
+}
+.quake-bitmap-text--anywhere {
+  gap: 5px 0;
+}
+.quake-bitmap-text--email {
+  gap: 5px 0;
+}
+.quake-bitmap-word {
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: var(--quake-bitmap-glyph-size);
+}
+.quake-bitmap-glyph {
+  display: block;
+  flex: 0 0 auto;
+  width: var(--quake-bitmap-glyph-size);
+  height: var(--quake-bitmap-glyph-size);
+  background-image: url("/local/quake/conchars.png");
+  background-repeat: no-repeat;
+  background-size: var(--quake-bitmap-sheet-size) var(--quake-bitmap-sheet-size);
+  image-rendering: pixelated;
+}
+#quake-options-card {
+  width: min(620px, calc(100vw - 32px));
+}
+#quake-about-card {
+  width: min(760px, calc(100vw - 32px));
+}
+.quake-menu-panel-header {
+  display: grid;
+  gap: 16px;
+  margin-bottom: clamp(18px, 3vw, 26px);
+}
+.quake-menu-panel-title {
+  margin: 0;
+  line-height: 0;
+}
+.quake-menu-panel-title img {
+  display: block;
+  width: auto;
+  height: clamp(32px, 4vw, 42px);
+  image-rendering: pixelated;
+  filter: drop-shadow(0 2px 0 #000000) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.42));
+}
+#quake-about-title img {
+  height: clamp(30px, 3.5vw, 38px);
+}
+.quake-menu-panel-header p,
+.quake-menu-panel-sections p {
+  margin: 0;
+  color: rgba(246, 241, 223, 0.78);
+  font-size: clamp(14px, 1.65vw, 16px);
+  line-height: 1.58;
+}
+.quake-menu-panel-header p .quake-bitmap-text,
+.quake-help-list li > span:not(.quake-help-keys) .quake-bitmap-text {
+  filter: brightness(1.22) contrast(1.12) drop-shadow(0 1px 0 #000000);
+}
+.quake-menu-panel-sections {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.86fr) minmax(280px, 1.14fr);
+  gap: 24px 34px;
+  padding: clamp(18px, 3vw, 24px) 0;
+  border-top: 1px solid rgba(136, 84, 49, 0.58);
+  border-bottom: 1px solid rgba(136, 84, 49, 0.58);
+}
+#quake-options-sections {
+  grid-template-columns: minmax(0, 1fr);
+}
+.quake-menu-panel-sections section {
+  min-width: 0;
+}
+.quake-menu-panel-sections h2 {
+  margin: 0 0 14px;
+  color: #f0ad5c;
+  font-size: 14px;
+  line-height: 1.2;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  text-shadow: 0 1px 0 #000000;
+}
+.quake-menu-panel-sections h2 .quake-bitmap-text {
+  filter: brightness(1.12) contrast(1.08) drop-shadow(0 1px 0 #000000);
+}
+.quake-menu-panel-sections p + p {
+  margin-top: 12px;
+}
+.quake-help-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.quake-help-list li {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-height: 34px;
+  color: rgba(246, 241, 223, 0.84);
+  font-size: 15px;
+  line-height: 1.35;
+}
+.quake-help-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+.quake-help-list kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 31px;
+  min-height: 29px;
+  padding: 0 8px;
+  border: 1px solid rgba(191, 116, 44, 0.6);
+  border-bottom-color: rgba(83, 48, 25, 0.95);
+  background: rgba(6, 5, 4, 0.9);
+  color: #f7d89c;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+  box-shadow:
+    inset 0 1px 0 rgba(246, 241, 223, 0.12),
+    0 2px 0 rgba(0, 0, 0, 0.72);
+}
+.quake-help-list kbd .quake-bitmap-text {
+  justify-content: center;
+}
+.quake-menu-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: clamp(18px, 3vw, 24px);
+  font-size: 14px;
+  line-height: 1.2;
+}
+.quake-menu-actions a,
+.quake-menu-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 9px 11px;
+  border: 1px solid rgba(191, 116, 44, 0.55);
+  border-radius: 3px;
+  appearance: none;
+  background: rgba(0, 0, 0, 0.62);
+  color: #d8893f;
+  font: inherit;
+  text-decoration: none;
+  text-shadow: 0 1px 0 #000000;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.quake-menu-actions a .quake-bitmap-text,
+.quake-menu-actions button .quake-bitmap-text {
+  filter: brightness(1.12) contrast(1.08) drop-shadow(0 1px 0 #000000);
+}
+.quake-menu-actions a:hover,
+.quake-menu-actions a:focus-visible,
+.quake-menu-actions button:hover,
+.quake-menu-actions button:focus-visible {
+  border-color: rgba(240, 173, 92, 0.9);
+  color: #f0ad5c;
+  outline: none;
+}
+.quake-menu-actions button {
+  margin-left: auto;
+  background: rgba(78, 34, 18, 0.68);
+  color: #f6f1df;
+}
+.quake-menu-actions a:hover .quake-bitmap-text,
+.quake-menu-actions a:focus-visible .quake-bitmap-text,
+.quake-menu-actions button:hover .quake-bitmap-text,
+.quake-menu-actions button:focus-visible .quake-bitmap-text {
+  filter: brightness(1.16) saturate(1.08) drop-shadow(0 1px 0 #000000);
+}
+.quake-menu-links {
+  margin-top: clamp(16px, 2.4vw, 22px);
+  padding-top: clamp(14px, 2vw, 18px);
+  border-top: 1px solid rgba(136, 84, 49, 0.58);
+  font-size: 14px;
+  line-height: 1.35;
+}
+.quake-menu-links ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.quake-menu-links li {
+  position: relative;
+  padding-left: 16px;
+}
+.quake-menu-links li::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 0.58em;
+  width: 5px;
+  height: 5px;
+  background: #d8893f;
+  box-shadow: 0 1px 0 #000000;
+  transform: translateY(-50%);
+}
+.quake-menu-links a {
+  display: inline-flex;
+  color: #d8893f;
+  text-decoration: none;
+  text-shadow: 0 1px 0 #000000;
+}
+.quake-menu-links a .quake-bitmap-text {
+  filter: brightness(1.1) contrast(1.08) drop-shadow(0 1px 0 #000000);
+}
+.quake-menu-links a:hover,
+.quake-menu-links a:focus-visible {
+  color: #f0ad5c;
+  outline: none;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.quake-menu-links a:hover .quake-bitmap-text,
+.quake-menu-links a:focus-visible .quake-bitmap-text {
+  filter: brightness(1.18) saturate(1.08) drop-shadow(0 1px 0 #000000);
+}
+@media (max-width: 680px) {
+  .quake-menu-card {
+    padding: 20px;
+  }
+  .quake-menu-panel-sections {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
+  }
+  .quake-help-list li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
+  .quake-menu-actions a {
+    flex: 1 1 auto;
+  }
+  .quake-menu-actions button {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+@media (max-height: 560px) {
+  .quake-menu-panel {
+    align-items: start;
+  }
+}
+#quake-viewmodel-layer [data-quake-view-weapon] {
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+#quake-viewmodel-layer .polycss-mesh[data-poly-mesh-id="quake-view-weapon-model"] {
+  pointer-events: none;
+  z-index: 4;
+}
+#quake-viewmodel-layer .polycss-mesh[data-poly-mesh-id="quake-view-weapon-model"] > b,
+#quake-viewmodel-layer .polycss-mesh[data-poly-mesh-id="quake-view-weapon-model"] > i,
+#quake-viewmodel-layer .polycss-mesh[data-poly-mesh-id="quake-view-weapon-model"] > s,
+#quake-viewmodel-layer .polycss-mesh[data-poly-mesh-id="quake-view-weapon-model"] > u {
+  backface-visibility: visible;
+}
+#quake-viewmodel-layer .polycss-mesh[data-poly-mesh-id="quake-view-weapon-model"] > [data-quake-view-weapon-nozzle-group] {
+  position: absolute;
+  display: block;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  transform-style: preserve-3d;
+  transform-origin: 0 0;
+  visibility: hidden;
+}
+#quake-viewmodel-layer .polycss-mesh[data-poly-mesh-id="quake-view-weapon-model"][data-quake-weapon-nozzle-visible] > [data-quake-view-weapon-nozzle-group] {
+  visibility: visible;
+}
+.polycss-mesh[data-poly-mesh-id^="quake-pickup-"] > b,
+.polycss-mesh[data-poly-mesh-id^="quake-pickup-"] > i,
+.polycss-mesh[data-poly-mesh-id^="quake-pickup-"] > s,
+.polycss-mesh[data-poly-mesh-id^="quake-pickup-"] > u {
+  backface-visibility: visible;
+}
+.polycss-mesh[data-poly-mesh-id^="quake-shootable-"] {
+  transition: opacity 180ms linear, filter 180ms ease-out;
+}
+.polycss-mesh[data-poly-mesh-id^="quake-shootable-"] > b,
+.polycss-mesh[data-poly-mesh-id^="quake-shootable-"] > i,
+.polycss-mesh[data-poly-mesh-id^="quake-shootable-"] > s,
+.polycss-mesh[data-poly-mesh-id^="quake-shootable-"] > u {
+  backface-visibility: visible;
+}
+.polycss-mesh[data-quake-shootable-dead] {
+  opacity: 0;
+  filter: brightness(2.5) saturate(1.8);
+}
+body[data-quake-menu-open] #quake-crosshair,
+body[data-quake-menu-open] #quake-classic-hud {
+  display: none;
+}
+body[data-quake-menu-open] #quake-viewmodel-layer {
+  display: none;
+}
+#quake-crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 2px 0 #000000);
+}
+#quake-crosshair::before,
+#quake-crosshair::after {
+  content: "";
+  position: absolute;
+  background: #f5e8c8;
+}
+#quake-crosshair::before {
+  left: 2px;
+  top: 13px;
+  width: 24px;
+  height: 2px;
+}
+#quake-crosshair::after {
+  left: 13px;
+  top: 2px;
+  width: 2px;
+  height: 24px;
+}
+body[data-quake-crosshair-action] #quake-crosshair {
+  filter: drop-shadow(0 2px 0 #000000) drop-shadow(0 0 5px rgba(88, 255, 62, 0.7));
+}
+body[data-quake-crosshair-action] #quake-crosshair::before,
+body[data-quake-crosshair-action] #quake-crosshair::after {
+  background: #6aff4a;
+}
+#quake-classic-hud {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  z-index: 3;
+  width: min(900px, calc(100vw - 24px));
+  --quake-hud-red: #c93a24;
+  --quake-hud-red-bright: #f04a2b;
+  --quake-hud-orange: #d46b28;
+  --quake-hud-shadow: #110503;
+  --quake-hud-key: #e3c75c;
+  --quake-hud-px: calc(100cqw / 320);
+  --quake-hud-readout-top: 0;
+  --quake-hud-readout-width: calc(72 * var(--quake-hud-px));
+  --quake-hud-armor-x: calc(24 * var(--quake-hud-px));
+  --quake-hud-health-x: calc(136 * var(--quake-hud-px));
+  --quake-hud-ammo-x: calc(248 * var(--quake-hud-px));
+  transform: translateX(-50%);
+  aspect-ratio: 320 / 24;
+  background: #050302 url("/local/quake/hud-base.png") 0 0 / 100% 100% no-repeat;
+  overflow: hidden;
+  line-height: 0;
+  container-type: inline-size;
+  image-rendering: pixelated;
+}
+#quake-classic-hud-image {
+  display: none;
+}
+#quake-hud-frame {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.quake-hud-sprite {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background-image: url("/local/quake/hud.png");
+  background-repeat: no-repeat;
+  background-size: 100cqw auto;
+  background-position-x: calc(var(--quake-hud-sprite-x) * -1 * var(--quake-hud-px));
+  background-position-y: 0;
+  image-rendering: pixelated;
+  filter: brightness(1.08) saturate(1.05);
+}
+.quake-hud-sprite-shells {
+  --quake-hud-sprite-x: 224;
+  left: calc(224 * var(--quake-hud-px));
+  width: calc(24 * var(--quake-hud-px));
+}
+#quake-hud-values {
+  position: absolute;
+  inset: 0;
+  line-height: 1;
+  pointer-events: none;
+}
+.quake-hud-readout {
+  position: absolute;
+  top: var(--quake-hud-readout-top);
+  display: flex;
+  width: var(--quake-hud-readout-width);
+  height: 100%;
+  background: transparent;
+}
+.quake-hud-digit {
+  display: block;
+  width: calc(24 * var(--quake-hud-px));
+  height: 100%;
+  background-image: url("/local/quake/hud-numbers.png");
+  background-repeat: no-repeat;
+  background-size: calc(240 * var(--quake-hud-px)) calc(24 * var(--quake-hud-px));
+  background-position-x: calc(var(--quake-hud-digit-index, 0) * -24 * var(--quake-hud-px));
+  background-position-y: 0;
+  image-rendering: pixelated;
+  opacity: 0;
+}
+.quake-hud-digit[data-digit="0"] {
+  --quake-hud-digit-index: 0;
+  opacity: 1;
+}
+.quake-hud-digit[data-digit="1"] {
+  --quake-hud-digit-index: 1;
+  opacity: 1;
+}
+.quake-hud-digit[data-digit="2"] {
+  --quake-hud-digit-index: 2;
+  opacity: 1;
+}
+.quake-hud-digit[data-digit="3"] {
+  --quake-hud-digit-index: 3;
+  opacity: 1;
+}
+.quake-hud-digit[data-digit="4"] {
+  --quake-hud-digit-index: 4;
+  opacity: 1;
+}
+.quake-hud-digit[data-digit="5"] {
+  --quake-hud-digit-index: 5;
+  opacity: 1;
+}
+.quake-hud-digit[data-digit="6"] {
+  --quake-hud-digit-index: 6;
+  opacity: 1;
+}
+.quake-hud-digit[data-digit="7"] {
+  --quake-hud-digit-index: 7;
+  opacity: 1;
+}
+.quake-hud-digit[data-digit="8"] {
+  --quake-hud-digit-index: 8;
+  opacity: 1;
+}
+.quake-hud-digit[data-digit="9"] {
+  --quake-hud-digit-index: 9;
+  opacity: 1;
+}
+.quake-hud-readout-armor {
+  left: var(--quake-hud-armor-x);
+}
+.quake-hud-readout-health {
+  left: var(--quake-hud-health-x);
+}
+#quake-classic-hud[data-quake-health-state="hurt"] .quake-hud-readout-health {
+  filter: brightness(1.12) saturate(1.12);
+}
+#quake-classic-hud[data-quake-health-state="critical"] .quake-hud-readout-health {
+  filter: brightness(1.28) saturate(1.28);
+}
+.quake-hud-readout-ammo {
+  left: var(--quake-hud-ammo-x);
+}
+.quake-hud-keys {
+  position: absolute;
+  left: 66.25%;
+  top: 0.08em;
+  display: flex;
+  gap: 0.12em;
+  color: var(--quake-hud-key);
+  font-size: 0.62em;
+  letter-spacing: 0;
+  line-height: 1;
+  text-shadow: 0 0.05em 0 #000000;
+}
+.quake-hud-key {
+  display: block;
+  opacity: 1;
+}
+.quake-hud-key::before {
+  content: attr(data-key-label);
+}
+#quake-classic-hud:not([data-quake-key-silver]) .quake-hud-key-silver,
+#quake-classic-hud:not([data-quake-key-gold]) .quake-hud-key-gold {
+  opacity: 0;
+}
+body[data-quake-menu-open] .dn-stats-overlay[data-quake-poc-stats] {
+  display: none !important;
+}
+@keyframes quake-main-menu-cursor-frame {
+  0%,
+  16.66% {
+    background-position: 0 0;
+  }
+  16.67%,
+  33.32% {
+    background-position: 20% 0;
+  }
+  33.33%,
+  49.98% {
+    background-position: 40% 0;
+  }
+  49.99%,
+  66.64% {
+    background-position: 60% 0;
+  }
+  66.65%,
+  83.3% {
+    background-position: 80% 0;
+  }
+  83.31%,
+  100% {
+    background-position: 100% 0;
+  }
+}
+@keyframes quake-damage-flash {
+  0% {
+    opacity: 0.95;
+  }
+  42% {
+    opacity: 0.36;
+  }
+  100% {
+    opacity: 0;
+  }
+}

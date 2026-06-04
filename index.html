@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>cssQuake</title>
+    <meta
+      name="description"
+      content="A standalone PolyCSS-powered Quake renderer built with DOM and CSS transforms."
+    />
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #050505;
+      }
+
+      #quake-poc-app {
+        position: fixed;
+        inset: 0;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+        background: #050505;
+        isolation: isolate;
+      }
+
+      #quake-host,
+      #quake-viewmodel-layer,
+      #quake-hud {
+        position: absolute;
+        inset: 0;
+      }
+
+      #quake-host {
+        z-index: 1;
+      }
+
+      #quake-viewmodel-layer {
+        z-index: 2;
+      }
+
+      #quake-hud {
+        z-index: 3;
+      }
+
+      .cssquake-logo {
+        position: absolute;
+        top: 14px;
+        left: 14px;
+        z-index: 4;
+        display: block;
+        width: min(260px, calc(100vw - 92px));
+        height: auto;
+        opacity: 0.8;
+        image-rendering: pixelated;
+        pointer-events: none;
+        user-select: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="quake-poc-app">
+      <div id="quake-host" tabindex="0"></div>
+      <div id="quake-viewmodel-layer" aria-hidden="true"></div>
+      <img class="cssquake-logo" src="/cssquake-logo.png" width="1207" height="300" alt="cssQuake" />
+      <div id="quake-hud">
+        <button id="quake-main-menu" type="button" aria-label="cssQuake menu">
+          <span id="quake-main-menu-art" aria-hidden="true">
+            <span id="quake-main-menu-active-row"></span>
+            <span id="quake-main-menu-cursor"></span>
+          </span>
+        </button>
+        <section id="quake-about-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-about-title" tabindex="-1" hidden>
+          <div id="quake-about-card" class="quake-menu-card" role="document">
+            <header class="quake-menu-panel-header">
+              <h1 id="quake-about-title" class="quake-menu-panel-title">
+                <img src="/local/quake/menu-title-help.png" width="75" height="20" alt="Help" />
+              </h1>
+              <p data-quake-bitmap-text data-quake-bitmap-size="copy">
+                cssQuake turns BSP maps into real DOM geometry through PolyCSS.
+              </p>
+              <p data-quake-bitmap-text data-quake-bitmap-size="copy">
+                Textures, baked light, and camera movement are handled with CSS transforms.
+              </p>
+              <p data-quake-bitmap-text data-quake-bitmap-size="copy">
+                Gameplay stays Quake-like: collision, triggers, doors, pickups, HUD, and weapons.
+              </p>
+            </header>
+            <nav id="quake-about-source-links" class="quake-menu-links" aria-label="Project source links">
+              <ul>
+                <li><a href="https://github.com/LayoutitStudio/polycss" target="_blank" rel="noopener noreferrer" data-quake-bitmap-text data-quake-bitmap-size="label" data-quake-bitmap-alt="true">3D engine: PolyCSS</a></li>
+                <li><a href="https://github.com/id-Software/Quake" target="_blank" rel="noopener noreferrer" data-quake-bitmap-text data-quake-bitmap-size="label" data-quake-bitmap-alt="true">Source: Quake</a></li>
+                <li><a href="mailto:minotopo@gmail.com" data-quake-bitmap-text data-quake-bitmap-size="label" data-quake-bitmap-alt="true" data-quake-bitmap-wrap="email">Contact: minotopo@gmail.com</a></li>
+              </ul>
+            </nav>
+            <nav id="quake-about-actions" class="quake-menu-actions" aria-label="Help actions">
+              <button id="quake-about-back" type="button" data-quake-bitmap-text data-quake-bitmap-size="label" data-quake-bitmap-alt="true">Back</button>
+            </nav>
+          </div>
+        </section>
+        <section id="quake-options-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-options-title" tabindex="-1" hidden>
+          <div id="quake-options-card" class="quake-menu-card" role="document">
+            <header class="quake-menu-panel-header">
+              <h1 id="quake-options-title" class="quake-menu-panel-title">
+                <img src="/local/quake/menu-title-options.png" width="124" height="20" alt="Options" />
+              </h1>
+              <p data-quake-bitmap-text data-quake-bitmap-size="copy">
+                Move with the keyboard. Aim and fire with the mouse.
+              </p>
+            </header>
+            <div id="quake-options-sections" class="quake-menu-panel-sections">
+              <section aria-labelledby="quake-options-controls-title">
+                <h2 id="quake-options-controls-title" data-quake-bitmap-text data-quake-bitmap-size="label" data-quake-bitmap-alt="true">Controls</h2>
+                <ul class="quake-help-list">
+                  <li>
+                    <span class="quake-help-keys"><kbd data-quake-bitmap-text data-quake-bitmap-size="key" data-quake-bitmap-alt="true">W</kbd><kbd data-quake-bitmap-text data-quake-bitmap-size="key" data-quake-bitmap-alt="true">A</kbd><kbd data-quake-bitmap-text data-quake-bitmap-size="key" data-quake-bitmap-alt="true">S</kbd><kbd data-quake-bitmap-text data-quake-bitmap-size="key" data-quake-bitmap-alt="true">D</kbd></span>
+                    <span data-quake-bitmap-text data-quake-bitmap-size="label">Move</span>
+                  </li>
+                  <li>
+                    <span class="quake-help-keys"><kbd data-quake-bitmap-text data-quake-bitmap-size="key" data-quake-bitmap-alt="true">Mouse</kbd></span>
+                    <span data-quake-bitmap-text data-quake-bitmap-size="label">Look</span>
+                  </li>
+                  <li>
+                    <span class="quake-help-keys"><kbd data-quake-bitmap-text data-quake-bitmap-size="key" data-quake-bitmap-alt="true">Click</kbd></span>
+                    <span data-quake-bitmap-text data-quake-bitmap-size="label">Fire and use</span>
+                  </li>
+                  <li>
+                    <span class="quake-help-keys"><kbd data-quake-bitmap-text data-quake-bitmap-size="key" data-quake-bitmap-alt="true">Space</kbd></span>
+                    <span data-quake-bitmap-text data-quake-bitmap-size="label">Jump</span>
+                  </li>
+                  <li>
+                    <span class="quake-help-keys"><kbd data-quake-bitmap-text data-quake-bitmap-size="key" data-quake-bitmap-alt="true">Esc</kbd></span>
+                    <span data-quake-bitmap-text data-quake-bitmap-size="label">Open menu</span>
+                  </li>
+                </ul>
+              </section>
+            </div>
+            <nav id="quake-options-actions" class="quake-menu-actions" aria-label="Options actions">
+              <button id="quake-options-back" type="button" data-quake-bitmap-text data-quake-bitmap-size="label" data-quake-bitmap-alt="true">Back</button>
+            </nav>
+          </div>
+        </section>
+        <div id="quake-crosshair" aria-hidden="true"></div>
+        <div id="quake-classic-hud" aria-label="Quake status bar">
+          <img id="quake-classic-hud-image" src="/local/quake/hud.png" width="320" height="24" alt="" />
+          <div id="quake-hud-frame" aria-hidden="true">
+            <span class="quake-hud-sprite quake-hud-sprite-shells"></span>
+          </div>
+          <div id="quake-hud-values" aria-hidden="true">
+            <span id="quake-hud-armor-value" class="quake-hud-readout quake-hud-readout-armor" data-value="  0">
+              <span class="quake-hud-digit"></span>
+              <span class="quake-hud-digit"></span>
+              <span class="quake-hud-digit" data-digit="0"></span>
+            </span>
+            <span id="quake-hud-health-value" class="quake-hud-readout quake-hud-readout-health" data-value="100">
+              <span class="quake-hud-digit" data-digit="1"></span>
+              <span class="quake-hud-digit" data-digit="0"></span>
+              <span class="quake-hud-digit" data-digit="0"></span>
+            </span>
+            <span id="quake-hud-ammo-value" class="quake-hud-readout quake-hud-readout-ammo" data-value=" 25">
+              <span class="quake-hud-digit"></span>
+              <span class="quake-hud-digit" data-digit="2"></span>
+              <span class="quake-hud-digit" data-digit="5"></span>
+            </span>
+            <span id="quake-hud-keys-value" class="quake-hud-keys">
+              <span class="quake-hud-key quake-hud-key-silver" data-key-label="S"></span>
+              <span class="quake-hud-key quake-hud-key-gold" data-key-label="G"></span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <a
+        class="btn-github"
+        rel="noopener noreferrer"
+        target="_blank"
+        aria-label="View source on GitHub"
+        href="https://github.com/LayoutitStudio/cssQuake"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="55" height="55" viewBox="0 0 250 250" aria-hidden="true">
+          <path d="M0 0l115 115h15l12 27 108 108V0z" fill="#fff" />
+          <path
+            class="octo-arm"
+            d="M128 109c-15-9-9-19-9-19 3-7 2-11 2-11-1-7 3-2 3-2 4 5 2 11 2 11-3 10 5 15 9 16"
+          />
+          <path
+            class="octo-body"
+            d="M115 115s4 2 5 0l14-14c3-2 6-3 8-3-8-11-15-24 2-41 5-5 10-7 16-7 1-2 3-7 12-11 0 0 5 3 7 16 4 2 8 5 12 9s7 8 9 12c14 3 17 7 17 7-4 8-9 11-11 11 0 6-2 11-7 16-16 16-30 10-41 2 0 3-1 7-5 11l-12 11c-1 1 1 5 1 5z"
+          />
+        </svg>
+      </a>
+      <p class="quake-copyright-notice">
+        <span>Powered by PolyCSS v0.2.2</span>
+        <span>Quake assets &copy; id Software LLC.</span>
+      </p>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

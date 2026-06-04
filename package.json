@@ -1,0 +1,30 @@
+{
+  "name": "cssquake",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "type": "module",
+  "description": "A standalone CSS-rendered Quake renderer powered by PolyCSS.",
+  "license": "GPL-2.0",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "prepare:quake": "node scripts/prepare-quake.mjs",
+    "build": "pnpm typecheck && pnpm prepare:quake && vite build",
+    "preview": "vite preview",
+    "trace": "node scripts/chrome-trace/trace.mjs",
+    "trace:quake": "node scripts/chrome-trace/trace.mjs generic --url http://127.0.0.1:5173/ --ready-js \"document.querySelectorAll('.polycss-mesh').length > 0\" --action wait --sample 3000 --summary-out bench/results/quake/idle-summary.json --trace-out bench/results/quake/idle.trace.json --report --markdown-out bench/results/quake/idle.md"
+  },
+  "dependencies": {
+    "@layoutit/polycss": "^0.2.2"
+  },
+  "devDependencies": {
+    "7z-bin": "^0.0.8",
+    "@types/node": "^25.5.0",
+    "esbuild": "^0.28.0",
+    "playwright": "^1.58.2",
+    "sharp": "^0.34.5",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  }
+}
