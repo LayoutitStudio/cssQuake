@@ -2410,7 +2410,7 @@ function smoothFaceBrightness(candidates: QuakeFaceBuildCandidate[]): Map<number
     const neighborAverage = neighborTotal / candidateNeighbors.size;
     smoothed.set(
       candidate.faceIndex,
-      quantizeLightBrightness(
+      clampLightBrightness(
         candidate.brightness * (1 - QUAKE_LIGHT_SMOOTHING_WEIGHT) +
           neighborAverage * QUAKE_LIGHT_SMOOTHING_WEIGHT,
       ),
@@ -2529,10 +2529,10 @@ function faceLightBrightness(
       const style = styles[styleIndex];
       brightness += lightSampleToBrightness(lighting[offset] ?? 0) * lightScaleForStyle(style, styleScaleOverrides);
     }
-    values.push(Math.max(QUAKE_LIGHT_MIN, Math.min(QUAKE_LIGHT_MAX, brightness)));
+    values.push(clampLightBrightness(brightness));
   }
 
-  return quantizeLightBrightness(trimmedBrightnessAverage(values));
+  return clampLightBrightness(trimmedBrightnessAverage(values));
 }
 
 function faceLightstyleFrameBrightnesses(
@@ -2608,7 +2608,7 @@ function faceTextureCoordinateBounds(points: QuakeVertex[], texInfo: QuakeTexInf
 }
 
 function lightSampleToBrightness(sample: number): number {
-  return Math.max(QUAKE_LIGHT_MIN, Math.min(QUAKE_LIGHT_MAX, (sample / 128) * QUAKE_LIGHT_SAMPLE_NORMAL_SCALE));
+  return clampLightBrightness((sample / 128) * QUAKE_LIGHT_SAMPLE_NORMAL_SCALE);
 }
 
 function trimmedBrightnessAverage(values: number[]): number {
@@ -2648,9 +2648,13 @@ function lightStyleCharScale(char: string): number {
 }
 
 function quantizeLightBrightness(brightness: number): number {
-  const clamped = Math.max(QUAKE_LIGHT_MIN, Math.min(QUAKE_LIGHT_MAX, brightness));
+  const clamped = clampLightBrightness(brightness);
   const adjusted = clamped < 1 ? Math.pow(clamped, QUAKE_LIGHT_DISPLAY_GAMMA) : clamped;
   return Math.round(adjusted * QUAKE_LIGHT_BUCKETS) / QUAKE_LIGHT_BUCKETS;
+}
+
+function clampLightBrightness(brightness: number): number {
+  return Math.max(QUAKE_LIGHT_MIN, Math.min(QUAKE_LIGHT_MAX, brightness));
 }
 
 function formatQuakeBrightness(brightness: number): string {
