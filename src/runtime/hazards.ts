@@ -1,4 +1,4 @@
-import type { QuakeEntity } from "../prepared/preparedScene";
+import type { QuakeEntity } from "../prepare/preparedScene";
 import { quakeEntityNumber } from "./entities";
 
 export type QuakeHazardKind = "trigger" | "slime" | "lava";

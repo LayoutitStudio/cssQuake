@@ -1,6 +1,6 @@
 import type { Polygon, PolyMeshHandle, Vec3 } from "@layoutit/polycss";
 
-import type { QuakeEntity } from "../prepared/preparedScene";
+import type { QuakeEntity } from "../prepare/preparedScene";
 import type { QuakeInventoryDelta } from "./hud";
 import { QUAKE_COLLISION_UNIT_SCALE } from "./constants";
 import { quakeEntityNumber, quakeEntitySpawnflags } from "./entities";

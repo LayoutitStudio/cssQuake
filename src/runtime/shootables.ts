@@ -1,6 +1,6 @@
 import type { ParseResult, Polygon, PolyMeshHandle, PolySceneHandle, Vec3 } from "@layoutit/polycss";
 
-import type { QuakeEntity } from "../prepared/preparedScene";
+import type { QuakeEntity } from "../prepare/preparedScene";
 import {
   COLLISION_EPSILON,
   PLAYER_HEIGHT,
