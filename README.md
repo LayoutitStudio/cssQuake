@@ -25,7 +25,7 @@ pnpm build
 
 The `prebuild` step installs Playwright's Chromium binary for render bundle generation. The build then downloads and verifies the Quake shareware data, generates deploy assets under `build/generated/public/local/quake`, and runs `vite build`.
 
-## Runtime
+## How It Works
 
 cssQuake is built around [PolyCSS](https://github.com/LayoutitStudio/polycss), the DOM rendering layer that turns Quake geometry into real HTML elements. World faces are positioned with CSS `matrix3d(...)` transforms, textured with pixelated CSS backgrounds, and grouped into PolyCSS meshes instead of being drawn with WebGL or canvas.
 
