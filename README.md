@@ -24,7 +24,7 @@ At runtime, `src/quake/QuakeApp.ts` loads the prepared map JSON and mounts it in
 
 The browser does not parse the original PAK or BSP files while the game is running. Generated game assets are intentionally ignored by Git.
 
-## Run
+## Run & Build
 
 Requires Node 22 and pnpm.
 
@@ -39,10 +39,7 @@ Open the Vite URL, usually `http://127.0.0.1:5173/`.
 
 If `build/generated/public/local/quake` already exists locally, `pnpm dev` is enough.
 
-## Build
-
 ```sh
-export QUAKE_SHAREWARE_URL="<Quake 1.06 shareware zip URL>"
 pnpm build
 ```
 
