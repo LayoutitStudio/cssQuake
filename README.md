@@ -43,9 +43,3 @@ pnpm dev
 Open the Vite URL, usually `http://127.0.0.1:5173/`.
 
 If `build/generated/public/local/quake` already exists locally, `pnpm dev` is enough.
-
-## License
-
-cssQuake source code is GPL-2.0. See `LICENSE`.
-
-Quake game data is separate and is not covered by this repository's GPL license. Quake and original game assets are copyright id Software LLC / Microsoft; this project is unaffiliated.
