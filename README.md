@@ -48,19 +48,6 @@ pnpm build
 
 The `prebuild` step installs Playwright's Chromium binary for render bundle generation. The build then runs TypeScript typechecking, downloads and verifies the Quake shareware data, generates deploy assets under `build/generated/public/local/quake`, and runs `vite build`.
 
-## Deploy
-
-Netlify can build this repo directly from Git. Configure the site in the
-Netlify UI with:
-
-```text
-Build command: pnpm build
-Publish directory: dist
-Node version: 22
-```
-
-Set `QUAKE_SHAREWARE_URL` in the Netlify environment to a Quake 1.06 shareware zip URL.
-
 ## License
 
 cssQuake source code is GPL-2.0.
