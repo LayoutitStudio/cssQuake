@@ -6,11 +6,7 @@ Quake levels, rendered as DOM. Powered by [PolyCSS](https://github.com/LayoutitS
 
 cssQuake is a standalone browser renderer for Quake 1.06 shareware maps. It preprocesses the original game data into browser-ready JSON and image assets, then renders playable levels as inspectable HTML/CSS instead of WebGL or canvas.
 
-## Features
-
-- Quake maps `e1m1` through `e1m8`.
-- BSP, WAD, MDL, LMP, HUD, menu, pickup, and weapon preprocessing.
-- First-person runtime systems for collision, doors, pickups, hazards, HUD, weapon feedback, and level transitions.
+Live version: [cssquake.wtf](https://cssquake.wtf)
 
 ## How It Works
 
