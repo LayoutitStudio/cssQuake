@@ -36,7 +36,7 @@ const pickupOutputPath = path.join(quakeOutputDir, "pickups.preparsed.json");
 const progsOutputPath = path.join(quakeOutputDir, "progs.preparsed.json");
 const sourcePath = path.join(projectRoot, "src/quake/prepare/preparedScene.ts");
 const textureOutputDir = path.join(quakeOutputDir, "textures");
-const renderBundleEntryPath = path.join(scriptDir, "quake-render-bundle-entry.mjs");
+const renderBundleBakeScriptPath = path.join(scriptDir, "bake-level-render-bundle.mjs");
 const renderBundleOutputDir = path.join(quakeOutputDir, "bundles");
 const renderBundleMapNames = new Set(
   (process.env.QUAKE_RENDER_BUNDLE_MAPS ?? quakeRenderBundleDefaultMapNames.join(","))
@@ -124,7 +124,7 @@ try {
 
   if (renderBundleMapNames.size > 0) {
     await build({
-      entryPoints: [renderBundleEntryPath],
+      entryPoints: [renderBundleBakeScriptPath],
       outfile: renderBundleBuildPath,
       bundle: true,
       platform: "browser",
