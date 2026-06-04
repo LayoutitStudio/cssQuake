@@ -10,7 +10,7 @@ import {
   type QuakePreparedRenderBundle,
   type QuakeScene,
   type QuakeVisibility,
-} from "../prepare/preparedScene";
+} from "../prepare/prepared-scene";
 import { polygonNormal } from "./math";
 
 const QUAKE_LEAF_PRESENTATION_RESYNC_DELAYS = [0, 80, 300] as const;
@@ -39,7 +39,7 @@ interface QuakeWorldScene {
   add: (
     result: ParseResult,
     options: {
-      id: string;
+      id?: string;
       merge: boolean;
       meshResolution: "lossless";
       excludeFromAutoCenter: boolean;
@@ -211,11 +211,11 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
 
   const addQuakeMesh = (polygons: Polygon[]): PolyMeshHandle => {
     const handle = options.scene.add(options.makeParseResult(polygons), {
-      id: "quake-texture-mesh",
       merge: false,
       meshResolution: "lossless",
       excludeFromAutoCenter: true,
     });
+    stripQuakeWorldMeshMetadata(handle.element);
     faceLeaves = indexQuakeFaceLeaves(handle, new Map(), true);
     preloadQuakeButtonStateTextures();
     return handle;
@@ -235,6 +235,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     if (leafCount !== renderBundle.leafCount) {
       throw new Error(`Quake render bundle leaf count mismatch: expected ${renderBundle.leafCount}, got ${leafCount}.`);
     }
+    stripQuakeWorldMeshMetadata(element);
     options.sceneElement.appendChild(element);
     const handle = createQuakeRenderBundleMeshHandle(element);
     faceLeaves = indexQuakeFaceLeaves(handle, new Map(), true);
@@ -338,6 +339,11 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     visibleLeavesAt: (origin: [number, number, number]) => currentVisibility?.visibleLeavesAt(origin) ?? null,
     waitForPresentationResyncs,
   };
+}
+
+function stripQuakeWorldMeshMetadata(element: HTMLElement): void {
+  element.removeAttribute("data-poly-mesh-id");
+  element.removeAttribute("data-poly-mesh-index");
 }
 
 function createQuakeRenderBundleMeshHandle(element: HTMLElement): PolyMeshHandle {

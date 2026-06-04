@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "vite",
     "prebuild": "pnpm exec playwright install chromium",
-    "prepare:quake": "node src/prepare/prepare-quake.mjs",
+    "prepare:quake": "node src/prepare/quake-assets.mjs",
     "build": "pnpm prepare:quake && vite build",
     "preview": "vite preview"
   },

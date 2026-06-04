@@ -1,6 +1,6 @@
 import type { PolyFirstPersonControlsHandle, PolySceneHandle, Vec3 } from "@layoutit/polycss";
 
-import type { QuakeEntity } from "../prepare/preparedScene";
+import type { QuakeEntity } from "../prepare/prepared-scene";
 import { COLLISION_EPSILON, QUAKE_COLLISION_UNIT_SCALE } from "./constants";
 import type { QuakeCollisionWorld, QuakeUseTrace } from "./collision";
 import { quakeEntityNumber } from "./entities";

@@ -1,4 +1,4 @@
-import type { QuakeEntity } from "../prepare/preparedScene";
+import type { QuakeEntity } from "../prepare/prepared-scene";
 import {
   QUAKE_SINGLE_PLAYER_SKILL,
   QUAKE_SPAWNFLAG_NOT_EASY,

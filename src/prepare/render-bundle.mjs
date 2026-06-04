@@ -38,7 +38,6 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({ polygo
     const handle = scene.add(
       { polygons, objectUrls: [], warnings: [], dispose: () => undefined },
       {
-        id: "quake-texture-mesh",
         merge: false,
         meshResolution: "lossless",
         excludeFromAutoCenter: true,
@@ -77,6 +76,7 @@ async function waitForBakedTextureLeaves(mesh) {
 
 async function serializeMeshWithAssets(mesh) {
   const serializableMesh = mesh.cloneNode(true);
+  stripRenderBundleMeshMetadata(serializableMesh);
   const assetByBlobUrl = new Map();
   const styleElements = [serializableMesh, ...serializableMesh.querySelectorAll("[style]")];
   for (const element of styleElements) {
@@ -116,6 +116,11 @@ async function serializeMeshWithAssets(mesh) {
     meshHtml: serializableMesh.outerHTML,
     assets,
   };
+}
+
+function stripRenderBundleMeshMetadata(mesh) {
+  mesh.removeAttribute("data-poly-mesh-id");
+  mesh.removeAttribute("data-poly-mesh-index");
 }
 
 async function transcodeImageBlob(blob, mime, quality) {

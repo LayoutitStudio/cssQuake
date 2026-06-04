@@ -1,6 +1,6 @@
 import type { Polygon, Vec3 } from "@layoutit/polycss";
 
-import type { QuakePreparedCollision } from "../prepare/preparedScene";
+import type { QuakePreparedCollision } from "../prepare/prepared-scene";
 import {
   COLLISION_EPSILON,
   GROUND_SNAP,

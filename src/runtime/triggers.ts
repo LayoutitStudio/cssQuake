@@ -1,4 +1,4 @@
-import type { QuakeEntity } from "../prepare/preparedScene";
+import type { QuakeEntity } from "../prepare/prepared-scene";
 import type { QuakeTouchedTrigger } from "./collision";
 
 export interface QuakeTriggersControllerOptions {
