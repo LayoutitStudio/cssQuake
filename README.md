@@ -4,7 +4,7 @@
 
 Quake levels, rendered as DOM. Powered by [PolyCSS](https://github.com/LayoutitStudio/polycss).
 
-cssQuake is a standalone browser renderer for Quake 1.06 shareware maps. It preprocesses the original game data into browser-ready JSON and PNG assets, then renders playable levels as inspectable HTML/CSS instead of WebGL or canvas.
+cssQuake is a standalone browser renderer for Quake 1.06 shareware maps. It preprocesses the original game data into browser-ready JSON and image assets, then renders playable levels as inspectable HTML/CSS instead of WebGL or canvas.
 
 ## Includes
 
@@ -13,44 +13,17 @@ cssQuake is a standalone browser renderer for Quake 1.06 shareware maps. It prep
 - First-person runtime systems for collision, doors, pickups, hazards, HUD, weapon feedback, and level transitions.
 - Chrome trace tooling for measuring browser frame work.
 
-## How It Works
-
-[PolyCSS](https://github.com/LayoutitStudio/polycss) is the rendering layer behind cssQuake. It is a CSS polygon mesh library: Quake BSP faces become PolyCSS polygons, and PolyCSS emits real HTML elements transformed with CSS `matrix3d(...)`.
-
-cssQuake supplies the Quake-specific side of the system:
-
-- BSP parsing and face merging.
-- WAD texture extraction through the Quake palette.
-- Generated PNG textures and animated texture strips.
-- Entity, visibility, collision, model, HUD, menu, pickup, and weapon data.
-- Runtime behavior for movement, doors, triggers, pickups, hazards, and map transitions.
-
-The browser loads prepared JSON and PNG files. It does not parse the original PAK or BSP files while the game is running.
-
-## Preparation
+## Architecture
 
 `scripts/prepare-quake.mjs` reads `public/quake/resource.1`, extracts `ID1/PAK0.PAK`, and writes generated assets under `public/local/quake`.
 
-BSP faces are parsed into PolyCSS `Polygon[]` data. WAD textures are decoded into PNG assets. Animated water, slime, lava, buttons, and other texture sequences become generated CSS animation inputs.
+At build time, cssQuake parses BSP, WAD, MDL, LMP, entity, visibility, collision, HUD, menu, pickup, and weapon data. WAD textures are decoded through the Quake palette into generated PNG assets, animated texture sequences become CSS animation inputs, and episode maps get prebuilt PolyCSS render bundles so startup does not need to bake the full world DOM in the browser.
 
-Generated game assets are intentionally ignored by Git.
+At runtime, `src/quake/QuakeApp.ts` loads the prepared map JSON and mounts it into a PolyCSS scene. [PolyCSS](https://github.com/LayoutitStudio/polycss) is the DOM rendering layer: Quake faces become real HTML elements transformed with CSS `matrix3d(...)`, with texture images applied as pixelated CSS backgrounds.
 
-## Rendering And Runtime
+cssQuake keeps Quake metadata on those elements with attributes such as `data-quake-face`, `data-quake-model`, and `data-quake-entity`. Runtime systems use those attributes for visibility, lightstyles, doors, buttons, brush-model movement, pickups, hazards, weapon feedback, HUD/menu state, and level transitions.
 
-`src/quake/QuakeApp.ts` loads a prepared map, hydrates its texture references, and adds the polygons to a PolyCSS scene. PolyCSS mounts a `.polycss-scene`, mesh wrappers, and one leaf element per visible polygon.
-
-cssQuake keeps Quake metadata on those leaves with attributes such as `data-quake-face`, `data-quake-model`, and `data-quake-entity`. Runtime systems use those attributes to update specific BSP faces or brush models.
-
-Most presentation remains DOM/CSS:
-
-- Texture PNGs are applied as CSS backgrounds.
-- `image-rendering: pixelated` keeps textures crisp.
-- Lightstyles render as a second, slightly offset PolyCSS overlay mesh.
-- The HUD, menu, crosshair, damage flash, status bar digits, keys, and view weapon are DOM/CSS layers too.
-
-JavaScript handles the game side: input, player movement, collision hulls, triggers, doors, pickups, hazards, weapon feedback, and level transitions. When a brush model moves, cssQuake updates the transforms for the PolyCSS leaves that belong to that model.
-
-PolyCSS renders through the DOM, so mounted leaf count matters. cssQuake uses prepared BSP visibility data to mount only the faces visible from the player's current position.
+The browser does not parse the original PAK or BSP files while the game is running. Generated game assets are intentionally ignored by Git.
 
 ## Run
 
