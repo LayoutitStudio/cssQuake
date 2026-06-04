@@ -51,8 +51,6 @@ The `prebuild` step installs Playwright's Chromium binary for render bundle gene
 
 ## License
 
-cssQuake source code is GPL-2.0.
+cssQuake source code is GPL-2.0. See `LICENSE`.
 
-Quake game data is separate. The build downloads unmodified Quake 1.06 shareware data and uses it to generate ignored assets under `build/generated/public/local/quake`; it is not covered by this repository's GPL license.
-
-Quake and original game assets are copyright id Software LLC / Microsoft. This project is unaffiliated with id Software or Microsoft.
+Quake game data is separate and is not covered by this repository's GPL license. Quake and original game assets are copyright id Software LLC / Microsoft; this project is unaffiliated.
