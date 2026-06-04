@@ -12,11 +12,18 @@ cssQuake is a standalone browser renderer for Quake 1.06 shareware maps. It prep
 - BSP, WAD, MDL, LMP, HUD, menu, pickup, and weapon preprocessing.
 - First-person runtime systems for collision, doors, pickups, hazards, HUD, weapon feedback, and level transitions.
 
-## Build Time
+## Build
 
 `src/quake/prepare/prepare-quake.mjs` downloads the Quake 1.06 shareware archive from `QUAKE_SHAREWARE_URL`, verifies the extracted `resource.1`, extracts `ID1/PAK0.PAK`, parses the original BSP, WAD, MDL, LMP, entity, visibility, collision, HUD, menu, pickup, and weapon data, then writes browser-ready assets under `build/generated/public/local/quake`.
 
 Textures are decoded through the Quake palette into generated PNG assets, animated texture sequences become CSS animation inputs, and episode maps get prebuilt PolyCSS render bundles. Those bundles let the browser attach the prepared world DOM directly instead of rebuilding every surface at startup.
+
+```sh
+export QUAKE_SHAREWARE_URL="<Quake 1.06 shareware zip URL>"
+pnpm build
+```
+
+The `prebuild` step installs Playwright's Chromium binary for render bundle generation. The build then downloads and verifies the Quake shareware data, generates deploy assets under `build/generated/public/local/quake`, and runs `vite build`.
 
 ## Runtime
 
@@ -26,7 +33,7 @@ cssQuake is built around [PolyCSS](https://github.com/LayoutitStudio/polycss), t
 
 The browser does not parse the original PAK or BSP files while the game is running. Generated game assets are intentionally ignored by Git.
 
-## Run & Build
+## Run
 
 Requires Node 22 and pnpm.
 
@@ -40,12 +47,6 @@ pnpm dev
 Open the Vite URL, usually `http://127.0.0.1:5173/`.
 
 If `build/generated/public/local/quake` already exists locally, `pnpm dev` is enough.
-
-```sh
-pnpm build
-```
-
-The `prebuild` step installs Playwright's Chromium binary for render bundle generation. The build then downloads and verifies the Quake shareware data, generates deploy assets under `build/generated/public/local/quake`, and runs `vite build`.
 
 ## License
 
