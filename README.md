@@ -72,7 +72,7 @@ If `public/local/quake` already exists locally, `pnpm dev` is enough.
 pnpm build
 ```
 
-The build runs TypeScript typechecking, verifies `public/quake/resource.1`, generates deploy assets under `public/local/quake`, and runs `vite build`.
+The `prebuild` step installs Playwright's Chromium binary for render bundle generation. The build then runs TypeScript typechecking, verifies `public/quake/resource.1`, generates deploy assets under `public/local/quake`, and runs `vite build`.
 
 ## Deploy
 

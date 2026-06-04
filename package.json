@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
+    "prebuild": "pnpm exec playwright install chromium",
     "prepare:quake": "node scripts/prepare-quake.mjs",
     "build": "pnpm typecheck && pnpm prepare:quake && vite build",
     "preview": "vite preview",
