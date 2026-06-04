@@ -1,4 +1,4 @@
-import { QUAKE_RENDER_SUPERSAMPLE } from "../prepare/prepared-scene";
+import { QUAKE_RENDER_SUPERSAMPLE } from "../prepare/scene";
 
 export const QUAKE_COLLISION_UNIT_SCALE = QUAKE_RENDER_SUPERSAMPLE / 48;
 

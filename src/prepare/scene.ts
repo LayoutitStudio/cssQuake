@@ -1,6 +1,6 @@
 import { computeTextureAtlasPlanPublic, mergePolygons, type Polygon, type TextureTriangle, type Vec2, type Vec3 } from "@layoutit/polycss";
 
-import { buildEntityManifest, cloneEntityManifest } from "./entity-manifest";
+import { buildEntityManifest, cloneEntityManifest } from "./entities";
 import { buildSourceFaceVisibilityKeys, buildVisibility } from "./visibility";
 
 export type RGB = [number, number, number];

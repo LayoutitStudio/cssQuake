@@ -8,7 +8,7 @@ import type {
   QuakeVertex,
   QuakeVisibility,
   QuakeVisibilityCandidate,
-} from "./prepared-scene";
+} from "./scene";
 
 interface QuakeBrushVisibility {
   leafIndex: number;

@@ -1,6 +1,6 @@
 import type { PolyFirstPersonControlsHandle, Vec3 } from "@layoutit/polycss";
 
-import type { QuakeEntity, QuakeScene } from "../prepare/prepared-scene";
+import type { QuakeEntity, QuakeScene } from "../prepare/scene";
 import type { QuakeCollisionWorld, QuakeTouchedTrigger } from "./collision";
 import {
   COLLISION_EPSILON,

@@ -1,4 +1,4 @@
-import type { QuakeEntity } from "../prepare/prepared-scene";
+import type { QuakeEntity } from "../prepare/scene";
 import { quakeEntityNumber } from "./entities";
 
 export interface QuakeTargetsControllerOptions {

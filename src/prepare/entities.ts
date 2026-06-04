@@ -10,7 +10,7 @@ import type {
   QuakeEntityManifestTrigger,
   QuakeEntityRuntimeStatus,
   QuakeVertex,
-} from "./prepared-scene";
+} from "./scene";
 
 export function buildEntityManifest(entities: QuakeEntity[]): QuakeEntityManifest {
   const targetnameIndex = new Map<string, number[]>();

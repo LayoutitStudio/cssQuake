@@ -34,9 +34,9 @@ const concharsOutputPath = path.join(quakeOutputDir, "conchars.png");
 const weaponOutputPath = path.join(quakeOutputDir, "weapon-shotgun.preparsed.json");
 const pickupOutputPath = path.join(quakeOutputDir, "pickups.preparsed.json");
 const progsOutputPath = path.join(quakeOutputDir, "progs.preparsed.json");
-const sourcePath = path.join(projectRoot, "src/prepare/prepared-scene.ts");
+const sourcePath = path.join(projectRoot, "src/prepare/scene.ts");
 const textureOutputDir = path.join(quakeOutputDir, "textures");
-const renderBundleScriptPath = path.join(scriptDir, "render-bundle.mjs");
+const renderBundleScriptPath = path.join(scriptDir, "bundle.mjs");
 const renderBundleOutputDir = path.join(quakeOutputDir, "bundles");
 const renderBundleMapNames = new Set(
   (process.env.QUAKE_RENDER_BUNDLE_MAPS ?? quakeRenderBundleDefaultMapNames.join(","))

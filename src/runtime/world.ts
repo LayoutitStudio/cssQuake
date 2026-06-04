@@ -10,7 +10,7 @@ import {
   type QuakePreparedRenderBundle,
   type QuakeScene,
   type QuakeVisibility,
-} from "../prepare/prepared-scene";
+} from "../prepare/scene";
 import { polygonNormal } from "./math";
 
 const QUAKE_LEAF_PRESENTATION_RESYNC_DELAYS = [0, 80, 300] as const;
