@@ -11,13 +11,12 @@ cssQuake is a standalone browser renderer for Quake 1.06 shareware maps. It prep
 - Quake maps `e1m1` through `e1m8`.
 - BSP, WAD, MDL, LMP, HUD, menu, pickup, and weapon preprocessing.
 - First-person runtime systems for collision, doors, pickups, hazards, HUD, weapon feedback, and level transitions.
-- Chrome trace tooling for measuring browser frame work.
 
 ## Architecture
 
 cssQuake is built around [PolyCSS](https://github.com/LayoutitStudio/polycss), the DOM rendering layer that turns Quake geometry into real HTML elements. World faces are positioned with CSS `matrix3d(...)` transforms, textured with pixelated CSS backgrounds, and grouped into PolyCSS meshes instead of being drawn with WebGL or canvas.
 
-The preparation step exists to make Quake data cheap for PolyCSS to mount. `scripts/prepare-quake.mjs` downloads the Quake 1.06 shareware archive from `QUAKE_SHAREWARE_URL`, verifies the extracted `resource.1`, extracts `ID1/PAK0.PAK`, parses the original BSP, WAD, MDL, LMP, entity, visibility, collision, HUD, menu, pickup, and weapon data, then writes browser-ready assets under `build/generated/public/local/quake`.
+The preparation step exists to make Quake data cheap for PolyCSS to mount. `src/quake/prepare/prepare-quake.mjs` downloads the Quake 1.06 shareware archive from `QUAKE_SHAREWARE_URL`, verifies the extracted `resource.1`, extracts `ID1/PAK0.PAK`, parses the original BSP, WAD, MDL, LMP, entity, visibility, collision, HUD, menu, pickup, and weapon data, then writes browser-ready assets under `build/generated/public/local/quake`.
 
 Textures are decoded through the Quake palette into generated PNG assets, animated texture sequences become CSS animation inputs, and episode maps get prebuilt PolyCSS render bundles. Those bundles let the browser attach the prepared world DOM directly instead of rebuilding every surface at startup.
 
@@ -61,16 +60,6 @@ Node version: 22
 ```
 
 Set `QUAKE_SHAREWARE_URL` in the Netlify environment to a Quake 1.06 shareware zip URL.
-
-## Trace
-
-With the dev server running at `http://127.0.0.1:5173/`:
-
-```sh
-pnpm trace:quake
-```
-
-Trace summaries and raw Chrome traces are written under ignored `bench/` paths.
 
 ## License
 

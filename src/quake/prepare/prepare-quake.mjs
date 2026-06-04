@@ -11,7 +11,7 @@ import sharp from "sharp";
 const require = createRequire(import.meta.url);
 const { path7z } = require("7z-bin");
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(scriptDir, "..");
+const projectRoot = path.resolve(scriptDir, "../../..");
 const generatedPublicDir = path.join(projectRoot, "build/generated/public");
 const quakeOutputDir = path.join(generatedPublicDir, "local/quake");
 const quakeMapNames = ["start", "e1m1", "e1m2", "e1m3", "e1m4", "e1m5", "e1m6", "e1m7", "e1m8"];
