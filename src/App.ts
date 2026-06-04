@@ -14,7 +14,7 @@ import {
   type QuakeEntity,
   type QuakePocPreparedScene,
   type QuakePocScene,
-} from "./prepare/preparedScene";
+} from "./prepared/preparedScene";
 import { mountQuakeBitmapText } from "./runtime/bitmapText";
 import {
   COLLISION_EPSILON,

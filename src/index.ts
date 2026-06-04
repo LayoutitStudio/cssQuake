@@ -4,7 +4,7 @@ export {
   createQuakePocFromPakFile,
   createQuakePocFromPreparedScene,
   createQuakePocPreparedSceneFromPakBuffer,
-} from "./prepare/preparedScene";
+} from "./prepared/preparedScene";
 
 export type {
   QuakeEntity,
@@ -13,4 +13,4 @@ export type {
   QuakePocPreparedScene,
   QuakePocScene,
   QuakePocVisibility,
-} from "./prepare/preparedScene";
+} from "./prepared/preparedScene";

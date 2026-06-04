@@ -1,6 +1,6 @@
 import type { Vec3 } from "@layoutit/polycss";
 
-import type { QuakeEntity, QuakePocPreparedModel } from "../prepare/preparedScene";
+import type { QuakeEntity, QuakePocPreparedModel } from "../prepared/preparedScene";
 import type { QuakeTouchedTrigger } from "./collision";
 import {
   COLLISION_EPSILON,

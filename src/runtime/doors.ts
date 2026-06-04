@@ -1,4 +1,4 @@
-import type { QuakeEntity } from "../prepare/preparedScene";
+import type { QuakeEntity } from "../prepared/preparedScene";
 import { QUAKE_DOOR_GOLD_KEY, QUAKE_DOOR_SILVER_KEY } from "./constants";
 import { quakeEntitySpawnflags } from "./entities";
 import type { QuakePlayerInventory } from "./hud";
