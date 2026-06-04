@@ -6,11 +6,19 @@ Quake levels, rendered as DOM. Powered by [PolyCSS](https://github.com/LayoutitS
 
 cssQuake is a standalone browser renderer for Quake 1.06 shareware maps. It preprocesses the original game data into browser-ready JSON and image assets, then renders playable levels as inspectable HTML/CSS instead of WebGL or canvas.
 
-## Includes
+## Features
 
 - Quake maps `e1m1` through `e1m8`.
 - BSP, WAD, MDL, LMP, HUD, menu, pickup, and weapon preprocessing.
 - First-person runtime systems for collision, doors, pickups, hazards, HUD, weapon feedback, and level transitions.
+
+## How It Works
+
+cssQuake is built around [PolyCSS](https://github.com/LayoutitStudio/polycss), the DOM rendering layer that turns Quake geometry into real HTML elements. World faces are positioned with CSS `matrix3d(...)` transforms, textured with pixelated CSS backgrounds, and grouped into PolyCSS meshes instead of being drawn with WebGL or canvas.
+
+`src/quake/QuakeApp.ts` loads the prepared map JSON and mounts it into a PolyCSS scene. cssQuake keeps Quake metadata on the PolyCSS elements with attributes such as `data-quake-face`, `data-quake-model`, and `data-quake-entity`, so gameplay systems can connect DOM-rendered surfaces back to visibility, lightstyles, doors, buttons, brush-model movement, pickups, hazards, weapon feedback, HUD/menu state, and level transitions.
+
+The browser does not parse the original PAK or BSP files while the game is running. Generated game assets are intentionally ignored by Git.
 
 ## Build
 
@@ -24,14 +32,6 @@ pnpm build
 ```
 
 The `prebuild` step installs Playwright's Chromium binary for render bundle generation. The build then downloads and verifies the Quake shareware data, generates deploy assets under `build/generated/public/local/quake`, and runs `vite build`.
-
-## How It Works
-
-cssQuake is built around [PolyCSS](https://github.com/LayoutitStudio/polycss), the DOM rendering layer that turns Quake geometry into real HTML elements. World faces are positioned with CSS `matrix3d(...)` transforms, textured with pixelated CSS backgrounds, and grouped into PolyCSS meshes instead of being drawn with WebGL or canvas.
-
-`src/quake/QuakeApp.ts` loads the prepared map JSON and mounts it into a PolyCSS scene. cssQuake keeps Quake metadata on the PolyCSS elements with attributes such as `data-quake-face`, `data-quake-model`, and `data-quake-entity`, so gameplay systems can connect DOM-rendered surfaces back to visibility, lightstyles, doors, buttons, brush-model movement, pickups, hazards, weapon feedback, HUD/menu state, and level transitions.
-
-The browser does not parse the original PAK or BSP files while the game is running. Generated game assets are intentionally ignored by Git.
 
 ## Run
 
