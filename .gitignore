@@ -2,12 +2,7 @@ node_modules/
 .agents/
 .DS_Store
 **/.DS_Store
-public/local/quake/*.preparsed.json
-public/local/quake/*.png
-public/local/quake/bundles/
-public/local/quake/textures/
-public/local/quake/pak0.pak
-build/generated/quake/**
+build/generated/
 dist/**
 bench/
 chrome-trace*.json

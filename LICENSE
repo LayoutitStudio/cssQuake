@@ -344,12 +344,12 @@ cssQuake Project Notices
 cssQuake is an educational CSS rendering demo.
 
 Quake and Quake assets are copyright id Software LLC / Microsoft.
-public/quake/resource.1 is unmodified Quake 1.06 shareware data from the
-original distribution. resource.1 is not project code and is not covered
-by this repository's GPL-2.0 license.
+The build downloads unmodified Quake 1.06 shareware data from the original
+distribution. resource.1 is not project code and is not covered by this
+repository's GPL-2.0 license.
 
-This repository does not version pak0.pak or generated/converted assets.
-Build and deploy steps generate derived assets from resource.1.
+This repository does not version resource.1, pak0.pak, or generated/converted
+assets. Build and deploy steps generate derived assets from resource.1.
 
 No affiliation or endorsement by id Software or Microsoft is implied.
 This is a pragmatic compromise, not a claim that this asset arrangement is

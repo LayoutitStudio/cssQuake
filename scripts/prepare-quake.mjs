@@ -12,8 +12,8 @@ const require = createRequire(import.meta.url);
 const { path7z } = require("7z-bin");
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "..");
-const resourcePath = path.join(projectRoot, "public/quake/resource.1");
-const quakeOutputDir = path.join(projectRoot, "public/local/quake");
+const generatedPublicDir = path.join(projectRoot, "build/generated/public");
+const quakeOutputDir = path.join(generatedPublicDir, "local/quake");
 const quakeMapNames = ["start", "e1m1", "e1m2", "e1m3", "e1m4", "e1m5", "e1m6", "e1m7", "e1m8"];
 const quakeRenderBundleDefaultMapNames = quakeMapNames.filter((mapName) => /^e1m[1-8]$/.test(mapName));
 const mapOutputPaths = new Map(quakeMapNames.map((mapName) => [
@@ -99,11 +99,15 @@ const QUAKE_PICKUP_BSP_MODEL_PATHS = [
 const tempDir = await mkdtemp(path.join(tmpdir(), "polycss-quake-preparse-"));
 const bundlePath = path.join(tempDir, "quakePreparedScene.bundle.mjs");
 const renderBundleBuildPath = path.join(tempDir, "quakeRenderBundle.bundle.js");
+const sharewareDownloadPath = path.join(tempDir, "quake-shareware-download");
+const sharewareExtractDir = path.join(tempDir, "quake-shareware");
+const resourcePath = path.join(tempDir, "resource.1");
 const extractedPakPath = path.join(tempDir, "ID1/PAK0.PAK");
 let renderBundleBuilder = null;
 const textureFileUrlByHash = new Map();
 
 try {
+  await downloadQuakeResource();
   await verifyQuakeResource();
   await extractQuakePak();
   await rm(textureOutputDir, { recursive: true, force: true });
@@ -235,7 +239,7 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
       await route.fulfill({
         status: 200,
         contentType: contentTypeForPath(url.pathname),
-        body: await readFile(path.join(projectRoot, "public", url.pathname.replace(/^\//, ""))),
+        body: await readGeneratedPublicFile(url.pathname),
       });
       return;
     }
@@ -387,7 +391,7 @@ async function verifyQuakeResource() {
   if (actualHash !== EXPECTED_RESOURCE_SHA256) {
     throw new Error(`Unexpected resource.1 SHA-256: expected ${EXPECTED_RESOURCE_SHA256}, got ${actualHash}.`);
   }
-  console.log(`Verified ${path.relative(projectRoot, resourcePath)} (${actualHash})`);
+  console.log(`Verified Quake 1.06 shareware resource.1 (${actualHash})`);
 }
 
 async function extractQuakePak() {
@@ -399,6 +403,77 @@ async function extractQuakePak() {
     resourcePath,
     "ID1/PAK0.PAK",
   ]);
+}
+
+async function downloadQuakeResource() {
+  const source = process.env.QUAKE_SHAREWARE_URL?.trim();
+  if (!source) {
+    throw new Error(
+      "QUAKE_SHAREWARE_URL is required. Set it to a Quake 1.06 shareware zip URL before running prepare:quake.",
+    );
+  }
+
+  await downloadSharewareSource(source, sharewareDownloadPath);
+  if (await copyIfExpectedQuakeResource(sharewareDownloadPath)) {
+    console.log(`Downloaded Quake shareware resource from ${source}`);
+    return;
+  }
+
+  await mkdir(sharewareExtractDir, { recursive: true });
+  if (path7z !== "7z") await chmod(path7z, 0o755).catch(() => undefined);
+  await run(path7z, [
+    "x",
+    "-y",
+    `-o${sharewareExtractDir}`,
+    sharewareDownloadPath,
+  ]);
+
+  const extractedResourcePath = await findFileCaseInsensitive(sharewareExtractDir, "resource.1");
+  if (!extractedResourcePath) {
+    throw new Error(`Downloaded Quake shareware archive from ${source} did not contain resource.1.`);
+  }
+  await writeFile(resourcePath, await readFile(extractedResourcePath));
+  console.log(`Downloaded Quake shareware archive from ${source}`);
+}
+
+async function downloadSharewareSource(source, outputPath) {
+  if (source.startsWith("file:")) {
+    await writeFile(outputPath, await readFile(fileURLToPath(source)));
+    return;
+  }
+  if (!/^https?:\/\//i.test(source)) {
+    await writeFile(outputPath, await readFile(path.resolve(projectRoot, source)));
+    return;
+  }
+
+  const response = await fetch(source);
+  if (!response.ok) {
+    throw new Error(`Could not download ${source}: HTTP ${response.status} ${response.statusText}`);
+  }
+  await writeFile(outputPath, Buffer.from(await response.arrayBuffer()));
+}
+
+async function copyIfExpectedQuakeResource(inputPath) {
+  const resource = await readFile(inputPath);
+  if (resource.byteLength !== EXPECTED_RESOURCE_SIZE) return false;
+  const hash = createHash("sha256").update(resource).digest("hex");
+  if (hash !== EXPECTED_RESOURCE_SHA256) return false;
+  await writeFile(resourcePath, resource);
+  return true;
+}
+
+async function findFileCaseInsensitive(dir, filename) {
+  const wanted = filename.toLowerCase();
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const found = await findFileCaseInsensitive(entryPath, filename);
+      if (found) return found;
+    } else if (entry.isFile() && entry.name.toLowerCase() === wanted) {
+      return entryPath;
+    }
+  }
+  return undefined;
 }
 
 function run(command, args) {
@@ -648,7 +723,11 @@ async function findPreparedTextureBuffer(preparedMaps, textureName) {
 async function readPreparedTextureBuffer(texture) {
   if (texture.startsWith("data:image/png;base64,")) return decodePngDataUrl(texture);
   if (!texture.startsWith("/local/quake/")) return undefined;
-  return readFile(path.join(projectRoot, "public", texture.replace(/^\//, "")));
+  return readGeneratedPublicFile(texture);
+}
+
+function readGeneratedPublicFile(urlPath) {
+  return readFile(path.join(generatedPublicDir, urlPath.replace(/^\//, "")));
 }
 
 function decodePngDataUrl(dataUrl) {

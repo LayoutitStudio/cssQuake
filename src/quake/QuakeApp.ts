@@ -946,22 +946,6 @@ function isQuakeRenderBundleRequired(mapName: string): boolean {
   return /^e1m[1-8]$/.test(mapName);
 }
 
-async function loadPreparedUrl(url: string, mapName = currentMapName): Promise<void> {
-  setQuakeLoading(true, `Loading ${mapName.toUpperCase()}`);
-  try {
-    const result = await fetchQuakeScene(url, mapName);
-    if (quakeAppDisposed) return;
-    currentMapName = mapName;
-    menu.setCurrentLevel(mapName);
-    mountQuakeScene(result);
-    if (quakeAppDisposed) return;
-    await completeQuakeSceneReadiness();
-  } catch (error) {
-    if (!quakeAppDisposed) setQuakeLoading(false);
-    throw error;
-  }
-}
-
 async function loadQuakeMap(mapName: string): Promise<void> {
   const url = LOCAL_MAP_URLS[mapName];
   if (!url) throw new Error(`No prepared Quake map registered for ${mapName}.`);
@@ -1032,10 +1016,6 @@ async function loadProgramMetadata(): Promise<void> {
   const metadata = await response.json() as QuakeProgramMetadata;
   if (quakeAppDisposed) return;
   currentProgramMetadata = metadata;
-}
-
-async function loadStartupScene(): Promise<void> {
-  await loadQuakeMap(LOCAL_START_MAP);
 }
 
 async function loadQuakePoc(): Promise<void> {

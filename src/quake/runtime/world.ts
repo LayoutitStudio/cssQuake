@@ -82,13 +82,11 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
   let currentLightstyleOverlayHandle: PolyMeshHandle | null = null;
   let currentTextureUrls: string[] = [];
   let currentVisibility: QuakePocVisibility | null = null;
-  let currentFaceCount = 0;
   let faceLeaves = new Map<number, QuakeFaceLeaf[]>();
   let modelLeaves = new Map<number, QuakeFaceLeaf[]>();
   let quakeLeaves: QuakeFaceLeaf[] = [];
   let visibleFaceKey = "";
-  let renderedFaceCount = 0;
-  let preloadedButtonImages: HTMLImageElement[] = [];
+  const preloadedButtonImages = new Set<HTMLImageElement>();
   let presentationResyncTasks = new Set<QuakePresentationResyncTask>();
 
   const clear = (): void => {
@@ -98,13 +96,11 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     currentHandle = null;
     currentLightstyleOverlayHandle = null;
     currentVisibility = null;
-    currentFaceCount = 0;
     faceLeaves = new Map();
     modelLeaves = new Map();
     quakeLeaves = [];
     visibleFaceKey = "";
-    renderedFaceCount = 0;
-    preloadedButtonImages = [];
+    preloadedButtonImages.clear();
     for (const url of currentTextureUrls) {
       if (url.startsWith("blob:")) URL.revokeObjectURL(url);
     }
@@ -118,7 +114,6 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
   const mount = (result: QuakePocScene): void => {
     currentTextureUrls = result.textureUrls;
     currentVisibility = result.visibility ?? null;
-    currentFaceCount = result.faceCount;
     currentHandle = result.renderBundle ? addQuakeRenderBundleMesh(result.renderBundle) : addQuakeMesh(result.polygons);
     currentLightstyleOverlayHandle = addQuakeLightstyleOverlayMesh(result.polygons);
   };
@@ -184,7 +179,6 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
         const now = performance.now();
         for (const leaf of quakeLeaves) setQuakeLeafMounted(leaf, true, now);
         visibleFaceKey = "all";
-        renderedFaceCount = currentFaceCount;
       }
       return;
     }
@@ -192,14 +186,11 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     const nextKey = faceSetKey(visibleFaces);
     if (!force && nextKey === visibleFaceKey) return;
     visibleFaceKey = nextKey;
-    let shown = 0;
     const now = performance.now();
     for (const [faceIndex, leaves] of faceLeaves) {
       const visible = visibleFaces.has(faceIndex);
-      if (visible) shown++;
       for (const leaf of leaves) setQuakeLeafMounted(leaf, visible, now);
     }
-    renderedFaceCount = shown;
   };
 
   const setQuakeLeafMounted = (leaf: QuakeFaceLeaf, mounted: boolean, now = performance.now()): void => {
@@ -324,14 +315,15 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       if (pressedUrl) urls.add(pressedUrl);
       if (animationUrl) urls.add(animationUrl);
     }
-    preloadedButtonImages = [...urls].map((url) => {
+    preloadedButtonImages.clear();
+    for (const url of urls) {
       const image = new Image();
       image.decoding = "sync";
       image.loading = "eager";
       image.src = url;
       void image.decode().catch(() => undefined);
-      return image;
-    });
+      preloadedButtonImages.add(image);
+    }
   };
 
   return {

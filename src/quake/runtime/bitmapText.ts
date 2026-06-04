@@ -1,5 +1,4 @@
 const QUAKE_CONCHARS_COLUMNS = 16;
-const QUAKE_CONCHARS_GLYPH_SIZE = 8;
 const QUAKE_BITMAP_TEXT_SIZES = {
   copy: 16,
   label: 16,
