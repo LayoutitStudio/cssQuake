@@ -15,6 +15,7 @@ import {
   type QuakePocPreparedScene,
   type QuakePocScene,
 } from "./prepare/preparedScene";
+import { mountQuakeBitmapText } from "./runtime/bitmapText";
 import {
   COLLISION_EPSILON,
   GROUND_SNAP,
@@ -72,8 +73,12 @@ const host = document.getElementById("quake-host") as HTMLElement;
 const viewmodelLayer = document.getElementById("quake-viewmodel-layer") as HTMLElement | null;
 const mainMenu = document.getElementById("quake-main-menu") as HTMLButtonElement | null;
 const mainMenuArt = document.getElementById("quake-main-menu-art") as HTMLElement | null;
+const levelPanel = document.getElementById("quake-level-panel") as HTMLElement | null;
+const levelList = document.getElementById("quake-level-list") as HTMLElement | null;
 const aboutPanel = document.getElementById("quake-about-panel") as HTMLElement | null;
 const optionsPanel = document.getElementById("quake-options-panel") as HTMLElement | null;
+const loadingOverlay = document.getElementById("quake-loading-overlay") as HTMLElement | null;
+const loadingStatus = document.getElementById("quake-loading-status") as HTMLElement | null;
 const hudArmorValue = document.getElementById("quake-hud-armor-value") as HTMLElement | null;
 const hudHealthValue = document.getElementById("quake-hud-health-value") as HTMLElement | null;
 const hudAmmoValue = document.getElementById("quake-hud-ammo-value") as HTMLElement | null;
@@ -99,6 +104,16 @@ const LOCAL_MAP_URLS: Record<string, string> = {
   e1m7: "/local/quake/e1m7.preparsed.json",
   e1m8: "/local/quake/e1m8.preparsed.json",
 };
+const LOCAL_LEVELS = [
+  { mapName: "e1m1", title: "the Slipgate Complex" },
+  { mapName: "e1m2", title: "Castle of the Damned" },
+  { mapName: "e1m3", title: "the Necropolis" },
+  { mapName: "e1m4", title: "the Grisly Grotto" },
+  { mapName: "e1m5", title: "Gloom Keep" },
+  { mapName: "e1m6", title: "The Door To Chthon" },
+  { mapName: "e1m7", title: "The House of Chthon" },
+  { mapName: "e1m8", title: "Ziggurat Vertigo" },
+] as const;
 const LOCAL_WEAPON_URL = "/local/quake/weapon-shotgun.preparsed.json";
 const LOCAL_PICKUP_MODELS_URL = "/local/quake/pickups.preparsed.json";
 const LOCAL_PROGRAM_METADATA_URL = "/local/quake/progs.preparsed.json";
@@ -107,7 +122,36 @@ const QUAKE_GRAVITY = (800 / 48) * QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_CAMERA_ZOOM = (BASE_TILE * 0.65) / QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_MENU_ENABLED = true;
 
+function mountQuakeLevelSelector(): void {
+  if (!levelList) return;
+  levelList.replaceChildren();
+  for (const level of LOCAL_LEVELS) {
+    const button = document.createElement("button");
+    button.className = "quake-level-button";
+    button.type = "button";
+    button.dataset.quakeMap = level.mapName;
+    button.setAttribute("aria-label", `${level.mapName.toUpperCase()} ${level.title}`);
+
+    const code = document.createElement("span");
+    code.className = "quake-level-code";
+    code.dataset.quakeBitmapText = "";
+    code.dataset.quakeBitmapSize = "label";
+    code.dataset.quakeBitmapAlt = "true";
+    code.textContent = level.mapName.toUpperCase();
+
+    const title = document.createElement("span");
+    title.className = "quake-level-name";
+    title.dataset.quakeBitmapText = "";
+    title.dataset.quakeBitmapSize = "label";
+    title.textContent = level.title;
+
+    button.append(code, title);
+    levelList.append(button);
+  }
+}
+
 injectQuakeWorldAnimations();
+mountQuakeLevelSelector();
 
 const camera = createPolyPerspectiveCamera({
   perspective: 900,
@@ -124,6 +168,7 @@ const scene = createPolyScene(host, {
   textureQuality: 1,
   autoCenter: false,
 });
+const sceneElement = scene.cameraEl.querySelector<HTMLElement>(".polycss-scene");
 const controls = createPolyFirstPersonControls(scene, {
   eyeHeight: 1.72,
   groundZ: 0,
@@ -140,6 +185,7 @@ type QuakePlayerControllerHandle = ReturnType<typeof createQuakePlayerController
 
 let pickups: QuakePickupControllerHandle | null = null;
 let player: QuakePlayerControllerHandle | null = null;
+let weaponViewModelPolygonsPromise: Promise<Polygon[]> | null = null;
 
 function getPickups(): QuakePickupControllerHandle {
   if (!pickups) throw new Error("Quake pickup controller is not initialized.");
@@ -156,6 +202,7 @@ const world = createQuakeWorldController({
   getOrigin: () => controls.getOrigin(),
   makeParseResult,
   scene,
+  sceneElement,
   syncButtonLeafVisual: syncQuakeButtonLeafVisual,
   syncPickupsVisibility: (origin) => getPickups().syncVisibility(origin),
 });
@@ -165,11 +212,14 @@ const menu = createQuakeMenuController({
   controls,
   mainMenu,
   mainMenuArt,
+  levelPanel,
   aboutPanel,
   optionsPanel,
+  onSelectLevel: loadQuakeMap,
   clearCrosshairTarget: clearQuakeCrosshairTarget,
   syncCrosshairTarget: syncQuakeCrosshairTarget,
 });
+menu.setCurrentLevel(LOCAL_START_MAP);
 const viewmodel = createQuakeViewmodelController({
   scene,
   controls,
@@ -289,6 +339,7 @@ let quakeLevelLoadTimer: number | null = null;
 let quakeTransitionSerial = 0;
 let currentMapName = LOCAL_START_MAP;
 let quakeAppDisposed = false;
+let quakeAppLoading = true;
 
 interface QuakeStatsPanel {
   value: HTMLElement;
@@ -328,7 +379,54 @@ function isQuakeLevelTransitionActive(): boolean {
 }
 
 function canUseQuakeGameplayInput(): boolean {
-  return !menu.isMainMenuOpen() && !menu.isMenuPanelOpen() && !isQuakeLevelTransitionActive() && currentCollisionWorld !== null;
+  return !quakeAppLoading &&
+    !menu.isMainMenuOpen() &&
+    !menu.isMenuPanelOpen() &&
+    !isQuakeLevelTransitionActive() &&
+    currentCollisionWorld !== null;
+}
+
+function setQuakeLoading(active: boolean, status = "Loading"): void {
+  quakeAppLoading = active;
+  if (active) {
+    document.body.dataset.quakeLoading = "true";
+    updateQuakeLoadingStatus(status);
+    if (loadingOverlay) {
+      loadingOverlay.hidden = false;
+      loadingOverlay.setAttribute("aria-busy", "true");
+    }
+    controls.update({ moveEnabled: false });
+    clearQuakeCrosshairTarget();
+    return;
+  }
+
+  delete document.body.dataset.quakeLoading;
+  if (loadingOverlay) {
+    loadingOverlay.hidden = true;
+    loadingOverlay.removeAttribute("aria-busy");
+  }
+  if (!menu.isMainMenuOpen() && !menu.isMenuPanelOpen() && !isQuakeLevelTransitionActive()) {
+    controls.update({ moveEnabled: true });
+  }
+  syncQuakeCrosshairTarget();
+}
+
+function setQuakeLoadingError(): void {
+  quakeAppLoading = true;
+  document.body.dataset.quakeLoading = "true";
+  updateQuakeLoadingStatus("Load failed");
+  if (loadingOverlay) {
+    loadingOverlay.hidden = false;
+    loadingOverlay.setAttribute("aria-busy", "false");
+  }
+  controls.update({ moveEnabled: false });
+  clearQuakeCrosshairTarget();
+}
+
+function updateQuakeLoadingStatus(status: string): void {
+  if (!loadingStatus) return;
+  loadingStatus.textContent = status;
+  mountQuakeBitmapText(loadingStatus.parentElement ?? document);
 }
 
 function addQuakePickupMesh(entity: QuakeEntity, model?: QuakePickupModel): PolyMeshHandle | null {
@@ -739,7 +837,7 @@ function mountStatsOverlay(): () => void {
   statsContainer.style.position = "fixed";
   statsContainer.style.right = "12px";
   statsContainer.style.bottom = "clamp(12px, calc(602px - 50vw), 88px)";
-  statsContainer.style.zIndex = "30";
+  statsContainer.style.zIndex = "40";
   statsContainer.style.top = "auto";
   statsContainer.style.left = "auto";
   statsContainer.style.display = "flex";
@@ -834,29 +932,90 @@ function updateStatsPanel(panel: QuakeStatsPanel, value: number): void {
   panel.bar.style.height = `${height}%`;
 }
 
-async function loadPreparedUrl(url: string, mapName = currentMapName): Promise<void> {
+async function fetchQuakeScene(url: string, mapName?: string): Promise<QuakePocScene> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}.`);
   const prepared = await response.json() as QuakePocPreparedScene;
-  if (quakeAppDisposed) return;
-  currentMapName = mapName;
-  mountQuakeScene(createQuakePocFromPreparedScene(prepared));
+  if (mapName && isQuakeRenderBundleRequired(mapName) && !prepared.renderBundle) {
+    throw new Error(`Prepared Quake map ${mapName.toUpperCase()} is missing its render bundle.`);
+  }
+  return createQuakePocFromPreparedScene(prepared);
+}
+
+function isQuakeRenderBundleRequired(mapName: string): boolean {
+  return /^e1m[1-8]$/.test(mapName);
+}
+
+async function loadPreparedUrl(url: string, mapName = currentMapName): Promise<void> {
+  setQuakeLoading(true, `Loading ${mapName.toUpperCase()}`);
+  try {
+    const result = await fetchQuakeScene(url, mapName);
+    if (quakeAppDisposed) return;
+    currentMapName = mapName;
+    menu.setCurrentLevel(mapName);
+    mountQuakeScene(result);
+    if (quakeAppDisposed) return;
+    await completeQuakeSceneReadiness();
+  } catch (error) {
+    if (!quakeAppDisposed) setQuakeLoading(false);
+    throw error;
+  }
 }
 
 async function loadQuakeMap(mapName: string): Promise<void> {
   const url = LOCAL_MAP_URLS[mapName];
   if (!url) throw new Error(`No prepared Quake map registered for ${mapName}.`);
-  await loadPreparedUrl(url, mapName);
-  if (quakeAppDisposed) return;
-  await loadWeaponViewModel();
+  setQuakeLoading(true, `Loading ${mapName.toUpperCase()}`);
+  try {
+    const scenePromise = fetchQuakeScene(url, mapName);
+    const weaponPromise = preloadWeaponViewModelPolygons();
+    const result = await scenePromise;
+    if (quakeAppDisposed) return;
+    currentMapName = mapName;
+    menu.setCurrentLevel(mapName);
+    mountQuakeScene(result);
+    if (quakeAppDisposed) return;
+    await completeQuakeSceneReadiness(weaponPromise);
+  } catch (error) {
+    if (!quakeAppDisposed) setQuakeLoading(false);
+    throw error;
+  }
 }
 
-async function loadWeaponViewModel(): Promise<void> {
+function preloadWeaponViewModelPolygons(): Promise<Polygon[]> {
+  weaponViewModelPolygonsPromise ??= fetchWeaponViewModelPolygons();
+  return weaponViewModelPolygonsPromise;
+}
+
+async function fetchWeaponViewModelPolygons(): Promise<Polygon[]> {
   const response = await fetch(LOCAL_WEAPON_URL);
   if (!response.ok) throw new Error(`Could not load ${LOCAL_WEAPON_URL}.`);
   const prepared = await response.json() as { polygons: Polygon[] };
+  return prepared.polygons;
+}
+
+async function mountWeaponViewModel(polygonsPromise = preloadWeaponViewModelPolygons()): Promise<void> {
+  const polygons = await polygonsPromise;
   if (quakeAppDisposed) return;
-  viewmodel.mount(prepared.polygons);
+  viewmodel.mount(polygons);
+}
+
+async function completeQuakeSceneReadiness(polygonsPromise = preloadWeaponViewModelPolygons()): Promise<void> {
+  await mountWeaponViewModel(polygonsPromise);
+  if (quakeAppDisposed) return;
+  await world.waitForPresentationResyncs();
+  if (quakeAppDisposed) return;
+  await waitForQuakePaintFrames(2);
+  if (quakeAppDisposed) return;
+  setQuakeLoading(false);
+}
+
+async function waitForQuakePaintFrames(count: number): Promise<void> {
+  for (let index = 0; index < count; index++) {
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  }
 }
 
 async function loadPickupModels(): Promise<void> {
@@ -880,14 +1039,34 @@ async function loadStartupScene(): Promise<void> {
 }
 
 async function loadQuakePoc(): Promise<void> {
-  await loadProgramMetadata();
+  setQuakeLoading(true);
+  const programMetadataPromise = loadProgramMetadata();
+  const pickupModelsPromise = loadPickupModels();
+  const startupScenePromise = fetchQuakeScene(LOCAL_MAP_URLS[LOCAL_START_MAP], LOCAL_START_MAP);
+  const weaponPromise = preloadWeaponViewModelPolygons();
+  await Promise.all([programMetadataPromise, pickupModelsPromise]);
   if (quakeAppDisposed) return;
-  await loadPickupModels();
+  const result = await startupScenePromise;
   if (quakeAppDisposed) return;
-  await loadStartupScene();
+  currentMapName = LOCAL_START_MAP;
+  menu.setCurrentLevel(currentMapName);
+  mountQuakeScene(result);
+  if (quakeAppDisposed) return;
+  await completeQuakeSceneReadiness(weaponPromise);
+  if (quakeAppDisposed) return;
+  if (QUAKE_MENU_ENABLED) {
+    menu.showMainMenu();
+  } else {
+    menu.hideMainMenu();
+  }
 }
 
 function handleWindowKeyDown(event: KeyboardEvent): void {
+  if (quakeAppLoading) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
   if (menu.handleKeyDown(event)) return;
   if (event.code === "KeyF") {
     event.preventDefault();
@@ -924,14 +1103,10 @@ controls.addEventListener("change", syncPlayerCollision);
 
 const disposeStatsOverlay = mountStatsOverlay();
 syncQuakeHud();
-if (QUAKE_MENU_ENABLED) {
-  menu.showMainMenu();
-} else {
-  menu.hideMainMenu();
-}
 
 void loadQuakePoc().catch((error) => {
   console.error(error);
+  if (!quakeAppDisposed) setQuakeLoadingError();
 });
 
 const hot = import.meta as ImportMeta & { hot?: { dispose(callback: () => void): void } };

@@ -57,7 +57,7 @@ body {
   position: absolute;
   top: 14px;
   left: 14px;
-  z-index: 4;
+  z-index: 40;
   display: block;
   width: min(260px, calc(100vw - 92px));
   height: auto;
@@ -71,7 +71,7 @@ body {
   position: absolute;
   top: 0;
   right: 0;
-  z-index: 10;
+  z-index: 40;
   display: block;
   width: 55px;
   height: 55px;
@@ -100,7 +100,7 @@ body {
   position: absolute;
   left: 12px;
   bottom: 10px;
-  z-index: 4;
+  z-index: 40;
   margin: 0;
   color: rgba(246, 241, 223, 0.5);
   font-family: ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
@@ -113,6 +113,68 @@ body {
 }
 .quake-copyright-notice span {
   display: block;
+}
+#quake-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #050505;
+  color: #f6f1df;
+  pointer-events: auto;
+  user-select: none;
+  cursor: progress;
+}
+body[data-quake-loading] .dn-stats-overlay[data-quake-poc-stats] {
+  z-index: 40 !important;
+}
+#quake-loading-overlay[hidden] {
+  display: none;
+}
+.quake-loading-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(960px, calc(100vw - 32px), calc(160dvh - 52px));
+  aspect-ratio: 320 / 200;
+}
+.quake-loading-mark::before {
+  display: none;
+  content: none;
+}
+.quake-loading-mark > * {
+  position: relative;
+  z-index: 1;
+}
+#quake-loading-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  min-height: 60px;
+  color: #f0ad5c;
+  font: 700 14px/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  text-shadow: 0 2px 0 #000000;
+}
+#quake-loading-status::before {
+  content: "";
+  display: block;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 60px;
+  background-image: url("/local/quake/main-menu-cursor.png");
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: 600% 100%;
+  image-rendering: pixelated;
+  animation: quake-main-menu-cursor-frame 600ms steps(1, end) infinite;
+}
+#quake-loading-status .quake-bitmap-text {
+  justify-content: center;
 }
 @media (max-width: 940px) {
   .quake-copyright-notice {
@@ -200,6 +262,7 @@ body[data-quake-level-complete] #quake-hud::after {
 }
 #quake-main-menu-art {
   --quake-main-menu-active-x: 0%;
+  --quake-main-menu-active-opacity: 1;
   --quake-main-menu-cursor-y: 12%;
   --quake-main-menu-offset-y: 13.5%;
   position: relative;
@@ -227,7 +290,8 @@ body[data-quake-level-complete] #quake-hud::after {
   background-image: url("/local/quake/main-menu-active.png");
   background-repeat: no-repeat;
   background-position: var(--quake-main-menu-active-x) 0;
-  background-size: 400% 100%;
+  background-size: 500% 100%;
+  opacity: var(--quake-main-menu-active-opacity);
   filter: brightness(1.42) saturate(1.18);
   image-rendering: pixelated;
   pointer-events: none;
@@ -236,6 +300,7 @@ body[data-quake-level-complete] #quake-hud::after {
   position: absolute;
   left: 15.625%;
   top: var(--quake-main-menu-cursor-y);
+  z-index: 2;
   display: block;
   width: 5%;
   height: 12%;
@@ -358,6 +423,9 @@ body[data-quake-level-complete] #quake-hud::after {
 #quake-options-card {
   width: min(620px, calc(100vw - 32px));
 }
+#quake-level-card {
+  width: min(760px, calc(100vw - 32px));
+}
 #quake-about-card {
   width: min(760px, calc(100vw - 32px));
 }
@@ -419,6 +487,77 @@ body[data-quake-level-complete] #quake-hud::after {
 }
 .quake-menu-panel-sections p + p {
   margin-top: 12px;
+}
+.quake-level-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: clamp(18px, 3vw, 24px) 0;
+  border-top: 1px solid rgba(136, 84, 49, 0.58);
+  border-bottom: 1px solid rgba(136, 84, 49, 0.58);
+}
+.quake-level-button {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(58px, auto) minmax(0, 1fr) 8px;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 9px 12px;
+  border: 1px solid rgba(191, 116, 44, 0.52);
+  border-radius: 3px;
+  appearance: none;
+  background: rgba(0, 0, 0, 0.58);
+  color: rgba(246, 241, 223, 0.84);
+  font: inherit;
+  line-height: 1;
+  text-align: left;
+  text-shadow: 0 1px 0 #000000;
+  cursor: pointer;
+}
+.quake-level-button::after {
+  content: "";
+  width: 6px;
+  height: 22px;
+  background: #f0ad5c;
+  box-shadow: 0 1px 0 #000000;
+  opacity: 0;
+}
+.quake-level-code,
+.quake-level-name {
+  display: flex;
+  min-width: 0;
+}
+.quake-level-code {
+  color: #f0ad5c;
+}
+.quake-level-name {
+  color: rgba(246, 241, 223, 0.84);
+}
+.quake-level-button .quake-bitmap-text {
+  filter: brightness(1.12) contrast(1.08) drop-shadow(0 1px 0 #000000);
+}
+.quake-level-button:hover,
+.quake-level-button:focus-visible {
+  border-color: rgba(240, 173, 92, 0.92);
+  background: rgba(78, 34, 18, 0.74);
+  outline: none;
+}
+.quake-level-button:hover .quake-bitmap-text,
+.quake-level-button:focus-visible .quake-bitmap-text {
+  filter: brightness(1.2) saturate(1.08) drop-shadow(0 1px 0 #000000);
+}
+.quake-level-button[data-quake-current-level="true"] {
+  border-color: rgba(240, 173, 92, 0.88);
+  background: rgba(73, 30, 16, 0.82);
+}
+.quake-level-button[data-quake-current-level="true"]::after {
+  opacity: 1;
+}
+.quake-level-button:disabled {
+  cursor: wait;
+  opacity: 0.68;
 }
 .quake-help-list {
   display: grid;
@@ -583,6 +722,12 @@ body[data-quake-level-complete] #quake-hud::after {
   .quake-menu-actions button {
     width: 100%;
     margin-left: 0;
+  }
+  .quake-level-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .quake-level-button {
+    grid-template-columns: minmax(52px, auto) minmax(0, 1fr) 8px;
   }
 }
 @media (max-height: 560px) {

@@ -4,6 +4,7 @@ const QUAKE_BITMAP_TEXT_SIZES = {
   copy: 16,
   label: 16,
   key: 14,
+  title: 40,
 } as const;
 
 type QuakeBitmapTextSize = keyof typeof QUAKE_BITMAP_TEXT_SIZES;
@@ -83,7 +84,7 @@ function createQuakeBitmapGlyph(char: string, alt: boolean, glyphSize: number): 
 }
 
 function parseBitmapTextSize(value: string | undefined): QuakeBitmapTextSize {
-  return value === "label" || value === "key" ? value : "copy";
+  return value === "label" || value === "key" || value === "title" ? value : "copy";
 }
 
 function parseBitmapTextWrap(value: string | undefined): "word" | "anywhere" | "email" {

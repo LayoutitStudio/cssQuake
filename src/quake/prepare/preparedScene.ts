@@ -267,6 +267,19 @@ export type QuakePocSerializedPolygon = Omit<Polygon, "texture"> & {
   texture?: number | string;
 };
 
+export interface QuakePocPreparedRenderBundle {
+  version: 1;
+  kind: "polycss-mesh";
+  polycssVersion: string;
+  textureLighting: "baked";
+  textureQuality: 1;
+  meshHtml: string;
+  assetUrls: string[];
+  polygonCount: number;
+  leafCount: number;
+  atlasLeafCount: number;
+}
+
 export interface QuakePocPreparedVisibility {
   planes: QuakePlane[];
   nodes: QuakeNode[];
@@ -328,6 +341,7 @@ export interface QuakePocPreparedScene {
   version: 2;
   polygons: QuakePocSerializedPolygon[];
   textures: string[];
+  renderBundle?: QuakePocPreparedRenderBundle;
   textureCount: number;
   faceCount: number;
   sourceFaceCount: number;
@@ -350,6 +364,7 @@ export interface QuakePocPreparedScene {
 export interface QuakePocScene {
   polygons: Polygon[];
   textureUrls: string[];
+  renderBundle?: QuakePocPreparedRenderBundle;
   textureCount: number;
   faceCount: number;
   sourceFaceCount: number;
@@ -407,6 +422,7 @@ const QUAKE_LIGHT_SMOOTHING_WEIGHT = 0.4;
 const QUAKE_LIGHT_SMOOTHING_NORMAL_DOT = 0.999;
 const QUAKE_LIGHT_SMOOTHING_PLANE_EPS = 0.5;
 const QUAKE_LIGHT_SMOOTHING_TOUCH_EPS = 1.5;
+const QUAKE_RENDER_COLLINEAR_EPS = 1e-6;
 const QUAKE_LIGHTSTYLE_OVERLAY_STRENGTH = 0.72;
 const QUAKE_LIGHTSTYLE_OVERLAY_GAMMA = 1.35;
 const QUAKE_LIGHTSTYLE_OVERLAY_MAX_OPACITY = 0.52;
@@ -455,12 +471,13 @@ export async function createQuakePocPreparedSceneFromPakBuffer(
 
 export function createQuakePocFromPreparedScene(prepared: QuakePocPreparedScene): QuakePocScene {
   if (prepared.version !== QUAKE_PREPARED_SCENE_VERSION) {
-    throw new Error(`Unsupported Quake PoC cache version ${String(prepared.version)}.`);
+    throw new Error(`Unsupported Quake PoC prepared scene version ${String(prepared.version)}.`);
   }
   const polygons = prepared.polygons.map((polygon) => hydratePreparedPolygon(polygon, prepared.textures));
   return {
     polygons,
     textureUrls: [...prepared.textures],
+    ...(prepared.renderBundle ? { renderBundle: clonePreparedRenderBundle(prepared.renderBundle) } : {}),
     textureCount: prepared.textureCount,
     faceCount: prepared.faceCount,
     sourceFaceCount: prepared.sourceFaceCount,
@@ -489,6 +506,13 @@ export function createQuakePocFromPreparedScene(prepared: QuakePocPreparedScene)
         )
       : undefined,
     collision: prepared.collision,
+  };
+}
+
+function clonePreparedRenderBundle(renderBundle: QuakePocPreparedRenderBundle): QuakePocPreparedRenderBundle {
+  return {
+    ...renderBundle,
+    assetUrls: [...renderBundle.assetUrls],
   };
 }
 
@@ -1744,16 +1768,17 @@ function mergeQuakeFaceCandidates(
   }
 
   const out: QuakeFaceCandidate[] = [];
+  const renderDedupe = new Map<string, number>();
   for (const group of groups.values()) {
     if (group.length < 2) {
-      pushRenderCandidate(out, group[0].polygon, group[0].sourceFaceIndices);
+      pushRenderCandidate(out, group[0].polygon, group[0].sourceFaceIndices, {}, renderDedupe);
       continue;
     }
 
     const merged = mergePolygons(group.map((candidate) => polygonForMerge(candidate.polygon)));
     if (merged.length >= group.length) {
       for (const candidate of group) {
-        pushRenderCandidate(out, candidate.polygon, candidate.sourceFaceIndices);
+        pushRenderCandidate(out, candidate.polygon, candidate.sourceFaceIndices, {}, renderDedupe);
       }
       continue;
     }
@@ -1761,7 +1786,7 @@ function mergeQuakeFaceCandidates(
     const sourceFaceIndices = uniqueSorted(group.flatMap((candidate) => candidate.sourceFaceIndices));
     const fallbackData = quakeFallbackData(group[0].polygon);
     for (const polygon of merged) {
-      pushRenderCandidate(out, polygon, sourceFaceIndices, fallbackData);
+      pushRenderCandidate(out, polygon, sourceFaceIndices, fallbackData, renderDedupe);
     }
   }
   return out;
@@ -1859,24 +1884,36 @@ function pushRenderCandidate(
   polygon: Polygon,
   sourceFaceIndices: number[],
   fallbackData: Record<string, string | number | boolean> = {},
+  renderDedupe?: Map<string, number>,
 ): void {
+  const renderPolygon = simplifyQuakeRenderPolygon(polygon);
+  const dedupeKey = quakeRenderDedupeKey(renderPolygon, fallbackData);
+  const existingIndex = renderDedupe?.get(dedupeKey);
+  if (existingIndex !== undefined) {
+    const existing = out[existingIndex];
+    if (existing) {
+      existing.sourceFaceIndices = uniqueSorted([...existing.sourceFaceIndices, ...sourceFaceIndices]);
+    }
+    return;
+  }
+
   const faceIndex = out.length;
-  const textureName = String(polygon.data?.["quake-texture"] ?? fallbackData["quake-texture"] ?? "");
-  const modelIndex = String(polygon.data?.["quake-model"] ?? fallbackData["quake-model"] ?? "");
-  const entityIndex = String(polygon.data?.["quake-entity"] ?? fallbackData["quake-entity"] ?? "");
-  const brightness = String(polygon.data?.["quake-light"] ?? fallbackData["quake-light"] ?? "");
-  const lightStyles = String(polygon.data?.["quake-lightstyles"] ?? fallbackData["quake-lightstyles"] ?? "");
+  const textureName = String(renderPolygon.data?.["quake-texture"] ?? fallbackData["quake-texture"] ?? "");
+  const modelIndex = String(renderPolygon.data?.["quake-model"] ?? fallbackData["quake-model"] ?? "");
+  const entityIndex = String(renderPolygon.data?.["quake-entity"] ?? fallbackData["quake-entity"] ?? "");
+  const brightness = String(renderPolygon.data?.["quake-light"] ?? fallbackData["quake-light"] ?? "");
+  const lightStyles = String(renderPolygon.data?.["quake-lightstyles"] ?? fallbackData["quake-lightstyles"] ?? "");
   const lightstyleAnimation = String(
-    polygon.data?.["quake-lightstyle-animation"] ?? fallbackData["quake-lightstyle-animation"] ?? "",
+    renderPolygon.data?.["quake-lightstyle-animation"] ?? fallbackData["quake-lightstyle-animation"] ?? "",
   );
   const lightstyleOverlayPattern = String(
-    polygon.data?.["quake-lightstyle-overlay-pattern"] ?? fallbackData["quake-lightstyle-overlay-pattern"] ?? "",
+    renderPolygon.data?.["quake-lightstyle-overlay-pattern"] ?? fallbackData["quake-lightstyle-overlay-pattern"] ?? "",
   );
   const buttonBaseTexture = String(
-    polygon.data?.["quake-button-base-texture"] ?? fallbackData["quake-button-base-texture"] ?? "",
+    renderPolygon.data?.["quake-button-base-texture"] ?? fallbackData["quake-button-base-texture"] ?? "",
   );
   const buttonPressedTexture = String(
-    polygon.data?.["quake-button-pressed-texture"] ?? fallbackData["quake-button-pressed-texture"] ?? "",
+    renderPolygon.data?.["quake-button-pressed-texture"] ?? fallbackData["quake-button-pressed-texture"] ?? "",
   );
   const sortedSourceFaceIndices = uniqueSorted(sourceFaceIndices);
   out.push({
@@ -1884,7 +1921,7 @@ function pushRenderCandidate(
     sourceFaceIndices: sortedSourceFaceIndices,
     points: [],
     polygon: {
-      ...polygon,
+      ...renderPolygon,
       data: {
         quake: true,
         "quake-face": faceIndex,
@@ -1900,6 +1937,7 @@ function pushRenderCandidate(
       },
     },
   });
+  renderDedupe?.set(dedupeKey, faceIndex);
 }
 
 function quakeFallbackData(polygon: Polygon): Record<string, string | number | boolean> {
@@ -1927,6 +1965,158 @@ function quakeFallbackData(polygon: Polygon): Record<string, string | number | b
 
 function uniqueSorted(values: number[]): number[] {
   return [...new Set(values)].sort((a, b) => a - b);
+}
+
+function simplifyQuakeRenderPolygon(polygon: Polygon): Polygon {
+  if (polygon.vertices.length <= 3) return polygon;
+  const vertices = polygon.vertices.map((vertex) => [...vertex] as Vec3);
+  const uvs = polygon.uvs?.length === polygon.vertices.length
+    ? polygon.uvs.map((uv) => [...uv] as Vec2)
+    : undefined;
+  let changed = false;
+  let removed = true;
+
+  while (removed && vertices.length > 3) {
+    removed = false;
+    for (let index = 0; index < vertices.length; index++) {
+      const previous = (index + vertices.length - 1) % vertices.length;
+      const next = (index + 1) % vertices.length;
+      if (
+        !quakePointBetween3(vertices[previous], vertices[index], vertices[next]) ||
+        !quakeCollinear3(vertices[previous], vertices[index], vertices[next]) ||
+        (uvs && (
+          !quakePointBetween2(uvs[previous], uvs[index], uvs[next]) ||
+          !quakeCollinear2(uvs[previous], uvs[index], uvs[next])
+        ))
+      ) {
+        continue;
+      }
+
+      vertices.splice(index, 1);
+      uvs?.splice(index, 1);
+      changed = true;
+      removed = true;
+      break;
+    }
+  }
+
+  return changed
+    ? {
+        ...polygon,
+        vertices,
+        ...(uvs ? { uvs } : { uvs: undefined }),
+      }
+    : polygon;
+}
+
+function quakeCollinear3(a: Vec3, b: Vec3, c: Vec3): boolean {
+  const ab = quakeVecSub3(b, a);
+  const bc = quakeVecSub3(c, b);
+  const ac = quakeVecSub3(c, a);
+  const cross = quakeVecCross3(ab, bc);
+  return quakeVecLength3(cross) <= QUAKE_RENDER_COLLINEAR_EPS * Math.max(
+    1,
+    quakeVecLength3(ab) * quakeVecLength3(bc),
+    quakeVecLength3(ac),
+  );
+}
+
+function quakeCollinear2(a: Vec2, b: Vec2, c: Vec2): boolean {
+  const abX = b[0] - a[0];
+  const abY = b[1] - a[1];
+  const bcX = c[0] - b[0];
+  const bcY = c[1] - b[1];
+  return Math.abs(abX * bcY - abY * bcX) <= QUAKE_RENDER_COLLINEAR_EPS * Math.max(
+    1,
+    Math.hypot(abX, abY) * Math.hypot(bcX, bcY),
+  );
+}
+
+function quakePointBetween3(a: Vec3, b: Vec3, c: Vec3): boolean {
+  const ac = quakeVecSub3(c, a);
+  const lengthSq = quakeVecDot3(ac, ac);
+  if (lengthSq <= QUAKE_RENDER_COLLINEAR_EPS * QUAKE_RENDER_COLLINEAR_EPS) return true;
+  const t = quakeVecDot3(quakeVecSub3(b, a), ac) / lengthSq;
+  return t >= -QUAKE_RENDER_COLLINEAR_EPS && t <= 1 + QUAKE_RENDER_COLLINEAR_EPS;
+}
+
+function quakePointBetween2(a: Vec2, b: Vec2, c: Vec2): boolean {
+  const acX = c[0] - a[0];
+  const acY = c[1] - a[1];
+  const lengthSq = acX * acX + acY * acY;
+  if (lengthSq <= QUAKE_RENDER_COLLINEAR_EPS * QUAKE_RENDER_COLLINEAR_EPS) return true;
+  const t = ((b[0] - a[0]) * acX + (b[1] - a[1]) * acY) / lengthSq;
+  return t >= -QUAKE_RENDER_COLLINEAR_EPS && t <= 1 + QUAKE_RENDER_COLLINEAR_EPS;
+}
+
+function quakeVecSub3(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+function quakeVecCross3(a: Vec3, b: Vec3): Vec3 {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+function quakeVecDot3(a: Vec3, b: Vec3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function quakeVecLength3(value: Vec3): number {
+  return Math.hypot(value[0], value[1], value[2]);
+}
+
+function quakeRenderDedupeKey(
+  polygon: Polygon,
+  fallbackData: Record<string, string | number | boolean>,
+): string {
+  const data = polygon.data ?? {};
+  return [
+    quakeVertexUvKey(polygon),
+    quakeTextureTriangleKey(polygon),
+    polygon.texture ?? "",
+    polygon.color ?? "",
+    polygon.textureWrap?.s ?? "",
+    polygon.textureWrap?.t ?? "",
+    polygon.textureAlphaMode ?? "",
+    polygon.doubleSided === true ? "double" : "single",
+    String(data["quake-texture"] ?? fallbackData["quake-texture"] ?? ""),
+    String(data["quake-model"] ?? fallbackData["quake-model"] ?? ""),
+    String(data["quake-entity"] ?? fallbackData["quake-entity"] ?? ""),
+    String(data["quake-light"] ?? fallbackData["quake-light"] ?? ""),
+    String(data["quake-lightstyles"] ?? fallbackData["quake-lightstyles"] ?? ""),
+    String(data["quake-lightstyle-animation"] ?? fallbackData["quake-lightstyle-animation"] ?? ""),
+    String(data["quake-lightstyle-overlay-pattern"] ?? fallbackData["quake-lightstyle-overlay-pattern"] ?? ""),
+    String(data["quake-button-base-texture"] ?? fallbackData["quake-button-base-texture"] ?? ""),
+    String(data["quake-button-pressed-texture"] ?? fallbackData["quake-button-pressed-texture"] ?? ""),
+  ].join("\u001f");
+}
+
+function quakeVertexUvKey(polygon: Polygon): string {
+  return polygon.vertices
+    .map((vertex, index) => {
+      const uv = polygon.uvs?.[index];
+      return `${quakeVecKey(vertex)}@${uv ? quakeVecKey(uv) : ""}`;
+    })
+    .sort()
+    .join("|");
+}
+
+function quakeTextureTriangleKey(polygon: Polygon): string {
+  return (polygon.textureTriangles ?? [])
+    .map((triangle) => [
+      ...triangle.vertices.map(quakeVecKey).sort(),
+      ...triangle.uvs.map(quakeVecKey).sort(),
+    ].join("@"))
+    .sort()
+    .join("|");
+}
+
+function quakeVecKey(values: readonly number[]): string {
+  return values.map((value) => value.toFixed(5)).join(",");
 }
 
 function buildSourceFaceVisibilityKeys(

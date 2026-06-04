@@ -10,6 +10,7 @@ export interface QuakeMenuController {
   hideMainMenu(): void;
   isMainMenuOpen(): boolean;
   isMenuPanelOpen(): boolean;
+  setCurrentLevel(mapName: string): void;
   handleKeyDown(event: KeyboardEvent): boolean;
   focusCurrent(): void;
   dispose(): void;
@@ -21,16 +22,26 @@ export interface QuakeMenuControllerOptions {
   controls: QuakeMenuControls;
   mainMenu: HTMLButtonElement | null;
   mainMenuArt: HTMLElement | null;
+  levelPanel: HTMLElement | null;
   aboutPanel: HTMLElement | null;
   optionsPanel: HTMLElement | null;
+  onSelectLevel?(mapName: string): void | Promise<void>;
   clearCrosshairTarget(): void;
   syncCrosshairTarget(): void;
 }
 
-const QUAKE_MAIN_MENU_ROWS = [0, 2, 3, 4];
+const QUAKE_MAIN_MENU_ROWS = [0, 1, 2, 3, 4];
 const QUAKE_MAIN_MENU_ROW_TOPS = [28, 52, 76, 100, 126];
 const QUAKE_MAIN_MENU_ROW_HEIGHT = 20;
 const QUAKE_MAIN_MENU_CURSOR_HEIGHT = 24;
+const QUAKE_MAIN_MENU_ACTIVE_FRAME_COUNT = 5;
+const QUAKE_MAIN_MENU_ACTIVE_FRAMES = new Map<number, number>([
+  [0, 0],
+  [1, 1],
+  [2, 2],
+  [3, 3],
+  [4, 4],
+]);
 const POLYCSS_URL = "https://polycss.com/";
 
 export function createQuakeMenuController({
@@ -39,12 +50,15 @@ export function createQuakeMenuController({
   controls,
   mainMenu,
   mainMenuArt,
+  levelPanel,
   aboutPanel,
   optionsPanel,
+  onSelectLevel,
   clearCrosshairTarget,
   syncCrosshairTarget,
 }: QuakeMenuControllerOptions): QuakeMenuController {
   let mainMenuSelectionIndex = 0;
+  let loadingLevelMap: string | null = null;
 
   function showMainMenu(): void {
     if (!mainMenu) return;
@@ -54,10 +68,12 @@ export function createQuakeMenuController({
     }
     controls.update({ moveEnabled: false });
     updateMainMenuCursor();
+    levelPanel?.setAttribute("hidden", "");
     aboutPanel?.setAttribute("hidden", "");
     optionsPanel?.setAttribute("hidden", "");
     mainMenu.hidden = false;
     document.body.dataset.quakeMenuOpen = "true";
+    delete document.body.dataset.quakeLevelOpen;
     delete document.body.dataset.quakeAboutOpen;
     delete document.body.dataset.quakeOptionsOpen;
     clearCrosshairTarget();
@@ -68,9 +84,11 @@ export function createQuakeMenuController({
     if (!mainMenu) return;
     controls.update({ moveEnabled: true });
     mainMenu.hidden = true;
+    levelPanel?.setAttribute("hidden", "");
     aboutPanel?.setAttribute("hidden", "");
     optionsPanel?.setAttribute("hidden", "");
     delete document.body.dataset.quakeMenuOpen;
+    delete document.body.dataset.quakeLevelOpen;
     delete document.body.dataset.quakeAboutOpen;
     delete document.body.dataset.quakeOptionsOpen;
     host.focus({ preventScroll: true });
@@ -92,27 +110,43 @@ export function createQuakeMenuController({
     return Boolean(aboutPanel && !aboutPanel.hidden);
   }
 
+  function isLevelPanelOpen(): boolean {
+    if (!enabled) return false;
+    return Boolean(levelPanel && !levelPanel.hidden);
+  }
+
   function isOptionsPanelOpen(): boolean {
     if (!enabled) return false;
     return Boolean(optionsPanel && !optionsPanel.hidden);
   }
 
   function isMenuPanelOpen(): boolean {
-    return isAboutPanelOpen() || isOptionsPanelOpen();
+    return isLevelPanelOpen() || isAboutPanelOpen() || isOptionsPanelOpen();
   }
 
-  function showMenuPanel(panel: HTMLElement, datasetKey: "quakeAboutOpen" | "quakeOptionsOpen"): void {
+  function showMenuPanel(panel: HTMLElement, datasetKey: "quakeLevelOpen" | "quakeAboutOpen" | "quakeOptionsOpen"): void {
     if (!mainMenu) return;
     controls.update({ moveEnabled: false });
     mainMenu.hidden = true;
+    levelPanel?.setAttribute("hidden", "");
     aboutPanel?.setAttribute("hidden", "");
     optionsPanel?.setAttribute("hidden", "");
+    delete document.body.dataset.quakeLevelOpen;
     delete document.body.dataset.quakeAboutOpen;
     delete document.body.dataset.quakeOptionsOpen;
     panel.hidden = false;
     document.body.dataset.quakeMenuOpen = "true";
     document.body.dataset[datasetKey] = "true";
     panel.focus({ preventScroll: true });
+  }
+
+  function showLevelPanel(): void {
+    if (!enabled || !levelPanel) {
+      startFromMainMenu();
+      return;
+    }
+    showMenuPanel(levelPanel, "quakeLevelOpen");
+    (currentLevelButton() ?? firstLevelButton())?.focus({ preventScroll: true });
   }
 
   function showAboutPanel(): void {
@@ -137,7 +171,7 @@ export function createQuakeMenuController({
 
   function menuBackButtonFor(target: EventTarget | null): HTMLButtonElement | null {
     const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
-    return element?.closest("#quake-about-back, #quake-options-back") as HTMLButtonElement | null;
+    return element?.closest("#quake-level-back, #quake-about-back, #quake-options-back") as HTMLButtonElement | null;
   }
 
   function menuCardFor(target: EventTarget | null): HTMLElement | null {
@@ -145,15 +179,22 @@ export function createQuakeMenuController({
     return element?.closest(".quake-menu-card") as HTMLElement | null;
   }
 
+  function levelButtonFor(target: EventTarget | null): HTMLButtonElement | null {
+    const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+    return element?.closest(".quake-level-button[data-quake-map]") as HTMLButtonElement | null;
+  }
+
   function updateMainMenuCursor(): void {
     const row = QUAKE_MAIN_MENU_ROWS[mainMenuSelectionIndex] ?? 0;
     const rowTop = QUAKE_MAIN_MENU_ROW_TOPS[row] ?? QUAKE_MAIN_MENU_ROW_TOPS[0];
     const cursorTop = rowTop + (QUAKE_MAIN_MENU_ROW_HEIGHT - QUAKE_MAIN_MENU_CURSOR_HEIGHT) / 2;
-    const activeX = QUAKE_MAIN_MENU_ROWS.length <= 1
+    const activeFrame = QUAKE_MAIN_MENU_ACTIVE_FRAMES.get(row);
+    const activeX = activeFrame === undefined
       ? 0
-      : (mainMenuSelectionIndex / (QUAKE_MAIN_MENU_ROWS.length - 1)) * 100;
+      : (activeFrame / (QUAKE_MAIN_MENU_ACTIVE_FRAME_COUNT - 1)) * 100;
     mainMenuArt?.style.setProperty("--quake-main-menu-cursor-y", `${cursorTop / 2}%`);
     mainMenuArt?.style.setProperty("--quake-main-menu-active-x", `${activeX}%`);
+    mainMenuArt?.style.setProperty("--quake-main-menu-active-opacity", activeFrame === undefined ? "0" : "1");
   }
 
   function selectMainMenuRow(row: number): boolean {
@@ -176,6 +217,7 @@ export function createQuakeMenuController({
   function activateMainMenuSelection(): void {
     const row = QUAKE_MAIN_MENU_ROWS[mainMenuSelectionIndex] ?? 0;
     if (row === 0) startFromMainMenu();
+    if (row === 1) showLevelPanel();
     if (row === 2) showOptionsPanel();
     if (row === 3) showAboutPanel();
     if (row === 4) openPolycssSite();
@@ -185,8 +227,137 @@ export function createQuakeMenuController({
     window.location.assign(POLYCSS_URL);
   }
 
+  function levelButtons(): HTMLButtonElement[] {
+    if (!levelPanel) return [];
+    return Array.from(levelPanel.querySelectorAll<HTMLButtonElement>(".quake-level-button[data-quake-map]"));
+  }
+
+  function firstLevelButton(): HTMLButtonElement | null {
+    return levelButtons()[0] ?? null;
+  }
+
+  function currentLevelButton(): HTMLButtonElement | null {
+    return levelButtons().find((button) => button.dataset.quakeCurrentLevel === "true") ?? null;
+  }
+
+  function setCurrentLevel(mapName: string): void {
+    for (const button of levelButtons()) {
+      const current = button.dataset.quakeMap === mapName;
+      if (current) {
+        button.dataset.quakeCurrentLevel = "true";
+        button.setAttribute("aria-current", "page");
+      } else {
+        delete button.dataset.quakeCurrentLevel;
+        button.removeAttribute("aria-current");
+      }
+    }
+  }
+
+  function setLoadingLevel(mapName: string | null): void {
+    loadingLevelMap = mapName;
+    if (mapName) {
+      levelPanel?.setAttribute("aria-busy", "true");
+    } else {
+      levelPanel?.removeAttribute("aria-busy");
+    }
+    for (const button of levelButtons()) {
+      button.disabled = Boolean(mapName);
+      if (mapName && button.dataset.quakeMap === mapName) {
+        button.dataset.quakeLevelLoading = "true";
+      } else {
+        delete button.dataset.quakeLevelLoading;
+      }
+    }
+  }
+
+  function selectLevel(button: HTMLButtonElement): void {
+    const mapName = button.dataset.quakeMap;
+    if (!mapName || !onSelectLevel || loadingLevelMap) return;
+    setLoadingLevel(mapName);
+    Promise.resolve(onSelectLevel(mapName))
+      .then(() => {
+        setCurrentLevel(mapName);
+        setLoadingLevel(null);
+        controls.lock();
+        hideMainMenu();
+      })
+      .catch((error: unknown) => {
+        console.error(error);
+        setLoadingLevel(null);
+        showLevelPanel();
+      });
+  }
+
+  function levelButtonColumnCount(): number {
+    const buttons = levelButtons();
+    const firstTop = buttons[0]?.offsetTop;
+    if (firstTop === undefined) return 1;
+    let count = 0;
+    for (const button of buttons) {
+      if (Math.abs(button.offsetTop - firstTop) > 2) break;
+      count++;
+    }
+    return Math.max(1, count);
+  }
+
+  function focusLevelButton(delta: number): void {
+    const buttons = levelButtons();
+    if (!buttons.length) return;
+    const active = levelButtonFor(document.activeElement);
+    const current = active ?? currentLevelButton() ?? buttons[0];
+    const index = Math.max(0, buttons.indexOf(current));
+    buttons[(index + delta + buttons.length) % buttons.length]?.focus({ preventScroll: true });
+  }
+
+  function handleLevelPanelKey(event: KeyboardEvent): boolean {
+    if (!isLevelPanelOpen()) return false;
+    const button = levelButtonFor(event.target);
+    switch (event.code) {
+      case "Escape":
+      case "Backspace":
+        event.preventDefault();
+        event.stopPropagation();
+        closeMenuPanel();
+        return true;
+      case "Enter":
+      case "Space":
+        if (!button) return false;
+        event.preventDefault();
+        event.stopPropagation();
+        selectLevel(button);
+        return true;
+      case "ArrowDown":
+      case "KeyS":
+        event.preventDefault();
+        event.stopPropagation();
+        focusLevelButton(levelButtonColumnCount());
+        return true;
+      case "ArrowUp":
+      case "KeyW":
+        event.preventDefault();
+        event.stopPropagation();
+        focusLevelButton(-levelButtonColumnCount());
+        return true;
+      case "ArrowRight":
+      case "KeyD":
+        event.preventDefault();
+        event.stopPropagation();
+        focusLevelButton(1);
+        return true;
+      case "ArrowLeft":
+      case "KeyA":
+        event.preventDefault();
+        event.stopPropagation();
+        focusLevelButton(-1);
+        return true;
+      default:
+        return false;
+    }
+  }
+
   function handleMenuPanelKey(event: KeyboardEvent): boolean {
     if (!isMenuPanelOpen()) return false;
+    if (handleLevelPanelKey(event)) return true;
     const sourceLink = aboutSourceLinkFor(event.target);
     switch (event.code) {
       case "Escape":
@@ -229,6 +400,11 @@ export function createQuakeMenuController({
   function handleMenuPanelClick(event: MouseEvent): void {
     if (menuBackButtonFor(event.target)) {
       closeMenuPanel();
+      return;
+    }
+    const levelButton = levelButtonFor(event.target);
+    if (levelButton) {
+      selectLevel(levelButton);
       return;
     }
     if (aboutSourceLinkFor(event.target)) return;
@@ -310,7 +486,9 @@ export function createQuakeMenuController({
   }
 
   function focusCurrent(): void {
-    if (isAboutPanelOpen()) {
+    if (isLevelPanelOpen()) {
+      (currentLevelButton() ?? firstLevelButton() ?? levelPanel)?.focus({ preventScroll: true });
+    } else if (isAboutPanelOpen()) {
       aboutPanel?.focus({ preventScroll: true });
     } else if (isOptionsPanelOpen()) {
       optionsPanel?.focus({ preventScroll: true });
@@ -333,6 +511,7 @@ export function createQuakeMenuController({
     mainMenu?.removeEventListener("click", handleMainMenuClick);
     mainMenu?.removeEventListener("pointermove", handleMainMenuPointerMove);
     mainMenu?.removeEventListener("pointerleave", handleMainMenuPointerLeave);
+    levelPanel?.removeEventListener("click", handleMenuPanelClick);
     aboutPanel?.removeEventListener("click", handleMenuPanelClick);
     optionsPanel?.removeEventListener("click", handleMenuPanelClick);
     controls.removeEventListener("start", handleControlsStart);
@@ -343,6 +522,7 @@ export function createQuakeMenuController({
     mainMenu?.addEventListener("click", handleMainMenuClick);
     mainMenu?.addEventListener("pointermove", handleMainMenuPointerMove);
     mainMenu?.addEventListener("pointerleave", handleMainMenuPointerLeave);
+    levelPanel?.addEventListener("click", handleMenuPanelClick);
     aboutPanel?.addEventListener("click", handleMenuPanelClick);
     optionsPanel?.addEventListener("click", handleMenuPanelClick);
     controls.addEventListener("start", handleControlsStart);
@@ -354,6 +534,7 @@ export function createQuakeMenuController({
     hideMainMenu,
     isMainMenuOpen,
     isMenuPanelOpen,
+    setCurrentLevel,
     handleKeyDown,
     focusCurrent,
     dispose,

@@ -7,6 +7,7 @@ import {
 
 import {
   QUAKE_LIGHT_STYLE_PATTERNS,
+  type QuakePocPreparedRenderBundle,
   type QuakePocScene,
   type QuakePocVisibility,
 } from "../prepare/preparedScene";
@@ -51,6 +52,7 @@ export interface QuakeWorldControllerOptions {
   getOrigin: () => [number, number, number];
   makeParseResult: (polygons: Polygon[]) => ParseResult;
   scene: QuakeWorldScene;
+  sceneElement: HTMLElement | null;
   syncButtonLeafVisual: (leaf: QuakeFaceLeaf) => void;
   syncPickupsVisibility: (origin: [number, number, number]) => void;
 }
@@ -62,9 +64,17 @@ export interface QuakeWorldController {
   modelLeaves: (modelIndex: number) => QuakeFaceLeaf[];
   mount: (result: QuakePocScene) => void;
   pixelate: (handle?: PolyMeshHandle | null) => void;
-  schedulePresentationResync: (handle?: PolyMeshHandle | null) => void;
+  schedulePresentationResync: (handle?: PolyMeshHandle | null) => Promise<void>;
   syncVisibility: (force?: boolean) => void;
   visibleLeavesAt: (origin: [number, number, number]) => Set<number> | null;
+  waitForPresentationResyncs: () => Promise<void>;
+}
+
+interface QuakePresentationResyncTask {
+  timers: number[];
+  resolve: () => void;
+  settled: boolean;
+  promise?: Promise<void>;
 }
 
 export function createQuakeWorldController(options: QuakeWorldControllerOptions): QuakeWorldController {
@@ -79,7 +89,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
   let visibleFaceKey = "";
   let renderedFaceCount = 0;
   let preloadedButtonImages: HTMLImageElement[] = [];
-  let presentationResyncTimers: number[] = [];
+  let presentationResyncTasks = new Set<QuakePresentationResyncTask>();
 
   const clear = (): void => {
     clearPresentationResyncTimers();
@@ -102,15 +112,14 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
   };
 
   const clearPresentationResyncTimers = (): void => {
-    for (const timer of presentationResyncTimers) window.clearTimeout(timer);
-    presentationResyncTimers = [];
+    for (const task of presentationResyncTasks) settlePresentationResyncTask(task);
   };
 
   const mount = (result: QuakePocScene): void => {
     currentTextureUrls = result.textureUrls;
     currentVisibility = result.visibility ?? null;
     currentFaceCount = result.faceCount;
-    currentHandle = addQuakeMesh(result.polygons);
+    currentHandle = result.renderBundle ? addQuakeRenderBundleMesh(result.renderBundle) : addQuakeMesh(result.polygons);
     currentLightstyleOverlayHandle = addQuakeLightstyleOverlayMesh(result.polygons);
   };
 
@@ -121,18 +130,48 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     }
   };
 
-  const schedulePresentationResync = (handle?: PolyMeshHandle | null): void => {
-    for (const delay of QUAKE_LEAF_PRESENTATION_RESYNC_DELAYS) {
-      const timer = window.setTimeout(() => {
-        presentationResyncTimers = presentationResyncTimers.filter((item) => item !== timer);
-        if (handle) {
-          pixelate(handle);
-          return;
-        }
-        for (const leaf of quakeLeaves) applyQuakeLeafPresentation(leaf.element);
-      }, delay);
-      presentationResyncTimers.push(timer);
-    }
+  const schedulePresentationResync = (handle?: PolyMeshHandle | null): Promise<void> => {
+    const task: QuakePresentationResyncTask = {
+      timers: [],
+      resolve: () => undefined,
+      settled: false,
+    };
+    let remaining = QUAKE_LEAF_PRESENTATION_RESYNC_DELAYS.length;
+    const promise = new Promise<void>((resolve) => {
+      task.resolve = resolve;
+      presentationResyncTasks.add(task);
+      for (const delay of QUAKE_LEAF_PRESENTATION_RESYNC_DELAYS) {
+        const timer = window.setTimeout(() => {
+          task.timers = task.timers.filter((item) => item !== timer);
+          try {
+            if (handle) {
+              pixelate(handle);
+            } else {
+              for (const leaf of quakeLeaves) applyQuakeLeafPresentation(leaf.element);
+            }
+          } finally {
+            remaining--;
+            if (remaining <= 0) settlePresentationResyncTask(task);
+          }
+        }, delay);
+        task.timers.push(timer);
+      }
+    });
+    task.promise = promise;
+    return promise;
+  };
+
+  const settlePresentationResyncTask = (task: QuakePresentationResyncTask): void => {
+    if (task.settled) return;
+    task.settled = true;
+    for (const timer of task.timers) window.clearTimeout(timer);
+    task.timers = [];
+    presentationResyncTasks.delete(task);
+    task.resolve();
+  };
+
+  const waitForPresentationResyncs = async (): Promise<void> => {
+    await Promise.all([...presentationResyncTasks].map((task) => task.promise ?? Promise.resolve()));
   };
 
   const syncVisibility = (force = false): void => {
@@ -186,7 +225,27 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       meshResolution: "lossless",
       excludeFromAutoCenter: true,
     });
-    pixelate(handle);
+    faceLeaves = indexQuakeFaceLeaves(handle, new Map(), true);
+    preloadQuakeButtonStateTextures();
+    return handle;
+  };
+
+  const addQuakeRenderBundleMesh = (renderBundle: QuakePocPreparedRenderBundle): PolyMeshHandle => {
+    if (!options.sceneElement) {
+      throw new Error("Quake render bundle mount requires a PolyCSS scene element.");
+    }
+    const template = document.createElement("template");
+    template.innerHTML = renderBundle.meshHtml.trim();
+    const element = template.content.firstElementChild;
+    if (!(element instanceof HTMLElement) || !element.classList.contains("polycss-mesh")) {
+      throw new Error("Quake render bundle did not contain a .polycss-mesh root.");
+    }
+    const leafCount = element.querySelectorAll("b,i,s,u").length;
+    if (leafCount !== renderBundle.leafCount) {
+      throw new Error(`Quake render bundle leaf count mismatch: expected ${renderBundle.leafCount}, got ${leafCount}.`);
+    }
+    options.sceneElement.appendChild(element);
+    const handle = createQuakeRenderBundleMeshHandle(element);
     faceLeaves = indexQuakeFaceLeaves(handle, new Map(), true);
     preloadQuakeButtonStateTextures();
     return handle;
@@ -201,7 +260,6 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       meshResolution: "lossless",
       excludeFromAutoCenter: true,
     });
-    pixelate(handle);
     indexQuakeFaceLeaves(handle, faceLeaves, false);
     syncQuakeLightstyleOverlayAnimations(handle);
     return handle;
@@ -286,7 +344,30 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     schedulePresentationResync,
     syncVisibility,
     visibleLeavesAt: (origin: [number, number, number]) => currentVisibility?.visibleLeavesAt(origin) ?? null,
+    waitForPresentationResyncs,
   };
+}
+
+function createQuakeRenderBundleMeshHandle(element: HTMLElement): PolyMeshHandle {
+  const transform: { id?: string; position?: Vec3; rotation?: Vec3; scale?: number | Vec3 } = {
+    id: element.dataset.polyMeshId,
+  };
+  return {
+    polygons: [],
+    element,
+    id: element.dataset.polyMeshId,
+    transform,
+    remove: () => element.remove(),
+    setPolygons: () => undefined,
+    updatePolygon: () => undefined,
+    setTransform: () => undefined,
+    dispose: () => element.remove(),
+    rebakeAtlas: () => undefined,
+    getPosition: () => transform.position,
+    getRotation: () => transform.rotation,
+    getScale: () => transform.scale,
+    getPolygons: () => [],
+  } as PolyMeshHandle;
 }
 
 export function injectQuakeWorldAnimations(): void {
@@ -309,11 +390,15 @@ function applyQuakeLeafPresentation(leaf: HTMLElement): void {
   leaf.style.imageRendering = "pixelated";
   leaf.style.removeProperty("filter");
   applyQuakeTextureAnimationLeafPresentation(leaf);
-  if (leaf.dataset.quakePickupModel?.startsWith("progs/")) {
+  if (leaf.dataset.quakePickupModel?.startsWith("progs/") || quakeLeafUsesSpecialTexture(leaf)) {
     leaf.style.backfaceVisibility = "visible";
   } else {
     leaf.style.removeProperty("backface-visibility");
   }
+}
+
+function quakeLeafUsesSpecialTexture(leaf: HTMLElement): boolean {
+  return leaf.dataset.quakeTexture?.startsWith("*") === true;
 }
 
 function applyQuakeTextureAnimationLeafPresentation(leaf: HTMLElement): void {

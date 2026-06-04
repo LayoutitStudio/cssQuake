@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -15,6 +15,7 @@ const projectRoot = path.resolve(scriptDir, "..");
 const resourcePath = path.join(projectRoot, "public/quake/resource.1");
 const quakeOutputDir = path.join(projectRoot, "public/local/quake");
 const quakeMapNames = ["start", "e1m1", "e1m2", "e1m3", "e1m4", "e1m5", "e1m6", "e1m7", "e1m8"];
+const quakeRenderBundleDefaultMapNames = quakeMapNames.filter((mapName) => /^e1m[1-8]$/.test(mapName));
 const mapOutputPaths = new Map(quakeMapNames.map((mapName) => [
   `maps/${mapName}.bsp`,
   path.join(quakeOutputDir, `${mapName}.preparsed.json`),
@@ -34,6 +35,19 @@ const weaponOutputPath = path.join(quakeOutputDir, "weapon-shotgun.preparsed.jso
 const pickupOutputPath = path.join(quakeOutputDir, "pickups.preparsed.json");
 const progsOutputPath = path.join(quakeOutputDir, "progs.preparsed.json");
 const sourcePath = path.join(projectRoot, "src/quake/prepare/preparedScene.ts");
+const textureOutputDir = path.join(quakeOutputDir, "textures");
+const renderBundleEntryPath = path.join(scriptDir, "quake-render-bundle-entry.mjs");
+const renderBundleOutputDir = path.join(quakeOutputDir, "bundles");
+const renderBundleMapNames = new Set(
+  (process.env.QUAKE_RENDER_BUNDLE_MAPS ?? quakeRenderBundleDefaultMapNames.join(","))
+    .split(",")
+    .map((mapName) => mapName.trim().toLowerCase())
+    .filter(Boolean),
+);
+const polycssPackage = JSON.parse(await readFile(
+  path.join(projectRoot, "node_modules/@layoutit/polycss/package.json"),
+  "utf8",
+));
 const EXPECTED_RESOURCE_SIZE = 9_086_574;
 const EXPECTED_RESOURCE_SHA256 = "c192c9c71bee41750dd7d14c99378766d61e077977b9d13d1a457b8d9eabe34a";
 const QUAKE_HUD_TRANSPARENT = 255;
@@ -47,6 +61,9 @@ const QUAKE_MENU_FRAME_COUNT = 6;
 const QUAKE_MENU_CURSOR_WIDTH = 16;
 const QUAKE_MENU_CURSOR_HEIGHT = 24;
 const QUAKE_MAIN_MENU_ROW_TOPS = [28, 52, 76, 100, 126];
+const QUAKE_MAIN_MENU_ACTIVE_FRAME_COUNT = 5;
+const QUAKE_MAIN_MENU_LEVEL_LABEL = "LEVEL SELECT";
+const QUAKE_MAIN_MENU_LEVEL_LABEL_SCALE = 2;
 const QUAKE_PICKUP_MODEL_SCALE = 1 / 48;
 const QUAKE_PICKUP_MODEL_PATHS = {
   item_armor1: "progs/armor.mdl",
@@ -81,11 +98,15 @@ const QUAKE_PICKUP_BSP_MODEL_PATHS = [
 
 const tempDir = await mkdtemp(path.join(tmpdir(), "polycss-quake-preparse-"));
 const bundlePath = path.join(tempDir, "quakePreparedScene.bundle.mjs");
+const renderBundleBuildPath = path.join(tempDir, "quakeRenderBundle.bundle.js");
 const extractedPakPath = path.join(tempDir, "ID1/PAK0.PAK");
+let renderBundleBuilder = null;
+const textureFileUrlByHash = new Map();
 
 try {
   await verifyQuakeResource();
   await extractQuakePak();
+  await rm(textureOutputDir, { recursive: true, force: true });
 
   await build({
     entryPoints: [sourcePath],
@@ -97,6 +118,20 @@ try {
     logLevel: "silent",
   });
 
+  if (renderBundleMapNames.size > 0) {
+    await build({
+      entryPoints: [renderBundleEntryPath],
+      outfile: renderBundleBuildPath,
+      bundle: true,
+      platform: "browser",
+      format: "iife",
+      globalName: "QuakeRenderBundleEntry",
+      absWorkingDir: projectRoot,
+      logLevel: "silent",
+    });
+    renderBundleBuilder = await createQuakeRenderBundleBuilder(renderBundleBuildPath);
+  }
+
   const {
     createQuakePocFromPreparedScene,
     createQuakePocPreparedSceneFromPakBuffer,
@@ -107,9 +142,18 @@ try {
   const preparedMaps = [];
   for (const [mapPath, outputPath] of mapOutputPaths) {
     const prepared = await createQuakePocPreparedSceneFromPakBuffer(buffer, {
-      encodeTextureUrl: encodeTextureDataUrl,
+      encodeTextureUrl: encodeTextureFileUrl,
       mapPath,
     });
+    const mapName = mapNameFromPakPath(mapPath);
+    if (renderBundleBuilder && renderBundleMapNames.has(mapName)) {
+      const scene = createQuakePocFromPreparedScene(prepared);
+      prepared.renderBundle = await renderBundleBuilder.build({
+        mapName,
+        polygons: scene.polygons,
+      });
+      stripPreparedRenderBundleFallbackTextures(prepared);
+    }
     const preparedJson = JSON.stringify(prepared);
     await mkdir(path.dirname(outputPath), { recursive: true });
     await writeFile(outputPath, preparedJson);
@@ -134,11 +178,16 @@ try {
   await writeFile(pickupOutputPath, JSON.stringify(await buildQuakePickupModels(
     uiAssets,
     async (mapPath) => createQuakePocFromPreparedScene(await createQuakePocPreparedSceneFromPakBuffer(buffer, {
-      encodeTextureUrl: encodeTextureDataUrl,
+      encodeTextureUrl: encodeTextureFileUrl,
       mapPath,
     })),
     programMetadata,
   )));
+  await pruneUnreferencedTextureFiles([
+    ...preparedMaps.map((item) => item.outputPath),
+    weaponOutputPath,
+    pickupOutputPath,
+  ]);
   for (const { outputPath, prepared, size } of preparedMaps) {
     console.log(`Wrote ${path.relative(projectRoot, outputPath)} (${formatBytes(size)})`);
     console.log(`${prepared.label}: ${prepared.faceCount}/${prepared.sourceFaceCount} faces, ${prepared.textureCount} textures`);
@@ -158,7 +207,174 @@ try {
   console.log(`Wrote ${path.relative(projectRoot, progsOutputPath)}`);
   console.log(`Wrote ${path.relative(projectRoot, pickupOutputPath)}`);
 } finally {
+  await renderBundleBuilder?.close?.();
   await rm(tempDir, { recursive: true, force: true });
+}
+
+async function createQuakeRenderBundleBuilder(bundlePath) {
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  page.on("pageerror", (error) => {
+    console.error(error);
+  });
+  page.on("console", (message) => {
+    if (message.type() === "error") console.error(message.text());
+  });
+  await page.route("**/*", async (route) => {
+    const url = new URL(route.request().url());
+    if (route.request().resourceType() === "document") {
+      await route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: "<!doctype html><html><head></head><body></body></html>",
+      });
+      return;
+    }
+    if (url.pathname.startsWith("/local/quake/textures/")) {
+      await route.fulfill({
+        status: 200,
+        contentType: contentTypeForPath(url.pathname),
+        body: await readFile(path.join(projectRoot, "public", url.pathname.replace(/^\//, ""))),
+      });
+      return;
+    }
+    await route.fulfill({ status: 404, body: "" });
+  });
+  await page.goto("http://quake-render-bundle.local/");
+  await page.addScriptTag({ path: bundlePath });
+
+  return {
+    async build({ mapName, polygons }) {
+      const startedAt = Date.now();
+      const result = await page.evaluate(
+        async (input) => window.__buildQuakeRenderBundle(input),
+        { polygons },
+      );
+      const assetDir = path.join(renderBundleOutputDir, mapName);
+      await rm(assetDir, { recursive: true, force: true });
+      await mkdir(assetDir, { recursive: true });
+
+      let meshHtml = result.meshHtml;
+      const assetUrls = [];
+      for (let index = 0; index < result.assets.length; index++) {
+        const asset = result.assets[index];
+        const buffer = Buffer.from(asset.base64, "base64");
+        const hash = createHash("sha256").update(buffer).digest("hex").slice(0, 12);
+        const extension = mimeExtension(asset.mime);
+        const filename = `atlas-${String(index).padStart(2, "0")}-${hash}.${extension}`;
+        const outputPath = path.join(assetDir, filename);
+        await writeFile(outputPath, buffer);
+        const assetUrl = `/local/quake/bundles/${mapName}/${filename}`;
+        meshHtml = meshHtml.split(asset.placeholder).join(assetUrl);
+        assetUrls.push(assetUrl);
+      }
+      if (meshHtml.includes("__QUAKE_RENDER_BUNDLE_ASSET_")) {
+        throw new Error(`Unresolved render bundle asset placeholder for ${mapName}.`);
+      }
+
+      const elapsed = Date.now() - startedAt;
+      console.log(
+        `Built render bundle for ${mapName}: ${result.leafCount} leaves, ` +
+        `${result.assets.length} atlas assets in ${elapsed}ms`,
+      );
+      return {
+        version: 1,
+        kind: "polycss-mesh",
+        polycssVersion: polycssPackage.version,
+        textureLighting: "baked",
+        textureQuality: 1,
+        meshHtml,
+        assetUrls,
+        polygonCount: result.polygonCount,
+        leafCount: result.leafCount,
+        atlasLeafCount: result.atlasLeafCount,
+      };
+    },
+    close: () => browser.close(),
+  };
+}
+
+function mimeExtension(mime) {
+  if (mime === "image/webp") return "webp";
+  if (mime === "image/jpeg") return "jpg";
+  return "png";
+}
+
+function contentTypeForPath(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === ".webp") return "image/webp";
+  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
+  if (extension === ".png") return "image/png";
+  return "application/octet-stream";
+}
+
+function mapNameFromPakPath(mapPath) {
+  return path.basename(mapPath, path.extname(mapPath)).toLowerCase();
+}
+
+function stripPreparedRenderBundleFallbackTextures(prepared) {
+  prepared.textures = [];
+  prepared.polygons = prepared.polygons.map((polygon) => {
+    const {
+      texture: _texture,
+      textureWrap: _textureWrap,
+      textureAlphaMode: _textureAlphaMode,
+      uvs: _uvs,
+      textureTriangles: _textureTriangles,
+      data,
+      ...rest
+    } = polygon;
+    const strippedData = stripPreparedRenderBundleFallbackData(data);
+    return {
+      ...rest,
+      ...(strippedData ? { data: strippedData } : {}),
+    };
+  });
+}
+
+function stripPreparedRenderBundleFallbackData(data) {
+  if (!data) return undefined;
+  const out = {};
+  for (const key of [
+    "quake",
+    "quake-face",
+    "quake-model",
+    "quake-entity",
+    "quake-lightstyle-animation",
+    "quake-lightstyle-overlay-pattern",
+  ]) {
+    if (data[key] !== undefined) out[key] = data[key];
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+async function pruneUnreferencedTextureFiles(jsonPaths) {
+  let files;
+  try {
+    files = await readdir(textureOutputDir);
+  } catch {
+    return;
+  }
+
+  const referenced = new Set();
+  const textureUrlPattern = /\/local\/quake\/textures\/([^"'\\)\s]+)/g;
+  for (const jsonPath of jsonPaths) {
+    const text = await readFile(jsonPath, "utf8");
+    for (const match of text.matchAll(textureUrlPattern)) {
+      if (match[1]) referenced.add(match[1]);
+    }
+  }
+
+  let removed = 0;
+  for (const file of files) {
+    if (referenced.has(file)) continue;
+    await rm(path.join(textureOutputDir, file), { force: true });
+    removed++;
+  }
+  if (removed > 0) {
+    console.log(`Removed ${removed} unreferenced generated texture files`);
+  }
 }
 
 async function verifyQuakeResource() {
@@ -238,8 +454,7 @@ async function buildQuakeMainMenuPng(assets) {
   const rgba = Buffer.alloc(QUAKE_MENU_WIDTH * QUAKE_MENU_HEIGHT * 4);
 
   drawPakQpicCrop(rgba, assets, "gfx/mainmenu.lmp", 0, 0, 240, 20, 72, QUAKE_MAIN_MENU_ROW_TOPS[0], QUAKE_MENU_WIDTH, QUAKE_MENU_HEIGHT, QUAKE_HUD_TRANSPARENT);
-  drawPakQpicCrop(rgba, assets, "gfx/mainmenu.lmp", 0, 20, 240, 20, 72, QUAKE_MAIN_MENU_ROW_TOPS[1], QUAKE_MENU_WIDTH, QUAKE_MENU_HEIGHT, QUAKE_HUD_TRANSPARENT);
-  dimIndexedPixels(rgba, QUAKE_MENU_WIDTH, QUAKE_MENU_HEIGHT, 72, QUAKE_MAIN_MENU_ROW_TOPS[1], 240, 20, 0.26);
+  drawMainMenuLevelSelectLabel(rgba, assets, 0, QUAKE_MENU_WIDTH);
   drawPakQpicCrop(rgba, assets, "gfx/mainmenu.lmp", 0, 40, 124, 20, 72, QUAKE_MAIN_MENU_ROW_TOPS[2], QUAKE_MENU_WIDTH, QUAKE_MENU_HEIGHT, QUAKE_HUD_TRANSPARENT);
   drawPakQpicCrop(rgba, assets, "gfx/mainmenu.lmp", 1, 60, 75, 20, 72, QUAKE_MAIN_MENU_ROW_TOPS[3], QUAKE_MENU_WIDTH, QUAKE_MENU_HEIGHT, QUAKE_HUD_TRANSPARENT);
   drawPakQpicCrop(rgba, assets, "gfx/mainmenu.lmp", 0, 84, 70, 20, 72, QUAKE_MAIN_MENU_ROW_TOPS[4], QUAKE_MENU_WIDTH, QUAKE_MENU_HEIGHT, QUAKE_HUD_TRANSPARENT);
@@ -272,10 +487,11 @@ async function buildQuakeMainMenuCursorPng(assets) {
 }
 
 async function buildQuakeMainMenuActivePng(assets) {
-  const width = QUAKE_MENU_WIDTH * 4;
+  const width = QUAKE_MENU_WIDTH * QUAKE_MAIN_MENU_ACTIVE_FRAME_COUNT;
   const rgba = Buffer.alloc(width * QUAKE_MENU_HEIGHT * 4);
 
   drawPakQpicCrop(rgba, assets, "gfx/mainmenu.lmp", 0, 0, 240, 20, 72, QUAKE_MAIN_MENU_ROW_TOPS[0], width, QUAKE_MENU_HEIGHT, QUAKE_HUD_TRANSPARENT);
+  drawMainMenuLevelSelectLabel(rgba, assets, QUAKE_MENU_WIDTH, width);
   drawPakQpicCrop(
     rgba,
     assets,
@@ -284,7 +500,7 @@ async function buildQuakeMainMenuActivePng(assets) {
     40,
     124,
     20,
-    QUAKE_MENU_WIDTH + 72,
+    QUAKE_MENU_WIDTH * 2 + 72,
     QUAKE_MAIN_MENU_ROW_TOPS[2],
     width,
     QUAKE_MENU_HEIGHT,
@@ -298,7 +514,7 @@ async function buildQuakeMainMenuActivePng(assets) {
     60,
     75,
     20,
-    QUAKE_MENU_WIDTH * 2 + 72,
+    QUAKE_MENU_WIDTH * 3 + 72,
     QUAKE_MAIN_MENU_ROW_TOPS[3],
     width,
     QUAKE_MENU_HEIGHT,
@@ -312,7 +528,7 @@ async function buildQuakeMainMenuActivePng(assets) {
     84,
     70,
     20,
-    QUAKE_MENU_WIDTH * 3 + 72,
+    QUAKE_MENU_WIDTH * 4 + 72,
     QUAKE_MAIN_MENU_ROW_TOPS[4],
     width,
     QUAKE_MENU_HEIGHT,
@@ -322,6 +538,23 @@ async function buildQuakeMainMenuActivePng(assets) {
   return sharp(rgba, {
     raw: { width, height: QUAKE_MENU_HEIGHT, channels: 4 },
   }).png().toBuffer();
+}
+
+function drawMainMenuLevelSelectLabel(rgba, assets, frameX, targetWidth) {
+  const scale = QUAKE_MAIN_MENU_LEVEL_LABEL_SCALE;
+  const x = frameX + 72;
+  const y = QUAKE_MAIN_MENU_ROW_TOPS[1] + Math.round((20 - 8 * scale) / 2);
+  drawConcharsTextScaled(
+    rgba,
+    assets,
+    QUAKE_MAIN_MENU_LEVEL_LABEL,
+    x,
+    y,
+    true,
+    scale,
+    targetWidth,
+    QUAKE_MENU_HEIGHT,
+  );
 }
 
 async function buildPakQpicCropPng(assets, pakPath, sourceX, sourceY, width, height) {
@@ -361,9 +594,9 @@ async function buildQuakeMenuPanelTexturePng(preparedMaps) {
     "wizmet1_2",
   ];
   for (const textureName of textureNames) {
-    const dataUrl = findPreparedTextureDataUrl(preparedMaps, textureName);
-    if (!dataUrl) continue;
-    return sharp(decodePngDataUrl(dataUrl))
+    const textureBuffer = await findPreparedTextureBuffer(preparedMaps, textureName);
+    if (!textureBuffer) continue;
+    return sharp(textureBuffer)
       .modulate({ brightness: 1.12, saturation: 0.92 })
       .png({ palette: true })
       .toBuffer();
@@ -394,7 +627,7 @@ async function buildQuakeConcharsPng(assets) {
   }).png().toBuffer();
 }
 
-function findPreparedTextureDataUrl(preparedMaps, textureName) {
+async function findPreparedTextureBuffer(preparedMaps, textureName) {
   const target = textureName.toLowerCase();
   const maps = [
     ...preparedMaps.filter((item) => item.prepared?.label === "maps/e1m2.bsp"),
@@ -406,10 +639,16 @@ function findPreparedTextureDataUrl(preparedMaps, textureName) {
       const texture = typeof polygon.texture === "number"
         ? prepared.textures?.[polygon.texture]
         : polygon.texture;
-      if (typeof texture === "string" && texture.startsWith("data:image/png;base64,")) return texture;
+      if (typeof texture === "string") return readPreparedTextureBuffer(texture);
     }
   }
   return undefined;
+}
+
+async function readPreparedTextureBuffer(texture) {
+  if (texture.startsWith("data:image/png;base64,")) return decodePngDataUrl(texture);
+  if (!texture.startsWith("/local/quake/")) return undefined;
+  return readFile(path.join(projectRoot, "public", texture.replace(/^\//, "")));
 }
 
 function decodePngDataUrl(dataUrl) {
@@ -970,7 +1209,19 @@ function drawConcharsText(rgba, assets, text, x, y, alt) {
   }
 }
 
+function drawConcharsTextScaled(rgba, assets, text, x, y, alt, scale, targetWidth, targetHeight) {
+  let cursorX = x;
+  for (const char of text) {
+    if (char !== " ") drawConcharScaled(rgba, assets, char, cursorX, y, alt, scale, targetWidth, targetHeight);
+    cursorX += 8 * scale;
+  }
+}
+
 function drawConchar(rgba, assets, char, x, y, alt) {
+  drawConcharScaled(rgba, assets, char, x, y, alt, 1, QUAKE_ABOUT_WIDTH, QUAKE_ABOUT_HEIGHT);
+}
+
+function drawConcharScaled(rgba, assets, char, x, y, alt, scale, targetWidth, targetHeight) {
   const lump = assets.lumps.get("conchars");
   if (!lump || lump.type !== 68) throw new Error("Missing Quake CONCHARS.");
   const glyph = (char.charCodeAt(0) & 127) + (alt ? 128 : 0);
@@ -980,7 +1231,19 @@ function drawConchar(rgba, assets, char, x, y, alt) {
     for (let col = 0; col < 8; col++) {
       const colorIndex = assets.wad.readUInt8(lump.filepos + (sourceY + row) * 128 + sourceX + col);
       if (colorIndex === 0) continue;
-      setIndexedPixel(rgba, QUAKE_ABOUT_WIDTH, QUAKE_ABOUT_HEIGHT, assets.palette, x + col, y + row, colorIndex);
+      for (let dy = 0; dy < scale; dy++) {
+        for (let dx = 0; dx < scale; dx++) {
+          setIndexedPixel(
+            rgba,
+            targetWidth,
+            targetHeight,
+            assets.palette,
+            x + col * scale + dx,
+            y + row * scale + dy,
+            colorIndex,
+          );
+        }
+      }
     }
   }
 }
@@ -1079,6 +1342,28 @@ function readNullTerminatedString(buffer, offset) {
 }
 
 async function encodeTextureDataUrl({ width, height, pixels, palette, brightness, alpha }) {
+  const png = await encodeTexturePng({ width, height, pixels, palette, brightness, alpha });
+  return `data:image/png;base64,${png.toString("base64")}`;
+}
+
+async function encodeTextureFileUrl(input) {
+  const png = await encodeTexturePng(input);
+  const hash = createHash("sha256").update(png).digest("hex").slice(0, 16);
+  const cached = textureFileUrlByHash.get(hash);
+  if (cached) return await cached;
+  const task = (async () => {
+    const filename = `tex-${hash}.png`;
+    await mkdir(textureOutputDir, { recursive: true });
+    await writeFile(path.join(textureOutputDir, filename), png);
+    return `/local/quake/textures/${filename}`;
+  })();
+  textureFileUrlByHash.set(hash, task);
+  const url = await task;
+  textureFileUrlByHash.set(hash, url);
+  return url;
+}
+
+async function encodeTexturePng({ width, height, pixels, palette, brightness, alpha }) {
   const rgba = Buffer.alloc(width * height * 4);
   for (let i = 0; i < pixels.length; i++) {
     const paletteIndex = pixels[i] ?? 0;
@@ -1093,7 +1378,7 @@ async function encodeTextureDataUrl({ width, height, pixels, palette, brightness
   const png = await sharp(rgba, {
     raw: { width, height, channels: 4 },
   }).png().toBuffer();
-  return `data:image/png;base64,${png.toString("base64")}`;
+  return png;
 }
 
 function paletteRgbAt(palette, paletteIndex) {

@@ -8,6 +8,8 @@
       name="description"
       content="A standalone PolyCSS-powered Quake renderer built with DOM and CSS transforms."
     />
+    <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <style>
       html,
       body {
@@ -51,7 +53,7 @@
         position: absolute;
         top: 14px;
         left: 14px;
-        z-index: 4;
+        z-index: 40;
         display: block;
         width: min(260px, calc(100vw - 92px));
         height: auto;
@@ -59,6 +61,77 @@
         image-rendering: pixelated;
         pointer-events: none;
         user-select: none;
+      }
+
+      #quake-loading-overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 30;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: #050505;
+        color: #f6f1df;
+        pointer-events: auto;
+        user-select: none;
+        cursor: progress;
+      }
+
+      #quake-loading-overlay[hidden] {
+        display: none;
+      }
+
+      .btn-github,
+      .quake-copyright-notice {
+        z-index: 40;
+      }
+
+      .quake-loading-mark {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: min(960px, calc(100vw - 32px), calc(160dvh - 52px));
+        aspect-ratio: 320 / 200;
+      }
+
+      .quake-loading-mark::before {
+        display: none;
+        content: none;
+      }
+
+      .quake-loading-mark > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      #quake-loading-status {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+        min-height: 60px;
+        color: #f0ad5c;
+        font: 700 14px/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        letter-spacing: 0;
+        text-transform: uppercase;
+        text-shadow: 0 2px 0 #000000;
+      }
+
+      #quake-loading-status::before {
+        content: "";
+        display: block;
+        flex: 0 0 auto;
+        width: 40px;
+        height: 60px;
+        background-image: url("/local/quake/main-menu-cursor.png");
+        background-repeat: no-repeat;
+        background-position: 0 0;
+        background-size: 600% 100%;
+        image-rendering: pixelated;
+      }
+
+      #quake-loading-status .quake-bitmap-text {
+        justify-content: center;
       }
     </style>
   </head>
@@ -68,12 +141,25 @@
       <div id="quake-viewmodel-layer" aria-hidden="true"></div>
       <img class="cssquake-logo" src="/cssquake-logo.png" width="1207" height="300" alt="cssQuake" />
       <div id="quake-hud">
-        <button id="quake-main-menu" type="button" aria-label="cssQuake menu">
+        <button id="quake-main-menu" type="button" aria-label="cssQuake menu" hidden>
           <span id="quake-main-menu-art" aria-hidden="true">
             <span id="quake-main-menu-active-row"></span>
             <span id="quake-main-menu-cursor"></span>
           </span>
         </button>
+        <section id="quake-level-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-level-title" tabindex="-1" hidden>
+          <div id="quake-level-card" class="quake-menu-card" role="document">
+            <header class="quake-menu-panel-header">
+              <h1 id="quake-level-title" class="quake-menu-panel-title" data-quake-bitmap-text data-quake-bitmap-size="label" data-quake-bitmap-alt="true">
+                Select Level
+              </h1>
+            </header>
+            <div id="quake-level-list" class="quake-level-list" aria-label="Available levels"></div>
+            <nav id="quake-level-actions" class="quake-menu-actions" aria-label="Level actions">
+              <button id="quake-level-back" type="button" data-quake-bitmap-text data-quake-bitmap-size="label" data-quake-bitmap-alt="true">Back</button>
+            </nav>
+          </div>
+        </section>
         <section id="quake-about-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-about-title" tabindex="-1" hidden>
           <div id="quake-about-card" class="quake-menu-card" role="document">
             <header class="quake-menu-panel-header">
@@ -196,6 +282,11 @@
         <span>Powered by PolyCSS v0.2.2</span>
         <span>Quake assets &copy; id Software LLC.</span>
       </p>
+      <div id="quake-loading-overlay" role="status" aria-live="polite" aria-busy="true">
+        <div class="quake-loading-mark">
+          <span id="quake-loading-status" data-quake-bitmap-text data-quake-bitmap-size="title" data-quake-bitmap-alt="true">Loading</span>
+        </div>
+      </div>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
