@@ -8,10 +8,9 @@
   "license": "GPL-2.0",
   "scripts": {
     "dev": "vite",
-    "typecheck": "tsc --noEmit",
     "prebuild": "pnpm exec playwright install chromium",
     "prepare:quake": "node src/quake/prepare/prepare-quake.mjs",
-    "build": "pnpm typecheck && pnpm prepare:quake && vite build",
+    "build": "pnpm prepare:quake && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -23,7 +22,6 @@
     "esbuild": "^0.28.0",
     "playwright": "^1.58.2",
     "sharp": "^0.34.5",
-    "typescript": "^5.9.3",
     "vite": "^7.3.1"
   }
 }

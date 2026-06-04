@@ -45,7 +45,7 @@ If `build/generated/public/local/quake` already exists locally, `pnpm dev` is en
 pnpm build
 ```
 
-The `prebuild` step installs Playwright's Chromium binary for render bundle generation. The build then runs TypeScript typechecking, downloads and verifies the Quake shareware data, generates deploy assets under `build/generated/public/local/quake`, and runs `vite build`.
+The `prebuild` step installs Playwright's Chromium binary for render bundle generation. The build then downloads and verifies the Quake shareware data, generates deploy assets under `build/generated/public/local/quake`, and runs `vite build`.
 
 ## License
 
