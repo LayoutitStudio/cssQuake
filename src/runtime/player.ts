@@ -1,6 +1,6 @@
 import type { PolyFirstPersonControlsHandle, Vec3 } from "@layoutit/polycss";
 
-import type { QuakeEntity, QuakePocScene } from "../prepare/preparedScene";
+import type { QuakeEntity, QuakeScene } from "../prepare/preparedScene";
 import type { QuakeCollisionWorld, QuakeTouchedTrigger } from "./collision";
 import {
   COLLISION_EPSILON,
@@ -20,13 +20,13 @@ export interface QuakePlayerControllerOptions {
   activateSolidTouch: (touch: QuakeTouchedTrigger) => void;
   controls: PolyFirstPersonControlsHandle;
   getCollisionWorld: () => QuakeCollisionWorld | null;
-  getCurrentScene: () => QuakePocScene | null;
+  getCurrentScene: () => QuakeScene | null;
   gravity: number;
   jumpVelocity: number;
   onDamageFlash: (active: boolean) => void;
   onHazardState: (kind: QuakeHazardDamage["kind"] | null) => void;
   onInventoryChanged: () => void;
-  onRespawn: (scene: QuakePocScene, origin: [number, number, number]) => void;
+  onRespawn: (scene: QuakeScene, origin: [number, number, number]) => void;
   pointToPoly: (point: { x: number; y: number; z: number }) => Vec3;
   resolveShootablesCollision: (
     result: { origin: [number, number, number]; groundZ: number; grounded: boolean; touches?: QuakeTouchedTrigger[] },
@@ -51,7 +51,7 @@ export interface QuakePlayerController {
   inventory: () => QuakePlayerInventory;
   resetInventory: () => void;
   resetForSceneDispose: () => void;
-  spawn: (spawn: QuakePocScene["spawn"]) => void;
+  spawn: (spawn: QuakeScene["spawn"]) => void;
   syncCollision: () => void;
   syncHazard: (hazard: QuakeHazardDamage | null) => boolean;
   teleportTo: (destination: QuakeEntity) => boolean;
@@ -111,7 +111,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     options.onInventoryChanged();
   };
 
-  const spawn = (spawn: QuakePocScene["spawn"]): void => {
+  const spawn = (spawn: QuakeScene["spawn"]): void => {
     const collisionWorld = options.getCollisionWorld();
     currentEyeHeight = spawn.eyeHeight;
     currentGroundZ = collisionWorld?.floorAt(

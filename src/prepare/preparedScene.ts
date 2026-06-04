@@ -256,18 +256,18 @@ interface QuakeBrushVisibility {
   faceIndices: number[];
 }
 
-export interface QuakePocVisibility {
+export interface QuakeVisibility {
   faceForPolygon: number[];
   leafIndexAt(point: Vec3): number;
   visibleLeavesAt(point: Vec3): Set<number> | null;
   visibleFacesAt(point: Vec3): Set<number> | null;
 }
 
-export type QuakePocSerializedPolygon = Omit<Polygon, "texture"> & {
+export type QuakeSerializedPolygon = Omit<Polygon, "texture"> & {
   texture?: number | string;
 };
 
-export interface QuakePocPreparedRenderBundle {
+export interface QuakePreparedRenderBundle {
   version: 1;
   kind: "polycss-mesh";
   polycssVersion: string;
@@ -280,7 +280,7 @@ export interface QuakePocPreparedRenderBundle {
   atlasLeafCount: number;
 }
 
-export interface QuakePocPreparedVisibility {
+export interface QuakePreparedVisibility {
   planes: QuakePlane[];
   nodes: QuakeNode[];
   leaves: QuakeLeaf[];
@@ -298,7 +298,7 @@ export interface QuakeCollisionHull {
   maxs: QuakeVertex;
 }
 
-export interface QuakePocPreparedModel {
+export interface QuakePreparedModel {
   index: number;
   mins: QuakeVertex;
   maxs: QuakeVertex;
@@ -311,7 +311,7 @@ export interface QuakePocPreparedModel {
 
 export type QuakeBrushCollisionKind = "solid" | "trigger";
 
-export interface QuakePocPreparedBrushCollision {
+export interface QuakePreparedBrushCollision {
   entityIndex: number;
   modelIndex: number;
   classname: string;
@@ -325,23 +325,23 @@ export interface QuakePocPreparedBrushCollision {
   targetname?: string;
 }
 
-export interface QuakePocPreparedCollision {
+export interface QuakePreparedCollision {
   planes: QuakePlane[];
   nodes?: QuakeNode[];
   leaves?: QuakeLeaf[];
   clipNodes: QuakeClipNode[];
   headNodes: [number, number, number, number];
   hulls: QuakeCollisionHull[];
-  models: QuakePocPreparedModel[];
-  brushModels: QuakePocPreparedBrushCollision[];
+  models: QuakePreparedModel[];
+  brushModels: QuakePreparedBrushCollision[];
   pivot: QuakeVertex;
 }
 
-export interface QuakePocPreparedScene {
+export interface QuakePreparedScene {
   version: 2;
-  polygons: QuakePocSerializedPolygon[];
+  polygons: QuakeSerializedPolygon[];
   textures: string[];
-  renderBundle?: QuakePocPreparedRenderBundle;
+  renderBundle?: QuakePreparedRenderBundle;
   textureCount: number;
   faceCount: number;
   sourceFaceCount: number;
@@ -349,7 +349,7 @@ export interface QuakePocPreparedScene {
   warnings: string[];
   entities: QuakeEntity[];
   entityManifest: QuakeEntityManifest;
-  models: QuakePocPreparedModel[];
+  models: QuakePreparedModel[];
   spawn: {
     origin: Vec3;
     groundZ: number;
@@ -357,14 +357,14 @@ export interface QuakePocPreparedScene {
     rotX: number;
     rotY: number;
   };
-  visibility?: QuakePocPreparedVisibility;
-  collision?: QuakePocPreparedCollision;
+  visibility?: QuakePreparedVisibility;
+  collision?: QuakePreparedCollision;
 }
 
-export interface QuakePocScene {
+export interface QuakeScene {
   polygons: Polygon[];
   textureUrls: string[];
-  renderBundle?: QuakePocPreparedRenderBundle;
+  renderBundle?: QuakePreparedRenderBundle;
   textureCount: number;
   faceCount: number;
   sourceFaceCount: number;
@@ -372,7 +372,7 @@ export interface QuakePocScene {
   warnings: string[];
   entities: QuakeEntity[];
   entityManifest: QuakeEntityManifest;
-  models: QuakePocPreparedModel[];
+  models: QuakePreparedModel[];
   spawn: {
     origin: Vec3;
     groundZ: number;
@@ -380,8 +380,8 @@ export interface QuakePocScene {
     rotX: number;
     rotY: number;
   };
-  visibility?: QuakePocVisibility;
-  collision?: QuakePocPreparedCollision;
+  visibility?: QuakeVisibility;
+  collision?: QuakePreparedCollision;
 }
 
 const BSP_LUMP_ENTITIES = 0;
@@ -444,16 +444,16 @@ export const QUAKE_LIGHT_STYLE_PATTERNS = new Map<number, string>([
 
 const REPEAT_WRAP = { s: "repeat", t: "repeat" } as const;
 
-export async function createQuakePocFromPakFile(file: File): Promise<QuakePocScene> {
+export async function createQuakeSceneFromPakFile(file: File): Promise<QuakeScene> {
   const buffer = await file.arrayBuffer();
-  const prepared = await createQuakePocPreparedSceneFromPakBuffer(buffer);
-  return createQuakePocFromPreparedScene(prepared);
+  const prepared = await createQuakePreparedSceneFromPakBuffer(buffer);
+  return createQuakeSceneFromPreparedScene(prepared);
 }
 
-export async function createQuakePocPreparedSceneFromPakBuffer(
+export async function createQuakePreparedSceneFromPakBuffer(
   buffer: ArrayBuffer,
   options: { encodeTextureUrl?: QuakeTextureUrlEncoder; mapPath?: string } = {},
-): Promise<QuakePocPreparedScene> {
+): Promise<QuakePreparedScene> {
   const entries = parsePak(buffer);
   const palette = paletteFromPak(buffer, entries);
   const mapEntry = options.mapPath
@@ -461,7 +461,7 @@ export async function createQuakePocPreparedSceneFromPakBuffer(
     : selectMapEntry(entries);
   if (!mapEntry) throw new Error(options.mapPath ? `No ${options.mapPath} entry found in this PAK.` : "No maps/*.bsp entry found in this PAK.");
   const bsp = buffer.slice(mapEntry.offset, mapEntry.offset + mapEntry.size);
-  return createQuakePocPreparedSceneFromBsp(
+  return createQuakePreparedSceneFromBsp(
     bsp,
     palette,
     mapEntry.name,
@@ -469,9 +469,9 @@ export async function createQuakePocPreparedSceneFromPakBuffer(
   );
 }
 
-export function createQuakePocFromPreparedScene(prepared: QuakePocPreparedScene): QuakePocScene {
+export function createQuakeSceneFromPreparedScene(prepared: QuakePreparedScene): QuakeScene {
   if (prepared.version !== QUAKE_PREPARED_SCENE_VERSION) {
-    throw new Error(`Unsupported Quake PoC prepared scene version ${String(prepared.version)}.`);
+    throw new Error(`Unsupported Quake prepared scene version ${String(prepared.version)}.`);
   }
   const polygons = prepared.polygons.map((polygon) => hydratePreparedPolygon(polygon, prepared.textures));
   return {
@@ -509,14 +509,14 @@ export function createQuakePocFromPreparedScene(prepared: QuakePocPreparedScene)
   };
 }
 
-function clonePreparedRenderBundle(renderBundle: QuakePocPreparedRenderBundle): QuakePocPreparedRenderBundle {
+function clonePreparedRenderBundle(renderBundle: QuakePreparedRenderBundle): QuakePreparedRenderBundle {
   return {
     ...renderBundle,
     assetUrls: [...renderBundle.assetUrls],
   };
 }
 
-function hydratePreparedPolygon(polygon: QuakePocSerializedPolygon, textures: string[]): Polygon {
+function hydratePreparedPolygon(polygon: QuakeSerializedPolygon, textures: string[]): Polygon {
   const { texture, data, ...rest } = polygon;
   const hydratedTexture = typeof texture === "number" ? textures[texture] : texture;
   const hydratedData = hydratePreparedPolygonData(data, textures);
@@ -540,12 +540,12 @@ function hydratePreparedPolygonData(
   return hydrated;
 }
 
-async function createQuakePocPreparedSceneFromBsp(
+async function createQuakePreparedSceneFromBsp(
   buffer: ArrayBuffer,
   palette: RGB[],
   label: string,
   encodeTextureUrl: QuakeTextureUrlEncoder,
-): Promise<QuakePocPreparedScene> {
+): Promise<QuakePreparedScene> {
   const view = new DataView(buffer);
   const version = view.getInt32(0, true);
   if (version !== QUAKE_BSP_VERSION) {
@@ -727,7 +727,7 @@ async function createQuakePocPreparedSceneFromBsp(
     eyeHeight: QUAKE_EYE_HEIGHT,
     rotX: 90,
     rotY: (180 + angle + 360) % 360,
-  } satisfies QuakePocScene["spawn"];
+  } satisfies QuakeScene["spawn"];
   return {
     version: QUAKE_PREPARED_SCENE_VERSION,
     polygons: serialized.polygons,
@@ -1131,7 +1131,7 @@ function incrementRecord(record: Record<string, number>, key: string): void {
   record[key] = (record[key] ?? 0) + 1;
 }
 
-function clonePreparedModels(models: QuakePocPreparedModel[]): QuakePocPreparedModel[] {
+function clonePreparedModels(models: QuakePreparedModel[]): QuakePreparedModel[] {
   return models.map((model) => ({
     index: model.index,
     mins: { ...model.mins },
@@ -1152,7 +1152,7 @@ function clonePreparedModels(models: QuakePocPreparedModel[]): QuakePocPreparedM
 function serializePreparedPolygons(
   polygons: Polygon[],
   textureUrls: string[],
-): { polygons: QuakePocSerializedPolygon[]; textures: string[] } {
+): { polygons: QuakeSerializedPolygon[]; textures: string[] } {
   const textures: string[] = [];
   const textureIndex = new Map<string, number>();
   const indexForTexture = (url: string): number => {
@@ -1175,7 +1175,7 @@ function serializePreparedPolygons(
         return {
           ...rest,
           ...(serializedData ? { data: serializedData } : {}),
-        } as QuakePocSerializedPolygon;
+        } as QuakeSerializedPolygon;
       }
       return {
         ...rest,
@@ -1208,7 +1208,7 @@ function buildPreparedVisibility(
   candidates: QuakeVisibilityCandidate[],
   brushModels: QuakeBrushModel[],
   pivot: QuakeVertex,
-): QuakePocPreparedVisibility | undefined {
+): QuakePreparedVisibility | undefined {
   if (!planes.length || !nodes.length || !leaves.length) return undefined;
   return {
     planes,
@@ -1225,7 +1225,7 @@ function buildPreparedVisibility(
   };
 }
 
-function buildPreparedModels(models: QuakeModel[]): QuakePocPreparedModel[] {
+function buildPreparedModels(models: QuakeModel[]): QuakePreparedModel[] {
   return models.map((model, index) => ({
     index,
     mins: { ...model.mins },
@@ -1263,11 +1263,11 @@ function buildPreparedCollision(
   nodes: QuakeNode[],
   leaves: QuakeLeaf[],
   clipNodes: QuakeClipNode[],
-  models: QuakePocPreparedModel[],
+  models: QuakePreparedModel[],
   entities: QuakeEntity[],
   headNodes: [number, number, number, number],
   pivot: QuakeVertex,
-): QuakePocPreparedCollision | undefined {
+): QuakePreparedCollision | undefined {
   if (!planes.length || !clipNodes.length) return undefined;
   const worldModel = models[0];
   return {
@@ -1285,9 +1285,9 @@ function buildPreparedCollision(
 
 function buildPreparedBrushCollisionModels(
   entities: QuakeEntity[],
-  models: QuakePocPreparedModel[],
-): QuakePocPreparedBrushCollision[] {
-  const out: QuakePocPreparedBrushCollision[] = [];
+  models: QuakePreparedModel[],
+): QuakePreparedBrushCollision[] {
+  const out: QuakePreparedBrushCollision[] = [];
   for (const entity of entities) {
     if (entity.modelIndex === undefined) continue;
     const kind = brushCollisionKind(entity.classname);
@@ -2167,7 +2167,7 @@ function buildVisibility(
   candidates: QuakeVisibilityCandidate[],
   brushModels: QuakeBrushModel[],
   pivot: QuakeVertex,
-): QuakePocVisibility | undefined {
+): QuakeVisibility | undefined {
   if (!planes.length || !nodes.length || !leaves.length) return undefined;
   const sourceFaces = sourceFaceSetFor(candidates);
   const renderFacesBySource = renderFaceMapFor(candidates);

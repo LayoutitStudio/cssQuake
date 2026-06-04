@@ -7,9 +7,9 @@ import {
 
 import {
   QUAKE_LIGHT_STYLE_PATTERNS,
-  type QuakePocPreparedRenderBundle,
-  type QuakePocScene,
-  type QuakePocVisibility,
+  type QuakePreparedRenderBundle,
+  type QuakeScene,
+  type QuakeVisibility,
 } from "../prepare/preparedScene";
 import { polygonNormal } from "./math";
 
@@ -62,7 +62,7 @@ export interface QuakeWorldController {
   dispose: () => void;
   leafIndexAt: (origin: Vec3) => number | undefined;
   modelLeaves: (modelIndex: number) => QuakeFaceLeaf[];
-  mount: (result: QuakePocScene) => void;
+  mount: (result: QuakeScene) => void;
   pixelate: (handle?: PolyMeshHandle | null) => void;
   schedulePresentationResync: (handle?: PolyMeshHandle | null) => Promise<void>;
   syncVisibility: (force?: boolean) => void;
@@ -81,7 +81,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
   let currentHandle: PolyMeshHandle | null = null;
   let currentLightstyleOverlayHandle: PolyMeshHandle | null = null;
   let currentTextureUrls: string[] = [];
-  let currentVisibility: QuakePocVisibility | null = null;
+  let currentVisibility: QuakeVisibility | null = null;
   let faceLeaves = new Map<number, QuakeFaceLeaf[]>();
   let modelLeaves = new Map<number, QuakeFaceLeaf[]>();
   let quakeLeaves: QuakeFaceLeaf[] = [];
@@ -111,7 +111,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     for (const task of presentationResyncTasks) settlePresentationResyncTask(task);
   };
 
-  const mount = (result: QuakePocScene): void => {
+  const mount = (result: QuakeScene): void => {
     currentTextureUrls = result.textureUrls;
     currentVisibility = result.visibility ?? null;
     currentHandle = result.renderBundle ? addQuakeRenderBundleMesh(result.renderBundle) : addQuakeMesh(result.polygons);
@@ -211,7 +211,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
 
   const addQuakeMesh = (polygons: Polygon[]): PolyMeshHandle => {
     const handle = options.scene.add(options.makeParseResult(polygons), {
-      id: "quake-texture-poc",
+      id: "quake-texture-mesh",
       merge: false,
       meshResolution: "lossless",
       excludeFromAutoCenter: true,
@@ -221,7 +221,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     return handle;
   };
 
-  const addQuakeRenderBundleMesh = (renderBundle: QuakePocPreparedRenderBundle): PolyMeshHandle => {
+  const addQuakeRenderBundleMesh = (renderBundle: QuakePreparedRenderBundle): PolyMeshHandle => {
     if (!options.sceneElement) {
       throw new Error("Quake render bundle mount requires a PolyCSS scene element.");
     }

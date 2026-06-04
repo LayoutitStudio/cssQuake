@@ -137,21 +137,21 @@ try {
   }
 
   const {
-    createQuakePocFromPreparedScene,
-    createQuakePocPreparedSceneFromPakBuffer,
+    createQuakeSceneFromPreparedScene,
+    createQuakePreparedSceneFromPakBuffer,
   } = await import(pathToFileURL(bundlePath).href);
   const pak = await readFile(extractedPakPath);
   const buffer = pak.buffer.slice(pak.byteOffset, pak.byteOffset + pak.byteLength);
 
   const preparedMaps = [];
   for (const [mapPath, outputPath] of mapOutputPaths) {
-    const prepared = await createQuakePocPreparedSceneFromPakBuffer(buffer, {
+    const prepared = await createQuakePreparedSceneFromPakBuffer(buffer, {
       encodeTextureUrl: encodeTextureFileUrl,
       mapPath,
     });
     const mapName = mapNameFromPakPath(mapPath);
     if (renderBundleBuilder && renderBundleMapNames.has(mapName)) {
-      const scene = createQuakePocFromPreparedScene(prepared);
+      const scene = createQuakeSceneFromPreparedScene(prepared);
       prepared.renderBundle = await renderBundleBuilder.build({
         mapName,
         polygons: scene.polygons,
@@ -181,7 +181,7 @@ try {
   await writeFile(progsOutputPath, JSON.stringify(programMetadata));
   await writeFile(pickupOutputPath, JSON.stringify(await buildQuakePickupModels(
     uiAssets,
-    async (mapPath) => createQuakePocFromPreparedScene(await createQuakePocPreparedSceneFromPakBuffer(buffer, {
+    async (mapPath) => createQuakeSceneFromPreparedScene(await createQuakePreparedSceneFromPakBuffer(buffer, {
       encodeTextureUrl: encodeTextureFileUrl,
       mapPath,
     })),

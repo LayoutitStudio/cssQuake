@@ -10,10 +10,10 @@ import {
 } from "@layoutit/polycss";
 import {
   QUAKE_RENDER_SUPERSAMPLE,
-  createQuakePocFromPreparedScene,
+  createQuakeSceneFromPreparedScene,
   type QuakeEntity,
-  type QuakePocPreparedScene,
-  type QuakePocScene,
+  type QuakePreparedScene,
+  type QuakeScene,
 } from "./prepare/preparedScene";
 import { mountQuakeBitmapText } from "./runtime/bitmapText";
 import {
@@ -332,7 +332,7 @@ player = createQuakePlayerController({
 let currentPickupModelLibrary: QuakePickupModelLibrary | null = null;
 let currentProgramMetadata: QuakeProgramMetadata | null = null;
 let currentCollisionWorld: QuakeCollisionWorld | null = null;
-let currentResult: QuakePocScene | null = null;
+let currentResult: QuakeScene | null = null;
 let entityByIndex = new Map<number, QuakeEntity>();
 let quakeModelPivot = { x: 0, y: 0, z: 0 };
 let quakeLevelLoadTimer: number | null = null;
@@ -482,7 +482,7 @@ function disposeCurrentScene(): void {
   delete document.body.dataset.quakeTriggers;
 }
 
-function setCamera(spawn: QuakePocScene["spawn"]): void {
+function setCamera(spawn: QuakeScene["spawn"]): void {
   getPlayer().spawn(spawn);
   syncSceneCamera(spawn.rotX, spawn.rotY);
   syncQuakeCrosshairTarget();
@@ -519,7 +519,7 @@ function forwardDirection(rotX: number, rotY: number): Vec3 {
   ];
 }
 
-function mountQuakeScene(result: QuakePocScene): void {
+function mountQuakeScene(result: QuakeScene): void {
   disposeCurrentScene();
   currentResult = result;
   currentCollisionWorld = result.collision
@@ -542,7 +542,7 @@ function mountQuakeScene(result: QuakePocScene): void {
   menu.focusCurrent();
 }
 
-function setupQuakeEntityActions(result: QuakePocScene): void {
+function setupQuakeEntityActions(result: QuakeScene): void {
   entityByIndex = new Map(result.entities.map((entity) => [entity.index, entity]));
   targetSystem.setup(result.entities);
   triggerSystem.clear();
@@ -829,10 +829,10 @@ function syncTouchedTriggers(origin: [number, number, number]): QuakeTouchedTrig
 
 
 function mountStatsOverlay(): () => void {
-  document.querySelector(".dn-stats-overlay[data-quake-poc-stats]")?.remove();
+  document.querySelector(".dn-stats-overlay[data-quake-stats]")?.remove();
   const statsContainer = document.createElement("div");
   statsContainer.className = "dn-stats-overlay";
-  statsContainer.dataset.quakePocStats = "true";
+  statsContainer.dataset.quakeStats = "true";
   statsContainer.setAttribute("aria-hidden", "true");
   statsContainer.style.position = "fixed";
   statsContainer.style.right = "12px";
@@ -932,14 +932,14 @@ function updateStatsPanel(panel: QuakeStatsPanel, value: number): void {
   panel.bar.style.height = `${height}%`;
 }
 
-async function fetchQuakeScene(url: string, mapName?: string): Promise<QuakePocScene> {
+async function fetchQuakeScene(url: string, mapName?: string): Promise<QuakeScene> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}.`);
-  const prepared = await response.json() as QuakePocPreparedScene;
+  const prepared = await response.json() as QuakePreparedScene;
   if (mapName && isQuakeRenderBundleRequired(mapName) && !prepared.renderBundle) {
     throw new Error(`Prepared Quake map ${mapName.toUpperCase()} is missing its render bundle.`);
   }
-  return createQuakePocFromPreparedScene(prepared);
+  return createQuakeSceneFromPreparedScene(prepared);
 }
 
 function isQuakeRenderBundleRequired(mapName: string): boolean {
@@ -1018,7 +1018,7 @@ async function loadProgramMetadata(): Promise<void> {
   currentProgramMetadata = metadata;
 }
 
-async function loadQuakePoc(): Promise<void> {
+async function loadQuake(): Promise<void> {
   setQuakeLoading(true);
   const programMetadataPromise = loadProgramMetadata();
   const pickupModelsPromise = loadPickupModels();
@@ -1084,7 +1084,7 @@ controls.addEventListener("change", syncPlayerCollision);
 const disposeStatsOverlay = mountStatsOverlay();
 syncQuakeHud();
 
-void loadQuakePoc().catch((error) => {
+void loadQuake().catch((error) => {
   console.error(error);
   if (!quakeAppDisposed) setQuakeLoadingError();
 });

@@ -38,7 +38,7 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({ polygo
     const handle = scene.add(
       { polygons, objectUrls: [], warnings: [], dispose: () => undefined },
       {
-        id: "quake-texture-poc",
+        id: "quake-texture-mesh",
         merge: false,
         meshResolution: "lossless",
         excludeFromAutoCenter: true,

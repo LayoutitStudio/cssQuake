@@ -1,6 +1,6 @@
 import type { Polygon, Vec3 } from "@layoutit/polycss";
 
-import type { QuakePocPreparedCollision } from "../prepare/preparedScene";
+import type { QuakePreparedCollision } from "../prepare/preparedScene";
 import {
   COLLISION_EPSILON,
   GROUND_SNAP,
@@ -126,7 +126,7 @@ const COLLISION_WALL_FLOOR_CLEARANCE = 2 * QUAKE_COLLISION_UNIT_SCALE;
 const COLLISION_MAX_STEP = 8 * QUAKE_COLLISION_UNIT_SCALE;
 const COLLISION_FLOOR_EDGE_SNAP = 1 * QUAKE_COLLISION_UNIT_SCALE;
 
-export function buildQuakeClipCollisionWorld(collision: QuakePocPreparedCollision): QuakeCollisionWorld | null {
+export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision): QuakeCollisionWorld | null {
   const hull = (collision.hulls ?? []).find((item) => item.index === QUAKE_PLAYER_HULL);
   const headNode = hull?.headNode ?? collision.headNodes[QUAKE_PLAYER_HULL];
   if (!Number.isInteger(headNode) || headNode < 0 || headNode >= collision.clipNodes.length) return null;

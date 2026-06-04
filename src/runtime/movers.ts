@@ -1,6 +1,6 @@
 import type { Vec3 } from "@layoutit/polycss";
 
-import type { QuakeEntity, QuakePocPreparedModel } from "../prepare/preparedScene";
+import type { QuakeEntity, QuakePreparedModel } from "../prepare/preparedScene";
 import type { QuakeTouchedTrigger } from "./collision";
 import {
   COLLISION_EPSILON,
@@ -22,7 +22,7 @@ export type QuakeMoverKind = "door" | "secret-door" | "button" | "plat";
 
 export interface QuakeMoverState {
   entity: QuakeEntity;
-  model: QuakePocPreparedModel;
+  model: QuakePreparedModel;
   kind: QuakeMoverKind;
   offset: Vec3;
   lastOffset: Vec3;
@@ -61,7 +61,7 @@ export interface QuakeMoversController {
   clear: () => void;
   setup: (
     entities: QuakeEntity[],
-    models: QuakePocPreparedModel[],
+    models: QuakePreparedModel[],
     pivot: { x: number; y: number; z: number },
   ) => void;
   get: (entityIndex: number) => QuakeMoverState | undefined;
@@ -90,7 +90,7 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
 
   const setup = (
     entities: QuakeEntity[],
-    models: QuakePocPreparedModel[],
+    models: QuakePreparedModel[],
     nextPivot: { x: number; y: number; z: number },
   ): void => {
     clear();
@@ -390,7 +390,7 @@ function quakeMoverDefaultWait(classname: string): number {
   return 3;
 }
 
-function createQuakeMoverState(entity: QuakeEntity, model: QuakePocPreparedModel): QuakeMoverState | null {
+function createQuakeMoverState(entity: QuakeEntity, model: QuakePreparedModel): QuakeMoverState | null {
   const kind = quakeMoverKind(entity.classname);
   if (!kind) return null;
 
@@ -452,7 +452,7 @@ function quakeMoverKind(classname: string): QuakeMoverKind | null {
   return null;
 }
 
-function quakePlatBottomOffset(entity: QuakeEntity, model: QuakePocPreparedModel): Vec3 {
+function quakePlatBottomOffset(entity: QuakeEntity, model: QuakePreparedModel): Vec3 {
   const height = quakeEntityNumber(
     entity,
     "height",
@@ -461,7 +461,7 @@ function quakePlatBottomOffset(entity: QuakeEntity, model: QuakePocPreparedModel
   return [0, 0, -height * QUAKE_COLLISION_UNIT_SCALE];
 }
 
-function quakeMoverTravelOffset(entity: QuakeEntity, model: QuakePocPreparedModel): Vec3 {
+function quakeMoverTravelOffset(entity: QuakeEntity, model: QuakePreparedModel): Vec3 {
   const direction = quakeEntityMoveDirection(entity);
   const lip = quakeEntityNumber(entity, "lip", entity.classname === "func_button" ? 4 : 8);
   const size = {
