@@ -9,7 +9,7 @@ const QUAKE_BITMAP_TEXT_SIZES = {
 type QuakeBitmapTextSize = keyof typeof QUAKE_BITMAP_TEXT_SIZES;
 
 export function mountQuakeBitmapText(root: ParentNode = document): void {
-  for (const element of root.querySelectorAll<HTMLElement>("[data-quake-bitmap-text]")) {
+  for (const element of root.querySelectorAll<HTMLElement>("[data-bm]")) {
     renderQuakeBitmapTextElement(element);
   }
 }
@@ -23,9 +23,9 @@ function renderQuakeBitmapTextElement(element: HTMLElement): void {
   source.textContent = text;
 
   const bitmap = createQuakeBitmapText(text, {
-    alt: element.dataset.quakeBitmapAlt === "true",
-    size: parseBitmapTextSize(element.dataset.quakeBitmapSize),
-    wrap: parseBitmapTextWrap(element.dataset.quakeBitmapWrap),
+    alt: element.dataset.bmAlt === "true",
+    size: parseBitmapTextSize(element.dataset.bmSize),
+    wrap: parseBitmapTextWrap(element.dataset.bmWrap),
   });
 
   element.textContent = "";

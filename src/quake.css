@@ -27,8 +27,14 @@ body {
   outline: none;
   touch-action: none;
 }
-#quake-host s {
+#quake-app .polycss-mesh b,
+#quake-app .polycss-mesh i,
+#quake-app .polycss-mesh s,
+#quake-app .polycss-mesh u {
   image-rendering: pixelated;
+}
+#quake-app .polycss-mesh s {
+  background-repeat: no-repeat !important;
 }
 #quake-viewmodel-layer {
   position: absolute;
@@ -127,7 +133,7 @@ body {
   user-select: none;
   cursor: progress;
 }
-body[data-quake-loading] .dn-stats-overlay[data-quake-stats] {
+body[data-loading] .dn-stats-overlay[data-stats] {
   z-index: 40 !important;
 }
 #quake-loading-overlay[hidden] {
@@ -167,7 +173,6 @@ body[data-quake-loading] .dn-stats-overlay[data-quake-stats] {
   width: 40px;
   height: 60px;
   background-image: url("/local/quake/main-menu-cursor.png");
-  background-repeat: no-repeat;
   background-position: 0 0;
   background-size: 600% 100%;
   image-rendering: pixelated;
@@ -205,12 +210,12 @@ body[data-quake-loading] .dn-stats-overlay[data-quake-stats] {
   pointer-events: none;
   mix-blend-mode: screen;
 }
-body[data-quake-damage-flash] #quake-hud::before {
+body[data-damage] #quake-hud::before {
   --quake-hud-flash-color: rgba(190, 0, 0, 0.36);
   animation: quake-damage-flash 260ms ease-out both;
 }
 #quake-hud::after {
-  content: attr(data-quake-level-complete);
+  content: attr(data-complete);
   position: absolute;
   left: 50%;
   top: 42%;
@@ -228,7 +233,7 @@ body[data-quake-damage-flash] #quake-hud::before {
   transform: translate(-50%, -50%);
   white-space: nowrap;
 }
-body[data-quake-level-complete] #quake-hud::after {
+body[data-complete] #quake-hud::after {
   display: block;
 }
 #quake-main-menu {
@@ -249,7 +254,7 @@ body[data-quake-level-complete] #quake-hud::after {
   pointer-events: auto;
   -webkit-tap-highlight-color: transparent;
 }
-#quake-main-menu[data-hover-selectable="true"] {
+#quake-main-menu[data-hover="true"] {
   cursor: pointer;
 }
 #quake-main-menu:focus,
@@ -270,7 +275,6 @@ body[data-quake-level-complete] #quake-hud::after {
   width: min(960px, calc(100vw - 32px), calc(160vh - 52px));
   aspect-ratio: 320 / 200;
   background-image: url("/local/quake/main-menu.png");
-  background-repeat: no-repeat;
   background-position: center;
   background-size: 100% 100%;
   image-rendering: pixelated;
@@ -288,7 +292,6 @@ body[data-quake-level-complete] #quake-hud::after {
   inset: 0;
   display: block;
   background-image: url("/local/quake/main-menu-active.png");
-  background-repeat: no-repeat;
   background-position: var(--quake-main-menu-active-x) 0;
   background-size: 500% 100%;
   opacity: var(--quake-main-menu-active-opacity);
@@ -305,7 +308,6 @@ body[data-quake-level-complete] #quake-hud::after {
   width: 5%;
   height: 12%;
   background-image: url("/local/quake/main-menu-cursor.png");
-  background-repeat: no-repeat;
   background-position: 0 0;
   background-size: 600% 100%;
   image-rendering: pixelated;
@@ -416,7 +418,6 @@ body[data-quake-level-complete] #quake-hud::after {
   width: var(--quake-bitmap-glyph-size);
   height: var(--quake-bitmap-glyph-size);
   background-image: url("/local/quake/conchars.png");
-  background-repeat: no-repeat;
   background-size: var(--quake-bitmap-sheet-size) var(--quake-bitmap-sheet-size);
   image-rendering: pixelated;
 }
@@ -548,11 +549,11 @@ body[data-quake-level-complete] #quake-hud::after {
 .quake-level-button:focus-visible .quake-bitmap-text {
   filter: brightness(1.2) saturate(1.08) drop-shadow(0 1px 0 #000000);
 }
-.quake-level-button[data-quake-current-level="true"] {
+.quake-level-button[data-current="true"] {
   border-color: rgba(240, 173, 92, 0.88);
   background: rgba(73, 30, 16, 0.82);
 }
-.quake-level-button[data-quake-current-level="true"]::after {
+.quake-level-button[data-current="true"]::after {
   opacity: 1;
 }
 .quake-level-button:disabled {
@@ -735,21 +736,21 @@ body[data-quake-level-complete] #quake-hud::after {
     align-items: start;
   }
 }
-#quake-viewmodel-layer [data-quake-view-weapon] {
-  image-rendering: pixelated;
-  pointer-events: none;
-}
-#quake-viewmodel-layer .polycss-mesh[data-poly-mesh-id="quake-view-weapon-model"] {
+#quake-viewmodel-layer .polycss-mesh.viewmodel {
   pointer-events: none;
   z-index: 4;
 }
-#quake-viewmodel-layer .polycss-mesh[data-poly-mesh-id="quake-view-weapon-model"] > b,
-#quake-viewmodel-layer .polycss-mesh[data-poly-mesh-id="quake-view-weapon-model"] > i,
-#quake-viewmodel-layer .polycss-mesh[data-poly-mesh-id="quake-view-weapon-model"] > s,
-#quake-viewmodel-layer .polycss-mesh[data-poly-mesh-id="quake-view-weapon-model"] > u {
+#quake-viewmodel-layer .polycss-mesh.viewmodel > b,
+#quake-viewmodel-layer .polycss-mesh.viewmodel > i,
+#quake-viewmodel-layer .polycss-mesh.viewmodel > s,
+#quake-viewmodel-layer .polycss-mesh.viewmodel > u,
+#quake-viewmodel-layer .polycss-mesh.viewmodel > [data-nozzle-group] > b,
+#quake-viewmodel-layer .polycss-mesh.viewmodel > [data-nozzle-group] > i,
+#quake-viewmodel-layer .polycss-mesh.viewmodel > [data-nozzle-group] > s,
+#quake-viewmodel-layer .polycss-mesh.viewmodel > [data-nozzle-group] > u {
   backface-visibility: visible;
 }
-#quake-viewmodel-layer .polycss-mesh[data-poly-mesh-id="quake-view-weapon-model"] > [data-quake-view-weapon-nozzle-group] {
+#quake-viewmodel-layer .polycss-mesh.viewmodel > [data-nozzle-group] {
   position: absolute;
   display: block;
   top: 0;
@@ -761,33 +762,33 @@ body[data-quake-level-complete] #quake-hud::after {
   transform-origin: 0 0;
   visibility: hidden;
 }
-#quake-viewmodel-layer .polycss-mesh[data-poly-mesh-id="quake-view-weapon-model"][data-quake-weapon-nozzle-visible] > [data-quake-view-weapon-nozzle-group] {
+#quake-viewmodel-layer .polycss-mesh.viewmodel[data-nozzle-visible] > [data-nozzle-group] {
   visibility: visible;
 }
-.polycss-mesh[data-poly-mesh-id^="quake-pickup-"] > b,
-.polycss-mesh[data-poly-mesh-id^="quake-pickup-"] > i,
-.polycss-mesh[data-poly-mesh-id^="quake-pickup-"] > s,
-.polycss-mesh[data-poly-mesh-id^="quake-pickup-"] > u {
+.polycss-mesh.pickup > b,
+.polycss-mesh.pickup > i,
+.polycss-mesh.pickup > s,
+.polycss-mesh.pickup > u {
   backface-visibility: visible;
 }
-.polycss-mesh[data-poly-mesh-id^="quake-shootable-"] {
+.polycss-mesh.shootable {
   transition: opacity 180ms linear, filter 180ms ease-out;
 }
-.polycss-mesh[data-poly-mesh-id^="quake-shootable-"] > b,
-.polycss-mesh[data-poly-mesh-id^="quake-shootable-"] > i,
-.polycss-mesh[data-poly-mesh-id^="quake-shootable-"] > s,
-.polycss-mesh[data-poly-mesh-id^="quake-shootable-"] > u {
+.polycss-mesh.shootable > b,
+.polycss-mesh.shootable > i,
+.polycss-mesh.shootable > s,
+.polycss-mesh.shootable > u {
   backface-visibility: visible;
 }
-.polycss-mesh[data-quake-shootable-dead] {
+.polycss-mesh[data-dead] {
   opacity: 0;
   filter: brightness(2.5) saturate(1.8);
 }
-body[data-quake-menu-open] #quake-crosshair,
-body[data-quake-menu-open] #quake-classic-hud {
+body[data-menu] #quake-crosshair,
+body[data-menu] #quake-classic-hud {
   display: none;
 }
-body[data-quake-menu-open] #quake-viewmodel-layer {
+body[data-menu] #quake-viewmodel-layer {
   display: none;
 }
 #quake-crosshair {
@@ -818,11 +819,11 @@ body[data-quake-menu-open] #quake-viewmodel-layer {
   width: 2px;
   height: 24px;
 }
-body[data-quake-crosshair-action] #quake-crosshair {
+body[data-action] #quake-crosshair {
   filter: drop-shadow(0 2px 0 #000000) drop-shadow(0 0 5px rgba(88, 255, 62, 0.7));
 }
-body[data-quake-crosshair-action] #quake-crosshair::before,
-body[data-quake-crosshair-action] #quake-crosshair::after {
+body[data-action] #quake-crosshair::before,
+body[data-action] #quake-crosshair::after {
   background: #6aff4a;
 }
 #quake-classic-hud {
@@ -844,11 +845,21 @@ body[data-quake-crosshair-action] #quake-crosshair::after {
   --quake-hud-ammo-x: calc(248 * var(--quake-hud-px));
   transform: translateX(-50%);
   aspect-ratio: 320 / 24;
-  background: #050302 url("/local/quake/hud-base.png") 0 0 / 100% 100% no-repeat;
+  background: #050302 url("/local/quake/hud-base.png") 0 0 / 100% 100%;
   overflow: hidden;
   line-height: 0;
   container-type: inline-size;
   image-rendering: pixelated;
+}
+#quake-loading-status::before,
+#quake-main-menu-art,
+#quake-main-menu-active-row,
+#quake-main-menu-cursor,
+.quake-bitmap-glyph,
+#quake-classic-hud,
+.quake-hud-sprite,
+.quake-hud-digit {
+  background-repeat: no-repeat;
 }
 #quake-classic-hud-image {
   display: none;
@@ -863,7 +874,6 @@ body[data-quake-crosshair-action] #quake-crosshair::after {
   top: 0;
   height: 100%;
   background-image: url("/local/quake/hud.png");
-  background-repeat: no-repeat;
   background-size: 100cqw auto;
   background-position-x: calc(var(--quake-hud-sprite-x) * -1 * var(--quake-hud-px));
   background-position-y: 0;
@@ -894,7 +904,6 @@ body[data-quake-crosshair-action] #quake-crosshair::after {
   width: calc(24 * var(--quake-hud-px));
   height: 100%;
   background-image: url("/local/quake/hud-numbers.png");
-  background-repeat: no-repeat;
   background-size: calc(240 * var(--quake-hud-px)) calc(24 * var(--quake-hud-px));
   background-position-x: calc(var(--quake-hud-digit-index, 0) * -24 * var(--quake-hud-px));
   background-position-y: 0;
@@ -947,10 +956,10 @@ body[data-quake-crosshair-action] #quake-crosshair::after {
 .quake-hud-readout-health {
   left: var(--quake-hud-health-x);
 }
-#quake-classic-hud[data-quake-health-state="hurt"] .quake-hud-readout-health {
+#quake-classic-hud[data-state="hurt"] .quake-hud-readout-health {
   filter: brightness(1.12) saturate(1.12);
 }
-#quake-classic-hud[data-quake-health-state="critical"] .quake-hud-readout-health {
+#quake-classic-hud[data-state="critical"] .quake-hud-readout-health {
   filter: brightness(1.28) saturate(1.28);
 }
 .quake-hud-readout-ammo {
@@ -973,13 +982,13 @@ body[data-quake-crosshair-action] #quake-crosshair::after {
   opacity: 1;
 }
 .quake-hud-key::before {
-  content: attr(data-key-label);
+  content: attr(data-label);
 }
-#quake-classic-hud:not([data-quake-key-silver]) .quake-hud-key-silver,
-#quake-classic-hud:not([data-quake-key-gold]) .quake-hud-key-gold {
+#quake-classic-hud:not([data-silver]) .quake-hud-key-silver,
+#quake-classic-hud:not([data-gold]) .quake-hud-key-gold {
   opacity: 0;
 }
-body[data-quake-menu-open] .dn-stats-overlay[data-quake-stats] {
+body[data-menu] .dn-stats-overlay[data-stats] {
   display: none !important;
 }
 @keyframes quake-main-menu-cursor-frame {

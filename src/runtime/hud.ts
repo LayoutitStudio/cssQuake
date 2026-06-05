@@ -49,18 +49,14 @@ export function syncQuakeHud(elements: QuakeHudElements, inventory: QuakePlayerI
   setHudValue(elements.health, health);
   setHudValue(elements.ammo, ammo);
   if (elements.root) {
-    elements.root.dataset.quakeHudArmor = armor;
-    elements.root.dataset.quakeHudHealth = health;
-    elements.root.dataset.quakeHudAmmo = ammo;
-    elements.root.dataset.quakeHealthState = inventory.health <= 25 ? "critical" : inventory.health <= 50 ? "hurt" : "ok";
-    setHudFlag(elements.root, "quakeKeySilver", inventory.keys.has("silver"));
-    setHudFlag(elements.root, "quakeKeyGold", inventory.keys.has("gold"));
+    elements.root.dataset.state = inventory.health <= 25 ? "critical" : inventory.health <= 50 ? "hurt" : "ok";
+    setHudFlag(elements.root, "silver", inventory.keys.has("silver"));
+    setHudFlag(elements.root, "gold", inventory.keys.has("gold"));
     elements.root.setAttribute(
       "aria-label",
       `Quake status: armor ${Math.max(0, Math.round(inventory.armor))}, health ${Math.max(0, Math.round(inventory.health))}, shells ${Math.max(0, Math.round(inventory.shells))}`,
     );
   }
-  if (elements.keys) elements.keys.dataset.active = inventory.keys.size > 0 ? "true" : "false";
 }
 
 export function applyQuakeInventoryDelta(inventory: QuakePlayerInventory, delta: QuakeInventoryDelta): void {
@@ -83,7 +79,6 @@ function formatHudNumber(value: number): string {
 
 function setHudValue(element: HTMLElement | null, value: string): void {
   if (!element) return;
-  element.dataset.value = value;
   const digits = element.querySelectorAll<HTMLElement>(".quake-hud-digit");
   for (let i = 0; i < digits.length; i++) {
     const digit = value[i] ?? " ";

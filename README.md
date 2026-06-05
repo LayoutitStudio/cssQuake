@@ -1,6 +1,6 @@
 # cssQuake
 
-<img src="src/assets/cssquake-logo.png" alt="cssQuake" width="360">
+<img src="src/assets/cssquake-social.png" alt="cssQuake gameplay rendered as DOM and CSS markup" width="960">
 
 Quake levels, rendered as DOM. Powered by [PolyCSS](https://github.com/LayoutitStudio/polycss).
 

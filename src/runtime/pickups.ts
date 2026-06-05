@@ -1,6 +1,6 @@
 import type { Polygon, PolyMeshHandle, Vec3 } from "@layoutit/polycss";
 
-import type { QuakeEntity } from "../prepare/scene";
+import type { QuakeEntity, QuakePreparedRenderBundle } from "../prepare/scene";
 import type { QuakeInventoryDelta } from "./hud";
 import { QUAKE_COLLISION_UNIT_SCALE } from "./constants";
 import { quakeEntityNumber, quakeEntitySpawnflags } from "./entities";
@@ -15,8 +15,7 @@ const QUAKE_PICKUP_ALIAS_BOB_RADIANS_PER_SECOND = Math.PI * 2 * 0.65;
 
 export interface QuakePickupModel {
   source: string;
-  texture?: string;
-  polygons: Polygon[];
+  renderBundle?: QuakePreparedRenderBundle;
   animationFrames?: QuakePickupModelAnimationFrame[];
   bounds: {
     min: Vec3;
@@ -26,7 +25,7 @@ export interface QuakePickupModel {
 
 export interface QuakePickupModelAnimationFrame {
   name: string;
-  polygons: Polygon[];
+  renderBundle: QuakePreparedRenderBundle;
 }
 
 export interface QuakePickupModelLibrary {
@@ -77,13 +76,11 @@ interface QuakePickupAnimationState {
 }
 
 export interface QuakePickupControllerOptions {
-  addMesh: (entity: QuakeEntity, model?: QuakePickupModel) => PolyMeshHandle | null;
+  addMesh: (entity: QuakeEntity, model?: QuakePickupModel, frameIndex?: number) => PolyMeshHandle | null;
   applyEffect: (effect: QuakePickupEffect) => void;
   leafIndexAt: (origin: Vec3) => number | undefined;
-  pixelate: (handle: PolyMeshHandle) => void;
   pointToPoly: (point: { x: number; y: number; z: number }) => Vec3;
   programMetadata: () => QuakeProgramMetadata | null;
-  schedulePresentationResync: (handle?: PolyMeshHandle | null) => void;
   shouldSpawn: (entity: QuakeEntity) => boolean;
   visibleLeavesAt: (origin: [number, number, number]) => Set<number> | null;
 }
@@ -207,12 +204,14 @@ export function createQuakePickupController(options: QuakePickupControllerOption
       if (animation.frameCount > 1 && now >= animation.nextFrameAt) {
         animation.frameIndex = (animation.frameIndex + 1) % animation.frameCount;
         animation.nextFrameAt = now + 1000 / QUAKE_PICKUP_ALIAS_ANIMATION_FPS;
-        pickup.handle.setPolygons(
-          quakePickupModelPolygons(pickup.entity, animation.model, animation.frameIndex),
-          { merge: false, stableDom: true, recomputeAutoCenter: false },
-        );
-        options.pixelate(pickup.handle);
-        options.schedulePresentationResync(pickup.handle);
+        const previousHandle = pickup.handle;
+        const nextHandle = options.addMesh(pickup.entity, animation.model, animation.frameIndex);
+        if (nextHandle) {
+          previousHandle.remove();
+          handles = handles.filter((handle) => handle !== previousHandle);
+          handles.push(nextHandle);
+          pickup.handle = nextHandle;
+        }
       }
       if (animation.spin) {
         pickup.handle.setTransform({
@@ -290,15 +289,9 @@ const QUAKE_PICKUP_MODEL_PATHS: Record<string, string> = {
 
 export function quakePickupPolygons(
   entity: QuakeEntity,
-  modelLibrary: QuakePickupModelLibrary | null,
-  programMetadata: QuakeProgramMetadata | null = null,
 ): Polygon[] {
-  const resolvedModel = quakePickupModelForEntity(entity, modelLibrary, programMetadata);
-  if (resolvedModel) {
-    return quakePickupModelPolygons(entity, resolvedModel);
-  }
-  if (entity.classname === "item_health") return createHealthPickupPolygons(entity.index);
-  if (quakePickupEffectForEntity(entity)) return createGenericPickupPolygons(entity.index, entity.classname);
+  if (entity.classname === "item_health") return createHealthPickupPolygons();
+  if (quakePickupEffectForEntity(entity)) return createGenericPickupPolygons(entity.classname);
   return [];
 }
 
@@ -316,22 +309,15 @@ export function quakePickupModelForEntity(
   return model ?? fallbackModel;
 }
 
-export function quakePickupModelPolygons(
-  entity: QuakeEntity,
+export function quakePickupModelRenderBundle(
   model: QuakePickupModel,
   frameIndex = 0,
-): Polygon[] {
-  const frame = model.animationFrames?.[frameIndex];
-  const polygons = frame?.polygons ?? model.polygons;
-  return polygons.map((polygon) => ({
-    ...polygon,
-    ...(model.texture ? { texture: model.texture, textureAlphaMode: "opaque" as const } : {}),
-    data: {
-      ...polygon.data,
-      "quake-pickup-entity": entity.index,
-      "quake-pickup-classname": entity.classname,
-    },
-  }));
+): QuakePreparedRenderBundle {
+  const renderBundle = model.animationFrames?.[frameIndex]?.renderBundle ?? model.renderBundle;
+  if (!renderBundle) {
+    throw new Error(`Prepared Quake model ${model.source} is missing its render bundle.`);
+  }
+  return renderBundle;
 }
 
 export function quakePickupModelPath(
@@ -424,15 +410,15 @@ export function quakePickupEffectForEntity(entity: QuakeEntity): QuakePickupEffe
   return null;
 }
 
-function createHealthPickupPolygons(entityIndex: number): Polygon[] {
+function createHealthPickupPolygons(): Polygon[] {
   return [
-    ...createCuboidPolygons([-0.22, -0.22, 0], [0.22, 0.22, 0.42], "#8b1510", entityIndex, "health"),
-    createBillboardQuad([-0.135, -0.225, 0.16], [0.135, -0.225, 0.16], [0.135, -0.225, 0.26], [-0.135, -0.225, 0.26], "#f0e6d0", entityIndex, "health-cross"),
-    createBillboardQuad([-0.055, -0.226, 0.07], [0.055, -0.226, 0.07], [0.055, -0.226, 0.35], [-0.055, -0.226, 0.35], "#f0e6d0", entityIndex, "health-cross"),
+    ...createCuboidPolygons([-0.22, -0.22, 0], [0.22, 0.22, 0.42], "#8b1510"),
+    createBillboardQuad([-0.135, -0.225, 0.16], [0.135, -0.225, 0.16], [0.135, -0.225, 0.26], [-0.135, -0.225, 0.26], "#f0e6d0"),
+    createBillboardQuad([-0.055, -0.226, 0.07], [0.055, -0.226, 0.07], [0.055, -0.226, 0.35], [-0.055, -0.226, 0.35], "#f0e6d0"),
   ];
 }
 
-function createGenericPickupPolygons(entityIndex: number, classname: string): Polygon[] {
+function createGenericPickupPolygons(classname: string): Polygon[] {
   const color = classname.includes("key")
     ? "#d2b34a"
     : classname.includes("armor")
@@ -440,34 +426,29 @@ function createGenericPickupPolygons(entityIndex: number, classname: string): Po
       : classname.includes("rocket")
         ? "#8a3f24"
         : "#7f6040";
-  return createCuboidPolygons([-0.18, -0.18, 0], [0.18, 0.18, 0.32], color, entityIndex, classname);
+  return createCuboidPolygons([-0.18, -0.18, 0], [0.18, 0.18, 0.32], color);
 }
 
-function createCuboidPolygons(min: Vec3, max: Vec3, color: string, entityIndex: number, kind: string): Polygon[] {
+function createCuboidPolygons(min: Vec3, max: Vec3, color: string): Polygon[] {
   const [minX, minY, minZ] = min;
   const [maxX, maxY, maxZ] = max;
   return [
-    createPickupSolidPolygon([[minX, minY, minZ], [minX, maxY, minZ], [maxX, maxY, minZ], [maxX, minY, minZ]], color, entityIndex, kind),
-    createPickupSolidPolygon([[minX, minY, maxZ], [maxX, minY, maxZ], [maxX, maxY, maxZ], [minX, maxY, maxZ]], color, entityIndex, kind),
-    createPickupSolidPolygon([[minX, minY, minZ], [maxX, minY, minZ], [maxX, minY, maxZ], [minX, minY, maxZ]], color, entityIndex, kind),
-    createPickupSolidPolygon([[maxX, minY, minZ], [maxX, maxY, minZ], [maxX, maxY, maxZ], [maxX, minY, maxZ]], color, entityIndex, kind),
-    createPickupSolidPolygon([[maxX, maxY, minZ], [minX, maxY, minZ], [minX, maxY, maxZ], [maxX, maxY, maxZ]], color, entityIndex, kind),
-    createPickupSolidPolygon([[minX, maxY, minZ], [minX, minY, minZ], [minX, minY, maxZ], [minX, maxY, maxZ]], color, entityIndex, kind),
+    createPickupSolidPolygon([[minX, minY, minZ], [minX, maxY, minZ], [maxX, maxY, minZ], [maxX, minY, minZ]], color),
+    createPickupSolidPolygon([[minX, minY, maxZ], [maxX, minY, maxZ], [maxX, maxY, maxZ], [minX, maxY, maxZ]], color),
+    createPickupSolidPolygon([[minX, minY, minZ], [maxX, minY, minZ], [maxX, minY, maxZ], [minX, minY, maxZ]], color),
+    createPickupSolidPolygon([[maxX, minY, minZ], [maxX, maxY, minZ], [maxX, maxY, maxZ], [maxX, minY, maxZ]], color),
+    createPickupSolidPolygon([[maxX, maxY, minZ], [minX, maxY, minZ], [minX, maxY, maxZ], [maxX, maxY, maxZ]], color),
+    createPickupSolidPolygon([[minX, maxY, minZ], [minX, minY, minZ], [minX, minY, maxZ], [minX, maxY, maxZ]], color),
   ];
 }
 
-function createBillboardQuad(a: Vec3, b: Vec3, c: Vec3, d: Vec3, color: string, entityIndex: number, kind: string): Polygon {
-  return createPickupSolidPolygon([a, b, c, d], color, entityIndex, kind);
+function createBillboardQuad(a: Vec3, b: Vec3, c: Vec3, d: Vec3, color: string): Polygon {
+  return createPickupSolidPolygon([a, b, c, d], color);
 }
 
-function createPickupSolidPolygon(vertices: Vec3[], color: string, entityIndex: number, kind: string): Polygon {
+function createPickupSolidPolygon(vertices: Vec3[], color: string): Polygon {
   return {
     vertices,
     color,
-    data: {
-      quake: true,
-      "quake-pickup-entity": entityIndex,
-      "quake-pickup-fallback": kind,
-    },
   };
 }

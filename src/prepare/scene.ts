@@ -339,6 +339,7 @@ export interface QuakePreparedScene {
   version: 2;
   polygons: QuakeSerializedPolygon[];
   textures: string[];
+  skyTexture?: number | string;
   renderBundle?: QuakePreparedRenderBundle;
   textureCount: number;
   faceCount: number;
@@ -361,7 +362,7 @@ export interface QuakePreparedScene {
 
 export interface QuakeScene {
   polygons: Polygon[];
-  textureUrls: string[];
+  skyTextureUrl?: string;
   renderBundle?: QuakePreparedRenderBundle;
   textureCount: number;
   faceCount: number;
@@ -424,6 +425,7 @@ const QUAKE_RENDER_COLLINEAR_EPS = 1e-6;
 const QUAKE_LIGHTSTYLE_OVERLAY_STRENGTH = 0.72;
 const QUAKE_LIGHTSTYLE_OVERLAY_GAMMA = 1.35;
 const QUAKE_LIGHTSTYLE_OVERLAY_MAX_OPACITY = 0.52;
+const QUAKE_SKY_TRANSPARENT_INDEX = 0;
 const QUAKE_PREPARED_SCENE_VERSION = 2;
 export const QUAKE_LIGHT_STYLE_PATTERNS = new Map<number, string>([
   [0, "m"],
@@ -472,9 +474,10 @@ export function createQuakeSceneFromPreparedScene(prepared: QuakePreparedScene):
     throw new Error(`Unsupported Quake prepared scene version ${String(prepared.version)}.`);
   }
   const polygons = prepared.polygons.map((polygon) => hydratePreparedPolygon(polygon, prepared.textures));
+  const skyTextureUrl = hydratePreparedTexture(prepared.skyTexture, prepared.textures);
   return {
     polygons,
-    textureUrls: [...prepared.textures],
+    ...(skyTextureUrl ? { skyTextureUrl } : {}),
     ...(prepared.renderBundle ? { renderBundle: clonePreparedRenderBundle(prepared.renderBundle) } : {}),
     textureCount: prepared.textureCount,
     faceCount: prepared.faceCount,
@@ -514,9 +517,13 @@ function clonePreparedRenderBundle(renderBundle: QuakePreparedRenderBundle): Qua
   };
 }
 
+function hydratePreparedTexture(texture: number | string | undefined, textures: string[]): string | undefined {
+  return typeof texture === "number" ? textures[texture] : texture;
+}
+
 function hydratePreparedPolygon(polygon: QuakeSerializedPolygon, textures: string[]): Polygon {
   const { texture, data, ...rest } = polygon;
-  const hydratedTexture = typeof texture === "number" ? textures[texture] : texture;
+  const hydratedTexture = hydratePreparedTexture(texture, textures);
   const hydratedData = hydratePreparedPolygonData(data, textures);
   return {
     ...rest,
@@ -531,9 +538,9 @@ function hydratePreparedPolygonData(
 ): Polygon["data"] | undefined {
   if (!data) return undefined;
   const hydrated = { ...data };
-  const sprite = data["quake-texture-animation-sprite"];
+  const sprite = data["sprite"];
   if (typeof sprite === "number") {
-    hydrated["quake-texture-animation-sprite"] = textures[sprite];
+    hydrated["sprite"] = textures[sprite];
   }
   return hydrated;
 }
@@ -592,7 +599,9 @@ async function createQuakePreparedSceneFromBsp(
   const buildCandidates: QuakeFaceBuildCandidate[] = [];
   const fallbackColorCache = new Map<string, string>();
   const litTextureCache = new Map<string, Promise<string> | string>();
+  const skyTextureCache = new Map<string, Promise<string> | string>();
   const textureAnimationSpriteCache = new Map<string, Promise<string> | string>();
+  let skyTextureUrl: string | undefined;
   const faceIndices = new Set<number>();
   const endFace = Math.min(faces.length, model.firstFace + model.faceCount);
   for (let faceIndex = model.firstFace; faceIndex < endFace; faceIndex++) {
@@ -652,6 +661,11 @@ async function createQuakePreparedSceneFromBsp(
   for (const candidate of buildCandidates) {
     const texture = candidate.texture;
     const texInfo = candidate.texInfo;
+    const isSky = quakeTextureIsSky(texture);
+    if (isSky) {
+      skyTextureUrl ??= await skyTextureUrlFor(texture, palette, textureUrls, skyTextureCache, encodeTextureUrl);
+      continue;
+    }
     const brightness = smoothedBrightness.get(candidate.faceIndex) ?? candidate.brightness;
     const fallbackColor = litTextureFallbackColor(texture, brightness, palette, fallbackColorCache);
     const textureUrl = await litTextureUrlFor(texture, brightness, palette, textureUrls, litTextureCache, encodeTextureUrl);
@@ -677,16 +691,15 @@ async function createQuakePreparedSceneFromBsp(
       color: fallbackColor,
       uvs,
       data: {
-        quake: true,
-        "quake-texture": texture.name,
-        "quake-face": candidate.faceIndex,
-        "quake-model": candidate.modelIndex,
-        ...(candidate.entityIndex !== undefined ? { "quake-entity": candidate.entityIndex } : {}),
-        "quake-light": formatQuakeBrightness(brightness),
+        "tex": texture.name,
+        "f": candidate.faceIndex,
+        "m": candidate.modelIndex,
+        ...(candidate.entityIndex !== undefined ? { "e": candidate.entityIndex } : {}),
+        "lit": formatQuakeBrightness(brightness),
         ...(buttonPressedTextureUrl
           ? {
-              "quake-button-base-texture": textureUrl,
-              "quake-button-pressed-texture": buttonPressedTextureUrl,
+              "base": textureUrl,
+              "pressed": buttonPressedTextureUrl,
             }
           : {}),
         ...lightstyleOverlayData(candidate, brightness),
@@ -713,6 +726,7 @@ async function createQuakePreparedSceneFromBsp(
   );
   const polygons = renderCandidates.map((candidate) => candidate.polygon);
   const serialized = serializePreparedPolygons(polygons, textureUrls);
+  const skyTexture = skyTextureUrl ? serialized.textures.indexOf(skyTextureUrl) : -1;
   const warnings: string[] = [];
   if (polygons.length > 2500) {
     warnings.push(`Mounted ${polygons.length} merged BSP faces from ${sourceFaceCount} source faces; trigger brush volumes are excluded.`);
@@ -730,6 +744,7 @@ async function createQuakePreparedSceneFromBsp(
     version: QUAKE_PREPARED_SCENE_VERSION,
     polygons: serialized.polygons,
     textures: serialized.textures,
+    ...(skyTexture >= 0 ? { skyTexture } : {}),
     textureCount: textures.filter(Boolean).length,
     faceCount: polygons.length,
     sourceFaceCount,
@@ -818,9 +833,9 @@ function serializePreparedPolygonData(
 ): Polygon["data"] | undefined {
   if (!data) return undefined;
   const serialized = { ...data };
-  const sprite = data["quake-texture-animation-sprite"];
+  const sprite = data["sprite"];
   if (typeof sprite === "string") {
-    serialized["quake-texture-animation-sprite"] = indexForTexture(sprite);
+    serialized["sprite"] = indexForTexture(sprite);
   }
   return serialized;
 }
@@ -1432,13 +1447,13 @@ async function addTextureAnimationSpritesToRenderCandidates(
 
   for (const candidate of candidates) {
     const data = candidate.polygon.data;
-    const textureName = typeof data?.["quake-texture"] === "string" ? data["quake-texture"] : "";
+    const textureName = typeof data?.["tex"] === "string" ? data["tex"] : "";
     const texture = textureByName.get(textureName.toLowerCase());
     if (!texture || !textureAnimationFrameTextures(texture, textures)) continue;
-    const brightnessValue = typeof data?.["quake-light"] === "string"
-      ? parseFiniteNumber(data["quake-light"])
-      : typeof data?.["quake-light"] === "number"
-        ? data["quake-light"]
+    const brightnessValue = typeof data?.["lit"] === "string"
+      ? parseFiniteNumber(data["lit"])
+      : typeof data?.["lit"] === "number"
+        ? data["lit"]
         : null;
     const animation = await textureAnimationSpriteFor(
       candidate.polygon,
@@ -1452,8 +1467,8 @@ async function addTextureAnimationSpritesToRenderCandidates(
     if (!animation) continue;
     candidate.polygon.data = {
       ...candidate.polygon.data,
-      "quake-texture-animation-sprite": animation.sprite,
-      "quake-texture-animation-frame-count": animation.frameCount,
+      "sprite": animation.sprite,
+      "frames": animation.frameCount,
     };
   }
 }
@@ -1468,15 +1483,15 @@ function quakeMergeGroupKey(candidate: QuakeFaceCandidate, visibilityKeys: Map<n
     polygon.textureWrap?.t ?? "",
     polygon.textureAlphaMode ?? "",
     polygon.doubleSided === true ? "double" : "single",
-    String(polygon.data?.["quake-texture"] ?? ""),
-    String(polygon.data?.["quake-model"] ?? ""),
-    String(polygon.data?.["quake-entity"] ?? ""),
-    String(polygon.data?.["quake-light"] ?? ""),
-    String(polygon.data?.["quake-lightstyles"] ?? ""),
-    String(polygon.data?.["quake-lightstyle-animation"] ?? ""),
-    String(polygon.data?.["quake-lightstyle-overlay-pattern"] ?? ""),
-    String(polygon.data?.["quake-button-base-texture"] ?? ""),
-    String(polygon.data?.["quake-button-pressed-texture"] ?? ""),
+    String(polygon.data?.["tex"] ?? ""),
+    String(polygon.data?.["m"] ?? ""),
+    String(polygon.data?.["e"] ?? ""),
+    String(polygon.data?.["lit"] ?? ""),
+    String(polygon.data?.["ls"] ?? ""),
+    String(polygon.data?.["ls-anim"] ?? ""),
+    String(polygon.data?.["ls-pattern"] ?? ""),
+    String(polygon.data?.["base"] ?? ""),
+    String(polygon.data?.["pressed"] ?? ""),
   ].join("\u001f");
 }
 
@@ -1524,22 +1539,22 @@ function pushRenderCandidate(
   }
 
   const faceIndex = out.length;
-  const textureName = String(renderPolygon.data?.["quake-texture"] ?? fallbackData["quake-texture"] ?? "");
-  const modelIndex = String(renderPolygon.data?.["quake-model"] ?? fallbackData["quake-model"] ?? "");
-  const entityIndex = String(renderPolygon.data?.["quake-entity"] ?? fallbackData["quake-entity"] ?? "");
-  const brightness = String(renderPolygon.data?.["quake-light"] ?? fallbackData["quake-light"] ?? "");
-  const lightStyles = String(renderPolygon.data?.["quake-lightstyles"] ?? fallbackData["quake-lightstyles"] ?? "");
+  const textureName = String(renderPolygon.data?.["tex"] ?? fallbackData["tex"] ?? "");
+  const modelIndex = String(renderPolygon.data?.["m"] ?? fallbackData["m"] ?? "");
+  const entityIndex = String(renderPolygon.data?.["e"] ?? fallbackData["e"] ?? "");
+  const brightness = String(renderPolygon.data?.["lit"] ?? fallbackData["lit"] ?? "");
+  const lightStyles = String(renderPolygon.data?.["ls"] ?? fallbackData["ls"] ?? "");
   const lightstyleAnimation = String(
-    renderPolygon.data?.["quake-lightstyle-animation"] ?? fallbackData["quake-lightstyle-animation"] ?? "",
+    renderPolygon.data?.["ls-anim"] ?? fallbackData["ls-anim"] ?? "",
   );
   const lightstyleOverlayPattern = String(
-    renderPolygon.data?.["quake-lightstyle-overlay-pattern"] ?? fallbackData["quake-lightstyle-overlay-pattern"] ?? "",
+    renderPolygon.data?.["ls-pattern"] ?? fallbackData["ls-pattern"] ?? "",
   );
   const buttonBaseTexture = String(
-    renderPolygon.data?.["quake-button-base-texture"] ?? fallbackData["quake-button-base-texture"] ?? "",
+    renderPolygon.data?.["base"] ?? fallbackData["base"] ?? "",
   );
   const buttonPressedTexture = String(
-    renderPolygon.data?.["quake-button-pressed-texture"] ?? fallbackData["quake-button-pressed-texture"] ?? "",
+    renderPolygon.data?.["pressed"] ?? fallbackData["pressed"] ?? "",
   );
   const sortedSourceFaceIndices = uniqueSorted(sourceFaceIndices);
   out.push({
@@ -1549,17 +1564,16 @@ function pushRenderCandidate(
     polygon: {
       ...renderPolygon,
       data: {
-        quake: true,
-        "quake-face": faceIndex,
-        ...(textureName ? { "quake-texture": textureName } : {}),
-        ...(modelIndex ? { "quake-model": modelIndex } : {}),
-        ...(entityIndex ? { "quake-entity": entityIndex } : {}),
-        ...(brightness ? { "quake-light": brightness } : {}),
-        ...(lightStyles ? { "quake-lightstyles": lightStyles } : {}),
-        ...(lightstyleAnimation ? { "quake-lightstyle-animation": lightstyleAnimation } : {}),
-        ...(lightstyleOverlayPattern ? { "quake-lightstyle-overlay-pattern": lightstyleOverlayPattern } : {}),
-        ...(buttonBaseTexture ? { "quake-button-base-texture": buttonBaseTexture } : {}),
-        ...(buttonPressedTexture ? { "quake-button-pressed-texture": buttonPressedTexture } : {}),
+        "f": faceIndex,
+        ...(textureName ? { "tex": textureName } : {}),
+        ...(modelIndex ? { "m": modelIndex } : {}),
+        ...(entityIndex ? { "e": entityIndex } : {}),
+        ...(brightness ? { "lit": brightness } : {}),
+        ...(lightStyles ? { "ls": lightStyles } : {}),
+        ...(lightstyleAnimation ? { "ls-anim": lightstyleAnimation } : {}),
+        ...(lightstyleOverlayPattern ? { "ls-pattern": lightstyleOverlayPattern } : {}),
+        ...(buttonBaseTexture ? { "base": buttonBaseTexture } : {}),
+        ...(buttonPressedTexture ? { "pressed": buttonPressedTexture } : {}),
       },
     },
   });
@@ -1569,22 +1583,22 @@ function pushRenderCandidate(
 function quakeFallbackData(polygon: Polygon): Record<string, string | number | boolean> {
   const data = polygon.data ?? {};
   return {
-    ...(data["quake-texture"] !== undefined ? { "quake-texture": data["quake-texture"] } : {}),
-    ...(data["quake-model"] !== undefined ? { "quake-model": data["quake-model"] } : {}),
-    ...(data["quake-entity"] !== undefined ? { "quake-entity": data["quake-entity"] } : {}),
-    ...(data["quake-light"] !== undefined ? { "quake-light": data["quake-light"] } : {}),
-    ...(data["quake-lightstyles"] !== undefined ? { "quake-lightstyles": data["quake-lightstyles"] } : {}),
-    ...(data["quake-lightstyle-animation"] !== undefined
-      ? { "quake-lightstyle-animation": data["quake-lightstyle-animation"] }
+    ...(data["tex"] !== undefined ? { "tex": data["tex"] } : {}),
+    ...(data["m"] !== undefined ? { "m": data["m"] } : {}),
+    ...(data["e"] !== undefined ? { "e": data["e"] } : {}),
+    ...(data["lit"] !== undefined ? { "lit": data["lit"] } : {}),
+    ...(data["ls"] !== undefined ? { "ls": data["ls"] } : {}),
+    ...(data["ls-anim"] !== undefined
+      ? { "ls-anim": data["ls-anim"] }
       : {}),
-    ...(data["quake-lightstyle-overlay-pattern"] !== undefined
-      ? { "quake-lightstyle-overlay-pattern": data["quake-lightstyle-overlay-pattern"] }
+    ...(data["ls-pattern"] !== undefined
+      ? { "ls-pattern": data["ls-pattern"] }
       : {}),
-    ...(data["quake-button-base-texture"] !== undefined
-      ? { "quake-button-base-texture": data["quake-button-base-texture"] }
+    ...(data["base"] !== undefined
+      ? { "base": data["base"] }
       : {}),
-    ...(data["quake-button-pressed-texture"] !== undefined
-      ? { "quake-button-pressed-texture": data["quake-button-pressed-texture"] }
+    ...(data["pressed"] !== undefined
+      ? { "pressed": data["pressed"] }
       : {}),
   };
 }
@@ -1709,15 +1723,15 @@ function quakeRenderDedupeKey(
     polygon.textureWrap?.t ?? "",
     polygon.textureAlphaMode ?? "",
     polygon.doubleSided === true ? "double" : "single",
-    String(data["quake-texture"] ?? fallbackData["quake-texture"] ?? ""),
-    String(data["quake-model"] ?? fallbackData["quake-model"] ?? ""),
-    String(data["quake-entity"] ?? fallbackData["quake-entity"] ?? ""),
-    String(data["quake-light"] ?? fallbackData["quake-light"] ?? ""),
-    String(data["quake-lightstyles"] ?? fallbackData["quake-lightstyles"] ?? ""),
-    String(data["quake-lightstyle-animation"] ?? fallbackData["quake-lightstyle-animation"] ?? ""),
-    String(data["quake-lightstyle-overlay-pattern"] ?? fallbackData["quake-lightstyle-overlay-pattern"] ?? ""),
-    String(data["quake-button-base-texture"] ?? fallbackData["quake-button-base-texture"] ?? ""),
-    String(data["quake-button-pressed-texture"] ?? fallbackData["quake-button-pressed-texture"] ?? ""),
+    String(data["tex"] ?? fallbackData["tex"] ?? ""),
+    String(data["m"] ?? fallbackData["m"] ?? ""),
+    String(data["e"] ?? fallbackData["e"] ?? ""),
+    String(data["lit"] ?? fallbackData["lit"] ?? ""),
+    String(data["ls"] ?? fallbackData["ls"] ?? ""),
+    String(data["ls-anim"] ?? fallbackData["ls-anim"] ?? ""),
+    String(data["ls-pattern"] ?? fallbackData["ls-pattern"] ?? ""),
+    String(data["base"] ?? fallbackData["base"] ?? ""),
+    String(data["pressed"] ?? fallbackData["pressed"] ?? ""),
   ].join("\u001f");
 }
 
@@ -1977,8 +1991,8 @@ function lightStyleData(styles: readonly number[]): Record<string, string> {
   if (styles.length === 0) return {};
   const animatedStyle = animatedLightStyle(styles);
   return {
-    "quake-lightstyles": styles.join(","),
-    ...(animatedStyle !== undefined ? { "quake-lightstyle-animation": String(animatedStyle) } : {}),
+    "ls": styles.join(","),
+    ...(animatedStyle !== undefined ? { "ls-anim": String(animatedStyle) } : {}),
   };
 }
 
@@ -1988,7 +2002,7 @@ function lightstyleOverlayData(candidate: QuakeFaceBuildCandidate, baseBrightnes
     lightstyleOverlayOpacity(baseBrightness, brightness).toFixed(3),
   );
   return {
-    "quake-lightstyle-overlay-pattern": opacities.join(","),
+    "ls-pattern": opacities.join(","),
   };
 }
 
@@ -2283,6 +2297,54 @@ async function litTextureUrlFor(
   cache.set(key, url);
   urls.push(url);
   return url;
+}
+
+function quakeTextureIsSky(texture: QuakeMipTexture): boolean {
+  return texture.name.toLowerCase().startsWith("sky");
+}
+
+async function skyTextureUrlFor(
+  texture: QuakeMipTexture,
+  palette: RGB[],
+  urls: string[],
+  cache: Map<string, Promise<string> | string>,
+  encodeTextureUrl: QuakeTextureUrlEncoder,
+): Promise<string> {
+  const key = `${texture.name}:sky:${texture.width}x${texture.height}`;
+  const cached = cache.get(key);
+  if (cached) return await cached;
+
+  const task = indexedPixelsToTextureUrl(
+    texture.width,
+    texture.height,
+    quakeCompositeSkyPixels(texture),
+    palette,
+    1,
+    encodeTextureUrl,
+  );
+  cache.set(key, task);
+  const url = await task;
+  cache.set(key, url);
+  urls.push(url);
+  return url;
+}
+
+function quakeCompositeSkyPixels(texture: QuakeMipTexture): Uint8Array {
+  const layerWidth = Math.floor(texture.width / 2);
+  if (layerWidth <= 0) return texture.pixels.slice();
+
+  const pixels = new Uint8Array(texture.pixels.length);
+  for (let y = 0; y < texture.height; y++) {
+    const row = y * texture.width;
+    for (let x = 0; x < texture.width; x++) {
+      const layerX = x % layerWidth;
+      const cloud = texture.pixels[row + layerX] ?? QUAKE_SKY_TRANSPARENT_INDEX;
+      pixels[row + x] = cloud === QUAKE_SKY_TRANSPARENT_INDEX
+        ? texture.pixels[row + layerWidth + layerX] ?? QUAKE_SKY_TRANSPARENT_INDEX
+        : cloud;
+    }
+  }
+  return pixels;
 }
 
 function litTextureFallbackColor(

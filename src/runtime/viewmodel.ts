@@ -1,22 +1,26 @@
 import type {
-  ParseResult,
-  Polygon,
   PolyFirstPersonControlsHandle,
   PolyMeshHandle,
   PolySceneHandle,
   Vec3,
 } from "@layoutit/polycss";
 
+import type { QuakePreparedRenderBundle } from "../prepare/scene";
 import { crossVec3, normalizeVec3 } from "./math";
+import { mountQuakeRenderBundleMesh, stripPolyMeshMetadata } from "./renderBundleMesh";
 
 export interface QuakeViewmodelController {
-  mount(polygons: Polygon[]): void;
+  mount(model: QuakeViewmodelModel): void;
   remove(): void;
   hasWeapon(): boolean;
   syncTransform(): void;
   queueViewportSync(): void;
   playFireAnimation(): void;
   clearFireAnimation(): void;
+}
+
+export interface QuakeViewmodelModel {
+  renderBundle: QuakePreparedRenderBundle;
 }
 
 export interface QuakeViewmodelControllerOptions {
@@ -38,7 +42,6 @@ const QUAKE_WEAPON_SCALE_VIEWPORT_EXPONENT = 0.38;
 const QUAKE_WEAPON_REFERENCE_PLAYFIELD_WIDTH = 900;
 const QUAKE_WEAPON_MIN_WIDTH_RATIO = 0.78;
 const QUAKE_WEAPON_WIDTH_DAMPEN_EXPONENT = 0.65;
-const QUAKE_WEAPON_MODEL_PIVOT: Vec3 = [1.0, 0, 0];
 const QUAKE_WEAPON_REFERENCE_PLAYFIELD_HEIGHT = 580;
 const QUAKE_WEAPON_SCREEN_OFFSET_SCALE = 0.095;
 const QUAKE_WEAPON_MIN_SCREEN_OFFSET = -32;
@@ -61,16 +64,13 @@ export function createQuakeViewmodelController({
   let fireAnimationTimer: number | null = null;
   let fireKickTimers: number[] = [];
 
-  function mount(polygons: Polygon[]): void {
+  function mount(model: QuakeViewmodelModel): void {
     clearFireAnimation();
     handle?.remove();
-    handle = scene.add(makeParseResult(anchorQuakeWeaponPolygons(polygons)), {
-      id: "quake-view-weapon-model",
-      merge: false,
-      meshResolution: "lossless",
-      excludeFromAutoCenter: true,
-    });
-    stage?.appendChild(handle.element);
+    if (!stage) throw new Error("Quake viewmodel render bundle mount requires a viewmodel stage.");
+    handle = mountQuakeRenderBundleMesh(stage, model.renderBundle);
+    handle.element.classList.add("viewmodel");
+    stripPolyMeshMetadata(handle.element);
     onMount?.(handle);
     prepareNozzleLeaves();
     syncTransform();
@@ -164,21 +164,25 @@ export function createQuakeViewmodelController({
   function setNozzleVisible(visible: boolean): void {
     if (!handle) return;
     if (visible) {
-      handle.element.dataset.quakeWeaponNozzleVisible = "true";
+      handle.element.dataset.nozzleVisible = "true";
     } else {
-      delete handle.element.dataset.quakeWeaponNozzleVisible;
+      delete handle.element.dataset.nozzleVisible;
     }
   }
 
   function prepareNozzleLeaves(): void {
     if (!handle) return;
-    let nozzleGroup = handle.element.querySelector<HTMLElement>("[data-quake-view-weapon-nozzle-group]");
+    let nozzleGroup = handle.element.querySelector<HTMLElement>("[data-nozzle-group]");
     if (!nozzleGroup) {
       nozzleGroup = handle.element.ownerDocument.createElement("span");
-      nozzleGroup.dataset.quakeViewWeaponNozzleGroup = "true";
+      nozzleGroup.dataset.nozzleGroup = "true";
     }
-    for (const leaf of handle.element.querySelectorAll<HTMLElement>("[data-quake-view-weapon-nozzle]")) {
+    for (const leaf of handle.element.querySelectorAll<HTMLElement>("[data-weapon]")) {
+      leaf.removeAttribute("data-weapon");
+    }
+    for (const leaf of handle.element.querySelectorAll<HTMLElement>("[data-nozzle]")) {
       nozzleGroup.appendChild(leaf);
+      leaf.removeAttribute("data-nozzle");
     }
     handle.element.appendChild(nozzleGroup);
   }
@@ -251,22 +255,6 @@ function createQuakeViewmodelStage(layer: HTMLElement): HTMLElement {
   stage.className = "polycss-scene";
   layer.appendChild(stage);
   return stage;
-}
-
-function makeParseResult(polygons: Polygon[]): ParseResult {
-  return { polygons, objectUrls: [], warnings: [], dispose: () => undefined };
-}
-
-function anchorQuakeWeaponPolygons(polygons: Polygon[]): Polygon[] {
-  const [px, py, pz] = QUAKE_WEAPON_MODEL_PIVOT;
-  return polygons.map((polygon) => ({
-    ...polygon,
-    vertices: polygon.vertices.map((vertex) => [
-      vertex[0] - px,
-      vertex[1] - py,
-      vertex[2] - pz,
-    ] as Vec3),
-  }));
 }
 
 function forwardDirection(rotX: number, rotY: number): Vec3 {

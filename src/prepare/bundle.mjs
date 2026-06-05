@@ -61,10 +61,10 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({ polygo
 async function waitForBakedTextureLeaves(mesh) {
   const startedAt = performance.now();
   while (true) {
-    const leaves = [...mesh.querySelectorAll("s[data-quake-texture]")];
+    const leaves = [...mesh.querySelectorAll("s")];
     const pending = leaves.filter((leaf) => {
       const style = leaf.getAttribute("style") ?? "";
-      return !style.includes("background-image:");
+      return !/background(?:-image)?\s*:/.test(style);
     });
     if (leaves.length === 0 || pending.length === 0) return;
     if (performance.now() - startedAt > QUAKE_RENDER_BUNDLE_TIMEOUT_MS) {
@@ -95,6 +95,7 @@ async function serializeMeshWithAssets(mesh) {
     });
     element.setAttribute("style", nextStyle);
   }
+  hoistRenderBundleBackgroundImages(serializableMesh);
 
   const assets = [];
   for (const asset of assetByBlobUrl.values()) {
@@ -118,9 +119,136 @@ async function serializeMeshWithAssets(mesh) {
   };
 }
 
+function hoistRenderBundleBackgroundImages(mesh) {
+  const varByImage = new Map();
+  const elements = [...mesh.querySelectorAll("[style]")];
+  const imageUseCounts = renderBundleBackgroundImageUseCounts(elements);
+  for (const element of elements) {
+    const style = element.getAttribute("style") ?? "";
+    if (!style.includes("background")) continue;
+    const nextStyle = compactRenderBundleBackgroundStyle(
+      style.replace(/(background(?:-image)?):\s*url\(([^)]+)\)/g, (_match, property, image) => {
+        if ((imageUseCounts.get(image) ?? 0) <= 1) return _match;
+        let varName = varByImage.get(image);
+        if (!varName) {
+          varName = `--bg${varByImage.size}`;
+          varByImage.set(image, varName);
+        }
+        return `${property}:var(${varName})`;
+      }),
+    );
+    if (nextStyle !== style) element.setAttribute("style", nextStyle);
+  }
+
+  const usedVarNames = renderBundleBackgroundVarNames(elements);
+  setRenderBundleBackgroundVars(mesh, varByImage, usedVarNames);
+}
+
+function renderBundleBackgroundImageUseCounts(elements) {
+  const counts = new Map();
+  for (const element of elements) {
+    const style = element.getAttribute("style") ?? "";
+    if (!style.includes("background")) continue;
+    for (const match of style.matchAll(/background(?:-image)?:\s*url\(([^)]+)\)/g)) {
+      counts.set(match[1], (counts.get(match[1]) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+function renderBundleBackgroundVarNames(elements) {
+  const names = new Set();
+  for (const element of elements) {
+    const style = element.getAttribute("style") ?? "";
+    if (!style.includes("var(--bg")) continue;
+    for (const match of style.matchAll(/var\(--bg(\d+)\)/g)) {
+      names.add(`--bg${match[1]}`);
+    }
+  }
+  return names;
+}
+
+function setRenderBundleBackgroundVars(mesh, varByImage, usedVarNames) {
+  const declarations = [...varByImage]
+    .filter(([_image, varName]) => usedVarNames.has(varName))
+    .map(([image, varName]) => `${varName}:url(${image})`);
+  const style = (mesh.getAttribute("style") ?? "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part && !/^--bg\d+\s*:/.test(part));
+  const nextStyle = [...declarations, ...style].join(";");
+  if (nextStyle) {
+    mesh.setAttribute("style", nextStyle);
+  } else {
+    mesh.removeAttribute("style");
+  }
+}
+
+function compactRenderBundleBackgroundStyle(style) {
+  const declarations = style
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part, index) => {
+      const separator = part.indexOf(":");
+      return separator > 0
+        ? { index, name: part.slice(0, separator).trim(), value: part.slice(separator + 1).trim() }
+        : null;
+    })
+    .filter((part) => part && part.value);
+  const image = declarations.find((part) => part.name === "background-image");
+  const position = declarations.find((part) => part.name === "background-position");
+  const size = declarations.find((part) => part.name === "background-size");
+  if (!image || !position || !size) return style;
+  const background = {
+    index: Math.min(image.index, position.index, size.index),
+    name: "background",
+    value: `${image.value} ${position.value}/${size.value}`,
+  };
+  return [...declarations.filter((part) => ![
+    "background-image",
+    "background-position",
+    "background-size",
+    "background-repeat",
+  ].includes(part.name)), background]
+    .sort((a, b) => a.index - b.index)
+    .map((part) => `${part.name}:${part.value}`)
+    .join(";");
+}
+
 function stripRenderBundleMeshMetadata(mesh) {
   mesh.removeAttribute("data-poly-mesh-id");
   mesh.removeAttribute("data-poly-mesh-index");
+  for (const leaf of mesh.querySelectorAll("[data-poly-index]")) {
+    leaf.removeAttribute("data-poly-index");
+  }
+  for (const element of mesh.querySelectorAll("[style]")) {
+    const style = element.getAttribute("style") ?? "";
+    if (
+      !style.includes("--pn") &&
+      !style.includes("--polycss-atlas-size") &&
+      !style.includes("background-repeat")
+    ) continue;
+    const nextStyle = stripRenderBundleStyleMetadata(style);
+    if (nextStyle) {
+      element.setAttribute("style", nextStyle);
+    } else {
+      element.removeAttribute("style");
+    }
+  }
+}
+
+function stripRenderBundleStyleMetadata(style) {
+  return style
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) =>
+      part &&
+      !/^--pn[xyz]\s*:/.test(part) &&
+      !/^--polycss-atlas-size\s*:\s*64px$/i.test(part) &&
+      !/^background-repeat\s*:\s*no-repeat$/i.test(part)
+    )
+    .join(";");
 }
 
 async function transcodeImageBlob(blob, mime, quality) {

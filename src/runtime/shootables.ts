@@ -1,4 +1,4 @@
-import type { ParseResult, Polygon, PolyMeshHandle, PolySceneHandle, Vec3 } from "@layoutit/polycss";
+import type { PolyMeshHandle, Vec3 } from "@layoutit/polycss";
 
 import type { QuakeEntity } from "../prepare/scene";
 import {
@@ -11,10 +11,11 @@ import type { QuakeCollisionResult } from "./collision";
 import { quakeEntityNumber } from "./entities";
 import { distanceSq3 } from "./math";
 import {
-  quakePickupModelPolygons,
+  quakePickupModelRenderBundle,
   type QuakePickupModel,
   type QuakePickupModelLibrary,
 } from "./pickups";
+import { mountQuakeRenderBundleMesh, stripPolyMeshMetadata } from "./renderBundleMesh";
 import type { QuakeWeaponShootableTarget } from "./weapons";
 
 export interface QuakeShootablesController {
@@ -31,7 +32,7 @@ export interface QuakeShootablesController {
 }
 
 export interface QuakeShootablesControllerOptions {
-  scene: PolySceneHandle;
+  sceneElement: HTMLElement;
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
   shouldSpawn(entity: QuakeEntity): boolean;
   pixelate(handle: PolyMeshHandle): void;
@@ -51,7 +52,7 @@ const QUAKE_SHOOTABLE_DEATH_DELAY_MS = 180;
 const QUAKE_SHOOTABLE_COLLISION_EPSILON = 0.5 * QUAKE_COLLISION_UNIT_SCALE;
 
 export function createQuakeShootablesController({
-  scene,
+  sceneElement,
   pointToPoly,
   shouldSpawn,
   pixelate,
@@ -96,7 +97,7 @@ export function createQuakeShootablesController({
     if (!shootable || shootable.dead) return false;
     shootable.dead = true;
     if (shootable.handle) {
-      shootable.handle.element.dataset.quakeShootableDead = "true";
+      shootable.handle.element.dataset.dead = "true";
     }
     const timer = window.setTimeout(() => {
       shootable.handle?.remove();
@@ -139,14 +140,9 @@ export function createQuakeShootablesController({
 
   function addShootableMesh(entity: QuakeEntity, model: QuakePickupModel): PolyMeshHandle | null {
     if (!entity.origin) return null;
-    const polygons = quakePickupModelPolygons(entity, model);
-    if (!polygons.length) return null;
-    const handle = scene.add(makeParseResult(polygons), {
-      id: `quake-shootable-${entity.index}`,
-      merge: false,
-      meshResolution: "lossless",
-      excludeFromAutoCenter: true,
-    });
+    const handle = mountQuakeRenderBundleMesh(sceneElement, quakePickupModelRenderBundle(model));
+    handle.element.classList.add("shootable");
+    stripPolyMeshMetadata(handle.element);
     handle.setTransform({
       position: pointToPoly(entity.origin),
       rotation: [0, 0, entity.angle ?? quakeEntityNumber(entity, "angle", 0)],
@@ -226,8 +222,4 @@ function shootableModelPath(entity: QuakeEntity): string | null {
   if (entity.classname === "misc_explobox") return "maps/b_explob.bsp";
   if (entity.classname === "misc_explobox2") return "maps/b_exbox2.bsp";
   return null;
-}
-
-function makeParseResult(polygons: Polygon[]): ParseResult {
-  return { polygons, objectUrls: [], warnings: [], dispose: () => undefined };
 }

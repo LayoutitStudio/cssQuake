@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -14,8 +14,10 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "../..");
 const generatedPublicDir = path.join(projectRoot, "build/generated/public");
 const quakeOutputDir = path.join(generatedPublicDir, "local/quake");
+const socialImageSourcePath = path.join(projectRoot, "src/assets/cssquake-social.png");
+const socialImageOutputPath = path.join(generatedPublicDir, "assets/cssquake-social.png");
 const quakeMapNames = ["start", "e1m1", "e1m2", "e1m3", "e1m4", "e1m5", "e1m6", "e1m7", "e1m8"];
-const quakeRenderBundleDefaultMapNames = quakeMapNames.filter((mapName) => /^e1m[1-8]$/.test(mapName));
+const quakeRenderBundleDefaultMapNames = quakeMapNames;
 const mapOutputPaths = new Map(quakeMapNames.map((mapName) => [
   `maps/${mapName}.bsp`,
   path.join(quakeOutputDir, `${mapName}.preparsed.json`),
@@ -65,6 +67,7 @@ const QUAKE_MAIN_MENU_ACTIVE_FRAME_COUNT = 5;
 const QUAKE_MAIN_MENU_LEVEL_LABEL = "LEVEL SELECT";
 const QUAKE_MAIN_MENU_LEVEL_LABEL_SCALE = 2;
 const QUAKE_PICKUP_MODEL_SCALE = 1 / 48;
+const QUAKE_WEAPON_MODEL_PIVOT = [1.0, 0, 0];
 const QUAKE_PICKUP_MODEL_PATHS = {
   item_armor1: "progs/armor.mdl",
   item_armor2: "progs/armor.mdl",
@@ -111,6 +114,7 @@ try {
   await verifyQuakeResource();
   await extractQuakePak();
   await rm(textureOutputDir, { recursive: true, force: true });
+  await copyStaticPublicAssets();
 
   await build({
     entryPoints: [sourcePath],
@@ -122,19 +126,17 @@ try {
     logLevel: "silent",
   });
 
-  if (renderBundleMapNames.size > 0) {
-    await build({
-      entryPoints: [renderBundleScriptPath],
-      outfile: renderBundleBuildPath,
-      bundle: true,
-      platform: "browser",
-      format: "iife",
-      globalName: "QuakeRenderBundleEntry",
-      absWorkingDir: projectRoot,
-      logLevel: "silent",
-    });
-    renderBundleBuilder = await createQuakeRenderBundleBuilder(renderBundleBuildPath);
-  }
+  await build({
+    entryPoints: [renderBundleScriptPath],
+    outfile: renderBundleBuildPath,
+    bundle: true,
+    platform: "browser",
+    format: "iife",
+    globalName: "QuakeRenderBundleEntry",
+    absWorkingDir: projectRoot,
+    logLevel: "silent",
+  });
+  renderBundleBuilder = await createQuakeRenderBundleBuilder(renderBundleBuildPath);
 
   const {
     createQuakeSceneFromPreparedScene,
@@ -144,13 +146,21 @@ try {
   const buffer = pak.buffer.slice(pak.byteOffset, pak.byteOffset + pak.byteLength);
 
   const preparedMaps = [];
+  const menuPanelTextureMaps = [];
   for (const [mapPath, outputPath] of mapOutputPaths) {
     const prepared = await createQuakePreparedSceneFromPakBuffer(buffer, {
       encodeTextureUrl: encodeTextureFileUrl,
       mapPath,
     });
+    menuPanelTextureMaps.push({
+      prepared: {
+        label: prepared.label,
+        textures: prepared.textures,
+        polygons: prepared.polygons,
+      },
+    });
     const mapName = mapNameFromPakPath(mapPath);
-    if (renderBundleBuilder && renderBundleMapNames.has(mapName)) {
+    if (renderBundleMapNames.has(mapName)) {
       const scene = createQuakeSceneFromPreparedScene(prepared);
       prepared.renderBundle = await renderBundleBuilder.build({
         mapName,
@@ -172,12 +182,13 @@ try {
   await writeFile(mainMenuActiveOutputPath, await buildQuakeMainMenuActivePng(uiAssets));
   await writeFile(mainMenuCursorOutputPath, await buildQuakeMainMenuCursorPng(uiAssets));
   await writeFile(aboutOutputPath, await buildQuakeAboutPng(uiAssets));
-  await writeFile(menuPanelTextureOutputPath, await buildQuakeMenuPanelTexturePng(preparedMaps));
+  await writeFile(menuPanelTextureOutputPath, await buildQuakeMenuPanelTexturePng(menuPanelTextureMaps));
   await writeFile(menuTitleOptionsOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 0, 40, 124, 20));
   await writeFile(menuTitleHelpOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 1, 60, 75, 20));
   await writeFile(concharsOutputPath, await buildQuakeConcharsPng(uiAssets));
   const programMetadata = buildQuakeProgramMetadata(uiAssets);
-  await writeFile(weaponOutputPath, JSON.stringify(await buildQuakeWeaponModel(uiAssets)));
+  await rm(path.join(renderBundleOutputDir, "models"), { recursive: true, force: true });
+  await writeFile(weaponOutputPath, JSON.stringify(await buildQuakeWeaponModel(uiAssets, renderBundleBuilder)));
   await writeFile(progsOutputPath, JSON.stringify(programMetadata));
   await writeFile(pickupOutputPath, JSON.stringify(await buildQuakePickupModels(
     uiAssets,
@@ -186,6 +197,7 @@ try {
       mapPath,
     })),
     programMetadata,
+    renderBundleBuilder,
   )));
   await pruneUnreferencedTextureFiles([
     ...preparedMaps.map((item) => item.outputPath),
@@ -199,6 +211,7 @@ try {
   console.log(`Wrote ${path.relative(projectRoot, hudBaseOutputPath)}`);
   console.log(`Wrote ${path.relative(projectRoot, hudNumbersOutputPath)}`);
   console.log(`Wrote ${path.relative(projectRoot, hudOutputPath)}`);
+  console.log(`Wrote ${path.relative(projectRoot, socialImageOutputPath)}`);
   console.log(`Wrote ${path.relative(projectRoot, mainMenuOutputPath)}`);
   console.log(`Wrote ${path.relative(projectRoot, mainMenuActiveOutputPath)}`);
   console.log(`Wrote ${path.relative(projectRoot, mainMenuCursorOutputPath)}`);
@@ -249,13 +262,15 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
   await page.addScriptTag({ path: bundlePath });
 
   return {
-    async build({ mapName, polygons }) {
+    async build({ bundleName, mapName, polygons }) {
+      const name = bundleName ?? mapName;
+      if (!name) throw new Error("Render bundle build requires a bundleName or mapName.");
       const startedAt = Date.now();
       const result = await page.evaluate(
         async (input) => window.__buildQuakeRenderBundle(input),
         { polygons },
       );
-      const assetDir = path.join(renderBundleOutputDir, mapName);
+      const assetDir = path.join(renderBundleOutputDir, name);
       await rm(assetDir, { recursive: true, force: true });
       await mkdir(assetDir, { recursive: true });
 
@@ -269,17 +284,17 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
         const filename = `atlas-${String(index).padStart(2, "0")}-${hash}.${extension}`;
         const outputPath = path.join(assetDir, filename);
         await writeFile(outputPath, buffer);
-        const assetUrl = `/local/quake/bundles/${mapName}/${filename}`;
+        const assetUrl = `/local/quake/bundles/${name}/${filename}`;
         meshHtml = meshHtml.split(asset.placeholder).join(assetUrl);
         assetUrls.push(assetUrl);
       }
       if (meshHtml.includes("__QUAKE_RENDER_BUNDLE_ASSET_")) {
-        throw new Error(`Unresolved render bundle asset placeholder for ${mapName}.`);
+        throw new Error(`Unresolved render bundle asset placeholder for ${name}.`);
       }
 
       const elapsed = Date.now() - startedAt;
       console.log(
-        `Built render bundle for ${mapName}: ${result.leafCount} leaves, ` +
+        `Built render bundle for ${name}: ${result.leafCount} leaves, ` +
         `${result.assets.length} atlas assets in ${elapsed}ms`,
       );
       return {
@@ -318,7 +333,15 @@ function mapNameFromPakPath(mapPath) {
 }
 
 function stripPreparedRenderBundleFallbackTextures(prepared) {
+  const skyTexture = typeof prepared.skyTexture === "number"
+    ? prepared.textures?.[prepared.skyTexture]
+    : prepared.skyTexture;
   prepared.textures = [];
+  if (skyTexture) {
+    prepared.skyTexture = skyTexture;
+  } else {
+    delete prepared.skyTexture;
+  }
   prepared.polygons = prepared.polygons.map((polygon) => {
     const {
       texture: _texture,
@@ -341,16 +364,20 @@ function stripPreparedRenderBundleFallbackData(data) {
   if (!data) return undefined;
   const out = {};
   for (const key of [
-    "quake",
-    "quake-face",
-    "quake-model",
-    "quake-entity",
-    "quake-lightstyle-animation",
-    "quake-lightstyle-overlay-pattern",
+    "f",
+    "m",
+    "e",
+    "ls-anim",
+    "ls-pattern",
   ]) {
     if (data[key] !== undefined) out[key] = data[key];
   }
   return Object.keys(out).length ? out : undefined;
+}
+
+async function copyStaticPublicAssets() {
+  await mkdir(path.dirname(socialImageOutputPath), { recursive: true });
+  await copyFile(socialImageSourcePath, socialImageOutputPath);
 }
 
 async function pruneUnreferencedTextureFiles(jsonPaths) {
@@ -710,7 +737,7 @@ async function findPreparedTextureBuffer(preparedMaps, textureName) {
   ];
   for (const { prepared } of maps) {
     for (const polygon of prepared.polygons ?? []) {
-      if (String(polygon.data?.["quake-texture"] ?? "").toLowerCase() !== target) continue;
+      if (String(polygon.data?.["tex"] ?? "").toLowerCase() !== target) continue;
       const texture = typeof polygon.texture === "number"
         ? prepared.textures?.[polygon.texture]
         : polygon.texture;
@@ -721,7 +748,6 @@ async function findPreparedTextureBuffer(preparedMaps, textureName) {
 }
 
 async function readPreparedTextureBuffer(texture) {
-  if (texture.startsWith("data:image/png;base64,")) return decodePngDataUrl(texture);
   if (!texture.startsWith("/local/quake/")) return undefined;
   return readGeneratedPublicFile(texture);
 }
@@ -730,20 +756,14 @@ function readGeneratedPublicFile(urlPath) {
   return readFile(path.join(generatedPublicDir, urlPath.replace(/^\//, "")));
 }
 
-function decodePngDataUrl(dataUrl) {
-  const match = /^data:image\/png;base64,(.+)$/.exec(dataUrl);
-  if (!match) throw new Error("Expected a PNG data URL.");
-  return Buffer.from(match[1], "base64");
-}
-
-async function buildQuakeWeaponModel(assets) {
+async function buildQuakeWeaponModel(assets, renderBundleBuilder) {
   const modelPath = "progs/v_shot.mdl";
   const model = parseQuakeAliasModel(assets, modelPath);
   const idleFrame = model.frames[0];
   const fireFrame = model.frames[1] ?? idleFrame;
   const textureBrightness = 1.5;
   if (!idleFrame) throw new Error("Quake weapon viewmodel has no frames.");
-  const texture = await encodeTextureDataUrl({
+  const texture = await encodeTextureFileUrl({
     width: model.skinWidth,
     height: model.skinHeight,
     pixels: model.skin,
@@ -751,32 +771,31 @@ async function buildQuakeWeaponModel(assets) {
     brightness: textureBrightness,
   });
 
-  return {
-    source: modelPath,
-    polygons: model.triangles.map((triangle) => {
-      const uvs = triangle.indices.map((index) => quakeAliasUv(model, triangle, index));
-      const isNozzle = isQuakeWeaponNozzlePolygon(uvs);
-      const frame = isNozzle ? fireFrame : idleFrame;
-      const vertices = triangle.indices.map((index) => quakeWeaponVertex(frame.vertices[index]));
-      const data = {
-        quake: true,
-        "quake-view-weapon": true,
-        ...(isNozzle ? { "quake-view-weapon-nozzle": true } : {}),
-      };
-      if (isNozzle) {
-        return {
-          vertices,
-          color: quakeWeaponNozzleColor(vertices),
-          data,
-        };
-      }
+  const polygons = model.triangles.map((triangle) => {
+    const uvs = triangle.indices.map((index) => quakeAliasUv(model, triangle, index));
+    const isNozzle = isQuakeWeaponNozzlePolygon(uvs);
+    const frame = isNozzle ? fireFrame : idleFrame;
+    const vertices = triangle.indices.map((index) => quakeWeaponVertex(frame.vertices[index]));
+    if (isNozzle) {
       return {
         vertices,
-        texture,
-        textureAlphaMode: "opaque",
-        uvs,
-        data,
+        color: quakeWeaponNozzleColor(vertices),
+        data: { "nozzle": true },
       };
+    }
+    return {
+      vertices,
+      texture,
+      textureAlphaMode: "opaque",
+      uvs,
+    };
+  });
+
+  return {
+    source: modelPath,
+    renderBundle: await renderBundleBuilder.build({
+      bundleName: "models/weapon-shotgun",
+      polygons: anchorQuakeWeaponPolygons(polygons),
     }),
   };
 }
@@ -789,7 +808,19 @@ function quakeWeaponNozzleColor(vertices) {
   return "#d71916";
 }
 
-async function buildQuakePickupModels(assets, buildBspModel, programMetadata) {
+function anchorQuakeWeaponPolygons(polygons) {
+  const [px, py, pz] = QUAKE_WEAPON_MODEL_PIVOT;
+  return polygons.map((polygon) => ({
+    ...polygon,
+    vertices: polygon.vertices.map((vertex) => [
+      vertex[0] - px,
+      vertex[1] - py,
+      vertex[2] - pz,
+    ]),
+  }));
+}
+
+async function buildQuakePickupModels(assets, buildBspModel, programMetadata, renderBundleBuilder) {
   const models = {};
   const programPickupModels = quakeProgramPickupModelPaths(programMetadata)
     .filter((model) => assets.entries.has(model));
@@ -804,7 +835,7 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata) {
   for (const source of aliasModelPaths) {
     const model = parseQuakeAliasModel(assets, source);
     if (!model.frames[0]) throw new Error(`${source} has no frames.`);
-    const texture = await encodeTextureDataUrl({
+    const texture = await encodeTextureFileUrl({
       width: model.skinWidth,
       height: model.skinHeight,
       pixels: model.skin,
@@ -816,36 +847,75 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata) {
       polygons: model.triangles.map((triangle) => ({
         vertices: triangle.indices.map((index) => quakePickupVertex(frame.vertices[index])),
         uvs: triangle.indices.map((index) => quakeAliasUv(model, triangle, index)),
-        data: {
-          quake: true,
-          "quake-pickup-model": source,
-        },
       })),
     }));
-    models[source] = {
+    const prepared = {
       source,
       texture,
       polygons: animationFrames[0].polygons,
       ...(animationFrames.length > 1 ? { animationFrames } : {}),
       bounds: polygonBounds(animationFrames[0].polygons),
     };
+    await addQuakePickupModelRenderBundles(prepared, renderBundleBuilder);
+    stripQuakePickupModelFallbackGeometry(prepared);
+    models[source] = prepared;
   }
   for (const source of bspModelPaths) {
     const model = await buildBspModel(source);
-    const polygons = model.polygons.map((polygon) => ({
-      ...polygon,
-      data: {
-        ...polygon.data,
-        "quake-pickup-model": source,
-      },
-    }));
-    models[source] = {
+    const polygons = model.polygons;
+    const prepared = {
       source,
       polygons,
       bounds: polygonBounds(polygons),
     };
+    await addQuakePickupModelRenderBundles(prepared, renderBundleBuilder);
+    stripQuakePickupModelFallbackGeometry(prepared);
+    models[source] = prepared;
   }
   return { models };
+}
+
+async function addQuakePickupModelRenderBundles(model, renderBundleBuilder) {
+  const baseName = quakeModelBundleName(model.source);
+  if (model.animationFrames?.length > 1) {
+    for (let index = 0; index < model.animationFrames.length; index++) {
+      const frame = model.animationFrames[index];
+      frame.renderBundle = await renderBundleBuilder.build({
+        bundleName: `${baseName}/frame-${String(index).padStart(3, "0")}`,
+        polygons: quakePickupModelRenderBundlePolygons(model, index),
+      });
+    }
+    return;
+  }
+  model.renderBundle = await renderBundleBuilder.build({
+    bundleName: baseName,
+    polygons: quakePickupModelRenderBundlePolygons(model, 0),
+  });
+}
+
+function stripQuakePickupModelFallbackGeometry(model) {
+  delete model.texture;
+  delete model.polygons;
+  for (const frame of model.animationFrames ?? []) {
+    delete frame.polygons;
+  }
+}
+
+function quakePickupModelRenderBundlePolygons(model, frameIndex) {
+  const frame = model.animationFrames?.[frameIndex];
+  const polygons = frame?.polygons ?? model.polygons;
+  return polygons.map(({ data: _data, ...polygon }) => ({
+    ...polygon,
+    ...(model.texture ? { texture: model.texture, textureAlphaMode: "opaque" } : {}),
+  }));
+}
+
+function quakeModelBundleName(source) {
+  const slug = source
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "model";
+  return `models/${slug}`;
 }
 
 function quakeProgramPickupModelPaths(programMetadata) {
@@ -1418,11 +1488,6 @@ function readNullTerminatedString(buffer, offset) {
     out += String.fromCharCode(code);
   }
   return out;
-}
-
-async function encodeTextureDataUrl({ width, height, pixels, palette, brightness, alpha }) {
-  const png = await encodeTexturePng({ width, height, pixels, palette, brightness, alpha });
-  return `data:image/png;base64,${png.toString("base64")}`;
 }
 
 async function encodeTextureFileUrl(input) {
