@@ -1,8 +1,6 @@
 # cssQuake
 
-Quake levels, rendered as DOM. Powered by [PolyCSS](https://github.com/LayoutitStudio/polycss).
-
-cssQuake is a standalone browser renderer for Quake 1.06 shareware maps. It preprocesses the original game data into browser-ready JSON and image assets, then renders playable levels as inspectable HTML/CSS instead of WebGL or canvas.
+cssQuake turns Quake into playable, inspectable HTML/CSS. It preprocesses the original game data into browser-ready JSON and image assets, then renders each level as real DOM geometry powered by [PolyCSS](https://github.com/LayoutitStudio/polycss) instead of WebGL or canvas.
 
 Live version: [cssquake.wtf](https://cssquake.wtf)
 
