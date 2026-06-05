@@ -28,7 +28,7 @@ If `build/generated/public/q` already exists locally, you can skip `pnpm build` 
 
 cssQuake is built around the [PolyCSS](https://github.com/LayoutitStudio/polycss) 3D DOM rendering layer. This turns Quake geometry into real HTML elements: world faces are positioned with CSS `matrix3d(...)` transforms, textured with pixelated CSS backgrounds, and grouped into meshes instead of being drawn on a `<canvas>`.
 
-`src/App.ts` loads the prepared map JSON and mounts it into a PolyCSS scene. Quake metadata is kept on the elements with attributes such as `data-quake-face`, `data-quake-model`, and `data-quake-entity`, so gameplay systems can connect DOM-rendered surfaces back to visibility, lightstyles, doors, buttons, brush-model movement, pickups, hazards, weapon feedback, HUD/menu state, and level transitions.
+`src/App.ts` loads the prepared map JSON and mounts it into a PolyCSS scene. Quake metadata is kept on the generated elements with data attributes, so gameplay systems can connect DOM-rendered surfaces back to visibility, lightstyles, doors, buttons, brush-model movement, pickups, hazards, weapon feedback, HUD/menu state, and level transitions.
 
 The browser does not parse the original PAK or BSP files while the game is running. Generated game assets are intentionally ignored by Git.
 
