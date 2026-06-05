@@ -172,7 +172,7 @@ body[data-loading] .dn-stats-overlay[data-stats] {
   flex: 0 0 auto;
   width: 40px;
   height: 60px;
-  background-image: url("/local/quake/main-menu-cursor.png");
+  background-image: url("/q/main-menu-cursor.png");
   background-position: 0 0;
   background-size: 600% 100%;
   image-rendering: pixelated;
@@ -274,7 +274,7 @@ body[data-complete] #quake-hud::after {
   display: block;
   width: min(960px, calc(100vw - 32px), calc(160vh - 52px));
   aspect-ratio: 320 / 200;
-  background-image: url("/local/quake/main-menu.png");
+  background-image: url("/q/main-menu.png");
   background-position: center;
   background-size: 100% 100%;
   image-rendering: pixelated;
@@ -291,7 +291,7 @@ body[data-complete] #quake-hud::after {
   position: absolute;
   inset: 0;
   display: block;
-  background-image: url("/local/quake/main-menu-active.png");
+  background-image: url("/q/main-menu-active.png");
   background-position: var(--quake-main-menu-active-x) 0;
   background-size: 500% 100%;
   opacity: var(--quake-main-menu-active-opacity);
@@ -307,7 +307,7 @@ body[data-complete] #quake-hud::after {
   display: block;
   width: 5%;
   height: 12%;
-  background-image: url("/local/quake/main-menu-cursor.png");
+  background-image: url("/q/main-menu-cursor.png");
   background-position: 0 0;
   background-size: 600% 100%;
   image-rendering: pixelated;
@@ -345,7 +345,7 @@ body[data-complete] #quake-hud::after {
   border: 1px solid rgba(132, 73, 38, 0.82);
   border-radius: 2px;
   background-color: #070403;
-  background-image: url("/local/quake/menu-panel-texture.png");
+  background-image: url("/q/menu-panel-texture.png");
   background-repeat: repeat;
   background-position: left top;
   background-size: 128px 128px;
@@ -417,7 +417,7 @@ body[data-complete] #quake-hud::after {
   flex: 0 0 auto;
   width: var(--quake-bitmap-glyph-size);
   height: var(--quake-bitmap-glyph-size);
-  background-image: url("/local/quake/conchars.png");
+  background-image: url("/q/conchars.png");
   background-size: var(--quake-bitmap-sheet-size) var(--quake-bitmap-sheet-size);
   image-rendering: pixelated;
 }
@@ -845,7 +845,7 @@ body[data-action] #quake-crosshair::after {
   --quake-hud-ammo-x: calc(248 * var(--quake-hud-px));
   transform: translateX(-50%);
   aspect-ratio: 320 / 24;
-  background: #050302 url("/local/quake/hud-base.png") 0 0 / 100% 100%;
+  background: #050302 url("/q/hud-base.png") 0 0 / 100% 100%;
   overflow: hidden;
   line-height: 0;
   container-type: inline-size;
@@ -873,7 +873,7 @@ body[data-action] #quake-crosshair::after {
   position: absolute;
   top: 0;
   height: 100%;
-  background-image: url("/local/quake/hud.png");
+  background-image: url("/q/hud.png");
   background-size: 100cqw auto;
   background-position-x: calc(var(--quake-hud-sprite-x) * -1 * var(--quake-hud-px));
   background-position-y: 0;
@@ -903,7 +903,7 @@ body[data-action] #quake-crosshair::after {
   display: block;
   width: calc(24 * var(--quake-hud-px));
   height: 100%;
-  background-image: url("/local/quake/hud-numbers.png");
+  background-image: url("/q/hud-numbers.png");
   background-size: calc(240 * var(--quake-hud-px)) calc(24 * var(--quake-hud-px));
   background-position-x: calc(var(--quake-hud-digit-index, 0) * -24 * var(--quake-hud-px));
   background-position-y: 0;

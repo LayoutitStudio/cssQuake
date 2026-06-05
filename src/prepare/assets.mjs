@@ -13,7 +13,11 @@ const { path7z } = require("7z-bin");
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "../..");
 const generatedPublicDir = path.join(projectRoot, "build/generated/public");
-const quakeOutputDir = path.join(generatedPublicDir, "local/quake");
+const quakePublicPath = "/q";
+const quakeTexturePublicPath = `${quakePublicPath}/t`;
+const quakeRenderBundlePublicPath = `${quakePublicPath}/b`;
+const quakeOutputDir = path.join(generatedPublicDir, quakePublicPath.slice(1));
+const legacyQuakeOutputDir = path.join(generatedPublicDir, "local/quake");
 const socialImageSourcePath = path.join(projectRoot, "src/assets/cssquake-social.png");
 const socialImageOutputPath = path.join(generatedPublicDir, "assets/cssquake-social.png");
 const quakeMapNames = ["start", "e1m1", "e1m2", "e1m3", "e1m4", "e1m5", "e1m6", "e1m7", "e1m8"];
@@ -37,9 +41,9 @@ const weaponOutputPath = path.join(quakeOutputDir, "weapon-shotgun.preparsed.jso
 const pickupOutputPath = path.join(quakeOutputDir, "pickups.preparsed.json");
 const progsOutputPath = path.join(quakeOutputDir, "progs.preparsed.json");
 const sourcePath = path.join(projectRoot, "src/prepare/scene.ts");
-const textureOutputDir = path.join(quakeOutputDir, "textures");
+const textureOutputDir = path.join(quakeOutputDir, "t");
 const renderBundleScriptPath = path.join(scriptDir, "bundle.mjs");
-const renderBundleOutputDir = path.join(quakeOutputDir, "bundles");
+const renderBundleOutputDir = path.join(quakeOutputDir, "b");
 const renderBundleMapNames = new Set(
   (process.env.QUAKE_RENDER_BUNDLE_MAPS ?? quakeRenderBundleDefaultMapNames.join(","))
     .split(",")
@@ -113,7 +117,9 @@ try {
   await downloadQuakeResource();
   await verifyQuakeResource();
   await extractQuakePak();
+  await rm(legacyQuakeOutputDir, { recursive: true, force: true });
   await rm(textureOutputDir, { recursive: true, force: true });
+  await rm(renderBundleOutputDir, { recursive: true, force: true });
   await copyStaticPublicAssets();
 
   await build({
@@ -187,7 +193,6 @@ try {
   await writeFile(menuTitleHelpOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 1, 60, 75, 20));
   await writeFile(concharsOutputPath, await buildQuakeConcharsPng(uiAssets));
   const programMetadata = buildQuakeProgramMetadata(uiAssets);
-  await rm(path.join(renderBundleOutputDir, "models"), { recursive: true, force: true });
   await writeFile(weaponOutputPath, JSON.stringify(await buildQuakeWeaponModel(uiAssets, renderBundleBuilder)));
   await writeFile(progsOutputPath, JSON.stringify(programMetadata));
   await writeFile(pickupOutputPath, JSON.stringify(await buildQuakePickupModels(
@@ -248,7 +253,7 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
       });
       return;
     }
-    if (url.pathname.startsWith("/local/quake/textures/")) {
+    if (url.pathname.startsWith(`${quakeTexturePublicPath}/`)) {
       await route.fulfill({
         status: 200,
         contentType: contentTypeForPath(url.pathname),
@@ -284,7 +289,7 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
         const filename = `atlas-${String(index).padStart(2, "0")}-${hash}.${extension}`;
         const outputPath = path.join(assetDir, filename);
         await writeFile(outputPath, buffer);
-        const assetUrl = `/local/quake/bundles/${name}/${filename}`;
+        const assetUrl = `${quakeRenderBundlePublicPath}/${name}/${filename}`;
         meshHtml = meshHtml.split(asset.placeholder).join(assetUrl);
         assetUrls.push(assetUrl);
       }
@@ -389,7 +394,7 @@ async function pruneUnreferencedTextureFiles(jsonPaths) {
   }
 
   const referenced = new Set();
-  const textureUrlPattern = /\/local\/quake\/textures\/([^"'\\)\s]+)/g;
+  const textureUrlPattern = /\/q\/t\/([^"'\\)\s]+)/g;
   for (const jsonPath of jsonPaths) {
     const text = await readFile(jsonPath, "utf8");
     for (const match of text.matchAll(textureUrlPattern)) {
@@ -748,7 +753,7 @@ async function findPreparedTextureBuffer(preparedMaps, textureName) {
 }
 
 async function readPreparedTextureBuffer(texture) {
-  if (!texture.startsWith("/local/quake/")) return undefined;
+  if (!texture.startsWith(`${quakePublicPath}/`)) return undefined;
   return readGeneratedPublicFile(texture);
 }
 
@@ -794,7 +799,7 @@ async function buildQuakeWeaponModel(assets, renderBundleBuilder) {
   return {
     source: modelPath,
     renderBundle: await renderBundleBuilder.build({
-      bundleName: "models/weapon-shotgun",
+      bundleName: "weapon-shotgun",
       polygons: anchorQuakeWeaponPolygons(polygons),
     }),
   };
@@ -915,7 +920,7 @@ function quakeModelBundleName(source) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "model";
-  return `models/${slug}`;
+  return slug;
 }
 
 function quakeProgramPickupModelPaths(programMetadata) {
@@ -1499,7 +1504,7 @@ async function encodeTextureFileUrl(input) {
     const filename = `tex-${hash}.png`;
     await mkdir(textureOutputDir, { recursive: true });
     await writeFile(path.join(textureOutputDir, filename), png);
-    return `/local/quake/textures/${filename}`;
+    return `${quakeTexturePublicPath}/${filename}`;
   })();
   textureFileUrlByHash.set(hash, task);
   const url = await task;

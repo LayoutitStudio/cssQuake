@@ -93,17 +93,18 @@ const hudElements: QuakeHudElements = {
   ammo: hudAmmoValue,
   keys: hudKeysValue,
 };
+const QUAKE_ASSET_ROOT = "/q";
 const LOCAL_START_MAP = "e1m1";
 const LOCAL_MAP_URLS: Record<string, string> = {
-  start: "/local/quake/start.preparsed.json",
-  e1m1: "/local/quake/e1m1.preparsed.json",
-  e1m2: "/local/quake/e1m2.preparsed.json",
-  e1m3: "/local/quake/e1m3.preparsed.json",
-  e1m4: "/local/quake/e1m4.preparsed.json",
-  e1m5: "/local/quake/e1m5.preparsed.json",
-  e1m6: "/local/quake/e1m6.preparsed.json",
-  e1m7: "/local/quake/e1m7.preparsed.json",
-  e1m8: "/local/quake/e1m8.preparsed.json",
+  start: `${QUAKE_ASSET_ROOT}/start.preparsed.json`,
+  e1m1: `${QUAKE_ASSET_ROOT}/e1m1.preparsed.json`,
+  e1m2: `${QUAKE_ASSET_ROOT}/e1m2.preparsed.json`,
+  e1m3: `${QUAKE_ASSET_ROOT}/e1m3.preparsed.json`,
+  e1m4: `${QUAKE_ASSET_ROOT}/e1m4.preparsed.json`,
+  e1m5: `${QUAKE_ASSET_ROOT}/e1m5.preparsed.json`,
+  e1m6: `${QUAKE_ASSET_ROOT}/e1m6.preparsed.json`,
+  e1m7: `${QUAKE_ASSET_ROOT}/e1m7.preparsed.json`,
+  e1m8: `${QUAKE_ASSET_ROOT}/e1m8.preparsed.json`,
 };
 const LOCAL_LEVELS = [
   { mapName: "e1m1", title: "the Slipgate Complex" },
@@ -115,9 +116,9 @@ const LOCAL_LEVELS = [
   { mapName: "e1m7", title: "The House of Chthon" },
   { mapName: "e1m8", title: "Ziggurat Vertigo" },
 ] as const;
-const LOCAL_WEAPON_URL = "/local/quake/weapon-shotgun.preparsed.json";
-const LOCAL_PICKUP_MODELS_URL = "/local/quake/pickups.preparsed.json";
-const LOCAL_PROGRAM_METADATA_URL = "/local/quake/progs.preparsed.json";
+const LOCAL_WEAPON_URL = `${QUAKE_ASSET_ROOT}/weapon-shotgun.preparsed.json`;
+const LOCAL_PICKUP_MODELS_URL = `${QUAKE_ASSET_ROOT}/pickups.preparsed.json`;
+const LOCAL_PROGRAM_METADATA_URL = `${QUAKE_ASSET_ROOT}/progs.preparsed.json`;
 const QUAKE_GAMEPLAY_KEY_CODES = new Set([
   "ArrowDown",
   "ArrowLeft",
