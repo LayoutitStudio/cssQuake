@@ -1,7 +1,7 @@
 import type { QuakeEntity } from "../prepare/scene";
 import { quakeEntityNumber } from "./entities";
 
-export type QuakeHazardKind = "trigger" | "slime" | "lava";
+export type QuakeHazardKind = "trigger" | "slime" | "lava" | "fireball";
 
 export interface QuakeHazardDamage {
   amount: number;
@@ -24,4 +24,3 @@ export function quakeContentsDamage(contents: number | null | undefined): QuakeH
   if (contents === QUAKE_CONTENTS_WATER) return null;
   return null;
 }
-

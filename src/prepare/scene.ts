@@ -1,7 +1,9 @@
 import { computeTextureAtlasPlanPublic, mergePolygons, type Polygon, type TextureTriangle, type Vec2, type Vec3 } from "@layoutit/polycss";
 
 import { buildEntityManifest, cloneEntityManifest } from "./entities";
+import { parseQuakePakDirectory, quakePakEntryBytes, readFixedAscii, type QuakePakEntry } from "./pak";
 import { buildSourceFaceVisibilityKeys, buildVisibility } from "./visibility";
+export { parseQuakePakDirectory, quakePakEntryBytes, type QuakePakEntry } from "./pak";
 
 export type RGB = [number, number, number];
 
@@ -15,12 +17,6 @@ export interface QuakeTextureEncodeInput {
 }
 
 export type QuakeTextureUrlEncoder = (input: QuakeTextureEncodeInput) => Promise<string>;
-
-interface PakEntry {
-  name: string;
-  offset: number;
-  size: number;
-}
 
 interface QuakeMipTexture {
   name: string;
@@ -272,6 +268,9 @@ export interface QuakePreparedRenderBundle {
   textureLighting: "baked";
   textureQuality: 1;
   meshHtml: string;
+  meshCss?: string;
+  styleUrl?: string;
+  styleClassName?: string;
   assetUrls: string[];
   polygonCount: number;
   leafCount: number;
@@ -399,7 +398,38 @@ const BSP_LUMP_EDGES = 12;
 const BSP_LUMP_SURFEDGES = 13;
 const BSP_LUMP_MODELS = 14;
 const BSP_LUMP_COUNT = 15;
+const BSP_HEADER_SIZE = 4 + BSP_LUMP_COUNT * 8;
 const QUAKE_BSP_VERSION = 29;
+const BSP_LUMP_NAMES = [
+  "entities",
+  "planes",
+  "textures",
+  "vertices",
+  "visibility",
+  "nodes",
+  "texinfo",
+  "faces",
+  "lighting",
+  "clipnodes",
+  "leaves",
+  "marksurfaces",
+  "edges",
+  "surfedges",
+  "models",
+] as const;
+const BSP_FIXED_LUMP_RECORD_SIZES = new Map<number, number>([
+  [BSP_LUMP_PLANES, 20],
+  [BSP_LUMP_VERTICES, 12],
+  [BSP_LUMP_NODES, 24],
+  [BSP_LUMP_TEXINFO, 40],
+  [BSP_LUMP_FACES, 20],
+  [BSP_LUMP_CLIPNODES, 8],
+  [BSP_LUMP_LEAVES, 28],
+  [BSP_LUMP_MARKSURFACES, 2],
+  [BSP_LUMP_EDGES, 4],
+  [BSP_LUMP_SURFEDGES, 4],
+  [BSP_LUMP_MODELS, 64],
+]);
 export const QUAKE_RENDER_SUPERSAMPLE = 1;
 const QUAKE_UNIT_SCALE = 1 / 48;
 const QUAKE_PLAYER_MINS_Z = -24;
@@ -454,13 +484,13 @@ export async function createQuakePreparedSceneFromPakBuffer(
   buffer: ArrayBuffer,
   options: { encodeTextureUrl?: QuakeTextureUrlEncoder; mapPath?: string } = {},
 ): Promise<QuakePreparedScene> {
-  const entries = parsePak(buffer);
+  const entries = parseQuakePakDirectory(buffer);
   const palette = paletteFromPak(buffer, entries);
   const mapEntry = options.mapPath
     ? entries.find((entry) => entry.name === options.mapPath)
     : selectMapEntry(entries);
   if (!mapEntry) throw new Error(options.mapPath ? `No ${options.mapPath} entry found in this PAK.` : "No maps/*.bsp entry found in this PAK.");
-  const bsp = buffer.slice(mapEntry.offset, mapEntry.offset + mapEntry.size);
+  const bsp = quakePakEntryBytes(buffer, mapEntry).slice().buffer;
   return createQuakePreparedSceneFromBsp(
     bsp,
     palette,
@@ -552,10 +582,12 @@ async function createQuakePreparedSceneFromBsp(
   encodeTextureUrl: QuakeTextureUrlEncoder,
 ): Promise<QuakePreparedScene> {
   const view = new DataView(buffer);
+  assertValidBspHeader(view);
   const version = view.getInt32(0, true);
   if (version !== QUAKE_BSP_VERSION) {
     throw new Error(`Unsupported BSP version ${version}; expected Quake BSP ${QUAKE_BSP_VERSION}.`);
   }
+  validateBspLumps(view);
 
   const entitiesText = readLumpText(view, buffer, BSP_LUMP_ENTITIES);
   const entities = parseEntities(entitiesText);
@@ -663,7 +695,28 @@ async function createQuakePreparedSceneFromBsp(
     const texInfo = candidate.texInfo;
     const isSky = quakeTextureIsSky(texture);
     if (isSky) {
-      skyTextureUrl ??= await skyTextureUrlFor(texture, palette, textureUrls, skyTextureCache, encodeTextureUrl);
+      const textureUrl = await skyTextureUrlFor(texture, palette, textureUrls, skyTextureCache, encodeTextureUrl);
+      skyTextureUrl ??= textureUrl;
+      const polygon: Polygon = {
+        vertices: candidate.points.map((point) => quakeToPoly(point, pivot)),
+        texture: textureUrl,
+        textureWrap: REPEAT_WRAP,
+        textureAlphaMode: "opaque",
+        color: litTextureFallbackColor(texture, 1, palette, fallbackColorCache),
+        uvs: candidate.points.map((point) => textureUv(point, texInfo, texture)),
+        data: {
+          "tex": texture.name,
+          "f": candidate.faceIndex,
+          "m": candidate.modelIndex,
+          ...(candidate.entityIndex !== undefined ? { "e": candidate.entityIndex } : {}),
+        },
+      };
+      candidates.push({
+        faceIndex: candidate.faceIndex,
+        sourceFaceIndices: [candidate.faceIndex],
+        points: candidate.points,
+        polygon,
+      });
       continue;
     }
     const brightness = smoothedBrightness.get(candidate.faceIndex) ?? candidate.brightness;
@@ -714,7 +767,7 @@ async function createQuakePreparedSceneFromBsp(
     });
   }
 
-  const sourceFaceCount = candidates.length;
+  const sourceFaceCount = uniqueSorted(candidates.flatMap((candidate) => candidate.sourceFaceIndices)).length;
   const visibilityKeys = buildSourceFaceVisibilityKeys(planes, nodes, leaves, markSurfaces, visData, candidates, brushModels);
   const renderCandidates = mergeQuakeFaceCandidates(candidates, visibilityKeys);
   await addTextureAnimationSpritesToRenderCandidates(
@@ -997,37 +1050,17 @@ function base64ToBytes(value: string): Uint8Array {
   return bytes;
 }
 
-function parsePak(buffer: ArrayBuffer): PakEntry[] {
-  const view = new DataView(buffer);
-  if (readAscii(view, 0, 4) !== "PACK") throw new Error("Not a Quake PAK file.");
-  const dirOffset = view.getInt32(4, true);
-  const dirSize = view.getInt32(8, true);
-  if (dirOffset < 0 || dirSize < 0 || dirOffset + dirSize > buffer.byteLength || dirSize % 64 !== 0) {
-    throw new Error("Invalid PAK directory.");
-  }
-
-  const entries: PakEntry[] = [];
-  for (let offset = dirOffset; offset < dirOffset + dirSize; offset += 64) {
-    entries.push({
-      name: readAscii(view, offset, 56).toLowerCase(),
-      offset: view.getInt32(offset + 56, true),
-      size: view.getInt32(offset + 60, true),
-    });
-  }
-  return entries;
-}
-
-function selectMapEntry(entries: PakEntry[]): PakEntry | undefined {
+function selectMapEntry(entries: QuakePakEntry[]): QuakePakEntry | undefined {
   const maps = entries.filter((entry) => /^maps\/.+\.bsp$/.test(entry.name));
   return maps.find((entry) => entry.name === "maps/e1m1.bsp") ??
     maps.find((entry) => entry.name === "maps/start.bsp") ??
     maps[0];
 }
 
-function paletteFromPak(buffer: ArrayBuffer, entries: PakEntry[]): RGB[] {
+function paletteFromPak(buffer: ArrayBuffer, entries: QuakePakEntry[]): RGB[] {
   const entry = entries.find((item) => item.name === "gfx/palette.lmp");
   if (!entry || entry.size < 768) return defaultPalette();
-  const bytes = new Uint8Array(buffer, entry.offset, entry.size);
+  const bytes = quakePakEntryBytes(buffer, entry);
   const palette: RGB[] = [];
   for (let i = 0; i < 256; i++) {
     palette.push([bytes[i * 3] ?? 0, bytes[i * 3 + 1] ?? 0, bytes[i * 3 + 2] ?? 0]);
@@ -1057,7 +1090,7 @@ function parseMipTextures(
     }
 
     const base = lump.offset + relative;
-    const name = readAscii(view, base, 16);
+    const name = readFixedAscii(view, base, 16);
     const width = view.getUint32(base + 16, true);
     const height = view.getUint32(base + 20, true);
     const mip0 = view.getUint32(base + 24, true);
@@ -1353,24 +1386,33 @@ function readLumpText(view: DataView, buffer: ArrayBuffer, index: number): strin
   return new TextDecoder("ascii").decode(new Uint8Array(buffer, lump.offset, lump.length));
 }
 
+function assertValidBspHeader(view: DataView): void {
+  if (view.byteLength < BSP_HEADER_SIZE) {
+    throw new Error(`Invalid BSP header: ${view.byteLength} bytes; expected at least ${BSP_HEADER_SIZE}.`);
+  }
+}
+
+function validateBspLumps(view: DataView): void {
+  for (let index = 0; index < BSP_LUMP_COUNT; index++) bspLump(view, index);
+}
+
 function bspLump(view: DataView, index: number): { offset: number; length: number } {
   if (index < 0 || index >= BSP_LUMP_COUNT) throw new Error(`Invalid BSP lump ${index}.`);
   const offset = view.getInt32(4 + index * 8, true);
   const length = view.getInt32(8 + index * 8, true);
-  if (offset < 0 || length < 0 || offset + length > view.byteLength) {
-    throw new Error(`Invalid BSP lump bounds for lump ${index}.`);
+  const name = bspLumpName(index);
+  if (offset < 0 || length < 0 || offset > view.byteLength || length > view.byteLength - offset) {
+    throw new Error(`Invalid BSP ${name} lump bounds: offset ${offset}, length ${length}, file size ${view.byteLength}.`);
+  }
+  const recordSize = BSP_FIXED_LUMP_RECORD_SIZES.get(index);
+  if (recordSize !== undefined && length % recordSize !== 0) {
+    throw new Error(`Invalid BSP ${name} lump size ${length}; expected a multiple of ${recordSize} bytes.`);
   }
   return { offset, length };
 }
 
-function readAscii(view: DataView, offset: number, length: number): string {
-  let out = "";
-  for (let i = 0; i < length; i++) {
-    const code = view.getUint8(offset + i);
-    if (code === 0) break;
-    out += String.fromCharCode(code);
-  }
-  return out;
+function bspLumpName(index: number): string {
+  return BSP_LUMP_NAMES[index] ?? `lump ${index}`;
 }
 
 function dedupeFacePoints(points: QuakeVertex[]): QuakeVertex[] {
@@ -1475,6 +1517,20 @@ async function addTextureAnimationSpritesToRenderCandidates(
 
 function quakeMergeGroupKey(candidate: QuakeFaceCandidate, visibilityKeys: Map<number, string>): string {
   const polygon = candidate.polygon;
+  if (quakePolygonIsSky(polygon)) {
+    return [
+      "sky",
+      polygon.texture ?? "",
+      polygon.color ?? "",
+      polygon.textureWrap?.s ?? "",
+      polygon.textureWrap?.t ?? "",
+      polygon.textureAlphaMode ?? "",
+      polygon.doubleSided === true ? "double" : "single",
+      String(polygon.data?.["tex"] ?? ""),
+      String(polygon.data?.["m"] ?? ""),
+      String(polygon.data?.["e"] ?? ""),
+    ].join("\u001f");
+  }
   return [
     visibilityKeys.get(candidate.faceIndex) ?? `face:${candidate.faceIndex}`,
     polygon.texture ?? "",
@@ -1493,6 +1549,10 @@ function quakeMergeGroupKey(candidate: QuakeFaceCandidate, visibilityKeys: Map<n
     String(polygon.data?.["base"] ?? ""),
     String(polygon.data?.["pressed"] ?? ""),
   ].join("\u001f");
+}
+
+function quakePolygonIsSky(polygon: Polygon): boolean {
+  return String(polygon.data?.["tex"] ?? "").toLowerCase().startsWith("sky");
 }
 
 function polygonForMerge(polygon: Polygon): Polygon {

@@ -35,9 +35,11 @@ export interface QuakeWeaponsControllerOptions {
   getShells(): number;
   consumeShell(): void;
   syncHud(): void;
+  playFireSound(): void;
   playFireAnimation(): void;
-  destroyShootable(entityIndex: number): boolean;
-  activateEntity(entityIndex: number): void;
+  damageShootable(entityIndex: number, amount: number): boolean;
+  damageBrushEntity(entityIndex: number, amount: number): boolean;
+  onHit(): void;
   syncCrosshairTarget(): void;
 }
 
@@ -50,6 +52,7 @@ interface QuakeViewRay {
 
 const QUAKE_WEAPON_FIRE_COOLDOWN_MS = 420;
 const QUAKE_WEAPON_TRACE_RANGE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_SHOTGUN_DAMAGE = 24;
 
 export function createQuakeWeaponsController({
   scene,
@@ -62,9 +65,11 @@ export function createQuakeWeaponsController({
   getShells,
   consumeShell,
   syncHud,
+  playFireSound,
   playFireAnimation,
-  destroyShootable,
-  activateEntity,
+  damageShootable,
+  damageBrushEntity,
+  onHit,
   syncCrosshairTarget,
 }: QuakeWeaponsControllerOptions): QuakeWeaponsController {
   let lastFireAt = -Infinity;
@@ -81,8 +86,9 @@ export function createQuakeWeaponsController({
     lastFireAt = now;
     consumeShell();
     syncHud();
+    playFireSound();
     playFireAnimation();
-    handleWeaponHit(weaponTraceAtCrosshair());
+    if (handleWeaponHit(weaponTraceAtCrosshair())) onHit();
     syncCrosshairTarget();
   }
 
@@ -103,7 +109,7 @@ export function createQuakeWeaponsController({
   function traceIsActionable(trace: QuakeUseTrace | null): trace is QuakeUseTrace {
     if (trace?.classname !== "func_button" || trace.entityIndex === undefined) return false;
     const entity = getEntities().get(trace.entityIndex);
-    return Boolean(entity && !isShootableButton(entity));
+    return Boolean(entity && !isShootableBrushEntity(entity));
   }
 
   function traceIsShootable(trace: QuakeUseTrace | null): trace is QuakeUseTrace {
@@ -112,7 +118,7 @@ export function createQuakeWeaponsController({
       if (!shootable.dead && shootable.entity.index === trace.entityIndex) return true;
     }
     const entity = getEntities().get(trace.entityIndex);
-    return Boolean(entity && isShootableButton(entity));
+    return Boolean(entity && isShootableBrushEntity(entity));
   }
 
   function viewRayAtCrosshair(range: number): QuakeViewRay {
@@ -147,14 +153,12 @@ export function createQuakeWeaponsController({
     if (trace?.entityIndex === undefined) return false;
     for (const shootable of getShootables()) {
       if (shootable.entity.index !== trace.entityIndex) continue;
-      destroyShootable(trace.entityIndex);
-      return true;
+      return damageShootable(trace.entityIndex, QUAKE_SHOTGUN_DAMAGE);
     }
     const entity = getEntities().get(trace.entityIndex);
     if (!entity) return false;
-    if (isShootableButton(entity)) {
-      activateEntity(entity.index);
-      return true;
+    if (isShootableBrushEntity(entity)) {
+      return damageBrushEntity(entity.index, QUAKE_SHOTGUN_DAMAGE);
     }
     return false;
   }
@@ -222,8 +226,13 @@ function rayTraceAabb(
   };
 }
 
-function isShootableButton(entity: QuakeEntity): boolean {
-  return entity.classname === "func_button" && quakeEntityNumber(entity, "health", 0) > 0;
+function isShootableBrushEntity(entity: QuakeEntity): boolean {
+  if (quakeEntityNumber(entity, "health", 0) <= 0) return false;
+  return entity.classname === "func_button" ||
+    entity.classname === "func_door" ||
+    entity.classname === "trigger_multiple" ||
+    entity.classname === "trigger_once" ||
+    entity.classname === "trigger_secret";
 }
 
 function forwardDirection(rotX: number, rotY: number): Vec3 {

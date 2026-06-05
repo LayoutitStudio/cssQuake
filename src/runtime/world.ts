@@ -11,6 +11,11 @@ import {
   type QuakeScene,
   type QuakeVisibility,
 } from "../prepare/scene";
+import {
+  createQuakeWorldVisibilityChurnStats,
+  recordQuakeWorldVisibilitySync,
+  type QuakeWorldVisibilityChurnStats,
+} from "./debug/churnStats";
 import { polygonNormal } from "./math";
 import { mountQuakeRenderBundleMesh, stripPolyMeshMetadata } from "./renderBundleMesh";
 
@@ -28,6 +33,12 @@ export interface QuakeFaceLeaf {
   faceIndex: number;
   modelIndex?: number;
   entityIndex?: number;
+  meshKind: "world" | "lightstyle";
+  tagName: string;
+  textureName?: string;
+  specialTexture: boolean;
+  textureAnimated: boolean;
+  lightstyleAnimated: boolean;
   element: HTMLElement;
   anchor: Comment;
   mounted: boolean;
@@ -61,6 +72,7 @@ export interface QuakeWorldControllerOptions {
 
 export interface QuakeWorldController {
   clear: () => void;
+  debugStats: () => QuakeWorldDebugStats;
   dispose: () => void;
   leafIndexAt: (origin: Vec3) => number | undefined;
   modelLeaves: (modelIndex: number) => QuakeFaceLeaf[];
@@ -70,6 +82,30 @@ export interface QuakeWorldController {
   syncVisibility: (force?: boolean) => void;
   visibleLeavesAt: (origin: [number, number, number]) => Set<number> | null;
   waitForPresentationResyncs: () => Promise<void>;
+}
+
+export interface QuakeWorldDebugBucket {
+  total: number;
+  mounted: number;
+}
+
+export interface QuakeWorldDebugStats {
+  currentLeafIndex: number | null;
+  visibleLeafCount: number | null;
+  pvsFaceCount: number | null;
+  renderFaceCount: number;
+  totalLeaves: number;
+  mountedLeaves: number;
+  unmountedLeaves: number;
+  mountedAtlasLeaves: number;
+  mountedSpecialTextureLeaves: number;
+  mountedTextureAnimatedLeaves: number;
+  mountedLightstyleLeaves: number;
+  mountedBrushModelLeaves: number;
+  mountedEntityLeaves: number;
+  leavesByMesh: Record<string, QuakeWorldDebugBucket>;
+  leavesByTag: Record<string, QuakeWorldDebugBucket>;
+  visibilityChurn: QuakeWorldVisibilityChurnStats;
 }
 
 interface QuakePresentationResyncTask {
@@ -89,6 +125,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
   let visibleFaceKey = "";
   const preloadedButtonImages = new Set<HTMLImageElement>();
   let presentationResyncTasks = new Set<QuakePresentationResyncTask>();
+  let visibilityChurn = createQuakeWorldVisibilityChurnStats();
 
   const clear = (): void => {
     clearPresentationResyncTimers();
@@ -102,6 +139,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     quakeLeaves = [];
     visibleFaceKey = "";
     preloadedButtonImages.clear();
+    visibilityChurn = createQuakeWorldVisibilityChurnStats();
   };
 
   const clearPresentationResyncTimers = (): void => {
@@ -169,31 +207,57 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
   };
 
   const syncVisibility = (force = false): void => {
-    if (!currentHandle) return;
+    const startedAt = performance.now();
+    if (!currentHandle) {
+      recordQuakeWorldVisibilitySync(visibilityChurn, "no-handle", startedAt, { force });
+      return;
+    }
     const origin = options.getOrigin();
     options.syncPickupsVisibility(origin);
     const visibleFaces = currentVisibility?.visibleFacesAt(origin) ?? null;
     if (!visibleFaces) {
+      let addedLeaves = 0;
+      let removedLeaves = 0;
       if (force || visibleFaceKey !== "all") {
         const now = performance.now();
-        for (const leaf of quakeLeaves) setQuakeLeafMounted(leaf, true, now);
+        for (const leaf of quakeLeaves) {
+          const change = setQuakeLeafMounted(leaf, true, now);
+          if (change > 0) addedLeaves++;
+          if (change < 0) removedLeaves++;
+        }
         visibleFaceKey = "all";
       }
+      recordQuakeWorldVisibilitySync(visibilityChurn, "no-pvs", startedAt, { force, addedLeaves, removedLeaves });
       return;
     }
 
     const nextKey = faceSetKey(visibleFaces);
-    if (!force && nextKey === visibleFaceKey) return;
+    if (!force && nextKey === visibleFaceKey) {
+      recordQuakeWorldVisibilitySync(visibilityChurn, "same-key", startedAt, { pvsFaceCount: visibleFaces.size });
+      return;
+    }
     visibleFaceKey = nextKey;
     const now = performance.now();
+    let addedLeaves = 0;
+    let removedLeaves = 0;
     for (const [faceIndex, leaves] of faceLeaves) {
       const visible = visibleFaces.has(faceIndex);
-      for (const leaf of leaves) setQuakeLeafMounted(leaf, visible, now);
+      for (const leaf of leaves) {
+        const change = setQuakeLeafMounted(leaf, visible, now);
+        if (change > 0) addedLeaves++;
+        if (change < 0) removedLeaves++;
+      }
     }
+    recordQuakeWorldVisibilitySync(visibilityChurn, force ? "force" : "leaf-change", startedAt, {
+      force,
+      pvsFaceCount: visibleFaces.size,
+      addedLeaves,
+      removedLeaves,
+    });
   };
 
-  const setQuakeLeafMounted = (leaf: QuakeFaceLeaf, mounted: boolean, now = performance.now()): void => {
-    if (leaf.mounted === mounted) return;
+  const setQuakeLeafMounted = (leaf: QuakeFaceLeaf, mounted: boolean, now = performance.now()): number => {
+    if (leaf.mounted === mounted) return 0;
     if (mounted) {
       applyQuakeLeafPresentation(leaf.element);
       options.applyMoverLeafTransform(leaf);
@@ -206,13 +270,64 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       leaf.element.remove();
     }
     leaf.mounted = mounted;
+    return mounted ? 1 : -1;
+  };
+
+  const debugStats = (): QuakeWorldDebugStats => {
+    const origin = options.getOrigin();
+    const currentLeafIndex = currentVisibility?.leafIndexAt(origin);
+    const visibleLeaves = currentVisibility?.visibleLeavesAt(origin) ?? null;
+    const visibleFaces = currentVisibility?.visibleFacesAt(origin) ?? null;
+    let mountedLeaves = 0;
+    let mountedAtlasLeaves = 0;
+    let mountedSpecialTextureLeaves = 0;
+    let mountedTextureAnimatedLeaves = 0;
+    let mountedLightstyleLeaves = 0;
+    let mountedBrushModelLeaves = 0;
+    let mountedEntityLeaves = 0;
+    const leavesByMesh: Record<string, QuakeWorldDebugBucket> = {};
+    const leavesByTag: Record<string, QuakeWorldDebugBucket> = {};
+
+    for (const leaf of quakeLeaves) {
+      const mounted = leaf.mounted && leaf.element.isConnected;
+      if (mounted) {
+        mountedLeaves++;
+        if (leaf.tagName === "s") mountedAtlasLeaves++;
+        if (leaf.specialTexture) mountedSpecialTextureLeaves++;
+        if (leaf.textureAnimated) mountedTextureAnimatedLeaves++;
+        if (leaf.lightstyleAnimated) mountedLightstyleLeaves++;
+        if (leaf.modelIndex !== undefined && leaf.modelIndex !== 0) mountedBrushModelLeaves++;
+        if (leaf.entityIndex !== undefined) mountedEntityLeaves++;
+      }
+      addQuakeWorldDebugBucket(leavesByMesh, leaf.meshKind, mounted);
+      addQuakeWorldDebugBucket(leavesByTag, leaf.tagName, mounted);
+    }
+
+    return {
+      currentLeafIndex: Number.isInteger(currentLeafIndex) ? currentLeafIndex : null,
+      visibleLeafCount: visibleLeaves?.size ?? null,
+      pvsFaceCount: visibleFaces?.size ?? null,
+      renderFaceCount: faceLeaves.size,
+      totalLeaves: quakeLeaves.length,
+      mountedLeaves,
+      unmountedLeaves: quakeLeaves.length - mountedLeaves,
+      mountedAtlasLeaves,
+      mountedSpecialTextureLeaves,
+      mountedTextureAnimatedLeaves,
+      mountedLightstyleLeaves,
+      mountedBrushModelLeaves,
+      mountedEntityLeaves,
+      leavesByMesh,
+      leavesByTag,
+      visibilityChurn: { ...visibilityChurn },
+    };
   };
 
   const addQuakeRenderBundleMesh = (renderBundle: QuakePreparedRenderBundle): PolyMeshHandle => {
     const handle = mountQuakeRenderBundleMesh(options.sceneElement, renderBundle);
     const element = handle.element;
     stripQuakeWorldMeshMetadata(element);
-    faceLeaves = indexQuakeFaceLeaves(handle, new Map(), true);
+    faceLeaves = indexQuakeFaceLeaves(handle, new Map(), true, "world");
     preloadQuakeButtonStateTextures();
     return handle;
   };
@@ -226,7 +341,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       excludeFromAutoCenter: true,
     });
     stripQuakeWorldMeshMetadata(handle.element);
-    indexQuakeFaceLeaves(handle, faceLeaves, false);
+    indexQuakeFaceLeaves(handle, faceLeaves, false, "lightstyle");
     syncQuakeLightstyleOverlayAnimations(handle);
     return handle;
   };
@@ -235,20 +350,20 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     handle: PolyMeshHandle,
     leaves = new Map<number, QuakeFaceLeaf[]>(),
     reset = true,
+    meshKind: QuakeFaceLeaf["meshKind"] = "world",
   ): Map<number, QuakeFaceLeaf[]> => {
     if (reset) {
       quakeLeaves = [];
       modelLeaves = new Map();
     }
     for (const leaf of handle.element.querySelectorAll<HTMLElement>("b,i,s,u")) {
-      if (quakeLeafUsesSkyTexture(leaf)) {
-        leaf.remove();
-        continue;
-      }
       const faceIndex = Number(leaf.dataset.f);
       if (!Number.isInteger(faceIndex)) continue;
       const modelIndex = Number(leaf.dataset.m);
       const entityIndex = Number(leaf.dataset.e);
+      const textureName = leaf.dataset.tex;
+      const lightstyleValue = Number(leaf.dataset.ls);
+      const tagName = leaf.tagName.toLowerCase();
       applyQuakeLeafPresentation(leaf);
       stripQuakeWorldLeafMetadata(leaf);
       const anchor = leaf.ownerDocument.createComment(`quake-face:${faceIndex}`);
@@ -257,6 +372,12 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
         faceIndex,
         ...(Number.isInteger(modelIndex) ? { modelIndex } : {}),
         ...(Number.isInteger(entityIndex) ? { entityIndex } : {}),
+        meshKind,
+        tagName,
+        ...(textureName ? { textureName } : {}),
+        specialTexture: textureName?.startsWith("*") === true,
+        textureAnimated: leaf.dataset.sprite !== undefined,
+        lightstyleAnimated: Number.isInteger(lightstyleValue),
         element: leaf,
         anchor,
         mounted: true,
@@ -307,6 +428,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
 
   return {
     clear,
+    debugStats,
     dispose: clear,
     leafIndexAt: (origin: Vec3) => currentVisibility?.leafIndexAt(origin),
     modelLeaves: (modelIndex: number) => modelLeaves.get(modelIndex) ?? [],
@@ -317,6 +439,17 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     visibleLeavesAt: (origin: [number, number, number]) => currentVisibility?.visibleLeavesAt(origin) ?? null,
     waitForPresentationResyncs,
   };
+}
+
+function addQuakeWorldDebugBucket(
+  buckets: Record<string, QuakeWorldDebugBucket>,
+  key: string,
+  mounted: boolean,
+): void {
+  const bucket = buckets[key] ?? { total: 0, mounted: 0 };
+  bucket.total++;
+  if (mounted) bucket.mounted++;
+  buckets[key] = bucket;
 }
 
 function stripQuakeWorldMeshMetadata(element: HTMLElement): void {
@@ -359,10 +492,6 @@ function applyQuakeLeafPresentation(leaf: HTMLElement): void {
 
 function quakeLeafUsesSpecialTexture(leaf: HTMLElement): boolean {
   return leaf.dataset.tex?.startsWith("*") === true;
-}
-
-function quakeLeafUsesSkyTexture(leaf: HTMLElement): boolean {
-  return leaf.dataset.tex?.toLowerCase().startsWith("sky") === true;
 }
 
 function stripQuakeLeafMetadata(leaf: HTMLElement): void {

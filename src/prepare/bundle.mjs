@@ -10,7 +10,13 @@ const QUAKE_RENDER_BUNDLE_TIMEOUT_MS = 30000;
 const QUAKE_RENDER_BUNDLE_ASSET_MIME = "image/webp";
 const QUAKE_RENDER_BUNDLE_ASSET_QUALITY = 0.92;
 
-window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({ polygons }) {
+window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
+  polygons,
+  textureQuality = 1,
+  merge = false,
+  extractLeafStyles = false,
+  styleClassName = "",
+}) {
   const host = document.createElement("main");
   host.style.position = "absolute";
   host.style.left = "-100000px";
@@ -32,22 +38,26 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({ polygo
       ambientLight: { color: "#ffffff", intensity: Math.PI },
       directionalLight: { direction: [-0.4, -0.55, -0.65], color: "#ffffff", intensity: 0 },
       textureLighting: "baked",
-      textureQuality: 1,
+      textureQuality,
       autoCenter: false,
     });
     const handle = scene.add(
       { polygons, objectUrls: [], warnings: [], dispose: () => undefined },
       {
-        merge: false,
+        merge,
         meshResolution: "lossless",
         excludeFromAutoCenter: true,
       },
     );
 
     await waitForBakedTextureLeaves(handle.element);
-    const { meshHtml, assets } = await serializeMeshWithAssets(handle.element);
+    const { meshHtml, meshCss, assets } = await serializeMeshWithAssets(handle.element, {
+      extractLeafStyles,
+      styleClassName,
+    });
     return {
       meshHtml,
+      meshCss,
       assets,
       leafCount: handle.element.querySelectorAll("b,i,s,u").length,
       atlasLeafCount: handle.element.querySelectorAll("s").length,
@@ -74,9 +84,11 @@ async function waitForBakedTextureLeaves(mesh) {
   }
 }
 
-async function serializeMeshWithAssets(mesh) {
+async function serializeMeshWithAssets(mesh, options = {}) {
   const serializableMesh = mesh.cloneNode(true);
-  stripRenderBundleMeshMetadata(serializableMesh);
+  stripRenderBundleMeshMetadata(serializableMesh, {
+    preserveLeafPolyIndex: Boolean(options.extractLeafStyles),
+  });
   const assetByBlobUrl = new Map();
   const styleElements = [serializableMesh, ...serializableMesh.querySelectorAll("[style]")];
   for (const element of styleElements) {
@@ -96,6 +108,9 @@ async function serializeMeshWithAssets(mesh) {
     element.setAttribute("style", nextStyle);
   }
   hoistRenderBundleBackgroundImages(serializableMesh);
+  const meshCss = options.extractLeafStyles
+    ? extractRenderBundleLeafStyles(serializableMesh, options.styleClassName)
+    : "";
 
   const assets = [];
   for (const asset of assetByBlobUrl.values()) {
@@ -115,8 +130,48 @@ async function serializeMeshWithAssets(mesh) {
 
   return {
     meshHtml: serializableMesh.outerHTML,
+    meshCss,
     assets,
   };
+}
+
+function extractRenderBundleLeafStyles(mesh, styleClassName) {
+  if (!styleClassName || !/^[a-z_][a-z0-9_-]*$/i.test(styleClassName)) {
+    throw new Error(`Invalid render bundle style class name ${JSON.stringify(styleClassName)}.`);
+  }
+  mesh.classList.add(styleClassName);
+  const rules = [];
+  const usedLeafClasses = new Set();
+  let fallbackLeafIndex = 0;
+  for (const leaf of mesh.querySelectorAll("b,i,s,u")) {
+    const style = leaf.getAttribute("style");
+    if (!style) continue;
+    let leafClass = renderBundleLeafClass(leaf, usedLeafClasses);
+    if (!leafClass) {
+      do {
+        leafClass = `qf${fallbackLeafIndex.toString(36)}`;
+        fallbackLeafIndex++;
+      } while (usedLeafClasses.has(leafClass));
+      usedLeafClasses.add(leafClass);
+    }
+    leaf.classList.add(leafClass);
+    leaf.removeAttribute("style");
+    leaf.removeAttribute("data-poly-index");
+    rules.push(`.${styleClassName} .${leafClass}{${style}}`);
+  }
+  for (const leaf of mesh.querySelectorAll("[data-poly-index]")) {
+    leaf.removeAttribute("data-poly-index");
+  }
+  return rules.join("");
+}
+
+function renderBundleLeafClass(leaf, usedLeafClasses) {
+  const polyIndex = Number(leaf.getAttribute("data-poly-index"));
+  if (!Number.isSafeInteger(polyIndex) || polyIndex < 0) return "";
+  const leafClass = `q${polyIndex.toString(36)}`;
+  if (usedLeafClasses.has(leafClass)) return "";
+  usedLeafClasses.add(leafClass);
+  return leafClass;
 }
 
 function hoistRenderBundleBackgroundImages(mesh) {
@@ -216,11 +271,13 @@ function compactRenderBundleBackgroundStyle(style) {
     .join(";");
 }
 
-function stripRenderBundleMeshMetadata(mesh) {
+function stripRenderBundleMeshMetadata(mesh, options = {}) {
   mesh.removeAttribute("data-poly-mesh-id");
   mesh.removeAttribute("data-poly-mesh-index");
-  for (const leaf of mesh.querySelectorAll("[data-poly-index]")) {
-    leaf.removeAttribute("data-poly-index");
+  if (!options.preserveLeafPolyIndex) {
+    for (const leaf of mesh.querySelectorAll("[data-poly-index]")) {
+      leaf.removeAttribute("data-poly-index");
+    }
   }
   for (const element of mesh.querySelectorAll("[style]")) {
     const style = element.getAttribute("style") ?? "";

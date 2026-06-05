@@ -22,10 +22,24 @@ const socialImageSourcePath = path.join(projectRoot, "src/assets/cssquake-social
 const socialImageOutputPath = path.join(generatedPublicDir, "assets/cssquake-social.png");
 const quakeMapNames = ["start", "e1m1", "e1m2", "e1m3", "e1m4", "e1m5", "e1m6", "e1m7", "e1m8"];
 const quakeRenderBundleDefaultMapNames = quakeMapNames;
+const quakeStartMap = "e1m1";
+const quakeSelectableMapNames = new Set(quakeMapNames.filter((mapName) => mapName !== "start"));
+const quakeMapTitles = new Map([
+  ["start", "Introduction"],
+  ["e1m1", "the Slipgate Complex"],
+  ["e1m2", "Castle of the Damned"],
+  ["e1m3", "the Necropolis"],
+  ["e1m4", "the Grisly Grotto"],
+  ["e1m5", "Gloom Keep"],
+  ["e1m6", "The Door To Chthon"],
+  ["e1m7", "The House of Chthon"],
+  ["e1m8", "Ziggurat Vertigo"],
+]);
 const mapOutputPaths = new Map(quakeMapNames.map((mapName) => [
   `maps/${mapName}.bsp`,
-  path.join(quakeOutputDir, `${mapName}.preparsed.json`),
+  path.join(quakeOutputDir, `${mapName}.json`),
 ]));
+const manifestOutputPath = path.join(quakeOutputDir, "manifest.json");
 const hudOutputPath = path.join(quakeOutputDir, "hud.png");
 const hudBaseOutputPath = path.join(quakeOutputDir, "hud-base.png");
 const hudNumbersOutputPath = path.join(quakeOutputDir, "hud-numbers.png");
@@ -37,11 +51,13 @@ const menuPanelTextureOutputPath = path.join(quakeOutputDir, "menu-panel-texture
 const menuTitleOptionsOutputPath = path.join(quakeOutputDir, "menu-title-options.png");
 const menuTitleHelpOutputPath = path.join(quakeOutputDir, "menu-title-help.png");
 const concharsOutputPath = path.join(quakeOutputDir, "conchars.png");
-const weaponOutputPath = path.join(quakeOutputDir, "weapon-shotgun.preparsed.json");
-const pickupOutputPath = path.join(quakeOutputDir, "pickups.preparsed.json");
-const progsOutputPath = path.join(quakeOutputDir, "progs.preparsed.json");
+const weaponOutputPath = path.join(quakeOutputDir, "weapon.json");
+const pickupOutputPath = path.join(quakeOutputDir, "pickups.json");
+const progsOutputPath = path.join(quakeOutputDir, "progs.json");
+const soundManifestOutputPath = path.join(quakeOutputDir, "sounds.json");
 const sourcePath = path.join(projectRoot, "src/prepare/scene.ts");
 const textureOutputDir = path.join(quakeOutputDir, "t");
+const soundOutputDir = path.join(quakeOutputDir, "s");
 const renderBundleScriptPath = path.join(scriptDir, "bundle.mjs");
 const renderBundleOutputDir = path.join(quakeOutputDir, "b");
 const renderBundleMapNames = new Set(
@@ -72,6 +88,8 @@ const QUAKE_MAIN_MENU_LEVEL_LABEL = "LEVEL SELECT";
 const QUAKE_MAIN_MENU_LEVEL_LABEL_SCALE = 2;
 const QUAKE_PICKUP_MODEL_SCALE = 1 / 48;
 const QUAKE_WEAPON_MODEL_PIVOT = [1.0, 0, 0];
+const QUAKE_ENEMY_ALIAS_MODEL_RENDER_SCALE = 4;
+const QUAKE_ANIMATION_FRAME_SET_MIN_COMMON_LEAF_RATIO = 0.95;
 const QUAKE_PICKUP_MODEL_PATHS = {
   item_armor1: "progs/armor.mdl",
   item_armor2: "progs/armor.mdl",
@@ -86,6 +104,8 @@ const QUAKE_PICKUP_MODEL_PATHS = {
   weapon_supershotgun: "progs/g_shot.mdl",
   weapon_grenadelauncher: "progs/g_rock.mdl",
   weapon_rocketlauncher: "progs/g_rock2.mdl",
+  key_silver: "progs/w_s_key.mdl",
+  key_gold: "progs/w_g_key.mdl",
 };
 const QUAKE_PICKUP_BSP_MODEL_PATHS = [
   "maps/b_batt0.bsp",
@@ -102,6 +122,44 @@ const QUAKE_PICKUP_BSP_MODEL_PATHS = [
   "maps/b_exbox2.bsp",
   "maps/b_explob.bsp",
 ];
+const QUAKE_MONSTER_MODEL_PATHS = {
+  monster_army: "progs/soldier.mdl",
+  monster_dog: "progs/dog.mdl",
+  monster_enforcer: "progs/enforcer.mdl",
+  monster_fish: "progs/fish.mdl",
+  monster_knight: "progs/knight.mdl",
+  monster_ogre: "progs/ogre.mdl",
+  monster_wizard: "progs/wizard.mdl",
+  monster_zombie: "progs/zombie.mdl",
+  monster_demon1: "progs/demon.mdl",
+  monster_hell_knight: "progs/hknight.mdl",
+  monster_shalrath: "progs/shalrath.mdl",
+  monster_shambler: "progs/shambler.mdl",
+  monster_tarbaby: "progs/tarbaby.mdl",
+  monster_boss: "progs/boss.mdl",
+  monster_oldone: "progs/oldone.mdl",
+};
+const QUAKE_ANIMATED_MONSTER_ALIAS_MODEL_PATHS = [
+  "progs/dog.mdl",
+  "progs/knight.mdl",
+  "progs/ogre.mdl",
+  "progs/soldier.mdl",
+];
+const QUAKE_PROJECTILE_ALIAS_MODEL_PATHS = [
+  "progs/bolt.mdl",
+  "progs/grenade.mdl",
+  "progs/k_spike.mdl",
+  "progs/laser.mdl",
+  "progs/lavaball.mdl",
+  "progs/v_spike.mdl",
+  "progs/w_spike.mdl",
+];
+const QUAKE_MONSTER_PROJECTILE_MODEL_PATHS = {
+  monster_hell_knight: "progs/k_spike.mdl",
+  monster_ogre: "progs/grenade.mdl",
+  monster_shalrath: "progs/v_spike.mdl",
+  monster_wizard: "progs/w_spike.mdl",
+};
 
 const tempDir = await mkdtemp(path.join(tmpdir(), "polycss-quake-preparse-"));
 const bundlePath = path.join(tempDir, "quakePreparedScene.bundle.mjs");
@@ -112,13 +170,20 @@ const resourcePath = path.join(tempDir, "resource.1");
 const extractedPakPath = path.join(tempDir, "ID1/PAK0.PAK");
 let renderBundleBuilder = null;
 const textureFileUrlByHash = new Map();
+const texturePngByPublicPath = new Map();
 
 try {
-  await downloadQuakeResource();
-  await verifyQuakeResource();
-  await extractQuakePak();
+  if (process.env.QUAKE_PAK_PATH?.trim()) {
+    await copyQuakePakFromPath(process.env.QUAKE_PAK_PATH.trim());
+  } else {
+    await downloadQuakeResource();
+    await verifyQuakeResource();
+    await extractQuakePak();
+  }
   await rm(legacyQuakeOutputDir, { recursive: true, force: true });
+  await removeLegacyQuakeJsonFiles();
   await rm(textureOutputDir, { recursive: true, force: true });
+  await rm(soundOutputDir, { recursive: true, force: true });
   await rm(renderBundleOutputDir, { recursive: true, force: true });
   await copyStaticPublicAssets();
 
@@ -147,6 +212,7 @@ try {
   const {
     createQuakeSceneFromPreparedScene,
     createQuakePreparedSceneFromPakBuffer,
+    parseQuakePakDirectory,
   } = await import(pathToFileURL(bundlePath).href);
   const pak = await readFile(extractedPakPath);
   const buffer = pak.buffer.slice(pak.byteOffset, pak.byteOffset + pak.byteLength);
@@ -177,10 +243,10 @@ try {
     const preparedJson = JSON.stringify(prepared);
     await mkdir(path.dirname(outputPath), { recursive: true });
     await writeFile(outputPath, preparedJson);
-    preparedMaps.push({ outputPath, prepared, size: Buffer.byteLength(preparedJson) });
+    preparedMaps.push({ mapName, mapPath, outputPath, prepared, size: Buffer.byteLength(preparedJson) });
   }
 
-  const uiAssets = loadQuakeHudAssets(pak);
+  const uiAssets = loadQuakeHudAssets(pak, parseQuakePakDirectory);
   await writeFile(hudBaseOutputPath, await buildQuakeHudBasePng(uiAssets));
   await writeFile(hudNumbersOutputPath, await buildQuakeHudNumbersPng(uiAssets));
   await writeFile(hudOutputPath, await buildQuakeHudPng(uiAssets));
@@ -195,7 +261,7 @@ try {
   const programMetadata = buildQuakeProgramMetadata(uiAssets);
   await writeFile(weaponOutputPath, JSON.stringify(await buildQuakeWeaponModel(uiAssets, renderBundleBuilder)));
   await writeFile(progsOutputPath, JSON.stringify(programMetadata));
-  await writeFile(pickupOutputPath, JSON.stringify(await buildQuakePickupModels(
+  const pickupModels = await buildQuakePickupModels(
     uiAssets,
     async (mapPath) => createQuakeSceneFromPreparedScene(await createQuakePreparedSceneFromPakBuffer(buffer, {
       encodeTextureUrl: encodeTextureFileUrl,
@@ -203,6 +269,14 @@ try {
     })),
     programMetadata,
     renderBundleBuilder,
+  );
+  await writeFile(pickupOutputPath, JSON.stringify(pickupModels));
+  const soundManifest = await exportQuakeSounds(pak, parseQuakePakDirectory);
+  await writeFile(soundManifestOutputPath, JSON.stringify(soundManifest));
+  await writeFile(manifestOutputPath, JSON.stringify(buildQuakeAssetManifest(
+    preparedMaps,
+    programMetadata,
+    pickupModels,
   )));
   await pruneUnreferencedTextureFiles([
     ...preparedMaps.map((item) => item.outputPath),
@@ -228,6 +302,8 @@ try {
   console.log(`Wrote ${path.relative(projectRoot, weaponOutputPath)}`);
   console.log(`Wrote ${path.relative(projectRoot, progsOutputPath)}`);
   console.log(`Wrote ${path.relative(projectRoot, pickupOutputPath)}`);
+  console.log(`Wrote ${path.relative(projectRoot, soundManifestOutputPath)} (${Object.keys(soundManifest.sounds).length} sounds)`);
+  console.log(`Wrote ${path.relative(projectRoot, manifestOutputPath)}`);
 } finally {
   await renderBundleBuilder?.close?.();
   await rm(tempDir, { recursive: true, force: true });
@@ -267,19 +343,21 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
   await page.addScriptTag({ path: bundlePath });
 
   return {
-    async build({ bundleName, mapName, polygons }) {
+    async build({ bundleName, mapName, polygons, textureQuality = 1, extractLeafStyles = false }) {
       const name = bundleName ?? mapName;
       if (!name) throw new Error("Render bundle build requires a bundleName or mapName.");
+      const styleClassName = extractLeafStyles ? quakeRenderBundleStyleClassName(name) : "";
       const startedAt = Date.now();
       const result = await page.evaluate(
         async (input) => window.__buildQuakeRenderBundle(input),
-        { polygons },
+        { polygons, textureQuality, extractLeafStyles, styleClassName },
       );
       const assetDir = path.join(renderBundleOutputDir, name);
       await rm(assetDir, { recursive: true, force: true });
       await mkdir(assetDir, { recursive: true });
 
       let meshHtml = result.meshHtml;
+      let meshCss = result.meshCss ?? "";
       const assetUrls = [];
       for (let index = 0; index < result.assets.length; index++) {
         const asset = result.assets[index];
@@ -291,10 +369,19 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
         await writeFile(outputPath, buffer);
         const assetUrl = `${quakeRenderBundlePublicPath}/${name}/${filename}`;
         meshHtml = meshHtml.split(asset.placeholder).join(assetUrl);
+        meshCss = meshCss.split(asset.placeholder).join(assetUrl);
         assetUrls.push(assetUrl);
       }
-      if (meshHtml.includes("__QUAKE_RENDER_BUNDLE_ASSET_")) {
+      if (meshHtml.includes("__QUAKE_RENDER_BUNDLE_ASSET_") || meshCss.includes("__QUAKE_RENDER_BUNDLE_ASSET_")) {
         throw new Error(`Unresolved render bundle asset placeholder for ${name}.`);
+      }
+      let styleUrl = "";
+      if (meshCss) {
+        const cssBuffer = Buffer.from(meshCss);
+        const hash = createHash("sha256").update(cssBuffer).digest("hex").slice(0, 12);
+        const filename = `mesh-${hash}.css`;
+        await writeFile(path.join(assetDir, filename), cssBuffer);
+        styleUrl = `${quakeRenderBundlePublicPath}/${name}/${filename}`;
       }
 
       const elapsed = Date.now() - startedAt;
@@ -309,6 +396,7 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
         textureLighting: "baked",
         textureQuality: 1,
         meshHtml,
+        ...(styleUrl ? { styleUrl, styleClassName } : {}),
         assetUrls,
         polygonCount: result.polygonCount,
         leafCount: result.leafCount,
@@ -317,6 +405,15 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
     },
     close: () => browser.close(),
   };
+}
+
+function quakeRenderBundleStyleClassName(name) {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "bundle";
+  const hash = createHash("sha256").update(name).digest("hex").slice(0, 8);
+  return `qrb-${slug}-${hash}`;
 }
 
 function mimeExtension(mime) {
@@ -330,11 +427,187 @@ function contentTypeForPath(filePath) {
   if (extension === ".webp") return "image/webp";
   if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
   if (extension === ".png") return "image/png";
+  if (extension === ".css") return "text/css; charset=utf-8";
   return "application/octet-stream";
 }
 
 function mapNameFromPakPath(mapPath) {
   return path.basename(mapPath, path.extname(mapPath)).toLowerCase();
+}
+
+async function exportQuakeSounds(pak, parsePakDirectory) {
+  const sounds = {};
+  const entries = parsePakDirectory(pak)
+    .filter(isQuakeSoundEntry)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  for (const entry of entries) {
+    const key = quakeSoundManifestKey(entry.name);
+    const outputPath = path.join(soundOutputDir, ...key.split("/"));
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, pak.subarray(entry.offset, entry.offset + entry.size));
+    sounds[key] = generatedPublicUrl(outputPath);
+  }
+
+  return {
+    version: 1,
+    sounds,
+  };
+}
+
+function isQuakeSoundEntry(entry) {
+  return /^sound\/[^.].*\.wav$/i.test(entry.name) &&
+    !entry.name.split("/").some((part) => part === ".." || part === "");
+}
+
+function quakeSoundManifestKey(pakPath) {
+  return pakPath.replace(/^sound\//i, "").toLowerCase();
+}
+
+function buildQuakeAssetManifest(preparedMaps, programMetadata, pickupModels) {
+  const preparedModelPaths = new Set(Object.keys(pickupModels?.models ?? {}));
+  const maps = preparedMaps.map(({ mapName, mapPath, outputPath }) => ({
+    mapName,
+    title: quakeMapTitles.get(mapName) ?? mapName.toUpperCase(),
+    pakPath: mapPath,
+    sceneUrl: generatedPublicUrl(outputPath),
+    selectable: quakeSelectableMapNames.has(mapName),
+    modelPaths: quakeMapModelPaths(outputPath, preparedMaps, programMetadata)
+      .filter((modelPath) => preparedModelPaths.has(modelPath)),
+  }));
+  const mapNames = new Set(maps.map((map) => map.mapName));
+  return {
+    version: 1,
+    assetRoot: quakePublicPath,
+    startMap: mapNames.has(quakeStartMap) ? quakeStartMap : maps[0]?.mapName ?? quakeStartMap,
+    maps,
+    assets: {
+      weaponModelUrl: generatedPublicUrl(weaponOutputPath),
+      pickupModelsUrl: generatedPublicUrl(pickupOutputPath),
+      programMetadataUrl: generatedPublicUrl(progsOutputPath),
+      soundManifestUrl: generatedPublicUrl(soundManifestOutputPath),
+    },
+  };
+}
+
+function quakeMapModelPaths(outputPath, preparedMaps, programMetadata) {
+  const prepared = preparedMaps.find((item) => item.outputPath === outputPath)?.prepared;
+  const modelPaths = new Set();
+  for (const entity of prepared?.entities ?? []) {
+    for (const modelPath of quakeEntityModelPaths(entity, programMetadata)) {
+      modelPaths.add(modelPath);
+    }
+  }
+  return [...modelPaths].sort();
+}
+
+function quakeEntityModelPaths(entity, programMetadata) {
+  const paths = [];
+  if (isQuakePickupClassname(entity.classname)) {
+    const modelPath = quakePickupEntityModelPath(entity, programMetadata);
+    const fallbackModelPath = QUAKE_PICKUP_MODEL_PATHS[entity.classname];
+    if (modelPath) paths.push(modelPath);
+    if (fallbackModelPath && fallbackModelPath !== modelPath) paths.push(fallbackModelPath);
+  }
+  if (entity.classname === "misc_explobox") paths.push("maps/b_explob.bsp");
+  if (entity.classname === "misc_explobox2") paths.push("maps/b_exbox2.bsp");
+  if (entity.classname.startsWith("monster_")) {
+    const bodyModelPath = quakeMonsterEntityModelPath(entity, programMetadata);
+    const projectileModelPath = QUAKE_MONSTER_PROJECTILE_MODEL_PATHS[entity.classname];
+    if (bodyModelPath) paths.push(bodyModelPath);
+    if (projectileModelPath) paths.push(projectileModelPath);
+  }
+  return paths.filter(isPreparedModelPath);
+}
+
+function isPreparedModelPath(modelPath) {
+  return /^(maps|progs)\/.+\.(bsp|mdl)$/i.test(modelPath);
+}
+
+function isQuakePickupClassname(classname) {
+  return classname.startsWith("item_") ||
+    classname.startsWith("weapon_") ||
+    classname.startsWith("ammo_") ||
+    classname.startsWith("key_");
+}
+
+function quakePickupEntityModelPath(entity, programMetadata) {
+  const programModels = quakeProgramModelPathsForEntity(entity, programMetadata);
+  const spawnflags = quakeEntitySpawnflags(entity);
+  const large = Boolean(spawnflags & 1);
+  if (entity.classname === "item_health") {
+    if (spawnflags & 2) return quakeProgramModelPathMatching(programModels, "maps/b_bh100.bsp") ?? "maps/b_bh100.bsp";
+    return spawnflags & 1
+      ? quakeProgramModelPathMatching(programModels, "maps/b_bh10.bsp") ?? "maps/b_bh10.bsp"
+      : quakeProgramModelPathMatching(programModels, "maps/b_bh25.bsp") ?? "maps/b_bh25.bsp";
+  }
+  if (entity.classname === "item_shells" || entity.classname === "ammo_shells") {
+    return large
+      ? quakeProgramModelPathMatching(programModels, "maps/b_shell1.bsp") ?? "maps/b_shell1.bsp"
+      : quakeProgramModelPathMatching(programModels, "maps/b_shell0.bsp") ?? "maps/b_shell0.bsp";
+  }
+  if (entity.classname === "item_spikes" || entity.classname === "ammo_nails") {
+    return large
+      ? quakeProgramModelPathMatching(programModels, "maps/b_nail1.bsp") ?? "maps/b_nail1.bsp"
+      : quakeProgramModelPathMatching(programModels, "maps/b_nail0.bsp") ?? "maps/b_nail0.bsp";
+  }
+  if (entity.classname === "item_rockets" || entity.classname === "ammo_rockets") {
+    return large
+      ? quakeProgramModelPathMatching(programModels, "maps/b_rock1.bsp") ?? "maps/b_rock1.bsp"
+      : quakeProgramModelPathMatching(programModels, "maps/b_rock0.bsp") ?? "maps/b_rock0.bsp";
+  }
+  if (entity.classname === "item_cells" || entity.classname === "ammo_cells") {
+    return large
+      ? quakeProgramModelPathMatching(programModels, "maps/b_batt1.bsp") ?? "maps/b_batt1.bsp"
+      : quakeProgramModelPathMatching(programModels, "maps/b_batt0.bsp") ?? "maps/b_batt0.bsp";
+  }
+  return quakePreferredProgramPickupModelPath(programModels) ?? QUAKE_PICKUP_MODEL_PATHS[entity.classname];
+}
+
+function quakeMonsterEntityModelPath(entity, programMetadata) {
+  const programModels = programMetadata?.modelsByClassname?.[entity.classname] ?? [];
+  const expected = QUAKE_MONSTER_MODEL_PATHS[entity.classname];
+  if (expected && (programModels.length === 0 || programModels.includes(expected))) return expected;
+  return programModels.find(isQuakeMonsterBodyModel) ??
+    programModels.find((model) => model.startsWith("progs/") && model.endsWith(".mdl")) ??
+    expected ??
+    null;
+}
+
+function quakeProgramModelPathsForEntity(entity, programMetadata) {
+  if (!programMetadata) return [];
+  return programMetadata.modelsByClassname?.[entity.classname] ??
+    programMetadata.modelsByClassname?.[quakeProgramClassnameAlias(entity.classname)] ??
+    [];
+}
+
+function quakeProgramClassnameAlias(classname) {
+  if (classname === "ammo_shells") return "item_shells";
+  if (classname === "ammo_nails") return "item_spikes";
+  if (classname === "ammo_rockets") return "item_rockets";
+  if (classname === "ammo_cells") return "item_cells";
+  if (classname === "key_silver") return "item_key1";
+  if (classname === "key_gold") return "item_key2";
+  return classname;
+}
+
+function quakeProgramModelPathMatching(models, expected) {
+  const normalized = expected.toLowerCase();
+  return models.find((model) => model.toLowerCase() === normalized);
+}
+
+function quakePreferredProgramPickupModelPath(models) {
+  return models.find((model) => model.startsWith("progs/") && model.endsWith(".mdl")) ??
+    models.find((model) => model.startsWith("maps/") && model.endsWith(".bsp"));
+}
+
+function quakeEntitySpawnflags(entity) {
+  const value = Number(entity.properties?.spawnflags ?? 0);
+  return Number.isFinite(value) ? Math.trunc(value) : 0;
+}
+
+function generatedPublicUrl(outputPath) {
+  return `/${path.relative(generatedPublicDir, outputPath).split(path.sep).join("/")}`;
 }
 
 function stripPreparedRenderBundleFallbackTextures(prepared) {
@@ -383,6 +656,15 @@ function stripPreparedRenderBundleFallbackData(data) {
 async function copyStaticPublicAssets() {
   await mkdir(path.dirname(socialImageOutputPath), { recursive: true });
   await copyFile(socialImageSourcePath, socialImageOutputPath);
+}
+
+async function removeLegacyQuakeJsonFiles() {
+  await Promise.all([
+    ...quakeMapNames.map((mapName) => rm(path.join(quakeOutputDir, `${mapName}.preparsed.json`), { force: true })),
+    rm(path.join(quakeOutputDir, "weapon-shotgun.preparsed.json"), { force: true }),
+    rm(path.join(quakeOutputDir, "pickups.preparsed.json"), { force: true }),
+    rm(path.join(quakeOutputDir, "progs.preparsed.json"), { force: true }),
+  ]);
 }
 
 async function pruneUnreferencedTextureFiles(jsonPaths) {
@@ -435,6 +717,17 @@ async function extractQuakePak() {
     resourcePath,
     "ID1/PAK0.PAK",
   ]);
+}
+
+async function copyQuakePakFromPath(source) {
+  const sourcePath = source.startsWith("file:") ? fileURLToPath(source) : path.resolve(projectRoot, source);
+  const pak = await readFile(sourcePath);
+  if (readFixedString(pak, 0, 4) !== "PACK") {
+    throw new Error(`QUAKE_PAK_PATH does not point to a Quake PAK file: ${source}`);
+  }
+  await mkdir(path.dirname(extractedPakPath), { recursive: true });
+  await writeFile(extractedPakPath, pak);
+  console.log(`Using Quake PAK from ${sourcePath}`);
 }
 
 async function downloadQuakeResource() {
@@ -757,8 +1050,25 @@ async function readPreparedTextureBuffer(texture) {
   return readGeneratedPublicFile(texture);
 }
 
-function readGeneratedPublicFile(urlPath) {
-  return readFile(path.join(generatedPublicDir, urlPath.replace(/^\//, "")));
+async function readGeneratedPublicFile(urlPath, attempts = 8) {
+  const filePath = path.join(generatedPublicDir, urlPath.replace(/^\//, ""));
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await readFile(filePath);
+    } catch (error) {
+      if (error?.code === "ENOENT" && await restoreGeneratedTextureFile(urlPath, filePath)) continue;
+      if (error?.code !== "ENOENT" || attempt >= attempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 25));
+    }
+  }
+}
+
+async function restoreGeneratedTextureFile(urlPath, filePath) {
+  const png = texturePngByPublicPath.get(urlPath);
+  if (!png) return false;
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, png);
+  return true;
 }
 
 async function buildQuakeWeaponModel(assets, renderBundleBuilder) {
@@ -801,6 +1111,7 @@ async function buildQuakeWeaponModel(assets, renderBundleBuilder) {
     renderBundle: await renderBundleBuilder.build({
       bundleName: "weapon-shotgun",
       polygons: anchorQuakeWeaponPolygons(polygons),
+      extractLeafStyles: true,
     }),
   };
 }
@@ -829,10 +1140,29 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
   const models = {};
   const programPickupModels = quakeProgramPickupModelPaths(programMetadata)
     .filter((model) => assets.entries.has(model));
-  const aliasModelPaths = new Set([
+  const programEnemyModels = quakeProgramEnemyModelPaths(programMetadata)
+    .filter((model) => assets.entries.has(model));
+  const animatedAliasModelPaths = new Set([
     ...Object.values(QUAKE_PICKUP_MODEL_PATHS),
     ...programPickupModels.filter((model) => model.endsWith(".mdl")),
   ].filter((model) => assets.entries.has(model)));
+  const projectileAliasModelPaths = new Set(
+    QUAKE_PROJECTILE_ALIAS_MODEL_PATHS.filter((model) => assets.entries.has(model)),
+  );
+  const enemyAliasModelPaths = new Set(
+    programEnemyModels
+      .filter((model) => model.endsWith(".mdl") &&
+        !animatedAliasModelPaths.has(model) &&
+        !projectileAliasModelPaths.has(model)),
+  );
+  const animatedMonsterAliasModelPaths = new Set(
+    QUAKE_ANIMATED_MONSTER_ALIAS_MODEL_PATHS.filter((model) => enemyAliasModelPaths.has(model)),
+  );
+  const aliasModelPaths = new Set([
+    ...animatedAliasModelPaths,
+    ...enemyAliasModelPaths,
+    ...projectileAliasModelPaths,
+  ]);
   const bspModelPaths = new Set([
     ...QUAKE_PICKUP_BSP_MODEL_PATHS,
     ...programPickupModels.filter((model) => model.endsWith(".bsp")),
@@ -847,6 +1177,8 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
       palette: assets.palette,
       brightness: 1.22,
     });
+    const includeAnimationFrames = animatedAliasModelPaths.has(source) || animatedMonsterAliasModelPaths.has(source);
+    const renderScale = enemyAliasModelPaths.has(source) ? QUAKE_ENEMY_ALIAS_MODEL_RENDER_SCALE : 1;
     const animationFrames = model.frames.map((frame) => ({
       name: frame.name,
       polygons: model.triangles.map((triangle) => ({
@@ -854,14 +1186,22 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
         uvs: triangle.indices.map((index) => quakeAliasUv(model, triangle, index)),
       })),
     }));
+    const renderAnimationFrames = renderScale === 1
+      ? animationFrames
+      : animationFrames.map((frame) => ({
+          ...frame,
+          polygons: scaleQuakeModelPolygons(frame.polygons, renderScale),
+        }));
     const prepared = {
       source,
       texture,
-      polygons: animationFrames[0].polygons,
-      ...(animationFrames.length > 1 ? { animationFrames } : {}),
+      polygons: renderAnimationFrames[0].polygons,
+      ...(includeAnimationFrames && renderAnimationFrames.length > 1 ? { animationFrames: renderAnimationFrames } : {}),
+      ...(renderScale !== 1 ? { renderScale } : {}),
       bounds: polygonBounds(animationFrames[0].polygons),
     };
     await addQuakePickupModelRenderBundles(prepared, renderBundleBuilder);
+    if (!hasRenderableQuakePickupModelBundle(prepared)) continue;
     stripQuakePickupModelFallbackGeometry(prepared);
     models[source] = prepared;
   }
@@ -880,7 +1220,12 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
   return { models };
 }
 
-async function addQuakePickupModelRenderBundles(model, renderBundleBuilder) {
+function hasRenderableQuakePickupModelBundle(model) {
+  const bundles = model.animationFrames?.map((frame) => frame.renderBundle) ?? [model.renderBundle];
+  return bundles.some((bundle) => Number(bundle?.leafCount) > 0 || bundle?.meshHtml?.includes("<s"));
+}
+
+async function addQuakePickupModelRenderBundles(model, renderBundleBuilder, textureQuality = 1) {
   const baseName = quakeModelBundleName(model.source);
   if (model.animationFrames?.length > 1) {
     for (let index = 0; index < model.animationFrames.length; index++) {
@@ -888,14 +1233,78 @@ async function addQuakePickupModelRenderBundles(model, renderBundleBuilder) {
       frame.renderBundle = await renderBundleBuilder.build({
         bundleName: `${baseName}/frame-${String(index).padStart(3, "0")}`,
         polygons: quakePickupModelRenderBundlePolygons(model, index),
+        textureQuality,
+        extractLeafStyles: true,
       });
     }
+    const animationFrameSet = quakePickupModelAnimationFrameSet(model);
+    if (animationFrameSet) model.animationFrameSet = animationFrameSet;
     return;
   }
   model.renderBundle = await renderBundleBuilder.build({
     bundleName: baseName,
     polygons: quakePickupModelRenderBundlePolygons(model, 0),
+    textureQuality,
+    extractLeafStyles: true,
   });
+}
+
+function quakePickupModelAnimationFrameSet(model) {
+  const frames = model.animationFrames ?? [];
+  if (frames.length <= 1) return null;
+  const frameClassSets = frames.map((frame) => quakeRenderBundleLeafClasses(frame.renderBundle));
+  if (frameClassSets.some((classes) => classes.size === 0)) return null;
+  const commonLeafClasses = new Set(frameClassSets[0]);
+  for (const classes of frameClassSets.slice(1)) {
+    for (const leafClass of [...commonLeafClasses]) {
+      if (!classes.has(leafClass)) commonLeafClasses.delete(leafClass);
+    }
+  }
+  const maxLeafCount = Math.max(...frames.map((frame) => Number(frame.renderBundle?.leafCount) || 0));
+  if (maxLeafCount <= 0) return null;
+  if (commonLeafClasses.size / maxLeafCount < QUAKE_ANIMATION_FRAME_SET_MIN_COMMON_LEAF_RATIO) return null;
+  return {
+    leafCount: commonLeafClasses.size,
+    droppedLeafCount: maxLeafCount - commonLeafClasses.size,
+    renderBundle: quakeRenderBundleWithLeafClasses(frames[0].renderBundle, commonLeafClasses),
+  };
+}
+
+function quakeRenderBundleLeafClasses(renderBundle) {
+  const classes = new Set();
+  if (!renderBundle?.meshHtml) return classes;
+  for (const match of renderBundle.meshHtml.matchAll(/<([bisu])\b[^>]*\bclass="([^"]*)"[^>]*><\/\1>/g)) {
+    for (const leafClass of match[2].split(/\s+/)) {
+      if (/^q[a-z0-9]+$/i.test(leafClass)) classes.add(leafClass);
+    }
+  }
+  return classes;
+}
+
+function quakeRenderBundleWithLeafClasses(renderBundle, leafClasses) {
+  let leafCount = 0;
+  let atlasLeafCount = 0;
+  const meshHtml = renderBundle.meshHtml.replace(
+    /<([bisu])\b([^>]*)><\/\1>/g,
+    (html, tagName, attributes) => {
+      if (!quakeRenderBundleLeafHasClass(attributes, leafClasses)) return "";
+      leafCount++;
+      if (tagName === "s") atlasLeafCount++;
+      return html;
+    },
+  );
+  return {
+    ...renderBundle,
+    meshHtml,
+    leafCount,
+    atlasLeafCount,
+  };
+}
+
+function quakeRenderBundleLeafHasClass(attributes, leafClasses) {
+  const classMatch = attributes.match(/\bclass="([^"]*)"/);
+  if (!classMatch) return false;
+  return classMatch[1].split(/\s+/).some((leafClass) => leafClasses.has(leafClass));
 }
 
 function stripQuakePickupModelFallbackGeometry(model) {
@@ -933,6 +1342,28 @@ function quakeProgramPickupModelPaths(programMetadata) {
     }
   }
   return [...new Set(paths)];
+}
+
+function quakeProgramEnemyModelPaths(programMetadata) {
+  if (!programMetadata) return [];
+  const paths = [];
+  for (const entry of programMetadata.entityFunctions) {
+    if (!entry.classname.startsWith("monster_")) continue;
+    const models = entry.models.map((model) => model.path).filter((model) => /^progs\/.+\.mdl$/i.test(model));
+    const preferred = QUAKE_MONSTER_MODEL_PATHS[entry.classname];
+    const modelPath = preferred && models.includes(preferred)
+      ? preferred
+      : models.find(isQuakeMonsterBodyModel) ?? models[0];
+    if (modelPath) paths.push(modelPath);
+  }
+  return [...new Set(paths)];
+}
+
+function isQuakeMonsterBodyModel(modelPath) {
+  const filename = path.basename(modelPath).toLowerCase();
+  return !filename.startsWith("h_") &&
+    !filename.includes("gib") &&
+    !["bolt.mdl", "grenade.mdl", "k_spike.mdl", "lavaball.mdl", "laser.mdl", "s_light.mdl", "v_spike.mdl", "w_spike.mdl"].includes(filename);
 }
 
 function buildQuakeProgramMetadata(assets) {
@@ -1052,18 +1483,14 @@ function isQuakeWeaponNozzlePolygon(uvs) {
   );
 }
 
-function loadQuakeHudAssets(pak) {
-  if (readFixedString(pak, 0, 4) !== "PACK") throw new Error("Not a Quake PAK file.");
-  const directoryOffset = pak.readInt32LE(4);
-  const directoryLength = pak.readInt32LE(8);
-  const entries = new Map();
-  for (let offset = directoryOffset; offset < directoryOffset + directoryLength; offset += 64) {
-    const name = readFixedString(pak, offset, 56).toLowerCase();
-    entries.set(name, {
-      offset: pak.readInt32LE(offset + 56),
-      length: pak.readInt32LE(offset + 60),
-    });
-  }
+function loadQuakeHudAssets(pak, parsePakDirectory) {
+  const entries = new Map(parsePakDirectory(pak).map((entry) => [
+    entry.name,
+    {
+      offset: entry.offset,
+      length: entry.size,
+    },
+  ]));
 
   const wadEntry = entries.get("gfx.wad");
   const paletteEntry = entries.get("gfx/palette.lmp");
@@ -1190,6 +1617,17 @@ function quakePickupVertex(vertex) {
   return [x * QUAKE_PICKUP_MODEL_SCALE, y * QUAKE_PICKUP_MODEL_SCALE, z * QUAKE_PICKUP_MODEL_SCALE];
 }
 
+function scaleQuakeModelPolygons(polygons, scale) {
+  return polygons.map((polygon) => ({
+    ...polygon,
+    vertices: polygon.vertices.map((vertex) => [
+      vertex[0] * scale,
+      vertex[1] * scale,
+      vertex[2] * scale,
+    ]),
+  }));
+}
+
 function polygonBounds(polygons) {
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
@@ -1212,7 +1650,7 @@ function polygonBounds(polygons) {
 function quakeAliasUv(model, triangle, index) {
   const texcoord = model.texcoords[index];
   const s = !triangle.facesfront && texcoord.onseam ? texcoord.s + model.skinWidth / 2 : texcoord.s;
-  return [s / model.skinWidth, 1 - texcoord.t / model.skinHeight];
+  return [(s + 0.5) / model.skinWidth, 1 - (texcoord.t + 0.5) / model.skinHeight];
 }
 
 function drawQpic(rgba, assets, name, x, y, transparentIndex) {
@@ -1498,18 +1936,33 @@ function readNullTerminatedString(buffer, offset) {
 async function encodeTextureFileUrl(input) {
   const png = await encodeTexturePng(input);
   const hash = createHash("sha256").update(png).digest("hex").slice(0, 16);
+  const filename = `tex-${hash}.png`;
+  const outputPath = path.join(textureOutputDir, filename);
+  const url = `${quakeTexturePublicPath}/${filename}`;
+  texturePngByPublicPath.set(url, png);
   const cached = textureFileUrlByHash.get(hash);
-  if (cached) return await cached;
+  if (cached) {
+    await cached;
+    await writeTextureFileIfMissing(outputPath, png);
+    return url;
+  }
   const task = (async () => {
-    const filename = `tex-${hash}.png`;
-    await mkdir(textureOutputDir, { recursive: true });
-    await writeFile(path.join(textureOutputDir, filename), png);
-    return `${quakeTexturePublicPath}/${filename}`;
+    await writeTextureFileIfMissing(outputPath, png);
+    return url;
   })();
   textureFileUrlByHash.set(hash, task);
-  const url = await task;
-  textureFileUrlByHash.set(hash, url);
-  return url;
+  const resolvedUrl = await task;
+  textureFileUrlByHash.set(hash, resolvedUrl);
+  return resolvedUrl;
+}
+
+async function writeTextureFileIfMissing(outputPath, png) {
+  try {
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, png, { flag: "wx" });
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+  }
 }
 
 async function encodeTexturePng({ width, height, pixels, palette, brightness, alpha }) {

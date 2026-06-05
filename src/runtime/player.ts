@@ -5,14 +5,21 @@ import type { QuakeCollisionWorld, QuakeTouchedTrigger } from "./collision";
 import {
   COLLISION_EPSILON,
   GROUND_SNAP,
+  QUAKE_COLLISION_UNIT_SCALE,
   QUAKE_PLAYER_VIEW_Z,
   STEP_HEIGHT,
 } from "./constants";
 import type { QuakeHazardDamage } from "./hazards";
 import { createInitialInventory, type QuakePlayerInventory } from "./hud";
-import { distanceSq3 } from "./math";
+import { distanceSq3, subtractVec3 } from "./math";
 
 const FALL_DT_CLAMP = 0.05;
+const PUSH_DT_CLAMP = 0.035;
+const PUSH_AIR_DRAG = 0.08;
+const PUSH_GROUND_FRICTION = 5.5;
+// Quake clamps trigger_push impulses through the default sv_maxvelocity cap.
+const PUSH_MAX_SPEED = 2000 * QUAKE_COLLISION_UNIT_SCALE;
+const PUSH_STOP_SPEED = 16 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_DAMAGE_INTERVAL_MS = 1000;
 const QUAKE_DAMAGE_FLASH_MS = 260;
 
@@ -47,8 +54,10 @@ export interface QuakePlayerController {
   clearLevelState: () => void;
   currentGroundEntity: () => number | null;
   currentOrigin: () => [number, number, number];
+  damage: (amount: number) => boolean;
   eyeHeight: () => number;
   inventory: () => QuakePlayerInventory;
+  push: (velocity: Vec3) => boolean;
   resetInventory: () => void;
   resetForSceneDispose: () => void;
   spawn: (spawn: QuakeScene["spawn"]) => void;
@@ -66,6 +75,9 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   let fallingFrame: number | null = null;
   let fallingTime = 0;
   let fallingVelocity = 0;
+  let pushFrame: number | null = null;
+  let pushTime = 0;
+  let pushVelocity: Vec3 = [0, 0, 0];
   let inventory = createInitialInventory();
   let nextDamageAt = 0;
   let hazardTimer: number | null = null;
@@ -102,6 +114,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     clearHazardTimer();
     clearDamageFlash();
     stopFalling();
+    stopPush();
     inventory = createInitialInventory();
     nextDamageAt = 0;
     lastGroundEntityIndex = null;
@@ -136,6 +149,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     nextDamageAt = 0;
     options.onHazardState(null);
     stopFalling();
+    stopPush();
 
     const collisionWorld = options.getCollisionWorld();
     const hullOrigin = options.pointToPoly(destination.origin);
@@ -166,6 +180,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     clearHazardTimer();
     nextDamageAt = performance.now() + QUAKE_DAMAGE_INTERVAL_MS;
     stopFalling();
+    stopPush();
     resetInventory();
     options.onHazardState(null);
     options.onRespawn(scene, lastValidOrigin);
@@ -191,10 +206,12 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     const moved = distanceSq3(origin, resolved.origin) > COLLISION_EPSILON;
     const groundChanged = Math.abs(resolved.groundZ - currentGroundZ) > COLLISION_EPSILON;
 
-    if (resolved.grounded) {
-      stopFalling();
-    } else if (origin[2] - currentEyeHeight <= currentGroundZ + GROUND_SNAP) {
-      startFalling();
+    if (pushFrame === null) {
+      if (resolved.grounded) {
+        stopFalling();
+      } else if (origin[2] - currentEyeHeight <= currentGroundZ + GROUND_SNAP) {
+        startFalling();
+      }
     }
 
     if (moved || groundChanged) {
@@ -253,12 +270,46 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     clearDamageFlash();
     options.onHazardState(null);
     stopFalling();
+    stopPush();
     options.controls.update({ moveEnabled: false, jumpEnabled: false });
     options.controls.unlock();
   };
 
+  const push = (velocity: Vec3): boolean => {
+    if (!options.getCollisionWorld()) return false;
+    const speed = Math.hypot(velocity[0], velocity[1], velocity[2]);
+    if (!Number.isFinite(speed) || speed <= COLLISION_EPSILON) return false;
+    const scale = Math.min(1, PUSH_MAX_SPEED / speed);
+    pushVelocity = [
+      velocity[0] * scale,
+      velocity[1] * scale,
+      velocity[2] * scale,
+    ];
+    pushTime = 0;
+    stopFalling();
+    syncingCollision = true;
+    options.controls.update({ jumpEnabled: false });
+    syncingCollision = false;
+    if (pushFrame === null) {
+      pushFrame = window.requestAnimationFrame(tickPush);
+    }
+    return true;
+  };
+
+  function stopPush(): void {
+    if (pushFrame !== null) {
+      window.cancelAnimationFrame(pushFrame);
+      pushFrame = null;
+    }
+    pushTime = 0;
+    pushVelocity = [0, 0, 0];
+    syncingCollision = true;
+    options.controls.update({ jumpEnabled: true, jumpVelocity: options.jumpVelocity, gravity: options.gravity });
+    syncingCollision = false;
+  }
+
   const startFalling = (): void => {
-    if (fallingFrame !== null || !options.getCollisionWorld()) return;
+    if (fallingFrame !== null || pushFrame !== null || !options.getCollisionWorld()) return;
     fallingTime = 0;
     fallingVelocity = 0;
     syncingCollision = true;
@@ -334,6 +385,64 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     fallingFrame = window.requestAnimationFrame(tickFalling);
   };
 
+  const tickPush = (now: number): void => {
+    const collisionWorld = options.getCollisionWorld();
+    if (pushFrame === null || !collisionWorld) {
+      stopPush();
+      return;
+    }
+
+    const dt = Math.min(PUSH_DT_CLAMP, pushTime ? (now - pushTime) / 1000 : 0.0167);
+    pushTime = now;
+    pushVelocity[2] -= options.gravity * dt;
+
+    const origin = options.controls.getOrigin();
+    const target: [number, number, number] = [
+      origin[0] + pushVelocity[0] * dt,
+      origin[1] + pushVelocity[1] * dt,
+      origin[2] + pushVelocity[2] * dt,
+    ];
+    const resolved = options.resolveShootablesCollision(
+      collisionWorld.resolve(target, origin, currentEyeHeight, currentGroundZ),
+      origin,
+      currentEyeHeight,
+    );
+    const actualDelta = subtractVec3(resolved.origin, origin);
+    const intendedDelta = subtractVec3(target, origin);
+    const grounded = resolved.grounded;
+
+    if (grounded && pushVelocity[2] < 0) pushVelocity[2] = 0;
+    if (!grounded && pushVelocity[2] > 0 && actualDelta[2] < intendedDelta[2] * 0.25) {
+      pushVelocity[2] = 0;
+    }
+
+    const damping = Math.max(0, 1 - (grounded ? PUSH_GROUND_FRICTION : PUSH_AIR_DRAG) * dt);
+    pushVelocity[0] *= damping;
+    pushVelocity[1] *= damping;
+
+    setOrigin(resolved.origin, resolved.groundZ, false, grounded);
+    lastGroundEntityIndex = resolved.touches?.find((touch) => touch.contact === "floor")?.entityIndex ?? null;
+    for (const touch of resolved.touches ?? []) {
+      options.activateSolidTouch(touch);
+    }
+
+    const transitionSerial = options.transitionSerial();
+    const triggers = options.syncTouchedTriggers(resolved.origin);
+    if (pushFrame === null || options.transitionSerial() !== transitionSerial) return;
+    if (options.syncHazards(resolved.origin, triggers)) return;
+    options.syncPickups(resolved.origin, currentEyeHeight);
+    options.syncViewmodel();
+    options.syncWorldVisibility();
+    options.syncCrosshairTarget();
+
+    const horizontalSpeed = Math.hypot(pushVelocity[0], pushVelocity[1]);
+    if (grounded && horizontalSpeed <= PUSH_STOP_SPEED && Math.abs(pushVelocity[2]) <= PUSH_STOP_SPEED) {
+      stopPush();
+      return;
+    }
+    pushFrame = window.requestAnimationFrame(tickPush);
+  };
+
   const setOrigin = (
     origin: [number, number, number],
     groundZ = origin[2] - currentEyeHeight,
@@ -379,8 +488,10 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     clearLevelState,
     currentGroundEntity: () => lastGroundEntityIndex,
     currentOrigin: () => lastValidOrigin,
+    damage: applyDamage,
     eyeHeight: () => currentEyeHeight,
     inventory: () => inventory,
+    push,
     resetInventory,
     resetForSceneDispose,
     spawn,

@@ -18,7 +18,7 @@ import { quakeEntityNumber, quakeEntitySpawnflags } from "./entities";
 import { distanceSq3, normalizeVec3, subtractVec3 } from "./math";
 
 export type QuakeMoverMode = "closed" | "opening" | "open" | "closing";
-export type QuakeMoverKind = "door" | "secret-door" | "button" | "plat";
+export type QuakeMoverKind = "door" | "secret-door" | "button" | "plat" | "train";
 
 export interface QuakeMoverState {
   entity: QuakeEntity;
@@ -37,6 +37,9 @@ export interface QuakeMoverState {
   linkedEntityIndexes: number[];
   targetedPlatPrimed: boolean;
   targetFired: boolean;
+  pathBaseOrigin?: Vec3;
+  pathCurrentTarget?: string;
+  pathNextTarget?: string;
 }
 
 interface QuakeDoorTriggerField {
@@ -72,6 +75,7 @@ export interface QuakeMoversController {
 
 export function createQuakeMoversController(options: QuakeMoversControllerOptions): QuakeMoversController {
   let movers = new Map<number, QuakeMoverState>();
+  let pathCorners = new Map<string, QuakeEntity>();
   let doorTriggerFields: QuakeDoorTriggerField[] = [];
   let pivot = { x: 0, y: 0, z: 0 };
   let moverFrame: number | null = null;
@@ -83,6 +87,7 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
       moverFrame = null;
     }
     movers = new Map();
+    pathCorners = new Map();
     doorTriggerFields = [];
     moverTime = 0;
     pivot = { x: 0, y: 0, z: 0 };
@@ -95,23 +100,26 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
   ): void => {
     clear();
     pivot = nextPivot;
+    pathCorners = pathCornerIndex(entities);
     const modelsByIndex = new Map(models.map((model) => [model.index, model]));
     for (const entity of entities) {
       if (entity.modelIndex === undefined || !isQuakeMoverEntity(entity.classname)) continue;
       const model = modelsByIndex.get(entity.modelIndex);
       if (!model) continue;
-      const state = createQuakeMoverState(entity, model);
+      const state = createQuakeMoverState(entity, model, pathCorners);
       if (!state) continue;
       movers.set(entity.index, state);
     }
     linkDoorGroups();
     setupDoorTriggerFields();
     for (const state of movers.values()) options.applyState(state, false);
+    if ([...movers.values()].some(moverLoopActive)) startLoop();
   };
 
   const activateEntity = (entityIndex: number, sourceEntityIndex?: number): boolean => {
     const mover = movers.get(entityIndex);
     if (mover?.kind === "plat" && mover.targetedPlatPrimed && sourceEntityIndex === undefined) return false;
+    if (mover?.kind === "train") return activateTrain(mover);
     return mover ? activateGroup(mover) : false;
   };
 
@@ -140,12 +148,12 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     }
     if (state.mode === "closing") {
       state.mode = "opening";
-      fireButtonTarget(state);
+      fireMoverTarget(state);
       startLoop();
       return true;
     }
     state.mode = "opening";
-    fireButtonTarget(state);
+    fireMoverTarget(state);
     startLoop();
     return true;
   };
@@ -168,16 +176,26 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     return false;
   };
 
-  const fireButtonTarget = (state: QuakeMoverState): void => {
-    if (state.kind !== "button" || state.targetFired || !state.entity.properties.target) return;
+  const fireMoverTarget = (state: QuakeMoverState): void => {
+    if (!moverCanFireTarget(state) || state.targetFired || !state.entity.properties.target) return;
     state.targetFired = true;
     options.fireTarget(state.entity.properties.target, state.entity.index);
+  };
+
+  const moverCanFireTarget = (state: QuakeMoverState): boolean => {
+    return state.kind === "button" ||
+      state.kind === "door" ||
+      state.kind === "secret-door";
   };
 
   const startLoop = (): void => {
     if (moverFrame !== null) return;
     moverTime = performance.now();
     moverFrame = window.requestAnimationFrame(tickMovers);
+  };
+
+  const moverLoopActive = (state: QuakeMoverState): boolean => {
+    return state.mode === "opening" || state.mode === "closing" || (state.mode === "open" && state.waitUntil !== Infinity);
   };
 
   const tickMovers = (now: number): void => {
@@ -188,7 +206,7 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     for (const state of movers.values()) {
       const changed = updateMover(state, now, dt);
       if (changed) options.applyState(state, true);
-      if (state.mode === "opening" || state.mode === "closing" || (state.mode === "open" && state.waitUntil !== Infinity)) {
+      if (moverLoopActive(state)) {
         active = true;
       }
     }
@@ -202,6 +220,7 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
   };
 
   const updateMover = (state: QuakeMoverState, now: number, dt: number): boolean => {
+    if (state.kind === "train") return updateTrain(state, now, dt);
     if (distanceSq3(state.openOffset, state.closedOffset) <= COLLISION_EPSILON) return false;
 
     if (state.mode === "opening") {
@@ -247,6 +266,64 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     }
 
     return false;
+  };
+
+  const activateTrain = (state: QuakeMoverState): boolean => {
+    if (state.mode === "opening") return false;
+    if (!startTrainToNextCorner(state)) return false;
+    startLoop();
+    return true;
+  };
+
+  const updateTrain = (state: QuakeMoverState, now: number, dt: number): boolean => {
+    if (state.mode === "closed") return false;
+    if (state.mode === "open") {
+      if (state.waitUntil === Infinity || now < state.waitUntil) return false;
+      return startTrainToNextCorner(state);
+    }
+
+    const next = moveOffsetToward(state.offset, state.openOffset, state.speed * dt);
+    const delta = subtractVec3(next, state.offset);
+    const changed = distanceSq3(next, state.offset) > COLLISION_EPSILON;
+    if (changed && options.playerBlocks(state, next, delta)) {
+      handleBlockedMover(state, now);
+      return true;
+    }
+    state.offset = next;
+    if (distanceSq3(state.offset, state.openOffset) <= COLLISION_EPSILON) {
+      state.offset = [...state.openOffset] as Vec3;
+      arriveTrainAtCorner(state, now);
+    }
+    return changed || state.mode !== "opening";
+  };
+
+  const startTrainToNextCorner = (state: QuakeMoverState): boolean => {
+    if (!state.pathBaseOrigin || !state.pathNextTarget) return false;
+    const next = pathCorners.get(state.pathNextTarget);
+    if (!next?.origin) return false;
+    state.openOffset = trainCornerOffset(state.pathBaseOrigin, next.origin);
+    state.mode = "opening";
+    state.waitUntil = 0;
+    return true;
+  };
+
+  const arriveTrainAtCorner = (state: QuakeMoverState, now: number): void => {
+    const currentTarget = state.pathNextTarget;
+    const corner = currentTarget ? pathCorners.get(currentTarget) : undefined;
+    state.pathCurrentTarget = currentTarget;
+    state.pathNextTarget = corner?.properties.target;
+    const wait = corner ? quakeEntityNumber(corner, "wait", 0) : -1;
+    if (wait < 0 || !state.pathNextTarget) {
+      state.mode = "closed";
+      state.waitUntil = Infinity;
+      return;
+    }
+    if (wait > 0) {
+      state.mode = "open";
+      state.waitUntil = now + wait * 1000;
+      return;
+    }
+    startTrainToNextCorner(state);
   };
 
   const linkDoorGroups = (): void => {
@@ -370,7 +447,8 @@ function isQuakeMoverEntity(classname: string): boolean {
   return classname === "func_button" ||
     classname === "func_door" ||
     classname === "func_door_secret" ||
-    classname === "func_plat";
+    classname === "func_plat" ||
+    classname === "func_train";
 }
 
 export function quakeButtonIsPressed(state: QuakeMoverState): boolean {
@@ -385,14 +463,20 @@ function quakeMoverDefaultSpeed(classname: string): number {
 
 function quakeMoverDefaultWait(classname: string): number {
   if (classname === "func_button") return 1;
+  if (classname === "func_train") return 0;
   if (classname === "func_plat") return 3;
   if (classname === "func_door_secret") return 5;
   return 3;
 }
 
-function createQuakeMoverState(entity: QuakeEntity, model: QuakePreparedModel): QuakeMoverState | null {
+function createQuakeMoverState(
+  entity: QuakeEntity,
+  model: QuakePreparedModel,
+  pathCorners: Map<string, QuakeEntity>,
+): QuakeMoverState | null {
   const kind = quakeMoverKind(entity.classname);
   if (!kind) return null;
+  if (kind === "train") return createQuakeTrainState(entity, model, pathCorners);
 
   const closedOffset: Vec3 = [0, 0, 0];
   let openOffset: Vec3;
@@ -449,7 +533,48 @@ function quakeMoverKind(classname: string): QuakeMoverKind | null {
   if (classname === "func_door") return "door";
   if (classname === "func_door_secret") return "secret-door";
   if (classname === "func_plat") return "plat";
+  if (classname === "func_train") return "train";
   return null;
+}
+
+function createQuakeTrainState(
+  entity: QuakeEntity,
+  model: QuakePreparedModel,
+  pathCorners: Map<string, QuakeEntity>,
+): QuakeMoverState | null {
+  const firstTarget = entity.properties.target;
+  const firstCorner = firstTarget ? pathCorners.get(firstTarget) : undefined;
+  if (!firstCorner?.origin) return null;
+  const pathBaseOrigin: Vec3 = [
+    firstCorner.origin.x,
+    firstCorner.origin.y,
+    firstCorner.origin.z,
+  ];
+  const startsInactive = Boolean(entity.properties.targetname);
+  const nextTarget = firstCorner.properties.target;
+  const nextCorner = nextTarget ? pathCorners.get(nextTarget) : undefined;
+  const openOffset = nextCorner?.origin ? trainCornerOffset(pathBaseOrigin, nextCorner.origin) : [0, 0, 0] as Vec3;
+  return {
+    entity,
+    model,
+    kind: "train",
+    offset: [0, 0, 0],
+    lastOffset: [0, 0, 0],
+    closedOffset: [0, 0, 0],
+    openOffset,
+    mode: startsInactive || !nextCorner ? "closed" : "opening",
+    speed: quakeEntityNumber(entity, "speed", quakeMoverDefaultSpeed(entity.classname)) * QUAKE_COLLISION_UNIT_SCALE,
+    wait: quakeEntityNumber(entity, "wait", 0),
+    waitUntil: startsInactive ? Infinity : 0,
+    once: false,
+    toggle: false,
+    linkedEntityIndexes: [entity.index],
+    targetedPlatPrimed: false,
+    targetFired: false,
+    pathBaseOrigin,
+    pathCurrentTarget: firstTarget,
+    pathNextTarget: nextTarget,
+  };
 }
 
 function quakePlatBottomOffset(entity: QuakeEntity, model: QuakePreparedModel): Vec3 {
@@ -493,6 +618,23 @@ function quakeDoorGroupCanSpawnTrigger(states: QuakeMoverState[]): boolean {
     return !state.entity.properties.targetname &&
       !state.entity.properties.health;
   });
+}
+
+function pathCornerIndex(entities: QuakeEntity[]): Map<string, QuakeEntity> {
+  const out = new Map<string, QuakeEntity>();
+  for (const entity of entities) {
+    if (entity.classname !== "path_corner" || !entity.properties.targetname) continue;
+    out.set(entity.properties.targetname, entity);
+  }
+  return out;
+}
+
+function trainCornerOffset(base: Vec3, origin: { x: number; y: number; z: number }): Vec3 {
+  return [
+    (origin.x - base[0]) * QUAKE_COLLISION_UNIT_SCALE,
+    (origin.y - base[1]) * QUAKE_COLLISION_UNIT_SCALE,
+    (origin.z - base[2]) * QUAKE_COLLISION_UNIT_SCALE,
+  ];
 }
 
 function unionMoverBounds(

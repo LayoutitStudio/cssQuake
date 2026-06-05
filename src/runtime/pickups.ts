@@ -4,6 +4,10 @@ import type { QuakeEntity, QuakePreparedRenderBundle } from "../prepare/scene";
 import type { QuakeInventoryDelta } from "./hud";
 import { QUAKE_COLLISION_UNIT_SCALE } from "./constants";
 import { quakeEntityNumber, quakeEntitySpawnflags } from "./entities";
+import {
+  setQuakeRenderBundleFrameSetHandleFrame,
+  type QuakeRenderBundleFrameSet,
+} from "./renderBundleMesh";
 
 const QUAKE_PICKUP_RADIUS = 34 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_PICKUP_HEIGHT = 64 * QUAKE_COLLISION_UNIT_SCALE;
@@ -17,6 +21,8 @@ export interface QuakePickupModel {
   source: string;
   renderBundle?: QuakePreparedRenderBundle;
   animationFrames?: QuakePickupModelAnimationFrame[];
+  animationFrameSet?: QuakePickupModelAnimationFrameSet;
+  renderScale?: number;
   bounds: {
     min: Vec3;
     max: Vec3;
@@ -25,6 +31,12 @@ export interface QuakePickupModel {
 
 export interface QuakePickupModelAnimationFrame {
   name: string;
+  renderBundle: QuakePreparedRenderBundle;
+}
+
+export interface QuakePickupModelAnimationFrameSet {
+  leafCount: number;
+  droppedLeafCount?: number;
   renderBundle: QuakePreparedRenderBundle;
 }
 
@@ -77,7 +89,7 @@ interface QuakePickupAnimationState {
 
 export interface QuakePickupControllerOptions {
   addMesh: (entity: QuakeEntity, model?: QuakePickupModel, frameIndex?: number) => PolyMeshHandle | null;
-  applyEffect: (effect: QuakePickupEffect) => void;
+  applyEffect: (effect: QuakePickupEffect, entity: QuakeEntity) => void;
   leafIndexAt: (origin: Vec3) => number | undefined;
   pointToPoly: (point: { x: number; y: number; z: number }) => Vec3;
   programMetadata: () => QuakeProgramMetadata | null;
@@ -204,13 +216,15 @@ export function createQuakePickupController(options: QuakePickupControllerOption
       if (animation.frameCount > 1 && now >= animation.nextFrameAt) {
         animation.frameIndex = (animation.frameIndex + 1) % animation.frameCount;
         animation.nextFrameAt = now + 1000 / QUAKE_PICKUP_ALIAS_ANIMATION_FPS;
-        const previousHandle = pickup.handle;
-        const nextHandle = options.addMesh(pickup.entity, animation.model, animation.frameIndex);
-        if (nextHandle) {
-          previousHandle.remove();
-          handles = handles.filter((handle) => handle !== previousHandle);
-          handles.push(nextHandle);
-          pickup.handle = nextHandle;
+        if (!setQuakeRenderBundleFrameSetHandleFrame(pickup.handle, animation.frameIndex)) {
+          const previousHandle = pickup.handle;
+          const nextHandle = options.addMesh(pickup.entity, animation.model, animation.frameIndex);
+          if (nextHandle) {
+            previousHandle.remove();
+            handles = handles.filter((handle) => handle !== previousHandle);
+            handles.push(nextHandle);
+            pickup.handle = nextHandle;
+          }
         }
       }
       if (animation.spin) {
@@ -241,7 +255,7 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     pickup.visible = false;
     pickup.handle?.remove();
     handles = handles.filter((handle) => handle !== pickup.handle);
-    options.applyEffect(pickup.effect);
+    options.applyEffect(pickup.effect, pickup.entity);
   };
 
   return {
@@ -320,10 +334,22 @@ export function quakePickupModelRenderBundle(
   return renderBundle;
 }
 
+export function quakePickupModelRenderBundleFrameSet(
+  model: QuakePickupModel,
+): QuakeRenderBundleFrameSet | undefined {
+  if (!model.animationFrameSet || !model.animationFrames?.length) return undefined;
+  return {
+    leafCount: model.animationFrameSet.leafCount,
+    renderBundle: model.animationFrameSet.renderBundle,
+    frames: model.animationFrames,
+  };
+}
+
 export function quakePickupModelPath(
   entity: QuakeEntity,
   programMetadata: QuakeProgramMetadata | null = null,
 ): string | undefined {
+  if (!isQuakePickupClassname(entity.classname)) return undefined;
   const programModels = quakeProgramModelPathsForEntity(entity, programMetadata);
   const large = Boolean(quakeEntitySpawnflags(entity) & 1);
   if (entity.classname === "item_health") {
@@ -354,6 +380,13 @@ export function quakePickupModelPath(
       : quakeProgramModelPathMatching(programModels, "maps/b_batt0.bsp") ?? "maps/b_batt0.bsp";
   }
   return quakePreferredProgramPickupModelPath(programModels) ?? QUAKE_PICKUP_MODEL_PATHS[entity.classname];
+}
+
+function isQuakePickupClassname(classname: string): boolean {
+  return classname.startsWith("item_") ||
+    classname.startsWith("weapon_") ||
+    classname.startsWith("ammo_") ||
+    classname.startsWith("key_");
 }
 
 function quakeProgramModelPathsForEntity(

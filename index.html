@@ -174,6 +174,9 @@
       <div id="quake-host" tabindex="0"></div>
       <div id="quake-viewmodel-layer" aria-hidden="true"></div>
       <img class="cssquake-logo" src="/src/assets/cssquake-logo.png" width="1207" height="300" alt="cssQuake" />
+      <button id="quake-audio-toggle" type="button" aria-label="Unmute audio" aria-pressed="true" title="Unmute audio (M)" data-muted="true">
+        (M)ute Audio
+      </button>
       <div id="quake-hud">
         <button id="quake-main-menu" type="button" aria-label="cssQuake menu" hidden>
           <span id="quake-main-menu-art" aria-hidden="true">
@@ -184,13 +187,13 @@
         <section id="quake-level-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-level-title" tabindex="-1" hidden>
           <div id="quake-level-card" class="quake-menu-card" role="document">
             <header class="quake-menu-panel-header">
-              <h1 id="quake-level-title" class="quake-menu-panel-title" data-bm data-bm-size="label" data-bm-alt="true">
+              <h1 id="quake-level-title" class="quake-menu-panel-title" data-bm="label alt">
                 Select Level
               </h1>
             </header>
             <div id="quake-level-list" class="quake-level-list" aria-label="Available levels"></div>
             <nav id="quake-level-actions" class="quake-menu-actions" aria-label="Level actions">
-              <button id="quake-level-back" type="button" data-bm data-bm-size="label" data-bm-alt="true">Back</button>
+              <button id="quake-level-back" type="button" data-bm="label alt">Back</button>
             </nav>
           </div>
         </section>
@@ -200,25 +203,25 @@
               <h1 id="quake-about-title" class="quake-menu-panel-title">
                 <img src="/q/menu-title-help.png" width="75" height="20" alt="Help" />
               </h1>
-              <p data-bm data-bm-size="copy">
+              <p data-bm>
                 cssQuake turns BSP maps into real DOM geometry through PolyCSS.
               </p>
-              <p data-bm data-bm-size="copy">
+              <p data-bm>
                 Textures, baked light, and camera movement are handled with CSS transforms.
               </p>
-              <p data-bm data-bm-size="copy">
+              <p data-bm>
                 Gameplay stays Quake-like: collision, triggers, doors, pickups, HUD, and weapons.
               </p>
             </header>
             <nav id="quake-about-source-links" class="quake-menu-links" aria-label="Project source links">
               <ul>
-                <li><a href="https://github.com/LayoutitStudio/polycss" target="_blank" rel="noopener noreferrer" data-bm data-bm-size="label" data-bm-alt="true">3D engine: PolyCSS</a></li>
-                <li><a href="https://github.com/id-Software/Quake" target="_blank" rel="noopener noreferrer" data-bm data-bm-size="label" data-bm-alt="true">Source: Quake</a></li>
-                <li><a href="mailto:minotopo@gmail.com" data-bm data-bm-size="label" data-bm-alt="true" data-bm-wrap="email">Contact: minotopo@gmail.com</a></li>
+                <li><a href="https://github.com/LayoutitStudio/polycss" target="_blank" rel="noopener noreferrer" data-bm="label alt">3D engine: PolyCSS</a></li>
+                <li><a href="https://github.com/id-Software/Quake" target="_blank" rel="noopener noreferrer" data-bm="label alt">Source: Quake</a></li>
+                <li><a href="mailto:minotopo@gmail.com" data-bm="label alt email">Contact: minotopo@gmail.com</a></li>
               </ul>
             </nav>
             <nav id="quake-about-actions" class="quake-menu-actions" aria-label="Help actions">
-              <button id="quake-about-back" type="button" data-bm data-bm-size="label" data-bm-alt="true">Back</button>
+              <button id="quake-about-back" type="button" data-bm="label alt">Back</button>
             </nav>
           </div>
         </section>
@@ -228,39 +231,43 @@
               <h1 id="quake-options-title" class="quake-menu-panel-title">
                 <img src="/q/menu-title-options.png" width="124" height="20" alt="Options" />
               </h1>
-              <p data-bm data-bm-size="copy">
+              <p data-bm>
                 Move with the keyboard. Aim and fire with the mouse.
               </p>
             </header>
             <div id="quake-options-sections" class="quake-menu-panel-sections">
               <section aria-labelledby="quake-options-controls-title">
-                <h2 id="quake-options-controls-title" data-bm data-bm-size="label" data-bm-alt="true">Controls</h2>
+                <h2 id="quake-options-controls-title" data-bm="label alt">Controls</h2>
                 <ul class="quake-help-list">
                   <li>
-                    <span class="quake-help-keys"><kbd data-bm data-bm-size="key" data-bm-alt="true">W</kbd><kbd data-bm data-bm-size="key" data-bm-alt="true">A</kbd><kbd data-bm data-bm-size="key" data-bm-alt="true">S</kbd><kbd data-bm data-bm-size="key" data-bm-alt="true">D</kbd></span>
-                    <span data-bm data-bm-size="label">Move</span>
+                    <span class="quake-help-keys"><kbd data-bm="key alt">W</kbd><kbd data-bm="key alt">A</kbd><kbd data-bm="key alt">S</kbd><kbd data-bm="key alt">D</kbd></span>
+                    <span data-bm="label">Move</span>
                   </li>
                   <li>
-                    <span class="quake-help-keys"><kbd data-bm data-bm-size="key" data-bm-alt="true">Mouse</kbd></span>
-                    <span data-bm data-bm-size="label">Look</span>
+                    <span class="quake-help-keys"><kbd data-bm="key alt">Mouse</kbd></span>
+                    <span data-bm="label">Look</span>
                   </li>
                   <li>
-                    <span class="quake-help-keys"><kbd data-bm data-bm-size="key" data-bm-alt="true">Click</kbd></span>
-                    <span data-bm data-bm-size="label">Fire and use</span>
+                    <span class="quake-help-keys"><kbd data-bm="key alt">Click</kbd></span>
+                    <span data-bm="label">Fire and use</span>
                   </li>
                   <li>
-                    <span class="quake-help-keys"><kbd data-bm data-bm-size="key" data-bm-alt="true">Space</kbd></span>
-                    <span data-bm data-bm-size="label">Jump</span>
+                    <span class="quake-help-keys"><kbd data-bm="key alt">Space</kbd></span>
+                    <span data-bm="label">Jump</span>
                   </li>
                   <li>
-                    <span class="quake-help-keys"><kbd data-bm data-bm-size="key" data-bm-alt="true">Esc</kbd></span>
-                    <span data-bm data-bm-size="label">Open menu</span>
+                    <span class="quake-help-keys"><kbd data-bm="key alt">Esc</kbd></span>
+                    <span data-bm="label">Open menu</span>
+                  </li>
+                  <li>
+                    <span class="quake-help-keys"><kbd data-bm="key alt">M</kbd></span>
+                    <span data-bm="label">Mute audio</span>
                   </li>
                 </ul>
               </section>
             </div>
             <nav id="quake-options-actions" class="quake-menu-actions" aria-label="Options actions">
-              <button id="quake-options-back" type="button" data-bm data-bm-size="label" data-bm-alt="true">Back</button>
+              <button id="quake-options-back" type="button" data-bm="label alt">Back</button>
             </nav>
           </div>
         </section>
@@ -318,7 +325,7 @@
       </p>
       <div id="quake-loading-overlay" role="status" aria-live="polite" aria-busy="true">
         <div class="quake-loading-mark">
-          <span id="quake-loading-status" data-bm data-bm-size="title" data-bm-alt="true">Loading</span>
+          <span id="quake-loading-status" data-bm="title alt">Loading</span>
         </div>
       </div>
     </main>

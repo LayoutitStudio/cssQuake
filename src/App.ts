@@ -13,8 +13,10 @@ import {
   createQuakeSceneFromPreparedScene,
   type QuakeEntity,
   type QuakePreparedScene,
+  type QuakePreparedRenderBundle,
   type QuakeScene,
 } from "./prepare/scene";
+import { createQuakeSoundController, type QuakeSoundManifest } from "./runtime/audio";
 import { mountQuakeBitmapText } from "./runtime/bitmapText";
 import {
   COLLISION_EPSILON,
@@ -29,6 +31,7 @@ import {
   type QuakeCollisionWorld,
   type QuakeTouchedTrigger,
 } from "./runtime/collision";
+import { installQuakeDebugHooks } from "./runtime/debug/quakeDebug";
 import { quakeDoorGroupKeyRequirement, quakePlayerHasDoorKey } from "./runtime/doors";
 import {
   quakeEntityNumber,
@@ -40,14 +43,14 @@ import {
   type QuakeHudElements,
 } from "./runtime/hud";
 import { quakeContentsDamage, quakeTriggerHurtDamage, type QuakeHazardDamage } from "./runtime/hazards";
-import { distanceSq3, subtractVec3 } from "./runtime/math";
+import { distanceSq3, dotVec3, normalizeVec3, subtractVec3 } from "./runtime/math";
 import { createQuakeMenuController } from "./runtime/menu";
 import {
   createQuakeMoversController,
   quakeButtonIsPressed,
   type QuakeMoverState,
 } from "./runtime/movers";
-import { createQuakeShootablesController } from "./runtime/shootables";
+import { createQuakeShootablesController, quakeShootableFallbackPolygons } from "./runtime/shootables";
 import { createQuakeTargetsController } from "./runtime/targets";
 import { createQuakeTriggersController } from "./runtime/triggers";
 import { createQuakeViewmodelController, type QuakeViewmodelModel } from "./runtime/viewmodel";
@@ -61,6 +64,7 @@ import {
 } from "./runtime/world";
 import {
   createQuakePickupController,
+  quakePickupModelRenderBundleFrameSet,
   quakePickupModelRenderBundle,
   quakePickupPolygons,
   type QuakePickupModel,
@@ -68,12 +72,18 @@ import {
   type QuakeProgramMetadata,
 } from "./runtime/pickups";
 import { createQuakePlayerController } from "./runtime/player";
-import { mountQuakeRenderBundleMesh, stripPolyMeshMetadata } from "./runtime/renderBundleMesh";
+import {
+  mountQuakeRenderBundleFrameSetMesh,
+  mountQuakeRenderBundleMesh,
+  preloadQuakeRenderBundleAssets,
+  stripPolyMeshMetadata,
+} from "./runtime/renderBundleMesh";
 
 const host = document.getElementById("quake-host") as HTMLElement;
 const viewmodelLayer = document.getElementById("quake-viewmodel-layer") as HTMLElement | null;
 const mainMenu = document.getElementById("quake-main-menu") as HTMLButtonElement | null;
 const mainMenuArt = document.getElementById("quake-main-menu-art") as HTMLElement | null;
+const audioToggle = document.getElementById("quake-audio-toggle") as HTMLButtonElement | null;
 const levelPanel = document.getElementById("quake-level-panel") as HTMLElement | null;
 const levelList = document.getElementById("quake-level-list") as HTMLElement | null;
 const aboutPanel = document.getElementById("quake-about-panel") as HTMLElement | null;
@@ -94,31 +104,123 @@ const hudElements: QuakeHudElements = {
   keys: hudKeysValue,
 };
 const QUAKE_ASSET_ROOT = "/q";
-const LOCAL_START_MAP = "e1m1";
-const LOCAL_MAP_URLS: Record<string, string> = {
-  start: `${QUAKE_ASSET_ROOT}/start.preparsed.json`,
-  e1m1: `${QUAKE_ASSET_ROOT}/e1m1.preparsed.json`,
-  e1m2: `${QUAKE_ASSET_ROOT}/e1m2.preparsed.json`,
-  e1m3: `${QUAKE_ASSET_ROOT}/e1m3.preparsed.json`,
-  e1m4: `${QUAKE_ASSET_ROOT}/e1m4.preparsed.json`,
-  e1m5: `${QUAKE_ASSET_ROOT}/e1m5.preparsed.json`,
-  e1m6: `${QUAKE_ASSET_ROOT}/e1m6.preparsed.json`,
-  e1m7: `${QUAKE_ASSET_ROOT}/e1m7.preparsed.json`,
-  e1m8: `${QUAKE_ASSET_ROOT}/e1m8.preparsed.json`,
+const QUAKE_MANIFEST_URL = `${QUAKE_ASSET_ROOT}/manifest.json`;
+
+interface QuakeAssetManifestMap {
+  mapName: string;
+  title?: string;
+  pakPath?: string;
+  sceneUrl: string;
+  selectable?: boolean;
+  modelPaths?: string[];
+}
+
+interface QuakeAssetManifest {
+  version: number;
+  assetRoot?: string;
+  startMap: string;
+  maps: QuakeAssetManifestMap[];
+  assets: {
+    weaponModelUrl: string;
+    pickupModelsUrl: string;
+    programMetadataUrl: string;
+    soundManifestUrl?: string;
+  };
+}
+
+interface QuakePointHazard {
+  entityIndex: number;
+  origin: Vec3;
+  radiusSq: number;
+  damage: number;
+  kind: QuakeHazardDamage["kind"];
+  velocity?: Vec3;
+  expiresAt?: number;
+}
+
+interface QuakeFireballEmitter {
+  entityIndex: number;
+  origin: Vec3;
+  speed: number;
+  nextSpawnAt: number;
+}
+
+const FALLBACK_QUAKE_ASSET_MANIFEST: QuakeAssetManifest = {
+  version: 1,
+  assetRoot: QUAKE_ASSET_ROOT,
+  startMap: "e1m1",
+  maps: [
+    {
+      mapName: "start",
+      title: "Introduction",
+      pakPath: "maps/start.bsp",
+      sceneUrl: `${QUAKE_ASSET_ROOT}/start.json`,
+      selectable: false,
+    },
+    {
+      mapName: "e1m1",
+      title: "the Slipgate Complex",
+      pakPath: "maps/e1m1.bsp",
+      sceneUrl: `${QUAKE_ASSET_ROOT}/e1m1.json`,
+      selectable: true,
+    },
+    {
+      mapName: "e1m2",
+      title: "Castle of the Damned",
+      pakPath: "maps/e1m2.bsp",
+      sceneUrl: `${QUAKE_ASSET_ROOT}/e1m2.json`,
+      selectable: true,
+    },
+    {
+      mapName: "e1m3",
+      title: "the Necropolis",
+      pakPath: "maps/e1m3.bsp",
+      sceneUrl: `${QUAKE_ASSET_ROOT}/e1m3.json`,
+      selectable: true,
+    },
+    {
+      mapName: "e1m4",
+      title: "the Grisly Grotto",
+      pakPath: "maps/e1m4.bsp",
+      sceneUrl: `${QUAKE_ASSET_ROOT}/e1m4.json`,
+      selectable: true,
+    },
+    {
+      mapName: "e1m5",
+      title: "Gloom Keep",
+      pakPath: "maps/e1m5.bsp",
+      sceneUrl: `${QUAKE_ASSET_ROOT}/e1m5.json`,
+      selectable: true,
+    },
+    {
+      mapName: "e1m6",
+      title: "The Door To Chthon",
+      pakPath: "maps/e1m6.bsp",
+      sceneUrl: `${QUAKE_ASSET_ROOT}/e1m6.json`,
+      selectable: true,
+    },
+    {
+      mapName: "e1m7",
+      title: "The House of Chthon",
+      pakPath: "maps/e1m7.bsp",
+      sceneUrl: `${QUAKE_ASSET_ROOT}/e1m7.json`,
+      selectable: true,
+    },
+    {
+      mapName: "e1m8",
+      title: "Ziggurat Vertigo",
+      pakPath: "maps/e1m8.bsp",
+      sceneUrl: `${QUAKE_ASSET_ROOT}/e1m8.json`,
+      selectable: true,
+    },
+  ],
+  assets: {
+    weaponModelUrl: `${QUAKE_ASSET_ROOT}/weapon.json`,
+    pickupModelsUrl: `${QUAKE_ASSET_ROOT}/pickups.json`,
+    programMetadataUrl: `${QUAKE_ASSET_ROOT}/progs.json`,
+    soundManifestUrl: `${QUAKE_ASSET_ROOT}/sounds.json`,
+  },
 };
-const LOCAL_LEVELS = [
-  { mapName: "e1m1", title: "the Slipgate Complex" },
-  { mapName: "e1m2", title: "Castle of the Damned" },
-  { mapName: "e1m3", title: "the Necropolis" },
-  { mapName: "e1m4", title: "the Grisly Grotto" },
-  { mapName: "e1m5", title: "Gloom Keep" },
-  { mapName: "e1m6", title: "The Door To Chthon" },
-  { mapName: "e1m7", title: "The House of Chthon" },
-  { mapName: "e1m8", title: "Ziggurat Vertigo" },
-] as const;
-const LOCAL_WEAPON_URL = `${QUAKE_ASSET_ROOT}/weapon-shotgun.preparsed.json`;
-const LOCAL_PICKUP_MODELS_URL = `${QUAKE_ASSET_ROOT}/pickups.preparsed.json`;
-const LOCAL_PROGRAM_METADATA_URL = `${QUAKE_ASSET_ROOT}/progs.preparsed.json`;
 const QUAKE_GAMEPLAY_KEY_CODES = new Set([
   "ArrowDown",
   "ArrowLeft",
@@ -136,33 +238,58 @@ const QUAKE_JUMP_VELOCITY = (270 / 48) * QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_GRAVITY = (800 / 48) * QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_CAMERA_ZOOM = (BASE_TILE * 0.65) / QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_MENU_ENABLED = true;
+const QUAKE_MONSTER_RUNTIME_ENABLED = true;
+const QUAKE_MONSTER_MOUNT_VIEW_DOT_MIN = -0.1;
+let quakeAssetManifest = FALLBACK_QUAKE_ASSET_MANIFEST;
+let quakeMapUrls = quakeSceneUrlMap(quakeAssetManifest);
 
-function mountQuakeLevelSelector(): void {
+function mountQuakeLevelSelector(renderBitmapText = false): void {
   if (!levelList) return;
   levelList.replaceChildren();
-  for (const level of LOCAL_LEVELS) {
+  for (const level of quakeSelectableLevels()) {
     const button = document.createElement("button");
     button.className = "quake-level-button";
     button.type = "button";
     button.dataset.map = level.mapName;
-    button.setAttribute("aria-label", `${level.mapName.toUpperCase()} ${level.title}`);
+    button.setAttribute("aria-label", `${level.mapName.toUpperCase()} ${quakeMapTitle(level)}`);
 
     const code = document.createElement("span");
     code.className = "quake-level-code";
-    code.dataset.bm = "";
-    code.dataset.bmSize = "label";
-    code.dataset.bmAlt = "true";
+    code.dataset.bm = "label alt";
     code.textContent = level.mapName.toUpperCase();
 
     const title = document.createElement("span");
     title.className = "quake-level-name";
-    title.dataset.bm = "";
-    title.dataset.bmSize = "label";
-    title.textContent = level.title;
+    title.dataset.bm = "label";
+    title.textContent = quakeMapTitle(level);
 
     button.append(code, title);
     levelList.append(button);
   }
+  if (renderBitmapText) mountQuakeBitmapText(levelList);
+}
+
+function quakeSelectableLevels(): QuakeAssetManifestMap[] {
+  return quakeAssetManifest.maps.filter((level) => level.selectable !== false);
+}
+
+function quakeMapTitle(level: QuakeAssetManifestMap): string {
+  return level.title?.trim() || level.mapName.toUpperCase();
+}
+
+function quakeSceneUrl(mapName: string): string | undefined {
+  return quakeMapUrls.get(mapName);
+}
+
+function quakeSceneUrlMap(manifest: QuakeAssetManifest): Map<string, string> {
+  return new Map(manifest.maps.map((map) => [map.mapName, map.sceneUrl]));
+}
+
+function setQuakeAssetManifest(manifest: QuakeAssetManifest): void {
+  quakeAssetManifest = manifest;
+  quakeMapUrls = quakeSceneUrlMap(manifest);
+  mountQuakeLevelSelector(true);
+  menu.setCurrentLevel(currentMapName);
 }
 
 injectQuakeWorldAnimations();
@@ -236,24 +363,29 @@ const menu = createQuakeMenuController({
   clearCrosshairTarget: clearQuakeCrosshairTarget,
   syncCrosshairTarget: syncQuakeCrosshairTarget,
 });
-menu.setCurrentLevel(LOCAL_START_MAP);
+menu.setCurrentLevel(quakeAssetManifest.startMap);
+const audio = createQuakeSoundController();
+syncQuakeAudioToggle();
 const viewmodel = createQuakeViewmodelController({
   scene,
   controls,
   host,
   hud: classicHud,
   layer: viewmodelLayer,
-  onMount: (handle) => {
-    world.pixelate(handle);
-    void world.schedulePresentationResync(handle);
-  },
 });
 const shootables = createQuakeShootablesController({
-  sceneElement,
+  addMesh: addQuakeShootableMesh,
+  damagePlayer: (amount) => getPlayer().damage(amount),
+  getPlayerOrigin: () => getPlayer().currentOrigin(),
+  hasLineOfSight: quakeLineOfSight,
+  isInPlayerView: isQuakePointInPlayerView,
+  leafIndexAt: world.leafIndexAt,
+  monsterRuntimeEnabled: () => QUAKE_MONSTER_RUNTIME_ENABLED,
   pointToPoly: quakePointToPoly,
   shouldSpawn: shouldSpawnQuakeEntityForCurrentGame,
   pixelate: world.pixelate,
   schedulePresentationResync: world.schedulePresentationResync,
+  visibleLeavesAt: world.visibleLeavesAt,
   fireTarget: fireQuakeTarget,
 });
 const targetSystem = createQuakeTargetsController({
@@ -270,18 +402,22 @@ const triggerSystem = createQuakeTriggersController({
   activateEntity: activateQuakeEntity,
   activateTeleport: activateQuakeTeleport,
   completeLevel: completeQuakeLevel,
-  fireTarget: fireQuakeTarget,
+  disableEntity: targetSystem.disableEntity,
   getEntity: (entityIndex) => entityByIndex.get(entityIndex),
   getOrigin: () => controls.getOrigin(),
   getTouchedTriggers: currentQuakeTouchedTriggers,
+  isEntityDisabled: targetSystem.isDisabled,
   onActiveKeyChange: syncQuakeActiveTriggerDataset,
+  triggerSpecial: activateQuakeSpecialTrigger,
   transitionSerial: () => quakeTransitionSerial,
+  useTargets: targetSystem.useTargets,
 });
 pickups = createQuakePickupController({
   addMesh: addQuakePickupMesh,
-  applyEffect: (effect) => {
+  applyEffect: (effect, entity) => {
     applyQuakeInventoryDelta(getPlayer().inventory(), effect);
     syncQuakeHud();
+    audio.playPickup(entity);
   },
   leafIndexAt: world.leafIndexAt,
   pointToPoly: quakePointToPoly,
@@ -303,9 +439,11 @@ const weapons = createQuakeWeaponsController({
     inventory.shells = Math.max(0, inventory.shells - 1);
   },
   syncHud: syncQuakeHud,
+  playFireSound: () => audio.playEvent("weaponShotgun", { volume: 0.74 }),
   playFireAnimation: viewmodel.playFireAnimation,
-  destroyShootable: shootables.destroy,
-  activateEntity: activateQuakeEntity,
+  damageShootable: shootables.damage,
+  damageBrushEntity: damageQuakeBrushEntity,
+  onHit: flashQuakeCrosshairHit,
   syncCrosshairTarget: syncQuakeCrosshairTarget,
 });
 player = createQuakePlayerController({
@@ -322,12 +460,13 @@ player = createQuakePlayerController({
     }
     void host.offsetWidth;
     document.body.dataset.damage = "true";
+    audio.playEvent("pain", { volume: 0.58 });
   },
   onHazardState: () => undefined,
   onInventoryChanged: syncQuakeHud,
   onRespawn: (result, previousOrigin) => {
     triggerSystem.resetActive();
-    shootables.spawn(result.entities, currentPickupModelLibrary);
+    shootables.spawn(result.entities, currentPickupModelLibrary, currentProgramMetadata);
     getPickups().spawn(result.entities, currentPickupModelLibrary, previousOrigin);
   },
   pointToPoly: quakePointToPoly,
@@ -337,7 +476,10 @@ player = createQuakePlayerController({
   syncPickups: (origin, eyeHeight) => getPickups().syncCollision(origin, eyeHeight, STEP_HEIGHT),
   syncTouchedTriggers,
   syncViewmodel: () => viewmodel.syncTransform(),
-  syncWorldVisibility: (force) => world.syncVisibility(force),
+  syncWorldVisibility: (force) => {
+    world.syncVisibility(force);
+    shootables.syncVisibility(controls.getOrigin(), force);
+  },
   transitionSerial: () => quakeTransitionSerial,
 });
 
@@ -346,12 +488,24 @@ let currentProgramMetadata: QuakeProgramMetadata | null = null;
 let currentCollisionWorld: QuakeCollisionWorld | null = null;
 let currentResult: QuakeScene | null = null;
 let entityByIndex = new Map<number, QuakeEntity>();
+let quakeDamageableBrushHealth = new Map<number, number>();
+let quakeDamageableBrushResetTimers: number[] = [];
+let quakeMoverCrushDamageAt = new Map<number, number>();
+let quakeMoverSoundModes = new Map<number, QuakeMoverState["mode"]>();
+let quakePointHazards: QuakePointHazard[] = [];
+let quakeFireballEmitters: QuakeFireballEmitter[] = [];
+let quakePointHazardFrame: number | null = null;
+let quakePointHazardTime = 0;
+let quakeHudMessageTimer: number | null = null;
+let quakeCrosshairHitTimer: number | null = null;
+let quakeSkill = 1;
 let quakeModelPivot = { x: 0, y: 0, z: 0 };
 let quakeLevelLoadTimer: number | null = null;
 let quakeTransitionSerial = 0;
-let currentMapName = LOCAL_START_MAP;
+let currentMapName = quakeAssetManifest.startMap;
 let quakeAppDisposed = false;
 let quakeAppLoading = true;
+let quakeDebugCollisionBypassUntil = 0;
 
 interface QuakeStatsPanel {
   value: HTMLElement;
@@ -364,6 +518,24 @@ const FPS_SAMPLE_MS = 1000;
 const MS_SAMPLE_MS = 500;
 const QUAKE_HAZARD_FOOT_SAMPLE_Z = 2 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_CHANGELEVEL_DELAY_MS = 850;
+const QUAKE_HUD_MESSAGE_MS = 2600;
+const QUAKE_SHAREWARE_REGISTERED = false;
+const QUAKE_FIREBALL_RADIUS = 56 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_FIREBALL_DEFAULT_SPEED = 1000;
+const QUAKE_FIREBALL_DAMAGE = 20;
+const QUAKE_FIREBALL_LIFETIME_MS = 5000;
+const QUAKE_FIREBALL_INITIAL_DELAY_MS = 5000;
+const QUAKE_FIREBALL_MIN_WAIT_MS = 3000;
+const QUAKE_FIREBALL_WAIT_JITTER_MS = 5000;
+const QUAKE_FIREBALL_DRIFT_SPEED = 50 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_FIREBALL_SPEED_JITTER = 200 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_POINT_HAZARD_DT_CLAMP = 0.05;
+const QUAKE_TRAP_SPIKE_RANGE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_TRAP_SPIKE_RADIUS = 36 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_TRAP_SPIKE_DAMAGE = 10;
+const QUAKE_TRIGGER_PUSH_DEFAULT_SPEED = 1000;
+const QUAKE_TRIGGER_PUSH_ONCE = 1;
+const QUAKE_TRIGGER_PUSH_VELOCITY_MULTIPLIER = 10;
 
 function makeParseResult(polygons: Polygon[]): ParseResult {
   return { polygons, objectUrls: [], warnings: [], dispose: () => undefined };
@@ -371,6 +543,20 @@ function makeParseResult(polygons: Polygon[]): ParseResult {
 
 function syncQuakeHud(): void {
   syncQuakeHudElements(hudElements, getPlayer().inventory());
+}
+
+function toggleQuakeAudioMuted(): void {
+  audio.toggleMuted();
+  syncQuakeAudioToggle();
+}
+
+function syncQuakeAudioToggle(): void {
+  if (!audioToggle) return;
+  const muted = audio.isMuted();
+  audioToggle.dataset.muted = String(muted);
+  audioToggle.setAttribute("aria-pressed", String(muted));
+  audioToggle.setAttribute("aria-label", muted ? "Unmute audio" : "Mute audio");
+  audioToggle.title = muted ? "Unmute audio (M)" : "Mute audio (M)";
 }
 
 function clearQuakeLevelLoadTimer(): void {
@@ -384,6 +570,44 @@ function clearQuakeLevelComplete(): void {
   delete document.body.dataset.complete;
   delete quakeHud?.dataset.complete;
   controls.update({ moveEnabled: true, jumpEnabled: true, jumpVelocity: QUAKE_JUMP_VELOCITY, gravity: QUAKE_GRAVITY });
+}
+
+function flashQuakeCrosshairHit(): void {
+  if (quakeCrosshairHitTimer !== null) {
+    window.clearTimeout(quakeCrosshairHitTimer);
+    quakeCrosshairHitTimer = null;
+  }
+  document.body.dataset.hit = "true";
+  quakeCrosshairHitTimer = window.setTimeout(clearQuakeCrosshairHit, 110);
+}
+
+function clearQuakeCrosshairHit(): void {
+  if (quakeCrosshairHitTimer !== null) {
+    window.clearTimeout(quakeCrosshairHitTimer);
+    quakeCrosshairHitTimer = null;
+  }
+  delete document.body.dataset.hit;
+}
+
+function showQuakeHudMessage(message: string, duration = QUAKE_HUD_MESSAGE_MS): void {
+  const text = message.trim();
+  if (!text || !quakeHud) return;
+  if (quakeHudMessageTimer !== null) {
+    window.clearTimeout(quakeHudMessageTimer);
+    quakeHudMessageTimer = null;
+  }
+  document.body.dataset.message = "true";
+  quakeHud.dataset.message = text;
+  quakeHudMessageTimer = window.setTimeout(clearQuakeHudMessage, duration);
+}
+
+function clearQuakeHudMessage(): void {
+  if (quakeHudMessageTimer !== null) {
+    window.clearTimeout(quakeHudMessageTimer);
+    quakeHudMessageTimer = null;
+  }
+  delete document.body.dataset.message;
+  delete quakeHud?.dataset.message;
 }
 
 function isQuakeLevelTransitionActive(): boolean {
@@ -455,7 +679,10 @@ function updateQuakeLoadingStatus(status: string): void {
 
 function addQuakePickupMesh(entity: QuakeEntity, model?: QuakePickupModel, frameIndex = 0): PolyMeshHandle | null {
   if (!entity.origin) return null;
-  const handle = model
+  const frameSet = model ? quakePickupModelRenderBundleFrameSet(model) : undefined;
+  const handle = frameSet
+    ? mountQuakeRenderBundleFrameSetMesh(sceneElement, frameSet, frameIndex)
+    : model
     ? mountQuakeRenderBundleMesh(sceneElement, quakePickupModelRenderBundle(model, frameIndex))
     : addQuakeProceduralPickupMesh(entity);
   if (!handle) return null;
@@ -467,9 +694,33 @@ function addQuakePickupMesh(entity: QuakeEntity, model?: QuakePickupModel, frame
     rotation: [0, 0, angle],
     scale: 1,
   });
-  world.pixelate(handle);
-  void world.schedulePresentationResync(handle);
+  if (!model) {
+    world.pixelate(handle);
+    void world.schedulePresentationResync(handle);
+  }
   return handle;
+}
+
+function addQuakeShootableMesh(entity: QuakeEntity, model?: QuakePickupModel, frameIndex = 0): PolyMeshHandle | null {
+  const frameSet = model ? quakePickupModelRenderBundleFrameSet(model) : undefined;
+  const handle = frameSet
+    ? mountQuakeRenderBundleFrameSetMesh(sceneElement, frameSet, frameIndex)
+    : model
+    ? mountQuakeRenderBundleMesh(sceneElement, quakePickupModelRenderBundle(model, frameIndex))
+    : addQuakeProceduralShootableMesh(entity);
+  if (!handle) return null;
+  stripPolyMeshMetadata(handle.element);
+  return handle;
+}
+
+function addQuakeProceduralShootableMesh(entity: QuakeEntity): PolyMeshHandle | null {
+  const polygons = quakeShootableFallbackPolygons(entity);
+  if (!polygons.length) return null;
+  return scene.add(makeParseResult(polygons), {
+    merge: false,
+    meshResolution: "lossless",
+    excludeFromAutoCenter: true,
+  });
 }
 
 function addQuakeProceduralPickupMesh(entity: QuakeEntity): PolyMeshHandle | null {
@@ -497,6 +748,8 @@ function disposeCurrentScene(): void {
   getPickups().clear();
   shootables.clear();
   clearQuakeLevelComplete();
+  clearQuakeHudMessage();
+  clearQuakeCrosshairHit();
   clearQuakeLevelLoadTimer();
   clearQuakeCrosshairTarget();
   getPlayer().resetForSceneDispose();
@@ -504,8 +757,13 @@ function disposeCurrentScene(): void {
   currentResult = null;
   triggerSystem.clear();
   entityByIndex = new Map();
+  clearQuakeDamageableBrushes();
   targetSystem.clear();
+  clearQuakePointHazards();
   quakeModelPivot = { x: 0, y: 0, z: 0 };
+  quakeMoverCrushDamageAt = new Map();
+  quakeMoverSoundModes = new Map();
+  audio.syncAmbientEntities([]);
   weapons.reset();
   quakeTransitionSerial = 0;
 }
@@ -518,6 +776,10 @@ function setCamera(spawn: QuakeScene["spawn"]): void {
 
 function syncSceneCamera(rotX: number, rotY: number): void {
   const origin = getPlayer().currentOrigin();
+  syncSceneCameraAt(origin, rotX, rotY);
+}
+
+function syncSceneCameraAt(origin: Vec3, rotX: number, rotY: number): void {
   const forward = forwardDirection(rotX, rotY);
   const distance = lookOffset();
   scene.camera.update({
@@ -547,6 +809,27 @@ function forwardDirection(rotX: number, rotY: number): Vec3 {
   ];
 }
 
+function quakeLineOfSight(start: Vec3, end: Vec3): boolean {
+  const trace = currentCollisionWorld?.traceUse?.(start, end);
+  return !trace || trace.fraction >= 0.96;
+}
+
+function isQuakePointInPlayerView(point: Vec3): boolean {
+  const origin = getPlayer().currentOrigin();
+  const toPoint: Vec3 = [point[0] - origin[0], point[1] - origin[1], 0];
+  const toPointLength = Math.hypot(toPoint[0], toPoint[1]);
+  if (toPointLength <= COLLISION_EPSILON) return true;
+
+  const forward = forwardDirection(scene.camera.state.rotX ?? 90, scene.camera.state.rotY ?? 270);
+  const forwardHorizontal: Vec3 = [forward[0], forward[1], 0];
+  const forwardLength = Math.hypot(forwardHorizontal[0], forwardHorizontal[1]);
+  if (forwardLength <= COLLISION_EPSILON) return true;
+
+  const toPointUnit: Vec3 = [toPoint[0] / toPointLength, toPoint[1] / toPointLength, 0];
+  const forwardUnit: Vec3 = [forwardHorizontal[0] / forwardLength, forwardHorizontal[1] / forwardLength, 0];
+  return dotVec3(toPointUnit, forwardUnit) >= QUAKE_MONSTER_MOUNT_VIEW_DOT_MIN;
+}
+
 function mountQuakeScene(result: QuakeScene): void {
   disposeCurrentScene();
   currentResult = result;
@@ -556,10 +839,12 @@ function mountQuakeScene(result: QuakeScene): void {
     : buildQuakeCollisionWorld(result.polygons);
   world.mount(result);
   setupQuakeEntityActions(result);
+  audio.syncAmbientEntities(result.entities);
   setCamera(result.spawn);
-  shootables.spawn(result.entities, currentPickupModelLibrary);
+  shootables.spawn(result.entities, currentPickupModelLibrary, currentProgramMetadata);
   getPlayer().resetInventory();
   const origin = getPlayer().currentOrigin();
+  shootables.syncVisibility(origin, true);
   getPickups().spawn(result.entities, currentPickupModelLibrary, origin);
   const triggers = syncTouchedTriggers(origin);
   syncQuakeHazards(origin, triggers);
@@ -581,9 +866,11 @@ function clearQuakeSkyBackground(): void {
 
 function setupQuakeEntityActions(result: QuakeScene): void {
   entityByIndex = new Map(result.entities.map((entity) => [entity.index, entity]));
+  quakeModelPivot = result.collision?.pivot ?? { x: 0, y: 0, z: 0 };
+  setupQuakeDamageableBrushes(result.entities);
+  setupQuakePointHazards(result.entities);
   targetSystem.setup(result.entities);
   triggerSystem.clear();
-  quakeModelPivot = result.collision?.pivot ?? { x: 0, y: 0, z: 0 };
   movers.setup(result.entities, result.models, quakeModelPivot);
 }
 
@@ -607,6 +894,7 @@ function quakeTeleportDestination(targetname: string): QuakeEntity | null {
 function teleportQuakePlayer(destination: QuakeEntity): void {
   quakeTransitionSerial++;
   if (!getPlayer().teleportTo(destination)) return;
+  audio.playEvent("teleport", { volume: 0.64 });
   syncSceneCamera(90, (180 + quakeEntityNumber(destination, "angle", destination.angle ?? 0) + 360) % 360);
   const origin = getPlayer().currentOrigin();
   const triggers = currentQuakeTouchedTriggers(origin);
@@ -622,12 +910,13 @@ function completeQuakeLevel(entity: QuakeEntity): void {
   clearQuakeLevelLoadTimer();
   viewmodel.clearFireAnimation();
   getPlayer().clearLevelState();
+  audio.playEvent("levelExit", { volume: 0.58 });
   document.body.dataset.complete = "true";
   const nextMap = quakeChangelevelMap(entity);
   if (quakeHud) {
     quakeHud.dataset.complete = nextMap ? `EXIT TO ${nextMap.toUpperCase()}` : "EXIT REACHED";
   }
-  if (!nextMap || !LOCAL_MAP_URLS[nextMap]) return;
+  if (!nextMap || !quakeSceneUrl(nextMap)) return;
   quakeLevelLoadTimer = window.setTimeout(() => {
     quakeLevelLoadTimer = null;
     void loadQuakeMap(nextMap).catch((error) => {
@@ -645,6 +934,8 @@ function quakeChangelevelMap(entity: QuakeEntity): string | null {
 function activateSolidTouch(touch: QuakeTouchedTrigger): void {
   const entity = entityByIndex.get(touch.entityIndex);
   if (!entity) return;
+  if (targetSystem.isDisabled(entity.index)) return;
+  if (activateQuakeSolidGate(entity)) return;
   if (entity.classname === "func_plat") {
     activateQuakeEntity(entity.index);
     return;
@@ -658,22 +949,322 @@ function fireQuakeTarget(targetname: string, sourceEntityIndex?: number): void {
   targetSystem.fire(targetname, sourceEntityIndex);
 }
 
-function activateQuakeEntity(entityIndex: number, sourceEntityIndex?: number): void {
+function activateQuakeEntity(entityIndex: number, sourceEntityIndex?: number): boolean {
+  if (targetSystem.isDisabled(entityIndex)) return false;
   const entity = entityByIndex.get(entityIndex);
-  if (!entity) return;
+  if (!entity) return false;
+  if (activateQuakeSpecialEntity(entity)) return true;
   if (entity.classname === "trigger_counter") {
     activateTriggerCounter(entity);
-    return;
+    return true;
+  }
+  if (entity.classname === "trigger_relay") {
+    return targetSystem.useTargets(entity);
+  }
+  if (entity.classname === "trigger_once" || entity.classname === "trigger_secret") {
+    const activated = targetSystem.useTargets(entity);
+    targetSystem.disableEntity(entity.index);
+    return activated;
+  }
+  if (entity.classname === "trigger_multiple") {
+    return targetSystem.useTargets(entity);
+  }
+  if (entity.classname === "trigger_teleport") {
+    if (!triggerSystem.activateTeleporterEntity(entity)) return false;
+    syncTouchedTriggers(controls.getOrigin());
+    return true;
   }
   if (shootables.has(entity.index)) {
     shootables.destroy(entity.index);
-    return;
+    return true;
   }
-  movers.activateEntity(entity.index, sourceEntityIndex);
+  return movers.activateEntity(entity.index, sourceEntityIndex);
 }
 
 function activateTriggerCounter(entity: QuakeEntity): void {
   triggerSystem.activateCounterEntity(entity);
+}
+
+function activateQuakeSpecialEntity(entity: QuakeEntity): boolean {
+  if (activateQuakeSpecialTrigger(entity)) return true;
+  if (entity.classname === "trap_spikeshooter") {
+    activateQuakeSpikeShooter(entity);
+    return true;
+  }
+  return false;
+}
+
+function activateQuakeSpecialTrigger(entity: QuakeEntity): boolean {
+  if (entity.classname === "trigger_push") {
+    activateQuakePushTrigger(entity);
+    return true;
+  }
+  if (entity.classname === "trigger_setskill") {
+    quakeSkill = Math.max(0, Math.round(quakeEntityNumber(entity, "message", 1)));
+    showQuakeHudMessage(`SKILL ${quakeSkill}`);
+    return true;
+  }
+  if (entity.classname === "trigger_onlyregistered") {
+    if (QUAKE_SHAREWARE_REGISTERED) {
+      targetSystem.useTargets(entity);
+      return true;
+    }
+    showQuakeHudMessage(quakeEntityMessage(entity, "REGISTERED VERSION ONLY"));
+    return true;
+  }
+  return false;
+}
+
+function activateQuakePushTrigger(entity: QuakeEntity): void {
+  const rawSpeed = quakeEntityNumber(entity, "speed", QUAKE_TRIGGER_PUSH_DEFAULT_SPEED);
+  const speed = (rawSpeed > 0 ? rawSpeed : QUAKE_TRIGGER_PUSH_DEFAULT_SPEED) *
+    QUAKE_TRIGGER_PUSH_VELOCITY_MULTIPLIER *
+    QUAKE_COLLISION_UNIT_SCALE;
+  const direction = quakeEntityDirection(entity);
+  getPlayer().push([direction[0] * speed, direction[1] * speed, direction[2] * speed]);
+  if (quakeEntitySpawnflagsCompat(entity) & QUAKE_TRIGGER_PUSH_ONCE) {
+    targetSystem.disableEntity(entity.index);
+  }
+}
+
+function activateQuakeSolidGate(entity: QuakeEntity): boolean {
+  if (entity.classname === "func_episodegate") {
+    showQuakeHudMessage(quakeEntityMessage(entity, "THIS EPISODE IS LOCKED"));
+    return true;
+  }
+  if (entity.classname === "func_bossgate") {
+    showQuakeHudMessage(quakeEntityMessage(entity, "YOU MUST COMPLETE THE EPISODES FIRST"));
+    return true;
+  }
+  return false;
+}
+
+function quakeEntityMessage(entity: QuakeEntity, fallback: string): string {
+  return (entity.properties.message || fallback).replace(/\\n/g, "\n");
+}
+
+function clearQuakePointHazards(): void {
+  if (quakePointHazardFrame !== null) {
+    window.cancelAnimationFrame(quakePointHazardFrame);
+    quakePointHazardFrame = null;
+  }
+  quakePointHazards = [];
+  quakeFireballEmitters = [];
+  quakePointHazardTime = 0;
+}
+
+function setupQuakePointHazards(entities: QuakeEntity[]): void {
+  clearQuakePointHazards();
+  const now = performance.now();
+  for (const entity of entities) {
+    if (targetSystem.isDisabled(entity.index) || entity.classname !== "misc_fireball" || !entity.origin) continue;
+    const rawSpeed = quakeEntityNumber(entity, "speed", QUAKE_FIREBALL_DEFAULT_SPEED);
+    quakeFireballEmitters.push({
+      entityIndex: entity.index,
+      origin: quakePointToPoly(entity.origin),
+      speed: (rawSpeed > 0 ? rawSpeed : QUAKE_FIREBALL_DEFAULT_SPEED) * QUAKE_COLLISION_UNIT_SCALE,
+      nextSpawnAt: now + Math.random() * QUAKE_FIREBALL_INITIAL_DELAY_MS,
+    });
+  }
+  if (quakeFireballEmitters.length) startQuakePointHazards();
+}
+
+function startQuakePointHazards(): void {
+  if (quakePointHazardFrame !== null) return;
+  quakePointHazardTime = 0;
+  quakePointHazardFrame = window.requestAnimationFrame(tickQuakePointHazards);
+}
+
+function tickQuakePointHazards(now: number): void {
+  if (!currentResult || (!quakeFireballEmitters.length && !quakePointHazards.length)) {
+    clearQuakePointHazards();
+    return;
+  }
+
+  const dt = Math.min(QUAKE_POINT_HAZARD_DT_CLAMP, quakePointHazardTime ? (now - quakePointHazardTime) / 1000 : 0.0167);
+  quakePointHazardTime = now;
+  spawnDueQuakeFireballs(now);
+  moveQuakePointHazards(dt, now);
+  if (quakePointHazards.length) syncQuakeHazards(getPlayer().currentOrigin());
+  quakePointHazardFrame = window.requestAnimationFrame(tickQuakePointHazards);
+}
+
+function spawnDueQuakeFireballs(now: number): void {
+  for (const emitter of quakeFireballEmitters) {
+    if (targetSystem.isDisabled(emitter.entityIndex)) continue;
+    if (now < emitter.nextSpawnAt) continue;
+    spawnQuakeFireballHazard(emitter, now);
+    emitter.nextSpawnAt = now + QUAKE_FIREBALL_MIN_WAIT_MS + Math.random() * QUAKE_FIREBALL_WAIT_JITTER_MS;
+  }
+}
+
+function spawnQuakeFireballHazard(emitter: QuakeFireballEmitter, now: number): void {
+  quakePointHazards.push({
+    entityIndex: emitter.entityIndex,
+    origin: [...emitter.origin] as Vec3,
+    radiusSq: QUAKE_FIREBALL_RADIUS * QUAKE_FIREBALL_RADIUS,
+    damage: QUAKE_FIREBALL_DAMAGE,
+    kind: "fireball",
+    velocity: [
+      quakeRandomRange(-QUAKE_FIREBALL_DRIFT_SPEED, QUAKE_FIREBALL_DRIFT_SPEED),
+      quakeRandomRange(-QUAKE_FIREBALL_DRIFT_SPEED, QUAKE_FIREBALL_DRIFT_SPEED),
+      emitter.speed + Math.random() * QUAKE_FIREBALL_SPEED_JITTER,
+    ],
+    expiresAt: now + QUAKE_FIREBALL_LIFETIME_MS,
+  });
+}
+
+function moveQuakePointHazards(dt: number, now: number): void {
+  const active: QuakePointHazard[] = [];
+  for (const hazard of quakePointHazards) {
+    if (targetSystem.isDisabled(hazard.entityIndex)) continue;
+    if (hazard.expiresAt !== undefined && hazard.expiresAt <= now) continue;
+    if (hazard.velocity) {
+      hazard.velocity[2] -= QUAKE_GRAVITY * dt;
+      hazard.origin = [
+        hazard.origin[0] + hazard.velocity[0] * dt,
+        hazard.origin[1] + hazard.velocity[1] * dt,
+        hazard.origin[2] + hazard.velocity[2] * dt,
+      ];
+    }
+    active.push(hazard);
+  }
+  quakePointHazards = active;
+}
+
+function quakeRandomRange(min: number, max: number): number {
+  return min + Math.random() * (max - min);
+}
+
+function quakePointHazardAt(origin: [number, number, number]): QuakeHazardDamage | null {
+  let hazard: QuakeHazardDamage | null = null;
+  const now = performance.now();
+  for (const pointHazard of quakePointHazards) {
+    if (targetSystem.isDisabled(pointHazard.entityIndex)) continue;
+    if (pointHazard.expiresAt !== undefined && pointHazard.expiresAt <= now) continue;
+    if (distanceSq3(origin, pointHazard.origin) > pointHazard.radiusSq) continue;
+    pointHazard.expiresAt = now;
+    hazard = strongerQuakeHazard(hazard, {
+      amount: pointHazard.damage,
+      kind: pointHazard.kind,
+    });
+  }
+  return hazard;
+}
+
+function activateQuakeSpikeShooter(entity: QuakeEntity): boolean {
+  if (!entity.origin) return false;
+  const start = quakePointToPoly(entity.origin);
+  const target = getPlayer().currentOrigin();
+  const toPlayer = subtractVec3(target, start);
+  const direction = quakeEntityDirection(entity);
+  const forwardDistance = dotVec3(toPlayer, direction);
+  if (forwardDistance < 0 || forwardDistance > QUAKE_TRAP_SPIKE_RANGE) return true;
+  const closest: Vec3 = [
+    start[0] + direction[0] * forwardDistance,
+    start[1] + direction[1] * forwardDistance,
+    start[2] + direction[2] * forwardDistance,
+  ];
+  if (distanceSq3(closest, target) > QUAKE_TRAP_SPIKE_RADIUS * QUAKE_TRAP_SPIKE_RADIUS) return true;
+  const trace = currentCollisionWorld?.traceUse?.(start, target);
+  if (trace && trace.fraction < 0.96) return true;
+  const damage = QUAKE_TRAP_SPIKE_DAMAGE * (quakeEntitySpawnflagsCompat(entity) & 1 ? 2 : 1);
+  getPlayer().damage(damage);
+  return true;
+}
+
+function quakeEntityDirection(entity: QuakeEntity): Vec3 {
+  const angle = quakeEntityNumber(entity, "angle", entity.angle ?? 0);
+  if (angle === -1) return [0, 0, 1];
+  if (angle === -2) return [0, 0, -1];
+  const radians = (angle * Math.PI) / 180;
+  return normalizeVec3([Math.cos(radians), Math.sin(radians), 0]);
+}
+
+function quakeEntitySpawnflagsCompat(entity: QuakeEntity): number {
+  return Math.trunc(quakeEntityNumber(entity, "spawnflags", 0));
+}
+
+function setupQuakeDamageableBrushes(entities: QuakeEntity[]): void {
+  clearQuakeDamageableBrushes();
+  for (const entity of entities) {
+    if (!isQuakeDamageableBrushEntity(entity)) continue;
+    quakeDamageableBrushHealth.set(entity.index, quakeDamageableBrushMaxHealth(entity));
+  }
+}
+
+function clearQuakeDamageableBrushes(): void {
+  for (const timer of quakeDamageableBrushResetTimers) window.clearTimeout(timer);
+  quakeDamageableBrushResetTimers = [];
+  quakeDamageableBrushHealth = new Map();
+}
+
+function damageQuakeBrushEntity(entityIndex: number, amount: number): boolean {
+  if (targetSystem.isDisabled(entityIndex)) return false;
+  const entity = entityByIndex.get(entityIndex);
+  if (!entity || !isQuakeDamageableBrushEntity(entity)) return false;
+  const health = quakeDamageableBrushHealth.get(entity.index);
+  if (health === undefined) return false;
+  const remaining = health - Math.max(0, amount);
+  if (remaining > 0) {
+    quakeDamageableBrushHealth.set(entity.index, remaining);
+    return true;
+  }
+  quakeDamageableBrushHealth.delete(entity.index);
+  return activateQuakeDamageableBrush(entity);
+}
+
+function activateQuakeDamageableBrush(entity: QuakeEntity): boolean {
+  if (entity.classname === "trigger_once" || entity.classname === "trigger_secret") {
+    const activated = targetSystem.useTargets(entity);
+    targetSystem.disableEntity(entity.index);
+    return activated;
+  }
+  if (entity.classname === "trigger_multiple") {
+    const activated = targetSystem.useTargets(entity);
+    scheduleQuakeDamageableBrushReset(entity);
+    return activated;
+  }
+  const activated = activateQuakeEntity(entity.index);
+  scheduleQuakeDamageableBrushReset(entity);
+  return activated;
+}
+
+function scheduleQuakeDamageableBrushReset(entity: QuakeEntity): void {
+  const wait = quakeDamageableBrushResetWait(entity);
+  if (wait < 0) {
+    targetSystem.disableEntity(entity.index);
+    return;
+  }
+  const timer = window.setTimeout(() => {
+    quakeDamageableBrushResetTimers = quakeDamageableBrushResetTimers.filter((item) => item !== timer);
+    if (!targetSystem.isDisabled(entity.index)) {
+      quakeDamageableBrushHealth.set(entity.index, quakeDamageableBrushMaxHealth(entity));
+    }
+  }, wait * 1000);
+  quakeDamageableBrushResetTimers.push(timer);
+}
+
+function quakeDamageableBrushResetWait(entity: QuakeEntity): number {
+  if (entity.classname === "func_button") return quakeEntityNumber(entity, "wait", 1);
+  if (entity.classname === "func_door" || entity.classname === "func_door_secret") {
+    return quakeEntityNumber(entity, "wait", 3);
+  }
+  return quakeEntityNumber(entity, "wait", 0.2);
+}
+
+function quakeDamageableBrushMaxHealth(entity: QuakeEntity): number {
+  return Math.max(1, Math.round(quakeEntityNumber(entity, "health", 1)));
+}
+
+function isQuakeDamageableBrushEntity(entity: QuakeEntity): boolean {
+  if (quakeEntityNumber(entity, "health", 0) <= 0) return false;
+  return entity.classname === "func_button" ||
+    entity.classname === "func_door" ||
+    entity.classname === "func_door_secret" ||
+    entity.classname === "trigger_multiple" ||
+    entity.classname === "trigger_once" ||
+    entity.classname === "trigger_secret";
 }
 
 function quakeMoverGroupUnlocked(state: QuakeMoverState): boolean {
@@ -689,7 +1280,18 @@ function moverBlockedByPlayer(state: QuakeMoverState, nextOffset: Vec3, delta: V
   if (state.kind === "button" || shouldCarryPlayerWithMover(state, delta)) return false;
   const origin = controls.getOrigin();
   if (!currentCollisionWorld?.playerIntersectsBrush?.(state.entity.index, nextOffset, origin)) return false;
+  damageQuakePlayerForMoverBlock(state);
   return true;
+}
+
+function damageQuakePlayerForMoverBlock(state: QuakeMoverState): void {
+  const now = performance.now();
+  const lastDamageAt = quakeMoverCrushDamageAt.get(state.entity.index) ?? -Infinity;
+  if (now - lastDamageAt < 500) return;
+  const amount = quakeEntityNumber(state.entity, "dmg", state.kind === "plat" ? 1 : 2);
+  if (amount <= 0) return;
+  quakeMoverCrushDamageAt.set(state.entity.index, now);
+  getPlayer().damage(amount);
 }
 
 function applyMoverState(state: QuakeMoverState, movePlayer = true): void {
@@ -702,7 +1304,34 @@ function applyMoverState(state: QuakeMoverState, movePlayer = true): void {
   }
   if (carryPlayer) carryPlayerWithMover(state, delta);
   state.lastOffset = [...state.offset] as Vec3;
+  syncQuakeMoverSound(state, movePlayer);
   syncQuakeCrosshairTarget();
+}
+
+function syncQuakeMoverSound(state: QuakeMoverState, activeUpdate: boolean): void {
+  const previousMode = quakeMoverSoundModes.get(state.entity.index);
+  quakeMoverSoundModes.set(state.entity.index, state.mode);
+  if (!activeUpdate || previousMode === undefined || previousMode === state.mode) return;
+
+  if (state.kind === "button") {
+    if (state.mode === "opening") audio.playEvent("button", { volume: 0.58 });
+    return;
+  }
+
+  if (state.kind === "plat") {
+    if (state.mode === "opening" || state.mode === "closing") {
+      audio.playEvent("platMove", { volume: 0.52 });
+    } else if (state.mode === "open" || state.mode === "closed") {
+      audio.playEvent("doorStop", { volume: 0.38 });
+    }
+    return;
+  }
+
+  if (state.mode === "opening" || state.mode === "closing") {
+    audio.playEvent("doorMove", { volume: 0.52 });
+  } else if (state.mode === "open" || state.mode === "closed") {
+    audio.playEvent("doorStop", { volume: 0.44 });
+  }
 }
 
 function shouldCarryPlayerWithMover(state: QuakeMoverState, delta: Vec3): boolean {
@@ -768,6 +1397,7 @@ function applyQuakeButtonLeafVisual(leaf: QuakeFaceLeaf, pressed: boolean): void
 function handleQuakeUsePointerDown(event: PointerEvent): void {
   if (event.button !== 0 || !event.isPrimary || !canUseQuakeGameplayInput()) return;
   event.preventDefault();
+  audio.unlock();
   host.focus({ preventScroll: true });
   controls.lock();
   if (activateQuakeButtonAtCrosshair()) {
@@ -806,6 +1436,13 @@ function clearQuakeCrosshairTarget(): void {
   delete document.body.dataset.action;
 }
 
+function handleQuakeAudioToggleClick(event: MouseEvent): void {
+  event.preventDefault();
+  event.stopPropagation();
+  audio.unlock();
+  toggleQuakeAudioMuted();
+}
+
 function quakeOffsetCss(offset: Vec3): string {
   const x = offset[1] * BASE_TILE;
   const y = offset[0] * BASE_TILE;
@@ -817,7 +1454,7 @@ function currentQuakeTouchedTriggers(origin: [number, number, number]): QuakeTou
   return [
     ...(currentCollisionWorld?.touchingTriggers?.(origin, getPlayer().eyeHeight()) ?? []),
     ...movers.touchingDoorTriggerFields(origin, getPlayer().eyeHeight()),
-  ];
+  ].filter((trigger) => !targetSystem.isDisabled(trigger.entityIndex));
 }
 
 function quakePlayerContentsPoint(origin: [number, number, number]): Vec3 {
@@ -840,6 +1477,7 @@ function currentQuakeHazard(
     if (!entity) continue;
     hazard = strongerQuakeHazard(hazard, quakeTriggerHurtDamage(entity));
   }
+  hazard = strongerQuakeHazard(hazard, quakePointHazardAt(origin));
   const contents = currentCollisionWorld?.contentsAt?.(quakePlayerContentsPoint(origin));
   return strongerQuakeHazard(hazard, quakeContentsDamage(contents));
 }
@@ -971,17 +1609,20 @@ async function fetchQuakeScene(url: string, mapName?: string): Promise<QuakeScen
   if (mapName && !prepared.renderBundle) {
     throw new Error(`Prepared Quake map ${mapName.toUpperCase()} is missing its render bundle.`);
   }
+  if (prepared.renderBundle) await preloadQuakeRenderBundleAssets(prepared.renderBundle);
   return createQuakeSceneFromPreparedScene(prepared);
 }
 
 async function loadQuakeMap(mapName: string): Promise<void> {
-  const url = LOCAL_MAP_URLS[mapName];
+  const url = quakeSceneUrl(mapName);
   if (!url) throw new Error(`No prepared Quake map registered for ${mapName}.`);
   setQuakeLoading(true, `Loading ${mapName.toUpperCase()}`);
   try {
     const scenePromise = fetchQuakeScene(url, mapName);
     const weaponPromise = preloadWeaponViewModel();
     const result = await scenePromise;
+    if (quakeAppDisposed) return;
+    await preloadQuakeMapModelRenderBundleAssets(mapName);
     if (quakeAppDisposed) return;
     currentMapName = mapName;
     menu.setCurrentLevel(mapName);
@@ -1000,9 +1641,12 @@ function preloadWeaponViewModel(): Promise<QuakeViewmodelModel> {
 }
 
 async function fetchWeaponViewModel(): Promise<QuakeViewmodelModel> {
-  const response = await fetch(LOCAL_WEAPON_URL);
-  if (!response.ok) throw new Error(`Could not load ${LOCAL_WEAPON_URL}.`);
-  return await response.json() as QuakeViewmodelModel;
+  const url = quakeAssetManifest.assets.weaponModelUrl;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Could not load ${url}.`);
+  const model = await response.json() as QuakeViewmodelModel;
+  await preloadQuakeRenderBundleAssets(model.renderBundle);
+  return model;
 }
 
 async function mountWeaponViewModel(modelPromise = preloadWeaponViewModel()): Promise<void> {
@@ -1029,33 +1673,201 @@ async function waitForQuakePaintFrames(count: number): Promise<void> {
   }
 }
 
+function installQuakeAppDebugHooks(): void {
+  installQuakeDebugHooks(import.meta.env.DEV, {
+    controls: {
+      getOrigin: () => controls.getOrigin(),
+      setOrigin: (origin) => controls.setOrigin(origin),
+    },
+    currentMapName: () => currentMapName,
+    entities: () => entityByIndex,
+    fireWeapon: () => weapons.fire(),
+    fireballEmittersCount: () => quakeFireballEmitters.length,
+    fireballsCount: () => quakePointHazards.length,
+    forwardDirection,
+    hasCurrentScene: () => currentResult !== null,
+    hideMainMenu: () => menu.hideMainMenu(),
+    inventory: () => getPlayer().inventory(),
+    isLoading: () => quakeAppLoading,
+    loadMap: loadQuakeMap,
+    mapExists: (mapName) => Boolean(quakeSceneUrl(mapName)),
+    playerEyeHeight: () => getPlayer().eyeHeight(),
+    pointToPoly: quakePointToPoly,
+    setCollisionBypassUntil: (until) => {
+      quakeDebugCollisionBypassUntil = until;
+    },
+    shootablesStats: () => shootables.debugStats(),
+    syncCrosshairTarget: syncQuakeCrosshairTarget,
+    syncPickupsVisibility: (origin) => getPickups().syncVisibility(origin),
+    syncSceneCameraAt,
+    syncShootablesVisibility: (origin, force) => shootables.syncVisibility(origin, force),
+    syncViewmodel: () => viewmodel.syncTransform(),
+    syncWorldVisibility: (force) => world.syncVisibility(force),
+    worldStats: () => world.debugStats(),
+  });
+}
+
 async function loadPickupModels(): Promise<void> {
-  const response = await fetch(LOCAL_PICKUP_MODELS_URL);
-  if (!response.ok) throw new Error(`Could not load ${LOCAL_PICKUP_MODELS_URL}.`);
+  const url = quakeAssetManifest.assets.pickupModelsUrl;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Could not load ${url}.`);
   const library = await response.json() as QuakePickupModelLibrary;
   if (quakeAppDisposed) return;
   currentPickupModelLibrary = library;
 }
 
+async function preloadQuakeMapModelRenderBundleAssets(mapName: string): Promise<void> {
+  const library = currentPickupModelLibrary;
+  if (!library) return;
+  const map = quakeAssetManifest.maps.find((item) => item.mapName === mapName);
+  const modelPaths = map?.modelPaths;
+  if (!modelPaths) {
+    await preloadQuakePickupModelRenderBundleAssets(library, Object.keys(library.models));
+    return;
+  }
+  await preloadQuakePickupModelRenderBundleAssets(library, modelPaths);
+}
+
+async function preloadQuakePickupModelRenderBundleAssets(
+  library: QuakePickupModelLibrary,
+  modelPaths: Iterable<string>,
+): Promise<void> {
+  const bundles = new Set<QuakePreparedRenderBundle>();
+  for (const modelPath of modelPaths) {
+    const model = library.models[modelPath];
+    if (!model) continue;
+    if (model.renderBundle) bundles.add(model.renderBundle);
+    if (model.animationFrameSet) bundles.add(model.animationFrameSet.renderBundle);
+    for (const frame of model.animationFrames ?? []) bundles.add(frame.renderBundle);
+  }
+  await Promise.all([...bundles].map(preloadQuakeRenderBundleAssets));
+}
+
 async function loadProgramMetadata(): Promise<void> {
-  const response = await fetch(LOCAL_PROGRAM_METADATA_URL);
-  if (!response.ok) throw new Error(`Could not load ${LOCAL_PROGRAM_METADATA_URL}.`);
+  const url = quakeAssetManifest.assets.programMetadataUrl;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Could not load ${url}.`);
   const metadata = await response.json() as QuakeProgramMetadata;
   if (quakeAppDisposed) return;
   currentProgramMetadata = metadata;
 }
 
+async function loadSoundManifest(): Promise<void> {
+  const url = quakeAssetManifest.assets.soundManifestUrl;
+  if (!url) {
+    audio.setManifest(null);
+    return;
+  }
+  try {
+    const response = await fetch(url);
+    if (response.status === 404) {
+      audio.setManifest(null);
+      return;
+    }
+    if (!response.ok) throw new Error(`Could not load ${url}.`);
+    const manifest = normalizeQuakeSoundManifest(await response.json());
+    if (quakeAppDisposed) return;
+    audio.setManifest(manifest);
+  } catch (error) {
+    console.warn(error);
+    audio.setManifest(null);
+  }
+}
+
+async function fetchQuakeAssetManifest(): Promise<QuakeAssetManifest> {
+  const response = await fetch(QUAKE_MANIFEST_URL);
+  if (response.status === 404) return FALLBACK_QUAKE_ASSET_MANIFEST;
+  if (!response.ok) throw new Error(`Could not load ${QUAKE_MANIFEST_URL}.`);
+  return normalizeQuakeAssetManifest(await response.json());
+}
+
+function normalizeQuakeAssetManifest(value: unknown): QuakeAssetManifest {
+  if (!isRecord(value)) throw new Error("Invalid Quake asset manifest.");
+  const rawMaps = Array.isArray(value.maps) ? value.maps : [];
+  const maps = rawMaps.map(normalizeQuakeAssetManifestMap).filter((map): map is QuakeAssetManifestMap => Boolean(map));
+  if (!maps.length) throw new Error("Quake asset manifest has no maps.");
+  const mapNames = new Set(maps.map((map) => map.mapName));
+  const requestedStartMap = typeof value.startMap === "string" ? value.startMap.trim().toLowerCase() : "";
+  const startMap = mapNames.has(requestedStartMap)
+    ? requestedStartMap
+    : mapNames.has(FALLBACK_QUAKE_ASSET_MANIFEST.startMap)
+      ? FALLBACK_QUAKE_ASSET_MANIFEST.startMap
+      : maps[0].mapName;
+  return {
+    version: typeof value.version === "number" ? value.version : 1,
+    ...(typeof value.assetRoot === "string" ? { assetRoot: value.assetRoot } : {}),
+    startMap,
+    maps,
+    assets: normalizeQuakeAssetManifestAssets(value.assets),
+  };
+}
+
+function normalizeQuakeAssetManifestMap(value: unknown): QuakeAssetManifestMap | null {
+  if (!isRecord(value) || typeof value.mapName !== "string" || typeof value.sceneUrl !== "string") return null;
+  const mapName = value.mapName.trim().toLowerCase();
+  const sceneUrl = value.sceneUrl.trim();
+  if (!mapName || !sceneUrl) return null;
+  return {
+    mapName,
+    sceneUrl,
+    ...(typeof value.title === "string" ? { title: value.title } : {}),
+    ...(typeof value.pakPath === "string" ? { pakPath: value.pakPath } : {}),
+    ...(typeof value.selectable === "boolean" ? { selectable: value.selectable } : {}),
+    ...(Array.isArray(value.modelPaths) ? {
+      modelPaths: value.modelPaths
+        .filter((modelPath): modelPath is string => typeof modelPath === "string")
+        .map((modelPath) => modelPath.trim().toLowerCase())
+        .filter(Boolean),
+    } : {}),
+  };
+}
+
+function normalizeQuakeAssetManifestAssets(value: unknown): QuakeAssetManifest["assets"] {
+  const fallback = FALLBACK_QUAKE_ASSET_MANIFEST.assets;
+  if (!isRecord(value)) return fallback;
+  return {
+    weaponModelUrl: typeof value.weaponModelUrl === "string" ? value.weaponModelUrl : fallback.weaponModelUrl,
+    pickupModelsUrl: typeof value.pickupModelsUrl === "string" ? value.pickupModelsUrl : fallback.pickupModelsUrl,
+    programMetadataUrl: typeof value.programMetadataUrl === "string" ? value.programMetadataUrl : fallback.programMetadataUrl,
+    soundManifestUrl: typeof value.soundManifestUrl === "string" ? value.soundManifestUrl : fallback.soundManifestUrl,
+  };
+}
+
+function normalizeQuakeSoundManifest(value: unknown): QuakeSoundManifest {
+  const sounds: Record<string, string> = {};
+  if (isRecord(value) && isRecord(value.sounds)) {
+    for (const [key, url] of Object.entries(value.sounds)) {
+      if (typeof url === "string") sounds[key] = url;
+    }
+  }
+  return {
+    version: isRecord(value) && typeof value.version === "number" ? value.version : 1,
+    sounds,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 async function loadQuake(): Promise<void> {
   setQuakeLoading(true);
+  setQuakeAssetManifest(await fetchQuakeAssetManifest());
+  const startMap = quakeAssetManifest.startMap;
+  const startupSceneUrl = quakeSceneUrl(startMap);
+  if (!startupSceneUrl) throw new Error(`No prepared Quake start map registered for ${startMap}.`);
   const programMetadataPromise = loadProgramMetadata();
   const pickupModelsPromise = loadPickupModels();
-  const startupScenePromise = fetchQuakeScene(LOCAL_MAP_URLS[LOCAL_START_MAP], LOCAL_START_MAP);
+  const soundManifestPromise = loadSoundManifest();
+  const startupScenePromise = fetchQuakeScene(startupSceneUrl, startMap);
   const weaponPromise = preloadWeaponViewModel();
-  await Promise.all([programMetadataPromise, pickupModelsPromise]);
+  await Promise.all([programMetadataPromise, pickupModelsPromise, soundManifestPromise]);
   if (quakeAppDisposed) return;
   const result = await startupScenePromise;
   if (quakeAppDisposed) return;
-  currentMapName = LOCAL_START_MAP;
+  await preloadQuakeMapModelRenderBundleAssets(startMap);
+  if (quakeAppDisposed) return;
+  currentMapName = startMap;
   menu.setCurrentLevel(currentMapName);
   mountQuakeScene(result);
   if (quakeAppDisposed) return;
@@ -1069,6 +1881,13 @@ async function loadQuake(): Promise<void> {
 }
 
 function handleWindowKeyDown(event: KeyboardEvent): void {
+  audio.unlock();
+  if (event.code === "KeyM" && !isEditableKeyboardTarget(event.target)) {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleQuakeAudioMuted();
+    return;
+  }
   if (quakeAppLoading) {
     event.preventDefault();
     event.stopPropagation();
@@ -1089,6 +1908,7 @@ function handleViewportResize(): void {
 }
 
 function syncPlayerCollision(): void {
+  if (import.meta.env.DEV && performance.now() < quakeDebugCollisionBypassUntil) return;
   getPlayer().syncCollision();
 }
 
@@ -1098,8 +1918,10 @@ function disposeQuakeApp(): void {
   window.removeEventListener("resize", handleViewportResize);
   window.visualViewport?.removeEventListener("resize", handleViewportResize);
   host.removeEventListener("pointerdown", handleQuakeUsePointerDown, { capture: true });
+  audioToggle?.removeEventListener("click", handleQuakeAudioToggleClick);
   controls.removeEventListener("change", syncPlayerCollision);
   menu.dispose();
+  audio.dispose();
   disposeStatsOverlay();
   disposeCurrentScene();
 }
@@ -1109,10 +1931,12 @@ window.addEventListener("resize", handleViewportResize);
 window.visualViewport?.addEventListener("resize", handleViewportResize);
 
 host.addEventListener("pointerdown", handleQuakeUsePointerDown, { capture: true });
+audioToggle?.addEventListener("click", handleQuakeAudioToggleClick);
 controls.addEventListener("change", syncPlayerCollision);
 
 const disposeStatsOverlay = mountStatsOverlay();
 syncQuakeHud();
+installQuakeAppDebugHooks();
 
 void loadQuake().catch((error) => {
   console.error(error);
