@@ -1,6 +1,8 @@
 # cssQuake
 
-Turns [Quake](https://github.com/id-software/quake) into playable, inspectable HTML/CSS. cssQuake preprocesses the original game data into browser-ready JSON and image assets, then renders each level as real DOM geometry powered by [PolyCSS](https://github.com/LayoutitStudio/polycss) instead of WebGL. Try the live version: [cssquake.wtf](https://cssquake.wtf)
+Turns [Quake](https://github.com/id-software/quake) into playable, inspectable HTML/CSS. cssQuake preprocesses the original game data into browser-ready JSON and image assets, then renders each level as real DOM geometry powered by [PolyCSS](https://github.com/LayoutitStudio/polycss) instead of WebGL. 
+
+Try the live version: [cssquake.wtf](https://cssquake.wtf) 🕹️
 
 <img src="src/assets/cssquake-social.png" alt="cssQuake gameplay rendered as DOM and CSS markup" width="960">
 
