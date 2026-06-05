@@ -60,6 +60,8 @@ const textureOutputDir = path.join(quakeOutputDir, "t");
 const soundOutputDir = path.join(quakeOutputDir, "s");
 const renderBundleScriptPath = path.join(scriptDir, "bundle.mjs");
 const renderBundleOutputDir = path.join(quakeOutputDir, "b");
+const quakeRenderBundleAvifQuality = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_AVIF_QUALITY ?? "80", 10);
+const quakeRenderBundleAvifEffort = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_AVIF_EFFORT ?? "4", 10);
 const renderBundleMapNames = new Set(
   (process.env.QUAKE_RENDER_BUNDLE_MAPS ?? quakeRenderBundleDefaultMapNames.join(","))
     .split(",")
@@ -210,6 +212,7 @@ try {
   renderBundleBuilder = await createQuakeRenderBundleBuilder(renderBundleBuildPath);
 
   const {
+    buildQuakeLightstyleOverlayPolygons,
     createQuakeSceneFromPreparedScene,
     createQuakePreparedSceneFromPakBuffer,
     parseQuakePakDirectory,
@@ -238,6 +241,15 @@ try {
         mapName,
         polygons: scene.polygons,
       });
+      const lightstyleOverlayPolygons = buildQuakeLightstyleOverlayPolygons(scene.polygons);
+      if (lightstyleOverlayPolygons.length) {
+        prepared.lightstyleRenderBundle = await renderBundleBuilder.build({
+          bundleName: `${mapName}-lightstyle`,
+          polygons: lightstyleOverlayPolygons,
+        });
+      } else {
+        delete prepared.lightstyleRenderBundle;
+      }
       stripPreparedRenderBundleFallbackTextures(prepared);
     }
     const preparedJson = JSON.stringify(prepared);
@@ -342,6 +354,123 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
   await page.goto("http://quake-render-bundle.local/");
   await page.addScriptTag({ path: bundlePath });
 
+  async function writeRenderBundleResult({
+    name,
+    result,
+    styleClassName = "",
+    startedAt,
+    sharedAssets,
+    writeStyle = true,
+    includeLeafFrameStyles = false,
+  }) {
+    const assetDir = path.join(renderBundleOutputDir, name);
+    await rm(assetDir, { recursive: true, force: true });
+    await mkdir(assetDir, { recursive: true });
+
+    let meshHtml = result.meshHtml;
+    let meshCss = result.meshCss ?? "";
+    const leafFrameStylesByClass = (result.leafFrameStyles ?? []).map(([leafClass, frameStyle]) => [
+      leafClass,
+      Array.isArray(frameStyle) ? [...frameStyle] : [],
+    ]);
+    const assetUrls = [];
+    const assetVariants = [];
+    let writtenAssetCount = 0;
+    let reusedAssetCount = 0;
+
+    for (let index = 0; index < result.assets.length; index++) {
+      const asset = result.assets[index];
+      const buffer = Buffer.from(asset.base64, "base64");
+      const hash = createHash("sha256").update(buffer).digest("hex").slice(0, 12);
+      const assetKey = `${asset.mime}:${hash}`;
+      let sharedAsset = sharedAssets?.get(assetKey);
+
+      if (!sharedAsset) {
+        const extension = mimeExtension(asset.mime);
+        const filename = `atlas-${String(index).padStart(2, "0")}-${hash}.${extension}`;
+        const outputPath = path.join(assetDir, filename);
+        await writeFile(outputPath, buffer);
+        const assetUrl = `${quakeRenderBundlePublicPath}/${name}/${filename}`;
+        const variants = [];
+
+        if (asset.mime === "image/webp") {
+          const avifBuffer = await sharp(buffer)
+            .avif({
+              quality: normalizedQuakeRenderBundleAvifQuality(),
+              effort: normalizedQuakeRenderBundleAvifEffort(),
+              chromaSubsampling: "4:4:4",
+            })
+            .toBuffer();
+          const avifHash = createHash("sha256").update(avifBuffer).digest("hex").slice(0, 12);
+          const avifFilename = `atlas-${String(index).padStart(2, "0")}-${avifHash}.avif`;
+          await writeFile(path.join(assetDir, avifFilename), avifBuffer);
+          variants.push({
+            sourceUrl: assetUrl,
+            url: `${quakeRenderBundlePublicPath}/${name}/${avifFilename}`,
+            mime: "image/avif",
+          });
+        }
+
+        sharedAsset = { sourceUrl: assetUrl, variants };
+        sharedAssets?.set(assetKey, sharedAsset);
+        writtenAssetCount++;
+      } else {
+        reusedAssetCount++;
+      }
+
+      meshHtml = meshHtml.split(asset.placeholder).join(sharedAsset.sourceUrl);
+      meshCss = meshCss.split(asset.placeholder).join(sharedAsset.sourceUrl);
+      replaceQuakeRenderBundleLeafFrameStylePlaceholder(
+        leafFrameStylesByClass,
+        asset.placeholder,
+        sharedAsset.sourceUrl,
+      );
+      assetUrls.push(sharedAsset.sourceUrl);
+      assetVariants.push(...sharedAsset.variants.map((variant) => ({ ...variant })));
+    }
+
+    if (
+      meshHtml.includes("__QUAKE_RENDER_BUNDLE_ASSET_") ||
+      meshCss.includes("__QUAKE_RENDER_BUNDLE_ASSET_") ||
+      JSON.stringify(leafFrameStylesByClass).includes("__QUAKE_RENDER_BUNDLE_ASSET_")
+    ) {
+      throw new Error(`Unresolved render bundle asset placeholder for ${name}.`);
+    }
+
+    let styleUrl = "";
+    if (meshCss && writeStyle) {
+      const cssBuffer = Buffer.from(meshCss);
+      const hash = createHash("sha256").update(cssBuffer).digest("hex").slice(0, 12);
+      const filename = `mesh-${hash}.css`;
+      await writeFile(path.join(assetDir, filename), cssBuffer);
+      styleUrl = `${quakeRenderBundlePublicPath}/${name}/${filename}`;
+    }
+
+    return {
+      renderBundle: {
+        version: 1,
+        kind: "polycss-mesh",
+        polycssVersion: polycssPackage.version,
+        textureLighting: "baked",
+        textureQuality: 1,
+        meshHtml,
+        ...(styleUrl ? { styleUrl } : {}),
+        ...(styleClassName ? { styleClassName } : {}),
+        assetUrls,
+        ...(assetVariants.length ? { assetVariants } : {}),
+        ...(includeLeafFrameStyles && leafFrameStylesByClass.length ? { leafFrameStylesByClass } : {}),
+        leafMetadata: result.leafMetadata,
+        polygonCount: result.polygonCount,
+        leafCount: result.leafCount,
+        atlasLeafCount: result.atlasLeafCount,
+      },
+      meshCss,
+      writtenAssetCount,
+      reusedAssetCount,
+      elapsed: startedAt ? Date.now() - startedAt : 0,
+    };
+  }
+
   return {
     async build({ bundleName, mapName, polygons, textureQuality = 1, extractLeafStyles = false }) {
       const name = bundleName ?? mapName;
@@ -352,56 +481,61 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
         async (input) => window.__buildQuakeRenderBundle(input),
         { polygons, textureQuality, extractLeafStyles, styleClassName },
       );
-      const assetDir = path.join(renderBundleOutputDir, name);
-      await rm(assetDir, { recursive: true, force: true });
-      await mkdir(assetDir, { recursive: true });
-
-      let meshHtml = result.meshHtml;
-      let meshCss = result.meshCss ?? "";
-      const assetUrls = [];
-      for (let index = 0; index < result.assets.length; index++) {
-        const asset = result.assets[index];
-        const buffer = Buffer.from(asset.base64, "base64");
-        const hash = createHash("sha256").update(buffer).digest("hex").slice(0, 12);
-        const extension = mimeExtension(asset.mime);
-        const filename = `atlas-${String(index).padStart(2, "0")}-${hash}.${extension}`;
-        const outputPath = path.join(assetDir, filename);
-        await writeFile(outputPath, buffer);
-        const assetUrl = `${quakeRenderBundlePublicPath}/${name}/${filename}`;
-        meshHtml = meshHtml.split(asset.placeholder).join(assetUrl);
-        meshCss = meshCss.split(asset.placeholder).join(assetUrl);
-        assetUrls.push(assetUrl);
-      }
-      if (meshHtml.includes("__QUAKE_RENDER_BUNDLE_ASSET_") || meshCss.includes("__QUAKE_RENDER_BUNDLE_ASSET_")) {
-        throw new Error(`Unresolved render bundle asset placeholder for ${name}.`);
-      }
-      let styleUrl = "";
-      if (meshCss) {
-        const cssBuffer = Buffer.from(meshCss);
-        const hash = createHash("sha256").update(cssBuffer).digest("hex").slice(0, 12);
-        const filename = `mesh-${hash}.css`;
-        await writeFile(path.join(assetDir, filename), cssBuffer);
-        styleUrl = `${quakeRenderBundlePublicPath}/${name}/${filename}`;
-      }
-
-      const elapsed = Date.now() - startedAt;
+      const written = await writeRenderBundleResult({
+        name,
+        result,
+        styleClassName,
+        startedAt,
+      });
       console.log(
         `Built render bundle for ${name}: ${result.leafCount} leaves, ` +
-        `${result.assets.length} atlas assets in ${elapsed}ms`,
+        `${written.writtenAssetCount} atlas assets in ${written.elapsed}ms`,
       );
-      return {
-        version: 1,
-        kind: "polycss-mesh",
-        polycssVersion: polycssPackage.version,
-        textureLighting: "baked",
-        textureQuality: 1,
-        meshHtml,
-        ...(styleUrl ? { styleUrl, styleClassName } : {}),
-        assetUrls,
-        polygonCount: result.polygonCount,
-        leafCount: result.leafCount,
-        atlasLeafCount: result.atlasLeafCount,
-      };
+      return written.renderBundle;
+    },
+    async buildAnimatedFrameSet({ bundleName, frames, textureQuality = 1, extractLeafStyles = true }) {
+      if (!bundleName) throw new Error("Animated render bundle build requires a bundleName.");
+      if (!Array.isArray(frames) || frames.length <= 1) {
+        throw new Error(`Animated render bundle build for ${bundleName} requires multiple frames.`);
+      }
+      const frameInputs = frames.map((frame, index) => {
+        const name = frame.bundleName ?? `${bundleName}/frame-${String(index).padStart(3, "0")}`;
+        return {
+          name,
+          styleClassName: extractLeafStyles ? quakeRenderBundleStyleClassName(name) : "",
+          polygons: frame.polygons,
+        };
+      });
+      const startedAt = Date.now();
+      const result = await page.evaluate(
+        async (input) => window.__buildQuakeAnimatedRenderBundle(input),
+        { frames: frameInputs, textureQuality, extractLeafStyles },
+      );
+      const sharedAssets = new Map();
+      const frameBundles = [];
+      let writtenAssetCount = 0;
+      let reusedAssetCount = 0;
+      for (const frameResult of result.frames) {
+        const written = await writeRenderBundleResult({
+          name: frameResult.name,
+          result: frameResult,
+          styleClassName: frameResult.styleClassName,
+          sharedAssets,
+          writeStyle: false,
+          includeLeafFrameStyles: true,
+        });
+        writtenAssetCount += written.writtenAssetCount;
+        reusedAssetCount += written.reusedAssetCount;
+        frameBundles.push(written.renderBundle);
+      }
+      const elapsed = Date.now() - startedAt;
+      const firstFrame = result.frames[0];
+      console.log(
+        `Built animated render bundle for ${bundleName}: ${result.frames.length} frames, ` +
+        `${firstFrame?.leafCount ?? 0} leaves, ${writtenAssetCount} atlas assets ` +
+        `(${reusedAssetCount} reused) in ${elapsed}ms`,
+      );
+      return frameBundles;
     },
     close: () => browser.close(),
   };
@@ -416,7 +550,18 @@ function quakeRenderBundleStyleClassName(name) {
   return `qrb-${slug}-${hash}`;
 }
 
+function replaceQuakeRenderBundleLeafFrameStylePlaceholder(leafFrameStylesByClass, placeholder, replacement) {
+  for (const [, frameStyle] of leafFrameStylesByClass) {
+    for (let index = 0; index < frameStyle.length; index++) {
+      if (typeof frameStyle[index] === "string") {
+        frameStyle[index] = frameStyle[index].split(placeholder).join(replacement);
+      }
+    }
+  }
+}
+
 function mimeExtension(mime) {
+  if (mime === "image/avif") return "avif";
   if (mime === "image/webp") return "webp";
   if (mime === "image/jpeg") return "jpg";
   return "png";
@@ -424,11 +569,25 @@ function mimeExtension(mime) {
 
 function contentTypeForPath(filePath) {
   const extension = path.extname(filePath).toLowerCase();
+  if (extension === ".avif") return "image/avif";
   if (extension === ".webp") return "image/webp";
   if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
   if (extension === ".png") return "image/png";
   if (extension === ".css") return "text/css; charset=utf-8";
+  if (extension === ".json") return "application/json; charset=utf-8";
   return "application/octet-stream";
+}
+
+function normalizedQuakeRenderBundleAvifQuality() {
+  return Number.isFinite(quakeRenderBundleAvifQuality)
+    ? Math.max(1, Math.min(100, quakeRenderBundleAvifQuality))
+    : 80;
+}
+
+function normalizedQuakeRenderBundleAvifEffort() {
+  return Number.isFinite(quakeRenderBundleAvifEffort)
+    ? Math.max(0, Math.min(9, quakeRenderBundleAvifEffort))
+    : 4;
 }
 
 function mapNameFromPakPath(mapPath) {
@@ -620,7 +779,7 @@ function stripPreparedRenderBundleFallbackTextures(prepared) {
   } else {
     delete prepared.skyTexture;
   }
-  prepared.polygons = prepared.polygons.map((polygon) => {
+  const polygons = prepared.polygons.map((polygon) => {
     const {
       texture: _texture,
       textureWrap: _textureWrap,
@@ -636,6 +795,12 @@ function stripPreparedRenderBundleFallbackTextures(prepared) {
       ...(strippedData ? { data: strippedData } : {}),
     };
   });
+  if (prepared.collision && prepared.renderBundle) {
+    delete prepared.polygons;
+    if (prepared.collision.models) delete prepared.models;
+    return;
+  }
+  prepared.polygons = polygons;
 }
 
 function stripPreparedRenderBundleFallbackData(data) {
@@ -1228,17 +1393,24 @@ function hasRenderableQuakePickupModelBundle(model) {
 async function addQuakePickupModelRenderBundles(model, renderBundleBuilder, textureQuality = 1) {
   const baseName = quakeModelBundleName(model.source);
   if (model.animationFrames?.length > 1) {
-    for (let index = 0; index < model.animationFrames.length; index++) {
-      const frame = model.animationFrames[index];
-      frame.renderBundle = await renderBundleBuilder.build({
+    const frameBundles = await renderBundleBuilder.buildAnimatedFrameSet({
+      bundleName: baseName,
+      frames: model.animationFrames.map((_frame, index) => ({
         bundleName: `${baseName}/frame-${String(index).padStart(3, "0")}`,
         polygons: quakePickupModelRenderBundlePolygons(model, index),
-        textureQuality,
-        extractLeafStyles: true,
-      });
+      })),
+      textureQuality,
+      extractLeafStyles: true,
+    });
+    for (let index = 0; index < model.animationFrames.length; index++) {
+      model.animationFrames[index].renderBundle = frameBundles[index];
     }
     const animationFrameSet = quakePickupModelAnimationFrameSet(model);
-    if (animationFrameSet) model.animationFrameSet = animationFrameSet;
+    if (!animationFrameSet) {
+      throw new Error(`Animated model ${model.source} could not be built as a stable topology frame set.`);
+    }
+    model.animationFrameSet = animationFrameSet;
+    await writeQuakeAnimationFrameStyles(baseName, model);
     return;
   }
   model.renderBundle = await renderBundleBuilder.build({
@@ -1263,42 +1435,100 @@ function quakePickupModelAnimationFrameSet(model) {
   const maxLeafCount = Math.max(...frames.map((frame) => Number(frame.renderBundle?.leafCount) || 0));
   if (maxLeafCount <= 0) return null;
   if (commonLeafClasses.size / maxLeafCount < QUAKE_ANIMATION_FRAME_SET_MIN_COMMON_LEAF_RATIO) return null;
+  const renderBundle = quakeRenderBundleWithLeafClasses(frames[0].renderBundle, commonLeafClasses);
+  const leafClasses = quakeRenderBundleLeafClassesInOrder(renderBundle);
+  attachQuakeRenderBundleDirectFrameStyles(renderBundle, leafClasses);
+  for (const frame of frames) {
+    attachQuakeRenderBundleDirectFrameStyles(frame.renderBundle, leafClasses);
+  }
   return {
     leafCount: commonLeafClasses.size,
     droppedLeafCount: maxLeafCount - commonLeafClasses.size,
-    renderBundle: quakeRenderBundleWithLeafClasses(frames[0].renderBundle, commonLeafClasses),
+    renderBundle,
   };
 }
 
 function quakeRenderBundleLeafClasses(renderBundle) {
+  return new Set(quakeRenderBundleLeafClassesInOrder(renderBundle));
+}
+
+function quakeRenderBundleLeafClassesInOrder(renderBundle) {
   const classes = new Set();
-  if (!renderBundle?.meshHtml) return classes;
+  const ordered = [];
+  if (!renderBundle?.meshHtml) return ordered;
   for (const match of renderBundle.meshHtml.matchAll(/<([bisu])\b[^>]*\bclass="([^"]*)"[^>]*><\/\1>/g)) {
-    for (const leafClass of match[2].split(/\s+/)) {
-      if (/^q[a-z0-9]+$/i.test(leafClass)) classes.add(leafClass);
-    }
+    const leafClass = match[2].split(/\s+/).find((className) => /^q[a-z0-9]+$/i.test(className));
+    if (!leafClass || classes.has(leafClass)) continue;
+    classes.add(leafClass);
+    ordered.push(leafClass);
   }
-  return classes;
+  return ordered;
 }
 
 function quakeRenderBundleWithLeafClasses(renderBundle, leafClasses) {
   let leafCount = 0;
   let atlasLeafCount = 0;
+  const leafMetadata = [];
+  let sourceLeafIndex = 0;
   const meshHtml = renderBundle.meshHtml.replace(
     /<([bisu])\b([^>]*)><\/\1>/g,
     (html, tagName, attributes) => {
+      const sourceLeafMetadata = renderBundle.leafMetadata?.[sourceLeafIndex];
+      sourceLeafIndex++;
       if (!quakeRenderBundleLeafHasClass(attributes, leafClasses)) return "";
       leafCount++;
       if (tagName === "s") atlasLeafCount++;
+      if (sourceLeafMetadata) leafMetadata.push(sourceLeafMetadata);
       return html;
     },
   );
   return {
     ...renderBundle,
     meshHtml,
+    leafMetadata,
     leafCount,
     atlasLeafCount,
   };
+}
+
+function attachQuakeRenderBundleDirectFrameStyles(renderBundle, leafClasses) {
+  const stylesByClass = new Map(renderBundle.leafFrameStylesByClass ?? []);
+  const leafFrameStyles = leafClasses.map((leafClass) => stylesByClass.get(leafClass) ?? []);
+  if (leafFrameStyles.some((frameStyle) => frameStyle.length > 0)) {
+    renderBundle.leafFrameStyles = leafFrameStyles;
+  }
+  delete renderBundle.leafFrameStylesByClass;
+  delete renderBundle.meshCss;
+  delete renderBundle.styleUrl;
+  delete renderBundle.styleClassName;
+}
+
+async function writeQuakeAnimationFrameStyles(bundleName, model) {
+  const frames = model.animationFrames ?? [];
+  const frameStyles = frames.map((frame) => frame.renderBundle?.leafFrameStyles ?? []);
+  if (!frameStyles.some((styles) => styles.length > 0)) return;
+  const body = JSON.stringify({
+    version: 1,
+    frames: frameStyles,
+  });
+  const hash = createHash("sha256").update(body).digest("hex").slice(0, 12);
+  const styleDir = path.join(renderBundleOutputDir, bundleName);
+  await mkdir(styleDir, { recursive: true });
+  const filename = `frame-styles-${hash}.json`;
+  await writeFile(path.join(styleDir, filename), body);
+  const styleUrl = `${quakeRenderBundlePublicPath}/${bundleName}/${filename}`;
+  for (let index = 0; index < frames.length; index++) {
+    const renderBundle = frames[index].renderBundle;
+    if (!renderBundle) continue;
+    renderBundle.leafFrameStylesUrl = styleUrl;
+    renderBundle.leafFrameStylesIndex = index;
+    delete renderBundle.leafFrameStyles;
+  }
+  if (model.animationFrameSet?.renderBundle) {
+    model.animationFrameSet.renderBundle.leafFrameStylesUrl = styleUrl;
+    model.animationFrameSet.renderBundle.leafFrameStylesIndex = 0;
+    delete model.animationFrameSet.renderBundle.leafFrameStyles;
+  }
 }
 
 function quakeRenderBundleLeafHasClass(attributes, leafClasses) {

@@ -89,10 +89,24 @@
         left: 14px;
         z-index: 40;
         display: block;
-        width: min(260px, calc(100vw - 92px));
-        height: auto;
-        opacity: 0.8;
+        width: auto;
+        height: min(45px, calc((100vw - 92px) * 0.1605));
+        opacity: 1;
         image-rendering: pixelated;
+        pointer-events: none;
+        user-select: none;
+      }
+
+      .cssquake-version {
+        position: absolute;
+        top: calc(14px + min(16px, calc((100vw - 92px) * 0.0578)));
+        left: calc(22px + min(281px, calc((100vw - 92px) * 0.9)));
+        z-index: 40;
+        color: #ffffff;
+        font: 400 12px/1 ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
+        letter-spacing: 0;
+        opacity: 0.4;
+        text-shadow: 0 1px 0 #000000;
         pointer-events: none;
         user-select: none;
       }
@@ -173,7 +187,8 @@
     <main id="quake-app">
       <div id="quake-host" tabindex="0"></div>
       <div id="quake-viewmodel-layer" aria-hidden="true"></div>
-      <img class="cssquake-logo" src="/src/assets/cssquake-logo.png" width="1207" height="300" alt="cssQuake" />
+      <img class="cssquake-logo" src="/src/assets/cssquake-logo.png" width="1383" height="222" alt="cssQuake" />
+      <span id="cssquake-version" class="cssquake-version" aria-hidden="true"></span>
       <button id="quake-audio-toggle" type="button" aria-label="Unmute audio" aria-pressed="true" title="Unmute audio (M)" data-muted="true">
         (M)ute Audio
       </button>
@@ -307,15 +322,10 @@
         aria-label="View source on GitHub"
         href="https://github.com/LayoutitStudio/cssQuake"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="55" height="55" viewBox="0 0 250 250" aria-hidden="true">
-          <path d="M0 0l115 115h15l12 27 108 108V0z" fill="#fff" />
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="108 38 112 108" aria-hidden="true">
           <path
-            class="octo-arm"
-            d="M128 109c-15-9-9-19-9-19 3-7 2-11 2-11-1-7 3-2 3-2 4 5 2 11 2 11-3 10 5 15 9 16"
-          />
-          <path
-            class="octo-body"
-            d="M115 115s4 2 5 0l14-14c3-2 6-3 8-3-8-11-15-24 2-41 5-5 10-7 16-7 1-2 3-7 12-11 0 0 5 3 7 16 4 2 8 5 12 9s7 8 9 12c14 3 17 7 17 7-4 8-9 11-11 11 0 6-2 11-7 16-16 16-30 10-41 2 0 3-1 7-5 11l-12 11c-1 1 1 5 1 5z"
+            transform="rotate(-45 164 92)"
+            d="M128 109c-15-9-9-19-9-19 3-7 2-11 2-11-1-7 3-2 3-2 4 5 2 11 2 11-3 10 5 15 9 16M115 115s4 2 5 0l14-14c3-2 6-3 8-3-8-11-15-24 2-41 5-5 10-7 16-7 1-2 3-7 12-11 0 0 5 3 7 16 4 2 8 5 12 9s7 8 9 12c14 3 17 7 17 7-4 8-9 11-11 11 0 6-2 11-7 16-16 16-30 10-41 2 0 3-1 7-5 11l-12 11c-1 1 1 5 1 5z"
           />
         </svg>
       </a>

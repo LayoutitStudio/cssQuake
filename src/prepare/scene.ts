@@ -198,6 +198,19 @@ export interface QuakeEntityManifest {
   counters: QuakeEntityManifestTrigger[];
   secrets: QuakeEntityManifestTrigger[];
   inert: QuakeEntityManifestEntry[];
+  runtime: QuakeEntityRuntimeManifest;
+}
+
+export interface QuakeEntityRuntimeManifest {
+  targetEntities: Record<string, number[]>;
+  triggerCounterCounts: Array<[number, number]>;
+  damageableBrushEntityIndexes: number[];
+  fireballEmitterEntityIndexes: number[];
+  ambientEntityIndexes: number[];
+  pickupEntityIndexes: number[];
+  shootableEntityIndexes: number[];
+  moverEntityIndexes: number[];
+  moverSupportEntityIndexes: number[];
 }
 
 export interface QuakeVisibilityCandidate {
@@ -272,9 +285,34 @@ export interface QuakePreparedRenderBundle {
   styleUrl?: string;
   styleClassName?: string;
   assetUrls: string[];
+  assetVariants?: QuakePreparedRenderBundleAssetVariant[];
+  leafMetadata: QuakeRenderBundleLeafMetadata[];
+  leafFrameStyles?: QuakeRenderBundleLeafFrameStyle[];
+  leafFrameStylesUrl?: string;
+  leafFrameStylesIndex?: number;
   polygonCount: number;
   leafCount: number;
   atlasLeafCount: number;
+}
+
+export type QuakeRenderBundleLeafFrameStyle = [
+  matrix: string,
+  background?: string,
+  extraStyle?: string,
+];
+
+export interface QuakeRenderBundleLeafMetadata {
+  f: number;
+  m?: number;
+  e?: number;
+  t?: string;
+  l?: string;
+}
+
+export interface QuakePreparedRenderBundleAssetVariant {
+  sourceUrl: string;
+  url: string;
+  mime: string;
 }
 
 export interface QuakePreparedVisibility {
@@ -332,14 +370,42 @@ export interface QuakePreparedCollision {
   models: QuakePreparedModel[];
   brushModels: QuakePreparedBrushCollision[];
   pivot: QuakeVertex;
+  runtime: QuakePreparedRuntimeCollision;
+}
+
+export interface QuakePreparedRuntimeCollision {
+  hullMinsZ: number;
+  pointHeadNode?: number;
+  planes: QuakePreparedRuntimeCollisionPlane[];
+  brushes: QuakePreparedRuntimeCollisionBrush[];
+  solidBrushIndexes: number[];
+  triggerBrushIndexes: number[];
+}
+
+export interface QuakePreparedRuntimeCollisionPlane {
+  normal: Vec3;
+  dist: number;
+}
+
+export interface QuakePreparedRuntimeCollisionBrush {
+  headNode: number;
+  pointHeadNode?: number;
+  kind: QuakeBrushCollisionKind;
+  baseOffset: Vec3;
+  entityIndex?: number;
+  modelIndex: number;
+  classname: string;
+  target?: string;
+  targetname?: string;
 }
 
 export interface QuakePreparedScene {
   version: 2;
-  polygons: QuakeSerializedPolygon[];
-  textures: string[];
+  polygons?: QuakeSerializedPolygon[];
+  textures?: string[];
   skyTexture?: number | string;
   renderBundle?: QuakePreparedRenderBundle;
+  lightstyleRenderBundle?: QuakePreparedRenderBundle;
   textureCount: number;
   faceCount: number;
   sourceFaceCount: number;
@@ -347,7 +413,7 @@ export interface QuakePreparedScene {
   warnings: string[];
   entities: QuakeEntity[];
   entityManifest: QuakeEntityManifest;
-  models: QuakePreparedModel[];
+  models?: QuakePreparedModel[];
   spawn: {
     origin: Vec3;
     groundZ: number;
@@ -363,6 +429,7 @@ export interface QuakeScene {
   polygons: Polygon[];
   skyTextureUrl?: string;
   renderBundle?: QuakePreparedRenderBundle;
+  lightstyleRenderBundle?: QuakePreparedRenderBundle;
   textureCount: number;
   faceCount: number;
   sourceFaceCount: number;
@@ -455,6 +522,7 @@ const QUAKE_RENDER_COLLINEAR_EPS = 1e-6;
 const QUAKE_LIGHTSTYLE_OVERLAY_STRENGTH = 0.72;
 const QUAKE_LIGHTSTYLE_OVERLAY_GAMMA = 1.35;
 const QUAKE_LIGHTSTYLE_OVERLAY_MAX_OPACITY = 0.52;
+const QUAKE_LIGHTSTYLE_OVERLAY_OFFSET = 0.001;
 const QUAKE_SKY_TRANSPARENT_INDEX = 0;
 const QUAKE_PREPARED_SCENE_VERSION = 2;
 export const QUAKE_LIGHT_STYLE_PATTERNS = new Map<number, string>([
@@ -503,18 +571,23 @@ export function createQuakeSceneFromPreparedScene(prepared: QuakePreparedScene):
   if (prepared.version !== QUAKE_PREPARED_SCENE_VERSION) {
     throw new Error(`Unsupported Quake prepared scene version ${String(prepared.version)}.`);
   }
-  const polygons = prepared.polygons.map((polygon) => hydratePreparedPolygon(polygon, prepared.textures));
-  const skyTextureUrl = hydratePreparedTexture(prepared.skyTexture, prepared.textures);
+  const textures = prepared.textures ?? [];
+  const polygons = (prepared.polygons ?? []).map((polygon) => hydratePreparedPolygon(polygon, textures));
+  const skyTextureUrl = hydratePreparedTexture(prepared.skyTexture, textures);
+  const entities = cloneEntities(prepared.entities ?? []);
   return {
     polygons,
     ...(skyTextureUrl ? { skyTextureUrl } : {}),
     ...(prepared.renderBundle ? { renderBundle: clonePreparedRenderBundle(prepared.renderBundle) } : {}),
+    ...(prepared.lightstyleRenderBundle
+      ? { lightstyleRenderBundle: clonePreparedRenderBundle(prepared.lightstyleRenderBundle) }
+      : {}),
     textureCount: prepared.textureCount,
     faceCount: prepared.faceCount,
     sourceFaceCount: prepared.sourceFaceCount,
     label: prepared.label,
     warnings: [...prepared.warnings],
-    entities: cloneEntities(prepared.entities ?? []),
+    entities,
     entityManifest: cloneEntityManifest(prepared.entityManifest),
     models: clonePreparedModels(prepared.models ?? prepared.collision?.models ?? []),
     spawn: {
@@ -544,7 +617,42 @@ function clonePreparedRenderBundle(renderBundle: QuakePreparedRenderBundle): Qua
   return {
     ...renderBundle,
     assetUrls: [...renderBundle.assetUrls],
+    ...(renderBundle.assetVariants ? {
+      assetVariants: renderBundle.assetVariants.map((variant) => ({ ...variant })),
+    } : {}),
+    leafMetadata: renderBundle.leafMetadata.map((leaf) => ({ ...leaf })),
+    ...(renderBundle.leafFrameStyles ? {
+      leafFrameStyles: renderBundle.leafFrameStyles.map((frameStyle) => [...frameStyle]),
+    } : {}),
+    ...(renderBundle.leafFrameStylesUrl ? { leafFrameStylesUrl: renderBundle.leafFrameStylesUrl } : {}),
+    ...(renderBundle.leafFrameStylesIndex !== undefined ? {
+      leafFrameStylesIndex: renderBundle.leafFrameStylesIndex,
+    } : {}),
   };
+}
+
+export function buildQuakeLightstyleOverlayPolygons(polygons: Polygon[]): Polygon[] {
+  const overlays: Polygon[] = [];
+  for (const polygon of polygons) {
+    const styleId = polygon.data?.["ls-anim"];
+    const faceIndex = polygon.data?.["f"];
+    if (styleId === undefined || faceIndex === undefined) continue;
+    overlays.push({
+      vertices: offsetQuakePolygonVertices(polygon.vertices, QUAKE_LIGHTSTYLE_OVERLAY_OFFSET),
+      color: "#000000",
+      data: {
+        "f": faceIndex,
+        ...(polygon.data?.["m"] !== undefined ? { "m": polygon.data["m"] } : {}),
+        ...(polygon.data?.["e"] !== undefined ? { "e": polygon.data["e"] } : {}),
+        "ls-overlay": true,
+        "ls-anim": styleId,
+        ...(polygon.data?.["ls-pattern"] !== undefined
+          ? { "ls-pattern": polygon.data["ls-pattern"] }
+          : {}),
+      },
+    });
+  }
+  return overlays;
 }
 
 function hydratePreparedTexture(texture: number | string | undefined, textures: string[]): string | undefined {
@@ -964,17 +1072,106 @@ function buildPreparedCollision(
 ): QuakePreparedCollision | undefined {
   if (!planes.length || !clipNodes.length) return undefined;
   const worldModel = models[0];
+  const preparedHeadNodes = [...(worldModel?.headNodes ?? headNodes)] as [number, number, number, number];
+  const preparedHulls = worldModel ? cloneHulls(worldModel.hulls) : hullsForHeadNodes(headNodes);
+  const brushModels = buildPreparedBrushCollisionModels(entities, models);
   return {
     planes,
     nodes,
     leaves,
     clipNodes,
-    headNodes: [...(worldModel?.headNodes ?? headNodes)] as [number, number, number, number],
-    hulls: worldModel ? cloneHulls(worldModel.hulls) : hullsForHeadNodes(headNodes),
+    headNodes: preparedHeadNodes,
+    hulls: preparedHulls,
     models: clonePreparedModels(models),
-    brushModels: buildPreparedBrushCollisionModels(entities, models),
+    brushModels,
     pivot,
+    runtime: buildPreparedRuntimeCollision(
+      planes,
+      nodes,
+      leaves,
+      clipNodes,
+      preparedHeadNodes,
+      preparedHulls,
+      brushModels,
+      pivot,
+    ),
   };
+}
+
+function buildPreparedRuntimeCollision(
+  planes: QuakePlane[],
+  nodes: QuakeNode[],
+  leaves: QuakeLeaf[],
+  clipNodes: QuakeClipNode[],
+  headNodes: [number, number, number, number],
+  hulls: QuakeCollisionHull[],
+  brushModels: QuakePreparedBrushCollision[],
+  pivot: QuakeVertex,
+): QuakePreparedRuntimeCollision {
+  const playerHull = hulls.find((item) => item.index === 1);
+  const playerHeadNode = playerHull?.headNode ?? headNodes[1];
+  const pointHeadNode = validPreparedPointHeadNode(headNodes[0], nodes, leaves) ? headNodes[0] : undefined;
+  const brushes: QuakePreparedRuntimeCollisionBrush[] = [{
+    headNode: playerHeadNode,
+    ...(pointHeadNode !== undefined ? { pointHeadNode } : {}),
+    kind: "solid",
+    baseOffset: [0, 0, 0],
+    modelIndex: 0,
+    classname: "worldspawn",
+  }];
+  const solidBrushIndexes = [0];
+  const triggerBrushIndexes: number[] = [];
+
+  for (const brushModel of brushModels) {
+    const brushHull = brushModel.hulls.find((item) => item.index === 1);
+    const brushHeadNode = brushHull?.headNode ?? brushModel.headNodes[1];
+    if (!Number.isInteger(brushHeadNode) || brushHeadNode < 0 || brushHeadNode >= clipNodes.length) continue;
+    const brushPointHeadNode = validPreparedPointHeadNode(brushModel.headNodes[0], nodes, leaves)
+      ? brushModel.headNodes[0]
+      : undefined;
+    const index = brushes.length;
+    brushes.push({
+      headNode: brushHeadNode,
+      ...(brushPointHeadNode !== undefined ? { pointHeadNode: brushPointHeadNode } : {}),
+      kind: brushModel.kind,
+      baseOffset: quakeDeltaToPoly(brushModel.origin),
+      entityIndex: brushModel.entityIndex,
+      modelIndex: brushModel.modelIndex,
+      classname: brushModel.classname,
+      ...(brushModel.target ? { target: brushModel.target } : {}),
+      ...(brushModel.targetname ? { targetname: brushModel.targetname } : {}),
+    });
+    if (brushModel.kind === "trigger") {
+      triggerBrushIndexes.push(index);
+    } else {
+      solidBrushIndexes.push(index);
+    }
+  }
+
+  return {
+    hullMinsZ: (playerHull?.mins.z ?? -24) * QUAKE_UNIT_SCALE,
+    ...(pointHeadNode !== undefined ? { pointHeadNode } : {}),
+    planes: planes.map((plane) => ({
+      normal: [plane.normal.x, plane.normal.y, plane.normal.z],
+      dist: (
+        plane.dist -
+        plane.normal.x * pivot.x -
+        plane.normal.y * pivot.y -
+        plane.normal.z * pivot.z
+      ) * QUAKE_UNIT_SCALE,
+    })),
+    brushes,
+    solidBrushIndexes,
+    triggerBrushIndexes,
+  };
+}
+
+function validPreparedPointHeadNode(
+  headNode: number | undefined,
+  nodes: QuakeNode[],
+  leaves: QuakeLeaf[],
+): headNode is number {
+  return Number.isInteger(headNode) && headNode >= 0 && nodes.length > 0 && leaves.length > 0 && headNode < nodes.length;
 }
 
 function buildPreparedBrushCollisionModels(
@@ -1769,6 +1966,30 @@ function quakeVecLength3(value: Vec3): number {
   return Math.hypot(value[0], value[1], value[2]);
 }
 
+function offsetQuakePolygonVertices(vertices: Vec3[], amount: number): Vec3[] {
+  const normal = quakePolygonNormal(vertices);
+  return vertices.map((vertex) => [
+    vertex[0] + normal[0] * amount,
+    vertex[1] + normal[1] * amount,
+    vertex[2] + normal[2] * amount,
+  ] as Vec3);
+}
+
+function quakePolygonNormal(vertices: Vec3[]): Vec3 {
+  for (let i = 0; i < vertices.length - 2; i++) {
+    const a = vertices[i];
+    const b = vertices[i + 1];
+    const c = vertices[i + 2];
+    if (!a || !b || !c) continue;
+    const normal = quakeVecCross3(quakeVecSub3(b, a), quakeVecSub3(c, a));
+    const length = quakeVecLength3(normal);
+    if (length > QUAKE_RENDER_COLLINEAR_EPS) {
+      return [normal[0] / length, normal[1] / length, normal[2] / length];
+    }
+  }
+  return [0, 0, 0];
+}
+
 function quakeRenderDedupeKey(
   polygon: Polygon,
   fallbackData: Record<string, string | number | boolean>,
@@ -1980,6 +2201,14 @@ function quakeToPoly(point: QuakeVertex, pivot: QuakeVertex): Vec3 {
     (point.x - pivot.x) * QUAKE_UNIT_SCALE,
     (point.y - pivot.y) * QUAKE_UNIT_SCALE,
     (point.z - pivot.z) * QUAKE_UNIT_SCALE,
+  ];
+}
+
+function quakeDeltaToPoly(point: QuakeVertex): Vec3 {
+  return [
+    point.x * QUAKE_UNIT_SCALE,
+    point.y * QUAKE_UNIT_SCALE,
+    point.z * QUAKE_UNIT_SCALE,
   ];
 }
 

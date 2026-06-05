@@ -8,7 +8,7 @@ const QUAKE_RENDER_SUPERSAMPLE = 1;
 const QUAKE_CAMERA_ZOOM = (BASE_TILE * 0.65) / QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_RENDER_BUNDLE_TIMEOUT_MS = 30000;
 const QUAKE_RENDER_BUNDLE_ASSET_MIME = "image/webp";
-const QUAKE_RENDER_BUNDLE_ASSET_QUALITY = 0.92;
+const QUAKE_RENDER_BUNDLE_ASSET_QUALITY = 0.9;
 
 window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
   polygons,
@@ -17,30 +17,10 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
   extractLeafStyles = false,
   styleClassName = "",
 }) {
-  const host = document.createElement("main");
-  host.style.position = "absolute";
-  host.style.left = "-100000px";
-  host.style.top = "0";
-  host.style.width = "1280px";
-  host.style.height = "720px";
-  document.body.appendChild(host);
+  const host = createQuakeRenderHost();
 
   try {
-    const camera = createPolyPerspectiveCamera({
-      perspective: 900,
-      zoom: QUAKE_CAMERA_ZOOM,
-      rotX: 88,
-      rotY: 270,
-      target: [0, 0, 1.72],
-    });
-    const scene = createPolyScene(host, {
-      camera,
-      ambientLight: { color: "#ffffff", intensity: Math.PI },
-      directionalLight: { direction: [-0.4, -0.55, -0.65], color: "#ffffff", intensity: 0 },
-      textureLighting: "baked",
-      textureQuality,
-      autoCenter: false,
-    });
+    const scene = createQuakeRenderScene(host, textureQuality);
     const handle = scene.add(
       { polygons, objectUrls: [], warnings: [], dispose: () => undefined },
       {
@@ -51,7 +31,7 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
     );
 
     await waitForBakedTextureLeaves(handle.element);
-    const { meshHtml, meshCss, assets } = await serializeMeshWithAssets(handle.element, {
+    const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await serializeMeshWithAssets(handle.element, {
       extractLeafStyles,
       styleClassName,
     });
@@ -59,6 +39,8 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
       meshHtml,
       meshCss,
       assets,
+      leafMetadata,
+      leafFrameStyles,
       leafCount: handle.element.querySelectorAll("b,i,s,u").length,
       atlasLeafCount: handle.element.querySelectorAll("s").length,
       polygonCount: polygons.length,
@@ -67,6 +49,104 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
     host.remove();
   }
 };
+
+window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRenderBundle({
+  frames,
+  textureQuality = 1,
+  extractLeafStyles = true,
+}) {
+  if (!Array.isArray(frames) || !frames.length) {
+    throw new Error("Animated render bundle build requires at least one frame.");
+  }
+  const firstFrame = frames[0];
+  if (!firstFrame?.polygons?.length) {
+    throw new Error("Animated render bundle first frame has no polygons.");
+  }
+  const host = createQuakeRenderHost();
+
+  try {
+    const scene = createQuakeRenderScene(host, textureQuality);
+    const handle = scene.add(
+      { polygons: firstFrame.polygons, objectUrls: [], warnings: [], dispose: () => undefined },
+      {
+        merge: false,
+        meshResolution: "lossless",
+        stableDom: true,
+        excludeFromAutoCenter: true,
+      },
+    );
+    const outFrames = [];
+    for (let index = 0; index < frames.length; index++) {
+      const frame = frames[index];
+      if (!frame?.polygons?.length) {
+        throw new Error(`Animated render bundle frame ${index} has no polygons.`);
+      }
+      if (index > 0) {
+        handle.setPolygons(frame.polygons, {
+          merge: false,
+          stableDom: true,
+          recomputeAutoCenter: false,
+        });
+        await waitForRenderBundleFrameUpdate();
+      }
+      await waitForBakedTextureLeaves(handle.element);
+      const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await serializeMeshWithAssets(handle.element, {
+        extractLeafStyles,
+        styleClassName: frame.styleClassName,
+      });
+      outFrames.push({
+        name: frame.name ?? `frame-${index}`,
+        styleClassName: frame.styleClassName,
+        meshHtml,
+        meshCss,
+        assets,
+        leafMetadata,
+        leafFrameStyles,
+        leafCount: handle.element.querySelectorAll("b,i,s,u").length,
+        atlasLeafCount: handle.element.querySelectorAll("s").length,
+        polygonCount: frame.polygons.length,
+      });
+    }
+    return { frames: outFrames };
+  } finally {
+    host.remove();
+  }
+};
+
+function createQuakeRenderHost() {
+  const host = document.createElement("main");
+  host.style.position = "absolute";
+  host.style.left = "-100000px";
+  host.style.top = "0";
+  host.style.width = "1280px";
+  host.style.height = "720px";
+  document.body.appendChild(host);
+  return host;
+}
+
+function createQuakeRenderScene(host, textureQuality) {
+  const camera = createPolyPerspectiveCamera({
+    perspective: 900,
+    zoom: QUAKE_CAMERA_ZOOM,
+    rotX: 88,
+    rotY: 270,
+    target: [0, 0, 1.72],
+  });
+  return createPolyScene(host, {
+    camera,
+    ambientLight: { color: "#ffffff", intensity: Math.PI },
+    directionalLight: { direction: [-0.4, -0.55, -0.65], color: "#ffffff", intensity: 0 },
+    textureLighting: "baked",
+    textureQuality,
+    autoCenter: false,
+  });
+}
+
+function waitForRenderBundleFrameUpdate() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
+}
 
 async function waitForBakedTextureLeaves(mesh) {
   const startedAt = performance.now();
@@ -86,6 +166,7 @@ async function waitForBakedTextureLeaves(mesh) {
 
 async function serializeMeshWithAssets(mesh, options = {}) {
   const serializableMesh = mesh.cloneNode(true);
+  const leafMetadata = extractRenderBundleLeafMetadata(serializableMesh);
   stripRenderBundleMeshMetadata(serializableMesh, {
     preserveLeafPolyIndex: Boolean(options.extractLeafStyles),
   });
@@ -108,9 +189,9 @@ async function serializeMeshWithAssets(mesh, options = {}) {
     element.setAttribute("style", nextStyle);
   }
   hoistRenderBundleBackgroundImages(serializableMesh);
-  const meshCss = options.extractLeafStyles
+  const { meshCss, leafFrameStyles } = options.extractLeafStyles
     ? extractRenderBundleLeafStyles(serializableMesh, options.styleClassName)
-    : "";
+    : { meshCss: "", leafFrameStyles: [] };
 
   const assets = [];
   for (const asset of assetByBlobUrl.values()) {
@@ -132,7 +213,31 @@ async function serializeMeshWithAssets(mesh, options = {}) {
     meshHtml: serializableMesh.outerHTML,
     meshCss,
     assets,
+    leafMetadata,
+    leafFrameStyles,
   };
+}
+
+function extractRenderBundleLeafMetadata(mesh) {
+  return [...mesh.querySelectorAll("b,i,s,u")].map((leaf) => {
+    const faceIndex = renderBundleIntegerAttr(leaf, "data-f");
+    const modelIndex = renderBundleIntegerAttr(leaf, "data-m");
+    const entityIndex = renderBundleIntegerAttr(leaf, "data-e");
+    const textureName = leaf.getAttribute("data-tex");
+    const lightstyle = leaf.getAttribute("data-ls");
+    return {
+      f: faceIndex ?? -1,
+      ...(modelIndex !== undefined ? { m: modelIndex } : {}),
+      ...(entityIndex !== undefined ? { e: entityIndex } : {}),
+      ...(textureName ? { t: textureName } : {}),
+      ...(lightstyle ? { l: lightstyle } : {}),
+    };
+  });
+}
+
+function renderBundleIntegerAttr(element, name) {
+  const value = Number(element.getAttribute(name));
+  return Number.isInteger(value) ? value : undefined;
 }
 
 function extractRenderBundleLeafStyles(mesh, styleClassName) {
@@ -141,6 +246,7 @@ function extractRenderBundleLeafStyles(mesh, styleClassName) {
   }
   mesh.classList.add(styleClassName);
   const rules = [];
+  const leafFrameStyles = [];
   const usedLeafClasses = new Set();
   let fallbackLeafIndex = 0;
   for (const leaf of mesh.querySelectorAll("b,i,s,u")) {
@@ -158,11 +264,30 @@ function extractRenderBundleLeafStyles(mesh, styleClassName) {
     leaf.removeAttribute("style");
     leaf.removeAttribute("data-poly-index");
     rules.push(`.${styleClassName} .${leafClass}{${style}}`);
+    leafFrameStyles.push([leafClass, compactRenderBundleLeafFrameStyle(style)]);
   }
   for (const leaf of mesh.querySelectorAll("[data-poly-index]")) {
     leaf.removeAttribute("data-poly-index");
   }
-  return rules.join("");
+  return { meshCss: rules.join(""), leafFrameStyles };
+}
+
+function compactRenderBundleLeafFrameStyle(style) {
+  const declarations = renderBundleStyleDeclarations(style);
+  const transform = declarations.find((part) => part.name === "transform");
+  const background = declarations.find((part) => part.name === "background");
+  const extras = declarations
+    .filter((part) => part.name !== "transform" && part.name !== "background")
+    .map((part) => `${part.name}:${part.value}`)
+    .join(";");
+  const matrix = transform?.value?.match(/^matrix3d\((.*)\)$/)?.[1] ?? transform?.value ?? "";
+  const backgroundValue = background?.value?.replace(/^var\(--bg0\)\s*/, "") ?? "";
+  if (!matrix && !backgroundValue) return ["", "", style];
+  return [
+    matrix,
+    ...(backgroundValue ? [backgroundValue] : []),
+    ...(extras ? [extras] : []),
+  ];
 }
 
 function renderBundleLeafClass(leaf, usedLeafClasses) {
@@ -240,17 +365,7 @@ function setRenderBundleBackgroundVars(mesh, varByImage, usedVarNames) {
 }
 
 function compactRenderBundleBackgroundStyle(style) {
-  const declarations = style
-    .split(";")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part, index) => {
-      const separator = part.indexOf(":");
-      return separator > 0
-        ? { index, name: part.slice(0, separator).trim(), value: part.slice(separator + 1).trim() }
-        : null;
-    })
-    .filter((part) => part && part.value);
+  const declarations = renderBundleStyleDeclarations(style);
   const image = declarations.find((part) => part.name === "background-image");
   const position = declarations.find((part) => part.name === "background-position");
   const size = declarations.find((part) => part.name === "background-size");
@@ -271,6 +386,20 @@ function compactRenderBundleBackgroundStyle(style) {
     .join(";");
 }
 
+function renderBundleStyleDeclarations(style) {
+  return style
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part, index) => {
+      const separator = part.indexOf(":");
+      return separator > 0
+        ? { index, name: part.slice(0, separator).trim(), value: part.slice(separator + 1).trim() }
+        : null;
+    })
+    .filter((part) => part && part.value);
+}
+
 function stripRenderBundleMeshMetadata(mesh, options = {}) {
   mesh.removeAttribute("data-poly-mesh-id");
   mesh.removeAttribute("data-poly-mesh-index");
@@ -278,6 +407,14 @@ function stripRenderBundleMeshMetadata(mesh, options = {}) {
     for (const leaf of mesh.querySelectorAll("[data-poly-index]")) {
       leaf.removeAttribute("data-poly-index");
     }
+  }
+  for (const leaf of mesh.querySelectorAll("b,i,s,u")) {
+    leaf.removeAttribute("data-f");
+    leaf.removeAttribute("data-m");
+    leaf.removeAttribute("data-e");
+    leaf.removeAttribute("data-lit");
+    leaf.removeAttribute("data-ls");
+    leaf.removeAttribute("data-tex");
   }
   for (const element of mesh.querySelectorAll("[style]")) {
     const style = element.getAttribute("style") ?? "";

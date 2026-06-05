@@ -1,4 +1,4 @@
-import type { QuakeEntity } from "../prepare/scene";
+import type { QuakeEntity, QuakeEntityRuntimeManifest } from "../prepare/scene";
 import { quakeEntityNumber } from "./entities";
 
 export interface QuakeTargetsControllerOptions {
@@ -7,7 +7,7 @@ export interface QuakeTargetsControllerOptions {
 
 export interface QuakeTargetsController {
   clear: () => void;
-  setup: (entities: QuakeEntity[]) => void;
+  setup: (runtime: QuakeEntityRuntimeManifest) => void;
   entityIndexesFor: (targetname: string) => number[];
   fire: (targetname: string, sourceEntityIndex?: number) => void;
   useTargets: (entity: QuakeEntity) => boolean;
@@ -35,24 +35,12 @@ export function createQuakeTargetsController(options: QuakeTargetsControllerOpti
     disabledEntities = new Set();
   };
 
-  const setup = (entities: QuakeEntity[]): void => {
+  const setup = (runtime: QuakeEntityRuntimeManifest): void => {
     clear();
-
-    for (const entity of entities) {
-      const targetname = entity.properties.targetname;
-      if (!targetname) continue;
-      const bucket = targetEntities.get(targetname);
-      if (bucket) {
-        bucket.push(entity.index);
-      } else {
-        targetEntities.set(targetname, [entity.index]);
-      }
-    }
-
-    for (const entity of entities) {
-      if (entity.classname !== "trigger_counter") continue;
-      triggerCounterCounts.set(entity.index, Math.max(1, Math.round(quakeEntityNumber(entity, "count", 2))));
-    }
+    targetEntities = new Map(
+      Object.entries(runtime.targetEntities).map(([targetname, indexes]) => [targetname, [...indexes]]),
+    );
+    triggerCounterCounts = new Map(runtime.triggerCounterCounts);
   };
 
   const entityIndexesFor = (targetname: string): number[] => (

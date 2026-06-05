@@ -1,6 +1,4 @@
 import {
-  type ParseResult,
-  type Polygon,
   type PolyMeshHandle,
   type Vec3,
 } from "@layoutit/polycss";
@@ -16,13 +14,11 @@ import {
   recordQuakeWorldVisibilitySync,
   type QuakeWorldVisibilityChurnStats,
 } from "./debug/churnStats";
-import { polygonNormal } from "./math";
 import { mountQuakeRenderBundleMesh, stripPolyMeshMetadata } from "./renderBundleMesh";
 
 const QUAKE_LEAF_PRESENTATION_RESYNC_DELAYS = [0, 80, 300] as const;
 const QUAKE_LIGHTSTYLE_FPS = 6;
 const QUAKE_LIGHTSTYLE_STARTED_AT = performance.now();
-const QUAKE_LIGHTSTYLE_OVERLAY_OFFSET = 0.001;
 const QUAKE_TEXTURE_ANIMATION_FPS = 5;
 const QUAKE_TEXTURE_ANIMATION_STARTED_AT = performance.now();
 const quakeTextureAnimationPresentationObservers = new WeakMap<HTMLElement, MutationObserver>();
@@ -48,23 +44,9 @@ export interface QuakeFaceLeaf {
   baseBackgroundSize: string;
 }
 
-interface QuakeWorldScene {
-  add: (
-    result: ParseResult,
-    options: {
-      id?: string;
-      merge: boolean;
-      meshResolution: "lossless";
-      excludeFromAutoCenter: boolean;
-    },
-  ) => PolyMeshHandle;
-}
-
 export interface QuakeWorldControllerOptions {
   applyMoverLeafTransform: (leaf: QuakeFaceLeaf) => void;
   getOrigin: () => [number, number, number];
-  makeParseResult: (polygons: Polygon[]) => ParseResult;
-  scene: QuakeWorldScene;
   sceneElement: HTMLElement;
   syncButtonLeafVisual: (leaf: QuakeFaceLeaf) => void;
   syncPickupsVisibility: (origin: [number, number, number]) => void;
@@ -81,7 +63,6 @@ export interface QuakeWorldController {
   schedulePresentationResync: (handle?: PolyMeshHandle | null) => Promise<void>;
   syncVisibility: (force?: boolean) => void;
   visibleLeavesAt: (origin: [number, number, number]) => Set<number> | null;
-  waitForPresentationResyncs: () => Promise<void>;
 }
 
 export interface QuakeWorldDebugBucket {
@@ -150,7 +131,9 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     currentVisibility = result.visibility ?? null;
     if (!result.renderBundle) throw new Error(`Prepared Quake scene ${result.label} is missing its render bundle.`);
     currentHandle = addQuakeRenderBundleMesh(result.renderBundle);
-    currentLightstyleOverlayHandle = addQuakeLightstyleOverlayMesh(result.polygons);
+    currentLightstyleOverlayHandle = result.lightstyleRenderBundle
+      ? addQuakeLightstyleRenderBundleMesh(result.lightstyleRenderBundle)
+      : null;
   };
 
   const pixelate = (handle = currentHandle): void => {
@@ -200,10 +183,6 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     task.timers = [];
     presentationResyncTasks.delete(task);
     task.resolve();
-  };
-
-  const waitForPresentationResyncs = async (): Promise<void> => {
-    await Promise.all([...presentationResyncTasks].map((task) => task.promise ?? Promise.resolve()));
   };
 
   const syncVisibility = (force = false): void => {
@@ -327,27 +306,22 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     const handle = mountQuakeRenderBundleMesh(options.sceneElement, renderBundle);
     const element = handle.element;
     stripQuakeWorldMeshMetadata(element);
-    faceLeaves = indexQuakeFaceLeaves(handle, new Map(), true, "world");
+    faceLeaves = indexQuakeFaceLeaves(handle, renderBundle, new Map(), true, "world");
     preloadQuakeButtonStateTextures();
     return handle;
   };
 
-  const addQuakeLightstyleOverlayMesh = (polygons: Polygon[]): PolyMeshHandle | null => {
-    const overlayPolygons = quakeLightstyleOverlayPolygons(polygons);
-    if (overlayPolygons.length === 0) return null;
-    const handle = options.scene.add(options.makeParseResult(overlayPolygons), {
-      merge: false,
-      meshResolution: "lossless",
-      excludeFromAutoCenter: true,
-    });
+  const addQuakeLightstyleRenderBundleMesh = (renderBundle: QuakePreparedRenderBundle): PolyMeshHandle => {
+    const handle = mountQuakeRenderBundleMesh(options.sceneElement, renderBundle);
     stripQuakeWorldMeshMetadata(handle.element);
-    indexQuakeFaceLeaves(handle, faceLeaves, false, "lightstyle");
+    indexQuakeFaceLeaves(handle, renderBundle, faceLeaves, false, "lightstyle");
     syncQuakeLightstyleOverlayAnimations(handle);
     return handle;
   };
 
   const indexQuakeFaceLeaves = (
     handle: PolyMeshHandle,
+    renderBundle: QuakePreparedRenderBundle,
     leaves = new Map<number, QuakeFaceLeaf[]>(),
     reset = true,
     meshKind: QuakeFaceLeaf["meshKind"] = "world",
@@ -356,14 +330,25 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       quakeLeaves = [];
       modelLeaves = new Map();
     }
-    for (const leaf of handle.element.querySelectorAll<HTMLElement>("b,i,s,u")) {
-      const faceIndex = Number(leaf.dataset.f);
+    const elements = [...handle.element.querySelectorAll<HTMLElement>("b,i,s,u")];
+    if (elements.length !== renderBundle.leafMetadata.length) {
+      throw new Error(
+        `Quake render bundle metadata mismatch: expected ${elements.length} leaves, got ${renderBundle.leafMetadata.length}.`,
+      );
+    }
+    for (let index = 0; index < elements.length; index++) {
+      const leaf = elements[index];
+      const metadata = renderBundle.leafMetadata[index];
+      if (!leaf || !metadata) continue;
+      const faceIndex = metadata.f;
       if (!Number.isInteger(faceIndex)) continue;
-      const modelIndex = Number(leaf.dataset.m);
-      const entityIndex = Number(leaf.dataset.e);
-      const textureName = leaf.dataset.tex;
-      const lightstyleValue = Number(leaf.dataset.ls);
+      const modelIndex = metadata.m;
+      const entityIndex = metadata.e;
+      const textureName = metadata.t;
+      const lightstyleValue = Number(metadata.l);
       const tagName = leaf.tagName.toLowerCase();
+      const specialTexture = textureName?.startsWith("*") === true;
+      if (specialTexture) quakeBackfaceVisibleLeaves.add(leaf);
       applyQuakeLeafPresentation(leaf);
       stripQuakeWorldLeafMetadata(leaf);
       const anchor = leaf.ownerDocument.createComment(`quake-face:${faceIndex}`);
@@ -375,7 +360,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
         meshKind,
         tagName,
         ...(textureName ? { textureName } : {}),
-        specialTexture: textureName?.startsWith("*") === true,
+        specialTexture,
         textureAnimated: leaf.dataset.sprite !== undefined,
         lightstyleAnimated: Number.isInteger(lightstyleValue),
         element: leaf,
@@ -437,7 +422,6 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     schedulePresentationResync,
     syncVisibility,
     visibleLeavesAt: (origin: [number, number, number]) => currentVisibility?.visibleLeavesAt(origin) ?? null,
-    waitForPresentationResyncs,
   };
 }
 
@@ -737,39 +721,6 @@ function syncQuakeLightstyleLeafAnimationClock(leaf: HTMLElement, now = performa
   if (duration <= 0) return;
   const elapsed = (now - QUAKE_LIGHTSTYLE_STARTED_AT) / 1000;
   leaf.style.animationDelay = `${(-(elapsed % duration)).toFixed(4)}s`;
-}
-
-function quakeLightstyleOverlayPolygons(polygons: Polygon[]): Polygon[] {
-  const overlays: Polygon[] = [];
-  for (const polygon of polygons) {
-    const styleId = polygon.data?.["ls-anim"];
-    const faceIndex = polygon.data?.["f"];
-    if (styleId === undefined || faceIndex === undefined) continue;
-    overlays.push({
-      vertices: offsetPolygonVertices(polygon.vertices, QUAKE_LIGHTSTYLE_OVERLAY_OFFSET),
-      color: "#000000",
-      data: {
-        "f": faceIndex,
-        ...(polygon.data?.["m"] !== undefined ? { "m": polygon.data["m"] } : {}),
-        ...(polygon.data?.["e"] !== undefined ? { "e": polygon.data["e"] } : {}),
-        "ls-overlay": true,
-        "ls-anim": styleId,
-        ...(polygon.data?.["ls-pattern"] !== undefined
-          ? { "ls-pattern": polygon.data["ls-pattern"] }
-          : {}),
-      },
-    });
-  }
-  return overlays;
-}
-
-function offsetPolygonVertices(vertices: Vec3[], amount: number): Vec3[] {
-  const normal = polygonNormal(vertices);
-  return vertices.map((vertex) => [
-    vertex[0] + normal[0] * amount,
-    vertex[1] + normal[1] * amount,
-    vertex[2] + normal[2] * amount,
-  ] as Vec3);
 }
 
 function quakeLightstyleBaseRules(): string[] {

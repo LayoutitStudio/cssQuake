@@ -8,6 +8,7 @@ import type {
   QuakeEntityManifestMover,
   QuakeEntityManifestPoint,
   QuakeEntityManifestTrigger,
+  QuakeEntityRuntimeManifest,
   QuakeEntityRuntimeStatus,
   QuakeVertex,
 } from "./scene";
@@ -46,6 +47,17 @@ export function buildEntityManifest(entities: QuakeEntity[]): QuakeEntityManifes
     counters: [],
     secrets: [],
     inert: [],
+    runtime: {
+      targetEntities: Object.fromEntries([...targetnameIndex].map(([key, indexes]) => [key, [...indexes]])),
+      triggerCounterCounts: [],
+      damageableBrushEntityIndexes: [],
+      fireballEmitterEntityIndexes: [],
+      ambientEntityIndexes: [],
+      pickupEntityIndexes: [],
+      shootableEntityIndexes: [],
+      moverEntityIndexes: [],
+      moverSupportEntityIndexes: [],
+    },
   };
 
   for (const entity of entities) {
@@ -74,6 +86,7 @@ export function buildEntityManifest(entities: QuakeEntity[]): QuakeEntityManifes
     if (runtimeStatus === "metadata-only") manifest.totals.metadataOnly += 1;
     if (runtimeStatus === "ignored") manifest.totals.ignored += 1;
     if (runtimeStatus !== "active") manifest.inert.push(entry);
+    addQuakeRuntimeEntityManifestEntry(manifest.runtime, entity, category);
 
     const point = quakeManifestPoint(entity, spawnflags);
     if (category === "player-start" && point) manifest.starts.push(point);
@@ -156,6 +169,47 @@ export function cloneEntityManifest(manifest: QuakeEntityManifest): QuakeEntityM
     counters: manifest.counters.map(cloneEntityManifestTrigger),
     secrets: manifest.secrets.map(cloneEntityManifestTrigger),
     inert: manifest.inert.map(cloneEntityManifestEntry),
+    runtime: cloneEntityRuntimeManifest(manifest.runtime),
+  };
+}
+
+function addQuakeRuntimeEntityManifestEntry(
+  runtime: QuakeEntityRuntimeManifest,
+  entity: QuakeEntity,
+  category: QuakeEntityManifestCategory,
+): void {
+  if (category === "pickup") runtime.pickupEntityIndexes.push(entity.index);
+  if (category === "monster" || isQuakeShootableDecorClassname(entity.classname)) {
+    runtime.shootableEntityIndexes.push(entity.index);
+  }
+  if (category === "mover") runtime.moverEntityIndexes.push(entity.index);
+  if (category === "path") runtime.moverSupportEntityIndexes.push(entity.index);
+  if (entity.classname.startsWith("ambient_")) runtime.ambientEntityIndexes.push(entity.index);
+  if (entity.classname === "misc_fireball") runtime.fireballEmitterEntityIndexes.push(entity.index);
+  if (entity.classname === "trigger_counter") {
+    runtime.triggerCounterCounts.push([
+      entity.index,
+      Math.max(1, Math.round(quakeManifestNumber(entity, "count") ?? 2)),
+    ]);
+  }
+  if (isQuakeDamageableBrushClassname(entity.classname) && (quakeManifestNumber(entity, "health") ?? 0) > 0) {
+    runtime.damageableBrushEntityIndexes.push(entity.index);
+  }
+}
+
+function cloneEntityRuntimeManifest(runtime: QuakeEntityRuntimeManifest): QuakeEntityRuntimeManifest {
+  return {
+    targetEntities: Object.fromEntries(
+      Object.entries(runtime.targetEntities).map(([key, indexes]) => [key, [...indexes]]),
+    ),
+    triggerCounterCounts: runtime.triggerCounterCounts.map(([entityIndex, count]) => [entityIndex, count] as [number, number]),
+    damageableBrushEntityIndexes: [...runtime.damageableBrushEntityIndexes],
+    fireballEmitterEntityIndexes: [...runtime.fireballEmitterEntityIndexes],
+    ambientEntityIndexes: [...runtime.ambientEntityIndexes],
+    pickupEntityIndexes: [...runtime.pickupEntityIndexes],
+    shootableEntityIndexes: [...runtime.shootableEntityIndexes],
+    moverEntityIndexes: [...runtime.moverEntityIndexes],
+    moverSupportEntityIndexes: [...runtime.moverSupportEntityIndexes],
   };
 }
 
@@ -237,6 +291,15 @@ function isQuakeActiveTriggerClassname(classname: string): boolean {
 function isQuakeShootableDecorClassname(classname: string): boolean {
   return classname === "misc_explobox" ||
     classname === "misc_explobox2";
+}
+
+function isQuakeDamageableBrushClassname(classname: string): boolean {
+  return classname === "func_button" ||
+    classname === "func_door" ||
+    classname === "func_door_secret" ||
+    classname === "trigger_multiple" ||
+    classname === "trigger_once" ||
+    classname === "trigger_secret";
 }
 
 function quakeManifestPoint(entity: QuakeEntity, spawnflags: number): QuakeEntityManifestPoint | null {

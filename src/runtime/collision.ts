@@ -10,7 +10,7 @@ import {
   QUAKE_PLAYER_VIEW_Z,
   STEP_HEIGHT,
 } from "./constants";
-import { addVec3, dotVec3, lerpVec3, quakeDeltaToPoly, subtractVec3 } from "./math";
+import { addVec3, dotVec3, lerpVec3, subtractVec3 } from "./math";
 
 interface WalkSurface {
   vertices: Vec3[];
@@ -117,7 +117,6 @@ export interface QuakeTouchedTrigger {
 
 const WALKABLE_NORMAL_Z = 0.52;
 const WALL_NORMAL_Z = 0.45;
-const QUAKE_PLAYER_HULL = 1;
 const QUAKE_CONTENTS_SOLID = -2;
 const QUAKE_TRACE_EPSILON = 0.03125 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_TRACE_RANGE = 8192 * QUAKE_COLLISION_UNIT_SCALE;
@@ -127,52 +126,24 @@ const COLLISION_MAX_STEP = 8 * QUAKE_COLLISION_UNIT_SCALE;
 const COLLISION_FLOOR_EDGE_SNAP = 1 * QUAKE_COLLISION_UNIT_SCALE;
 
 export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision): QuakeCollisionWorld | null {
-  const hull = (collision.hulls ?? []).find((item) => item.index === QUAKE_PLAYER_HULL);
-  const headNode = hull?.headNode ?? collision.headNodes[QUAKE_PLAYER_HULL];
-  if (!Number.isInteger(headNode) || headNode < 0 || headNode >= collision.clipNodes.length) return null;
-
-  const hullMinsZ = (hull?.mins.z ?? -24) * QUAKE_COLLISION_UNIT_SCALE;
-  const brushes: QuakeClipBrush[] = [{
-    headNode,
-    ...(isValidPointHeadNode(collision.headNodes[0]) ? { pointHeadNode: collision.headNodes[0] } : {}),
-    kind: "solid",
-    baseOffset: [0, 0, 0],
-    offset: [0, 0, 0],
-    modelIndex: 0,
-    classname: "worldspawn",
-  }];
-  const planes = collision.planes.map((plane): QuakeClipPlane => ({
-    normal: [plane.normal.x, plane.normal.y, plane.normal.z],
-    dist: (
-      plane.dist -
-      plane.normal.x * collision.pivot.x -
-      plane.normal.y * collision.pivot.y -
-      plane.normal.z * collision.pivot.z
-    ) * QUAKE_COLLISION_UNIT_SCALE,
+  const runtime = collision.runtime;
+  if (!runtime.brushes.length || !runtime.planes.length) return null;
+  const hullMinsZ = runtime.hullMinsZ;
+  const planes = runtime.planes.map((plane): QuakeClipPlane => ({
+    normal: [...plane.normal] as Vec3,
+    dist: plane.dist,
   }));
-
-  for (const brushModel of collision.brushModels ?? []) {
-    const brushHull = brushModel.hulls.find((item) => item.index === QUAKE_PLAYER_HULL);
-    const brushHeadNode = brushHull?.headNode ?? brushModel.headNodes[QUAKE_PLAYER_HULL];
-    if (!Number.isInteger(brushHeadNode) || brushHeadNode < 0 || brushHeadNode >= collision.clipNodes.length) continue;
-    const pointHeadNode = brushModel.hulls.find((item) => item.index === 0)?.headNode ?? brushModel.headNodes[0];
-    const baseOffset = quakeDeltaToPoly(brushModel.origin);
-    brushes.push({
-      headNode: brushHeadNode,
-      ...(isValidPointHeadNode(pointHeadNode) ? { pointHeadNode } : {}),
-      kind: brushModel.kind,
-      baseOffset,
-      offset: [...baseOffset] as Vec3,
-      entityIndex: brushModel.entityIndex,
-      modelIndex: brushModel.modelIndex,
-      classname: brushModel.classname,
-      ...(brushModel.target ? { target: brushModel.target } : {}),
-      ...(brushModel.targetname ? { targetname: brushModel.targetname } : {}),
-    });
-  }
-
-  const solidBrushes = brushes.filter((brush) => brush.kind === "solid");
-  const triggerBrushes = brushes.filter((brush) => brush.kind === "trigger");
+  const brushes: QuakeClipBrush[] = runtime.brushes.map((brush) => ({
+    ...brush,
+    baseOffset: [...brush.baseOffset] as Vec3,
+    offset: [...brush.baseOffset] as Vec3,
+  }));
+  const solidBrushes = runtime.solidBrushIndexes
+    .map((index) => brushes[index])
+    .filter((brush): brush is QuakeClipBrush => Boolean(brush));
+  const triggerBrushes = runtime.triggerBrushIndexes
+    .map((index) => brushes[index])
+    .filter((brush): brush is QuakeClipBrush => Boolean(brush));
   let currentTouches = new Map<number, QuakeTouchedTrigger>();
 
   function isValidPointHeadNode(headNode: number | undefined): headNode is number {
@@ -446,7 +417,7 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
   }
 
   function contentsAt(point: Vec3): number | null {
-    const pointHeadNode = collision.headNodes[0];
+    const pointHeadNode = runtime.pointHeadNode;
     if (!isValidPointHeadNode(pointHeadNode)) return null;
     return nodePointContents(pointHeadNode, point);
   }
