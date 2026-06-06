@@ -5,8 +5,9 @@ import type { QuakeCollisionWorld, QuakeTouchedTrigger } from "./collision";
 import {
   COLLISION_EPSILON,
   GROUND_SNAP,
+  QUAKE_CROUCH_EYE_HEIGHT,
   QUAKE_COLLISION_UNIT_SCALE,
-  QUAKE_PLAYER_VIEW_Z,
+  QUAKE_PLAYER_MINS_Z,
   STEP_HEIGHT,
 } from "./constants";
 import type { QuakeHazardDamage } from "./hazards";
@@ -59,10 +60,12 @@ export interface QuakePlayerController {
   damage: (amount: number) => boolean;
   eyeHeight: () => number;
   inventory: () => QuakePlayerInventory;
+  isCrouching: () => boolean;
   push: (velocity: Vec3) => boolean;
   resetInventory: () => void;
   resetForSceneDispose: () => void;
   spawn: (spawn: QuakeScene["spawn"]) => void;
+  setCrouching: (crouching: boolean) => void;
   setDebugOrigin: (origin: [number, number, number]) => void;
   syncCollision: () => void;
   syncHazard: (hazard: QuakeHazardDamage | null) => boolean;
@@ -70,7 +73,9 @@ export interface QuakePlayerController {
 }
 
 export function createQuakePlayerController(options: QuakePlayerControllerOptions): QuakePlayerController {
+  let standingEyeHeight = 1.72;
   let currentEyeHeight = 1.72;
+  let currentCrouching = false;
   let currentGroundZ = 0;
   let lastValidOrigin: [number, number, number] = [0, 0, 1.72];
   let lastSafeOrigin: [number, number, number] = [0, 0, 1.72];
@@ -85,6 +90,8 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   let nextDamageAt = 0;
   let hazardTimer: number | null = null;
   let damageFlashTimer: number | null = null;
+  let damageFlashSerial = 0;
+  let damageFlashActive = false;
   let lastGroundEntityIndex: number | null = null;
 
   const resetInventory = (): void => {
@@ -99,23 +106,38 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     }
   };
 
+  const finishDamageFlash = (serial: number): void => {
+    if (serial !== damageFlashSerial) return;
+    damageFlashTimer = null;
+    if (!damageFlashActive) return;
+    damageFlashActive = false;
+    markQuakeTrace("damage-flash", { active: false });
+    options.onDamageFlash(false);
+  };
+
   const clearDamageFlash = (): void => {
+    damageFlashSerial += 1;
     if (damageFlashTimer !== null) {
       window.clearTimeout(damageFlashTimer);
       damageFlashTimer = null;
     }
+    if (!damageFlashActive) return;
+    damageFlashActive = false;
     markQuakeTrace("damage-flash", { active: false });
     options.onDamageFlash(false);
   };
 
   const flashDamage = (): void => {
+    damageFlashSerial += 1;
     if (damageFlashTimer !== null) {
       window.clearTimeout(damageFlashTimer);
       damageFlashTimer = null;
     }
+    const serial = damageFlashSerial;
+    damageFlashActive = true;
     markQuakeTrace("damage-flash", { active: true, durationMs: QUAKE_DAMAGE_FLASH_MS });
     options.onDamageFlash(true);
-    damageFlashTimer = window.setTimeout(clearDamageFlash, QUAKE_DAMAGE_FLASH_MS);
+    damageFlashTimer = window.setTimeout(() => finishDamageFlash(serial), QUAKE_DAMAGE_FLASH_MS);
   };
 
   const resetForSceneDispose = (): void => {
@@ -124,6 +146,9 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     stopFalling();
     stopPush();
     inventory = createInitialInventory();
+    standingEyeHeight = 1.72;
+    currentEyeHeight = standingEyeHeight;
+    currentCrouching = false;
     nextDamageAt = 0;
     lastGroundEntityIndex = null;
     lastValidOrigin = [0, 0, 1.72];
@@ -134,7 +159,9 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
 
   const spawn = (spawn: QuakeScene["spawn"]): void => {
     const collisionWorld = options.getCollisionWorld();
-    currentEyeHeight = spawn.eyeHeight;
+    standingEyeHeight = spawn.eyeHeight;
+    currentEyeHeight = standingEyeHeight;
+    currentCrouching = false;
     currentGroundZ = collisionWorld?.floorAt(
       spawn.origin[0],
       spawn.origin[1],
@@ -161,7 +188,11 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
 
     const collisionWorld = options.getCollisionWorld();
     const hullOrigin = options.pointToPoly(destination.origin);
-    const eyeOrigin: Vec3 = [hullOrigin[0], hullOrigin[1], hullOrigin[2] + QUAKE_PLAYER_VIEW_Z];
+    const eyeOrigin: Vec3 = [
+      hullOrigin[0],
+      hullOrigin[1],
+      hullOrigin[2] + QUAKE_PLAYER_MINS_Z + currentEyeHeight,
+    ];
     const groundZ = collisionWorld?.floorAt(
       eyeOrigin[0],
       eyeOrigin[1],
@@ -176,6 +207,41 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     stopFalling();
     stopPush();
     setOrigin(origin, origin[2] - currentEyeHeight);
+  };
+
+  const setCrouching = (crouching: boolean): void => {
+    const nextEyeHeight = crouching
+      ? Math.min(standingEyeHeight, QUAKE_CROUCH_EYE_HEIGHT)
+      : standingEyeHeight;
+    if (
+      currentCrouching === crouching &&
+      Math.abs(currentEyeHeight - nextEyeHeight) <= COLLISION_EPSILON
+    ) return;
+
+    const origin = options.controls.getOrigin();
+    const footZ = origin[2] - currentEyeHeight;
+    currentCrouching = crouching;
+    currentEyeHeight = nextEyeHeight;
+    const nextOrigin: [number, number, number] = [origin[0], origin[1], footZ + currentEyeHeight];
+    const grounded = Math.abs(footZ - currentGroundZ) <= GROUND_SNAP;
+    const jumpEnabled = fallingFrame === null && pushFrame === null;
+    setOrigin(nextOrigin, currentGroundZ, jumpEnabled, grounded);
+
+    markQuakeTrace("player-crouch", {
+      active: currentCrouching,
+      eyeHeight: currentEyeHeight,
+      x: nextOrigin[0],
+      y: nextOrigin[1],
+      z: nextOrigin[2],
+    });
+    const transitionSerial = options.transitionSerial();
+    const triggers = options.syncTouchedTriggers(nextOrigin);
+    if (options.transitionSerial() !== transitionSerial) return;
+    if (options.syncHazards(nextOrigin, triggers)) return;
+    options.syncPickups(nextOrigin, currentEyeHeight);
+    options.syncViewmodel();
+    options.syncWorldVisibility();
+    options.syncCrosshairTarget();
   };
 
   const applyDamage = (amount: number): boolean => {
@@ -363,9 +429,10 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     options.syncCrosshairTarget();
   };
 
-  const tickFalling = (now: number): void => {
+  const tickFalling = (_frameNow: number): void => {
     const collisionWorld = options.getCollisionWorld();
     if (fallingFrame === null || !collisionWorld) return;
+    const now = performance.now();
     const dt = Math.min(FALL_DT_CLAMP, fallingTime ? (now - fallingTime) / 1000 : 0.0167);
     fallingTime = now;
     fallingVelocity += options.gravity * dt;
@@ -403,13 +470,14 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     fallingFrame = window.requestAnimationFrame(tickFalling);
   };
 
-  const tickPush = (now: number): void => {
+  const tickPush = (_frameNow: number): void => {
     const collisionWorld = options.getCollisionWorld();
     if (pushFrame === null || !collisionWorld) {
       stopPush();
       return;
     }
 
+    const now = performance.now();
     const dt = Math.min(PUSH_DT_CLAMP, pushTime ? (now - pushTime) / 1000 : 0.0167);
     pushTime = now;
     pushVelocity[2] -= options.gravity * dt;
@@ -522,10 +590,12 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     damage: applyDamage,
     eyeHeight: () => currentEyeHeight,
     inventory: () => inventory,
+    isCrouching: () => currentCrouching,
     push,
     resetInventory,
     resetForSceneDispose,
     spawn,
+    setCrouching,
     setDebugOrigin,
     syncCollision,
     syncHazard,

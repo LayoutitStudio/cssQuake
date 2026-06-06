@@ -137,6 +137,7 @@ interface QuakeEnemyPendingAttack {
 interface QuakeMonsterAttackProfile {
   burstCount?: number;
   burstIntervalMs?: number;
+  chaseStopDistance?: number;
   chaseSpeed?: number;
   cooldownJitterMs?: number;
   damage: number;
@@ -210,6 +211,7 @@ const QUAKE_SHOOTABLE_MAX_MOUNTED = 5;
 const QUAKE_SHOOTABLE_MAX_PREWARMED = 3;
 const QUAKE_SHOOTABLE_PREWARM_TIMEOUT_MS = 250;
 const QUAKE_SHOOTABLE_ANIMATION_FRAME_POOL_SIZE = 3;
+const QUAKE_ENEMY_TICK_MS = 1000 / 60;
 const QUAKE_ENEMY_DT_CLAMP = 0.05;
 const QUAKE_MONSTER_ATTACK_DELAY_MS = 600;
 const QUAKE_MONSTER_PROJECTILE_LIFETIME_MS = 3200;
@@ -910,13 +912,19 @@ export function createQuakeShootablesController({
     enemyTime = 0;
   }
 
-  function tickEnemies(now: number): void {
+  function tickEnemies(_now: number): void {
     if (!monsterRuntimeEnabled() || (!hasLiveEnemies() && enemyProjectiles.length === 0)) {
       stopEnemyLoop();
       return;
     }
 
-    const dt = Math.min(QUAKE_ENEMY_DT_CLAMP, enemyTime ? (now - enemyTime) / 1000 : 0.0167);
+    const now = performance.now();
+    if (enemyTime && now - enemyTime < QUAKE_ENEMY_TICK_MS) {
+      enemyFrame = window.requestAnimationFrame(tickEnemies);
+      return;
+    }
+
+    const dt = Math.min(QUAKE_ENEMY_DT_CLAMP, enemyTime ? (now - enemyTime) / 1000 : QUAKE_ENEMY_TICK_MS / 1000);
     enemyTime = now;
     const playerOrigin = getPlayerOrigin();
     updateEnemyProjectiles(playerOrigin, dt, now);
@@ -1262,7 +1270,7 @@ export function createQuakeShootablesController({
     const dx = playerOrigin[0] - shootable.origin[0];
     const dy = playerOrigin[1] - shootable.origin[1];
     const distance = Math.hypot(dx, dy);
-    const stopDistance = Math.max(profile.range * 0.72, PLAYER_RADIUS * 1.45);
+    const stopDistance = Math.max(profile.chaseStopDistance ?? profile.range * 0.72, PLAYER_RADIUS * 1.45);
     const remainingDistance = distance - stopDistance;
     if (!Number.isFinite(distance) || remainingDistance <= QUAKE_SHOOTABLE_COLLISION_EPSILON) return false;
     const step = Math.min(chaseSpeed * dt, remainingDistance);
@@ -1714,6 +1722,8 @@ const QUAKE_MONSTER_ATTACKS: Record<string, QuakeMonsterAttackProfile> = {
   monster_army: {
     burstCount: 2,
     burstIntervalMs: 135,
+    chaseSpeed: 140 * QUAKE_COLLISION_UNIT_SCALE,
+    chaseStopDistance: 160 * QUAKE_COLLISION_UNIT_SCALE,
     cooldownJitterMs: 220,
     damage: 4,
     cooldownMs: 1250,

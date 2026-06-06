@@ -192,11 +192,15 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     if (pickup.visible === visible) return;
     pickup.visible = visible;
     if (pickup.handle) pickup.handle.element.hidden = !visible;
+    if (visible && pickup.animation) startAnimationLoop();
   };
+
+  const hasActivePickupAnimation = (): boolean =>
+    pickups.some((pickup) => Boolean(pickup.animation && !pickup.picked && pickup.visible && pickup.handle));
 
   const startAnimationLoop = (): void => {
     if (animationTimer !== null) return;
-    if (!pickups.some((pickup) => pickup.animation)) return;
+    if (!hasActivePickupAnimation()) return;
     animationTimer = window.setInterval(stepAnimations, 1000 / QUAKE_PICKUP_ALIAS_MOTION_FPS);
   };
 
@@ -248,7 +252,7 @@ export function createQuakePickupController(options: QuakePickupControllerOption
         });
       }
     }
-    if (!active && pickups.every((pickup) => pickup.picked || !pickup.animation)) {
+    if (!active) {
       stopAnimationLoop();
     }
   };

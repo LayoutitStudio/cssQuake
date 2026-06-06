@@ -98,6 +98,8 @@ const disableDamageOption = document.getElementById("quake-option-disable-damage
 const invertMouseOption = document.getElementById("quake-option-invert-mouse") as HTMLInputElement | null;
 const loadingOverlay = document.getElementById("quake-loading-overlay") as HTMLElement | null;
 const loadingStatus = document.getElementById("quake-loading-status") as HTMLElement | null;
+const loadingProgress = document.getElementById("quake-loading-progress") as HTMLElement | null;
+const loadingProgressFill = document.getElementById("quake-loading-progress-fill") as HTMLElement | null;
 const hudArmorValue = document.getElementById("quake-hud-armor-value") as HTMLElement | null;
 const hudHealthValue = document.getElementById("quake-hud-health-value") as HTMLElement | null;
 const hudHealthDamageValue = document.getElementById("quake-hud-health-damage-value") as HTMLElement | null;
@@ -115,9 +117,11 @@ const hudElements: QuakeHudElements = {
 };
 const QUAKE_HUD_DAMAGE_CUE_MS = 900;
 let quakeHudDamageTimer: number | null = null;
+let quakeHudDamageSerial = 0;
 let quakeHudDamageCueActive = false;
 const QUAKE_ASSET_ROOT = "/q";
 const QUAKE_MANIFEST_URL = `${QUAKE_ASSET_ROOT}/manifest.json`;
+const QUAKE_LOADING_PREVIEW_ENABLED = import.meta.env.DEV && new URLSearchParams(window.location.search).has("loading");
 
 function setQuakeHudDamageCue(active: boolean): void {
   if (quakeHudDamageCueActive === active) return;
@@ -127,7 +131,7 @@ function setQuakeHudDamageCue(active: boolean): void {
   setInlineStyleValue(hudHealthDamageValue, "visibility", active ? "visible" : "");
 }
 
-const cssQuakeVersionLabel = `Version ${__CSSQUAKE_VERSION__}`;
+const cssQuakeVersionLabel = `v${__CSSQUAKE_VERSION__}`;
 
 if (versionLabel) versionLabel.textContent = cssQuakeVersionLabel;
 if (mainMenuVersionLabel) mainMenuVersionLabel.textContent = cssQuakeVersionLabel;
@@ -152,6 +156,17 @@ interface QuakeAssetManifest {
     programMetadataUrl: string;
     soundManifestUrl?: string;
   };
+}
+
+interface QuakeLoadingProgressSnapshot {
+  completed: number;
+  total: number;
+  visualProgress?: number;
+}
+
+interface QuakeLoadingProgressTracker {
+  setStatus(status: string): void;
+  startTask(): () => void;
 }
 
 interface QuakePointHazard {
@@ -260,6 +275,7 @@ const QUAKE_GAMEPLAY_KEY_CODES = new Set([
   "KeyW",
   "Space",
 ]);
+const QUAKE_CROUCH_KEY_CODES = new Set(["ControlLeft", "ControlRight"]);
 const QUAKE_JUMP_VELOCITY = (270 / 48) * QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_GRAVITY = (800 / 48) * QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_CAMERA_ZOOM = (BASE_TILE * 0.65) / QUAKE_RENDER_SUPERSAMPLE;
@@ -271,6 +287,7 @@ let quakeMapUrls = quakeSceneUrlMap(quakeAssetManifest);
 let quakeEnemiesDisabled = disableEnemiesOption?.checked ?? false;
 let quakeDamageDisabled = disableDamageOption?.checked ?? false;
 let quakeInvertMouse = invertMouseOption?.checked ?? false;
+let quakeCrouchKeyCodesDown = new Set<string>();
 
 function mountQuakeLevelSelector(renderBitmapText = false): void {
   if (!levelList) return;
@@ -493,8 +510,10 @@ player = createQuakePlayerController({
     }
     const damageCueActive = quakeHudDamageTimer !== null;
     if (quakeHudDamageTimer !== null) window.clearTimeout(quakeHudDamageTimer);
+    const serial = ++quakeHudDamageSerial;
     if (!damageCueActive) setQuakeHudDamageCue(true);
     quakeHudDamageTimer = window.setTimeout(() => {
+      if (serial !== quakeHudDamageSerial) return;
       setQuakeHudDamageCue(false);
       quakeHudDamageTimer = null;
     }, QUAKE_HUD_DAMAGE_CUE_MS);
@@ -721,12 +740,67 @@ function shouldPreventQuakeGameplayKeyDefault(event: KeyboardEvent): boolean {
     !isEditableKeyboardTarget(event.target);
 }
 
+function syncQuakeCrouchInput(): void {
+  if (!player) return;
+  player.setCrouching(canUseQuakeGameplayInput() && quakeCrouchKeyCodesDown.size > 0);
+}
+
+function clearQuakeCrouchInput(): void {
+  if (quakeCrouchKeyCodesDown.size === 0 && !player?.isCrouching()) return;
+  quakeCrouchKeyCodesDown.clear();
+  player?.setCrouching(false);
+}
+
+function handleQuakeCrouchKey(event: KeyboardEvent, pressed: boolean): boolean {
+  if (!QUAKE_CROUCH_KEY_CODES.has(event.code)) return false;
+  if (pressed) {
+    if (!canUseQuakeGameplayInput() || isEditableKeyboardTarget(event.target)) return false;
+    quakeCrouchKeyCodesDown.add(event.code);
+  } else {
+    quakeCrouchKeyCodesDown.delete(event.code);
+  }
+  syncQuakeCrouchInput();
+  return true;
+}
+
+function createQuakeLoadingProgressTracker(status = "Loading"): QuakeLoadingProgressTracker {
+  let completed = 0;
+  let total = 0;
+  let currentStatus = status;
+  let visualProgress = 0;
+
+  const render = () => {
+    const actualProgress = total > 0 ? completed / total : 0;
+    visualProgress = total > 0 ? Math.max(visualProgress, actualProgress) : 0;
+    updateQuakeLoadingDisplay(currentStatus, { completed, total, visualProgress });
+  };
+
+  return {
+    setStatus(nextStatus) {
+      currentStatus = nextStatus;
+      render();
+    },
+    startTask() {
+      let done = false;
+      total++;
+      render();
+      return () => {
+        if (done) return;
+        done = true;
+        completed = Math.min(total, completed + 1);
+        render();
+      };
+    },
+  };
+}
+
 function setQuakeLoading(active: boolean, status = "Loading"): void {
   quakeAppLoading = active;
   if (active) {
+    clearQuakeCrouchInput();
     hideQuakeStatsOverlay();
     document.body.dataset.loading = "true";
-    updateQuakeLoadingStatus(status);
+    updateQuakeLoadingDisplay(status, { completed: 0, total: 0 });
     if (loadingOverlay) {
       loadingOverlay.hidden = false;
       loadingOverlay.setAttribute("aria-busy", "true");
@@ -736,10 +810,18 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
     return;
   }
 
-  delete document.body.dataset.loading;
-  if (loadingOverlay) {
-    loadingOverlay.hidden = true;
-    loadingOverlay.removeAttribute("aria-busy");
+  if (QUAKE_LOADING_PREVIEW_ENABLED) {
+    document.body.dataset.loading = "true";
+    if (loadingOverlay) {
+      loadingOverlay.hidden = false;
+      loadingOverlay.setAttribute("aria-busy", "false");
+    }
+  } else {
+    delete document.body.dataset.loading;
+    if (loadingOverlay) {
+      loadingOverlay.hidden = true;
+      loadingOverlay.removeAttribute("aria-busy");
+    }
   }
   if (!menu.isMainMenuOpen() && !menu.isMenuPanelOpen() && !isQuakeLevelTransitionActive()) {
     controls.update({ moveEnabled: true });
@@ -750,8 +832,9 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
 
 function setQuakeLoadingError(): void {
   quakeAppLoading = true;
+  clearQuakeCrouchInput();
   document.body.dataset.loading = "true";
-  updateQuakeLoadingStatus("Load failed");
+  updateQuakeLoadingDisplay("Load failed", { completed: 0, total: 0 });
   if (loadingOverlay) {
     loadingOverlay.hidden = false;
     loadingOverlay.setAttribute("aria-busy", "false");
@@ -760,10 +843,30 @@ function setQuakeLoadingError(): void {
   clearQuakeCrosshairTarget();
 }
 
-function updateQuakeLoadingStatus(status: string): void {
-  if (!loadingStatus) return;
-  loadingStatus.textContent = status;
-  mountQuakeBitmapText(loadingStatus.parentElement ?? document);
+function updateQuakeLoadingDisplay(status: string, progress: QuakeLoadingProgressSnapshot): void {
+  const total = Math.max(0, Math.trunc(progress.total));
+  const completed = Math.max(0, Math.min(total, Math.trunc(progress.completed)));
+  const actualProgress = total > 0 ? completed / total : 0;
+  const visualProgress = Math.max(0, Math.min(1, progress.visualProgress ?? actualProgress));
+  const percent = Math.round(visualProgress * 100);
+  const root = loadingStatus?.parentElement ?? document;
+  const displayStatus = status === "Load failed" ? status : "Loading";
+
+  if (loadingStatus) loadingStatus.textContent = displayStatus;
+  if (loadingProgress) {
+    loadingProgress.style.setProperty("--quake-loading-progress", String(percent / 100));
+    if (total > 0) {
+      delete loadingProgress.dataset.indeterminate;
+      loadingProgress.setAttribute("aria-valuenow", String(percent));
+      loadingProgress.setAttribute("aria-valuetext", `${completed} of ${total}`);
+    } else {
+      loadingProgress.dataset.indeterminate = "true";
+      loadingProgress.removeAttribute("aria-valuenow");
+      loadingProgress.setAttribute("aria-valuetext", "Loading");
+    }
+  }
+  if (loadingProgressFill) loadingProgressFill.hidden = false;
+  mountQuakeBitmapText(root);
 }
 
 function addQuakePickupMesh(entity: QuakeEntity, model?: QuakePickupModel, frameIndex = 0): PolyMeshHandle | null {
@@ -1184,12 +1287,13 @@ function startQuakePointHazards(): void {
   quakePointHazardFrame = window.requestAnimationFrame(tickQuakePointHazards);
 }
 
-function tickQuakePointHazards(now: number): void {
+function tickQuakePointHazards(_frameNow: number): void {
   if (!currentResult || (!quakeFireballEmitters.length && !quakePointHazards.length)) {
     clearQuakePointHazards();
     return;
   }
 
+  const now = performance.now();
   const dt = Math.min(QUAKE_POINT_HAZARD_DT_CLAMP, quakePointHazardTime ? (now - quakePointHazardTime) / 1000 : 0.0167);
   quakePointHazardTime = now;
   spawnDueQuakeFireballs(now);
@@ -1389,7 +1493,12 @@ function quakeMoverGroupUnlocked(state: QuakeMoverState): boolean {
 function moverBlockedByPlayer(state: QuakeMoverState, nextOffset: Vec3, delta: Vec3): boolean {
   if (state.kind === "button" || shouldCarryPlayerWithMover(state, delta)) return false;
   const origin = controls.getOrigin();
-  if (!currentCollisionWorld?.playerIntersectsBrush?.(state.entity.index, nextOffset, origin)) return false;
+  if (!currentCollisionWorld?.playerIntersectsBrush?.(
+    state.entity.index,
+    nextOffset,
+    origin,
+    getPlayer().eyeHeight(),
+  )) return false;
   damageQuakePlayerForMoverBlock(state);
   return true;
 }
@@ -1784,51 +1893,66 @@ function drawStatsPanelGraph(panel: QuakeStatsPanel): void {
   }
 }
 
-async function fetchQuakeScene(url: string, mapName?: string): Promise<QuakeScene> {
+async function fetchQuakeScene(
+  url: string,
+  mapName?: string,
+  progress?: QuakeLoadingProgressTracker,
+): Promise<QuakeScene> {
+  const completeSceneTask = progress?.startTask();
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}.`);
   const prepared = await response.json() as QuakePreparedScene;
   if (mapName && !prepared.renderBundle) {
     throw new Error(`Prepared Quake map ${mapName.toUpperCase()} is missing its render bundle.`);
   }
-  if (prepared.renderBundle) await preloadQuakeRenderBundleAssets(prepared.renderBundle);
-  if (prepared.lightstyleRenderBundle) await preloadQuakeRenderBundleAssets(prepared.lightstyleRenderBundle);
+  const renderBundlePreloads = [
+    ...(prepared.renderBundle ? [preloadQuakeRenderBundleAssets(prepared.renderBundle, progress)] : []),
+    ...(prepared.lightstyleRenderBundle ? [preloadQuakeRenderBundleAssets(prepared.lightstyleRenderBundle, progress)] : []),
+  ];
+  completeSceneTask?.();
+  await Promise.all(renderBundlePreloads);
   return createQuakeSceneFromPreparedScene(prepared);
 }
 
 async function loadQuakeMap(mapName: string): Promise<void> {
   const url = quakeSceneUrl(mapName);
   if (!url) throw new Error(`No prepared Quake map registered for ${mapName}.`);
+  const progress = createQuakeLoadingProgressTracker(`Loading ${mapName.toUpperCase()}`);
   setQuakeLoading(true, `Loading ${mapName.toUpperCase()}`);
   try {
-    const scenePromise = fetchQuakeScene(url, mapName);
-    const weaponPromise = preloadWeaponViewModel();
+    const scenePromise = fetchQuakeScene(url, mapName, progress);
+    const weaponPromise = preloadWeaponViewModel(progress);
     const result = await scenePromise;
     if (quakeAppDisposed) return;
-    await preloadQuakeMapModelRenderBundleAssets(mapName);
+    progress.setStatus(`Loading ${mapName.toUpperCase()} models`);
+    await preloadQuakeMapModelRenderBundleAssets(mapName, progress);
     if (quakeAppDisposed) return;
     currentMapName = mapName;
     menu.setCurrentLevel(mapName);
     mountQuakeScene(result);
     if (quakeAppDisposed) return;
-    await completeQuakeSceneReadiness(weaponPromise);
+    progress.setStatus("Preparing view");
+    await completeQuakeSceneReadiness(weaponPromise, progress);
   } catch (error) {
     if (!quakeAppDisposed) setQuakeLoading(false);
     throw error;
   }
 }
 
-function preloadWeaponViewModel(): Promise<QuakeViewmodelModel> {
-  weaponViewModelPromise ??= fetchWeaponViewModel();
+function preloadWeaponViewModel(progress?: QuakeLoadingProgressTracker): Promise<QuakeViewmodelModel> {
+  weaponViewModelPromise ??= fetchWeaponViewModel(progress);
   return weaponViewModelPromise;
 }
 
-async function fetchWeaponViewModel(): Promise<QuakeViewmodelModel> {
+async function fetchWeaponViewModel(progress?: QuakeLoadingProgressTracker): Promise<QuakeViewmodelModel> {
+  const completeWeaponTask = progress?.startTask();
   const url = quakeAssetManifest.assets.weaponModelUrl;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}.`);
   const model = await response.json() as QuakeViewmodelModel;
-  await preloadQuakeRenderBundleAssets(model.renderBundle);
+  const renderBundlePreload = preloadQuakeRenderBundleAssets(model.renderBundle, progress);
+  completeWeaponTask?.();
+  await renderBundlePreload;
   return model;
 }
 
@@ -1838,10 +1962,15 @@ async function mountWeaponViewModel(modelPromise = preloadWeaponViewModel()): Pr
   viewmodel.mount(model);
 }
 
-async function completeQuakeSceneReadiness(modelPromise = preloadWeaponViewModel()): Promise<void> {
+async function completeQuakeSceneReadiness(
+  modelPromise = preloadWeaponViewModel(),
+  progress?: QuakeLoadingProgressTracker,
+): Promise<void> {
   await mountWeaponViewModel(modelPromise);
   if (quakeAppDisposed) return;
+  const completePaintTask = progress?.startTask();
   await waitForQuakePaintFrames(2);
+  completePaintTask?.();
   if (quakeAppDisposed) return;
   setQuakeLoading(false);
 }
@@ -1892,30 +2021,36 @@ function installQuakeAppDebugHooks(): void {
   });
 }
 
-async function loadPickupModels(): Promise<void> {
+async function loadPickupModels(progress?: QuakeLoadingProgressTracker): Promise<void> {
+  const completePickupTask = progress?.startTask();
   const url = quakeAssetManifest.assets.pickupModelsUrl;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}.`);
   const library = await response.json() as QuakePickupModelLibrary;
   if (quakeAppDisposed) return;
   currentPickupModelLibrary = library;
+  completePickupTask?.();
 }
 
-async function preloadQuakeMapModelRenderBundleAssets(mapName: string): Promise<void> {
+async function preloadQuakeMapModelRenderBundleAssets(
+  mapName: string,
+  progress?: QuakeLoadingProgressTracker,
+): Promise<void> {
   const library = currentPickupModelLibrary;
   if (!library) return;
   const map = quakeAssetManifest.maps.find((item) => item.mapName === mapName);
   const modelPaths = map?.modelPaths;
   if (!modelPaths) {
-    await preloadQuakePickupModelRenderBundleAssets(library, Object.keys(library.models));
+    await preloadQuakePickupModelRenderBundleAssets(library, Object.keys(library.models), progress);
     return;
   }
-  await preloadQuakePickupModelRenderBundleAssets(library, modelPaths);
+  await preloadQuakePickupModelRenderBundleAssets(library, modelPaths, progress);
 }
 
 async function preloadQuakePickupModelRenderBundleAssets(
   library: QuakePickupModelLibrary,
   modelPaths: Iterable<string>,
+  progress?: QuakeLoadingProgressTracker,
 ): Promise<void> {
   const bundles = new Set<QuakePreparedRenderBundle>();
   for (const modelPath of modelPaths) {
@@ -1928,16 +2063,18 @@ async function preloadQuakePickupModelRenderBundleAssets(
     }
     for (const frame of model.animationFrames ?? []) bundles.add(frame.renderBundle);
   }
-  await Promise.all([...bundles].map(preloadQuakeRenderBundleAssets));
+  await Promise.all([...bundles].map((renderBundle) => preloadQuakeRenderBundleAssets(renderBundle, progress)));
 }
 
-async function loadProgramMetadata(): Promise<void> {
+async function loadProgramMetadata(progress?: QuakeLoadingProgressTracker): Promise<void> {
+  const completeMetadataTask = progress?.startTask();
   const url = quakeAssetManifest.assets.programMetadataUrl;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}.`);
   const metadata = await response.json() as QuakeProgramMetadata;
   if (quakeAppDisposed) return;
   currentProgramMetadata = metadata;
+  completeMetadataTask?.();
 }
 
 async function loadSoundManifest(): Promise<void> {
@@ -2044,26 +2181,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 async function loadQuake(): Promise<void> {
+  const progress = createQuakeLoadingProgressTracker("Loading");
   setQuakeLoading(true);
+  progress.setStatus("Loading manifest");
   setQuakeAssetManifest(await fetchQuakeAssetManifest());
   const startMap = quakeAssetManifest.startMap;
   const startupSceneUrl = quakeSceneUrl(startMap);
   if (!startupSceneUrl) throw new Error(`No prepared Quake start map registered for ${startMap}.`);
-  const programMetadataPromise = loadProgramMetadata();
-  const pickupModelsPromise = loadPickupModels();
-  const startupScenePromise = fetchQuakeScene(startupSceneUrl, startMap);
-  const weaponPromise = preloadWeaponViewModel();
+  progress.setStatus(`Loading ${startMap.toUpperCase()}`);
+  const programMetadataPromise = loadProgramMetadata(progress);
+  const pickupModelsPromise = loadPickupModels(progress);
+  const startupScenePromise = fetchQuakeScene(startupSceneUrl, startMap, progress);
+  const weaponPromise = preloadWeaponViewModel(progress);
   await Promise.all([programMetadataPromise, pickupModelsPromise]);
   if (quakeAppDisposed) return;
   const result = await startupScenePromise;
   if (quakeAppDisposed) return;
-  await preloadQuakeMapModelRenderBundleAssets(startMap);
+  progress.setStatus(`Loading ${startMap.toUpperCase()} models`);
+  await preloadQuakeMapModelRenderBundleAssets(startMap, progress);
   if (quakeAppDisposed) return;
   currentMapName = startMap;
   menu.setCurrentLevel(currentMapName);
   mountQuakeScene(result);
   if (quakeAppDisposed) return;
-  await completeQuakeSceneReadiness(weaponPromise);
+  progress.setStatus("Preparing view");
+  await completeQuakeSceneReadiness(weaponPromise, progress);
   if (quakeAppDisposed) return;
   if (QUAKE_MENU_ENABLED) {
     menu.showMainMenu();
@@ -2085,14 +2227,29 @@ function handleWindowKeyDown(event: KeyboardEvent): void {
     event.stopPropagation();
     return;
   }
-  if (menu.handleKeyDown(event)) return;
+  if (menu.handleKeyDown(event)) {
+    clearQuakeCrouchInput();
+    return;
+  }
   if (shouldPreventQuakeGameplayKeyDefault(event)) {
     event.preventDefault();
   }
+  handleQuakeCrouchKey(event, true);
   if (event.code === "KeyF") {
     event.preventDefault();
     host.focus();
   }
+}
+
+function handleWindowKeyUp(event: KeyboardEvent): void {
+  if (shouldPreventQuakeGameplayKeyDefault(event)) {
+    event.preventDefault();
+  }
+  handleQuakeCrouchKey(event, false);
+}
+
+function handleWindowBlur(): void {
+  clearQuakeCrouchInput();
 }
 
 function handleViewportResize(): void {
@@ -2107,6 +2264,8 @@ function syncPlayerCollision(): void {
 function disposeQuakeApp(): void {
   quakeAppDisposed = true;
   window.removeEventListener("keydown", handleWindowKeyDown, { capture: true });
+  window.removeEventListener("keyup", handleWindowKeyUp, { capture: true });
+  window.removeEventListener("blur", handleWindowBlur);
   window.removeEventListener("resize", handleViewportResize);
   window.visualViewport?.removeEventListener("resize", handleViewportResize);
   host.removeEventListener("pointerdown", handleQuakeUsePointerDown, { capture: true });
@@ -2116,6 +2275,7 @@ function disposeQuakeApp(): void {
   disableDamageOption?.removeEventListener("change", handleQuakeDisableDamageOptionChange);
   invertMouseOption?.removeEventListener("change", handleQuakeInvertMouseOptionChange);
   controls.removeEventListener("change", syncPlayerCollision);
+  controls.removeEventListener("end", clearQuakeCrouchInput);
   menu.dispose();
   audio.dispose();
   hideQuakeStatsOverlay();
@@ -2123,6 +2283,8 @@ function disposeQuakeApp(): void {
 }
 
 window.addEventListener("keydown", handleWindowKeyDown, { capture: true });
+window.addEventListener("keyup", handleWindowKeyUp, { capture: true });
+window.addEventListener("blur", handleWindowBlur);
 window.addEventListener("resize", handleViewportResize);
 window.visualViewport?.addEventListener("resize", handleViewportResize);
 
@@ -2133,6 +2295,7 @@ disableEnemiesOption?.addEventListener("change", handleQuakeDisableEnemiesOption
 disableDamageOption?.addEventListener("change", handleQuakeDisableDamageOptionChange);
 invertMouseOption?.addEventListener("change", handleQuakeInvertMouseOptionChange);
 controls.addEventListener("change", syncPlayerCollision);
+controls.addEventListener("end", clearQuakeCrouchInput);
 
 syncQuakeHud();
 syncQuakeOptionControls();

@@ -296,8 +296,8 @@ export interface QuakePreparedRenderBundle {
 
 export type QuakeRenderBundleLeafFrameStyle = [
   matrix: string,
-  background?: string,
-  extraStyle?: string,
+  background?: string | null,
+  extraStyle?: string | null,
 ];
 
 export interface QuakeRenderBundleLeafMetadata {

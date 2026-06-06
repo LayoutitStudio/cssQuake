@@ -5,7 +5,7 @@ import {
   type Vec3,
 } from "@layoutit/polycss";
 
-import type { QuakePreparedRenderBundle } from "../prepare/scene";
+import type { QuakePreparedRenderBundle, QuakeRenderBundleLeafFrameStyle } from "../prepare/scene";
 import { isQuakeDebugDomMetadataEnabled, markQuakeTrace } from "./debug/traceMarks";
 
 export interface QuakeRenderBundleFrameSetFrame {
@@ -19,6 +19,10 @@ export interface QuakeRenderBundleFrameSet {
   frames: QuakeRenderBundleFrameSetFrame[];
 }
 
+export interface QuakeRenderBundlePreloadProgress {
+  startTask(): () => void;
+}
+
 export type QuakeRenderBundleFrameSetHandle = PolyMeshHandle & {
   getFrameIndex(): number;
   setFrameIndex(frameIndex: number): boolean;
@@ -30,6 +34,10 @@ const renderBundleElementRootVarNames = new WeakMap<HTMLElement, Set<string>>();
 const renderBundleStyleCache = new Map<string, HTMLStyleElement | HTMLLinkElement>();
 const renderBundleStyleLoadPromises = new Map<string, Promise<void>>();
 const renderBundleLeafFrameStylesLoadPromises = new Map<string, Promise<QuakeRenderBundleLeafFrameStylesFile>>();
+const renderBundleCompiledLeafFrameStylesCache = new WeakMap<
+  QuakePreparedRenderBundle,
+  readonly QuakeCompiledRenderBundleLeafFrameStyle[]
+>();
 const renderBundleFrameSetStyleOptimizationCache = new WeakMap<
   QuakePreparedRenderBundle,
   QuakeRenderBundleFrameSetStyleOptimization
@@ -40,19 +48,42 @@ const renderBundleAssetPreloads = new Map<string, {
 }>();
 
 type QuakeRenderBundleLeafFrameStylesFile = {
-  version: 1;
-  frames: NonNullable<QuakePreparedRenderBundle["leafFrameStyles"]>[];
+  version: 3;
+  frames: QuakePackedRenderBundleLeafFrameStyle[][];
 };
+
+type QuakePackedRenderBundleLeafFrameStyle = [
+  matrix?: string | null,
+  background?: string | null,
+  extraStyle?: string | null,
+];
 
 interface QuakeRenderBundleLeafFrameStyleApplyOptions {
   extraStylePropertyNames?: readonly string[];
+  extraStylePropertyNamesByLeaf?: readonly (readonly string[] | undefined)[];
   leaves?: readonly HTMLElement[] | NodeListOf<HTMLElement>;
   preserveBackground?: boolean;
 }
 
 interface QuakeRenderBundleFrameSetStyleOptimization {
   extraStylePropertyNames: string[];
+  extraStylePropertyNamesByLeaf: readonly (readonly string[] | undefined)[];
+  dynamicExtraStyleLeafCount: number;
   preserveBackground: boolean;
+  stableRootVars: boolean;
+}
+
+interface QuakeCompiledRenderBundleLeafFrameStyle {
+  background: string;
+  extraDeclarations: readonly QuakeRenderBundleStyleDeclaration[];
+  extraStyle: string;
+  matrix: string;
+}
+
+interface QuakeRenderBundleStyleDeclaration {
+  name: string;
+  priority: string;
+  value: string;
 }
 
 export function mountQuakeRenderBundleMesh(
@@ -102,7 +133,7 @@ export function mountQuakeRenderBundleFrameSetMesh(
     const previous = frameSet.frames[currentFrameIndex]?.renderBundle;
     const next = frameSet.frames[boundedNextFrameIndex]?.renderBundle;
     if (!next) return false;
-    syncQuakeRenderBundleRootVars(handle.element, next);
+    if (!styleOptimization.stableRootVars) syncQuakeRenderBundleRootVars(handle.element, next);
     if (next.leafFrameStyles?.length) {
       markQuakeTrace("renderbundle-frame-style-swap", {
         from: currentFrameIndex,
@@ -110,9 +141,12 @@ export function mountQuakeRenderBundleFrameSetMesh(
         leaves: frameSet.leafCount,
         preserveBackground: styleOptimization.preserveBackground,
         extraProps: styleOptimization.extraStylePropertyNames.length,
+        dynamicExtraLeaves: styleOptimization.dynamicExtraStyleLeafCount,
+        stableRootVars: styleOptimization.stableRootVars,
       });
       applyQuakeRenderBundleLeafFrameStyles(handle.element, next, {
         extraStylePropertyNames: styleOptimization.extraStylePropertyNames,
+        extraStylePropertyNamesByLeaf: styleOptimization.extraStylePropertyNamesByLeaf,
         leaves: frameSetLeaves,
         preserveBackground: styleOptimization.preserveBackground,
       });
@@ -177,13 +211,31 @@ function ensureQuakeRenderBundleStyles(
   return style;
 }
 
-export async function preloadQuakeRenderBundleAssets(renderBundle: QuakePreparedRenderBundle): Promise<void> {
-  await loadQuakeRenderBundleLeafFrameStyles(renderBundle);
+export async function preloadQuakeRenderBundleAssets(
+  renderBundle: QuakePreparedRenderBundle,
+  progress?: QuakeRenderBundlePreloadProgress,
+): Promise<void> {
+  const leafFrameStylesUrl = renderBundle.leafFrameStylesUrl;
+  const tasks: Promise<void>[] = [];
+  if (leafFrameStylesUrl && !renderBundle.leafFrameStyles?.length) {
+    const complete = renderBundleLeafFrameStylesLoadPromises.has(leafFrameStylesUrl)
+      ? null
+      : progress?.startTask();
+    tasks.push(loadQuakeRenderBundleLeafFrameStyles(renderBundle).finally(() => complete?.()));
+  }
   quakeRenderBundleTemplate(renderBundle);
-  await Promise.all([
-    preloadQuakeRenderBundleStyle(renderBundle),
-    ...renderBundle.assetUrls.map(preloadQuakeRenderBundleAsset),
-  ]);
+  const styleKey = quakeRenderBundleStyleKey(renderBundle);
+  if (styleKey) {
+    const complete = renderBundle.styleUrl && !renderBundleStyleLoadPromises.has(styleKey)
+      ? progress?.startTask()
+      : null;
+    tasks.push(preloadQuakeRenderBundleStyle(renderBundle).finally(() => complete?.()));
+  }
+  for (const url of renderBundle.assetUrls) {
+    const complete = renderBundleAssetPreloads.has(url) ? null : progress?.startTask();
+    tasks.push(preloadQuakeRenderBundleAsset(url).finally(() => complete?.()));
+  }
+  await Promise.all(tasks);
 }
 
 function preloadQuakeRenderBundleStyle(renderBundle: QuakePreparedRenderBundle): Promise<void> {
@@ -224,12 +276,34 @@ async function loadQuakeRenderBundleLeafFrameStyles(renderBundle: QuakePreparedR
     renderBundleLeafFrameStylesLoadPromises.set(url, promise);
   }
   const file = await promise;
+  if (file.version !== 3) {
+    throw new Error(`Unsupported Quake render bundle frame styles version ${String(file.version)} in ${url}.`);
+  }
   const frameIndex = renderBundle.leafFrameStylesIndex ?? 0;
   const frameStyles = file.frames[frameIndex];
   if (!frameStyles) {
     throw new Error(`Quake render bundle frame styles missing frame ${frameIndex} in ${url}.`);
   }
-  renderBundle.leafFrameStyles = frameStyles;
+  renderBundle.leafFrameStyles = hydrateQuakePackedRenderBundleLeafFrameStyles(file.frames, frameIndex);
+  quakeRenderBundleCompiledLeafFrameStyles(renderBundle);
+}
+
+function hydrateQuakePackedRenderBundleLeafFrameStyles(
+  frames: readonly QuakePackedRenderBundleLeafFrameStyle[][],
+  frameIndex: number,
+): QuakeRenderBundleLeafFrameStyle[] {
+  const baseFrameStyles = frames[0] ?? [];
+  const frameStyles = frames[frameIndex] ?? [];
+  return frameStyles.map((frameStyle = [], leafIndex): QuakeRenderBundleLeafFrameStyle => {
+    const baseFrameStyle = baseFrameStyles[leafIndex] ?? [];
+    const matrix = frameStyle[0] ?? "";
+    const background = effectiveQuakeRenderBundleLeafFrameBackground(frameStyle, baseFrameStyle);
+    const extraStyle = effectiveQuakeRenderBundleLeafFrameExtraStyle(frameStyle, baseFrameStyle, {
+      dynamicExtraStylePropertyNames: ["*"],
+      preserveBackground: false,
+    });
+    return [matrix, background, extraStyle];
+  });
 }
 
 function applyQuakeRenderBundleLeafFrameStyles(
@@ -242,29 +316,36 @@ function applyQuakeRenderBundleLeafFrameStyles(
     throw new Error(`Quake render bundle frame styles were not preloaded from ${renderBundle.leafFrameStylesUrl}.`);
   }
   if (!frameStyles?.length) return;
+  const compiledFrameStyles = quakeRenderBundleCompiledLeafFrameStyles(renderBundle);
   const leaves = options.leaves ?? element.querySelectorAll<HTMLElement>("b,i,s,u");
-  const count = Math.min(leaves.length, frameStyles.length);
+  const count = Math.min(leaves.length, compiledFrameStyles.length);
   for (let index = 0; index < count; index++) {
     const leaf = leaves[index];
-    const frameStyle = frameStyles[index];
+    const frameStyle = compiledFrameStyles[index];
     if (!leaf || !frameStyle) continue;
-    applyQuakeRenderBundleLeafFrameStyle(leaf, frameStyle, options);
+    applyQuakeRenderBundleLeafFrameStyle(leaf, frameStyle, options, index);
   }
 }
 
 function applyQuakeRenderBundleLeafFrameStyle(
   leaf: HTMLElement,
-  [matrix, background, extraStyle]: NonNullable<QuakePreparedRenderBundle["leafFrameStyles"]>[number],
+  frameStyle: QuakeCompiledRenderBundleLeafFrameStyle,
   options: QuakeRenderBundleLeafFrameStyleApplyOptions,
+  leafIndex: number,
 ): void {
+  const { background, extraDeclarations, extraStyle, matrix } = frameStyle;
   if (options.preserveBackground) {
-    const extraStylePropertyNames = options.extraStylePropertyNames ?? [];
+    const extraStylePropertyNames = options.extraStylePropertyNamesByLeaf
+      ? options.extraStylePropertyNamesByLeaf[leafIndex] ?? []
+      : options.extraStylePropertyNames ?? [];
     for (const propertyName of extraStylePropertyNames) {
       leaf.style.removeProperty(propertyName);
     }
-    if (extraStyle && extraStylePropertyNames.length) applyQuakeRenderBundleLeafExtraStyle(leaf, extraStyle);
+    if (extraDeclarations.length && extraStylePropertyNames.length) {
+      applyQuakeRenderBundleLeafExtraStyle(leaf, extraDeclarations);
+    }
     if (matrix) {
-      leaf.style.transform = matrix.startsWith("matrix3d(") ? matrix : `matrix3d(${matrix})`;
+      leaf.style.transform = matrix;
     } else {
       leaf.style.removeProperty("transform");
     }
@@ -273,14 +354,24 @@ function applyQuakeRenderBundleLeafFrameStyle(
   leaf.removeAttribute("style");
   if (extraStyle) leaf.style.cssText = extraStyle;
   if (matrix) {
-    leaf.style.transform = matrix.startsWith("matrix3d(") ? matrix : `matrix3d(${matrix})`;
+    leaf.style.transform = matrix;
   }
   if (background) {
-    leaf.style.background = background.startsWith("var(") ? background : `var(--bg0) ${background}`;
+    leaf.style.background = background;
   }
 }
 
-function applyQuakeRenderBundleLeafExtraStyle(leaf: HTMLElement, extraStyle: string): void {
+function applyQuakeRenderBundleLeafExtraStyle(
+  leaf: HTMLElement,
+  declarations: readonly QuakeRenderBundleStyleDeclaration[],
+): void {
+  for (const declaration of declarations) {
+    leaf.style.setProperty(declaration.name, declaration.value, declaration.priority);
+  }
+}
+
+function compileQuakeRenderBundleLeafExtraStyle(extraStyle: string): QuakeRenderBundleStyleDeclaration[] {
+  const declarations: QuakeRenderBundleStyleDeclaration[] = [];
   for (const declaration of extraStyle.split(";")) {
     const separator = declaration.indexOf(":");
     if (separator <= 0) continue;
@@ -292,8 +383,68 @@ function applyQuakeRenderBundleLeafExtraStyle(leaf: HTMLElement, extraStyle: str
       propertyValue = propertyValue.slice(0, -"!important".length).trimEnd();
       priority = "important";
     }
-    leaf.style.setProperty(propertyName, propertyValue, priority);
+    declarations.push({ name: propertyName, priority, value: propertyValue });
   }
+  return declarations;
+}
+
+function quakeRenderBundleCompiledLeafFrameStyles(
+  renderBundle: QuakePreparedRenderBundle,
+): readonly QuakeCompiledRenderBundleLeafFrameStyle[] {
+  const existing = renderBundleCompiledLeafFrameStylesCache.get(renderBundle);
+  if (existing) return existing;
+  const compiled = (renderBundle.leafFrameStyles ?? []).map((frameStyle) =>
+    compileQuakeRenderBundleLeafFrameStyle(frameStyle));
+  renderBundleCompiledLeafFrameStylesCache.set(renderBundle, compiled);
+  return compiled;
+}
+
+interface QuakeRenderBundleLeafFrameStyleCompileOptions {
+  baseFrameStyle?: Partial<QuakeRenderBundleLeafFrameStyle>;
+  dynamicExtraStylePropertyNames?: readonly string[];
+  preserveBackground: boolean;
+}
+
+function compileQuakeRenderBundleLeafFrameStyle(
+  frameStyle: Partial<QuakeRenderBundleLeafFrameStyle> | undefined,
+  options: QuakeRenderBundleLeafFrameStyleCompileOptions = { preserveBackground: false },
+): QuakeCompiledRenderBundleLeafFrameStyle {
+  const baseFrameStyle = options.baseFrameStyle;
+  const matrix = frameStyle?.[0] ?? "";
+  const background = options.preserveBackground
+    ? ""
+    : effectiveQuakeRenderBundleLeafFrameBackground(frameStyle, baseFrameStyle);
+  const extraStyle = effectiveQuakeRenderBundleLeafFrameExtraStyle(frameStyle, baseFrameStyle, options);
+  return {
+    background: background
+      ? background.startsWith("var(") ? background : `var(--bg0) ${background}`
+      : "",
+    extraDeclarations: extraStyle ? compileQuakeRenderBundleLeafExtraStyle(extraStyle) : [],
+    extraStyle,
+    matrix: matrix
+      ? matrix.startsWith("matrix3d(") ? matrix : `matrix3d(${matrix})`
+      : "",
+  };
+}
+
+function effectiveQuakeRenderBundleLeafFrameBackground(
+  frameStyle: Partial<QuakeRenderBundleLeafFrameStyle> | undefined,
+  baseFrameStyle: Partial<QuakeRenderBundleLeafFrameStyle> | undefined,
+): string {
+  if (!baseFrameStyle || !frameStyle || frameStyle.length >= 2) {
+    return frameStyle?.[1] === null ? baseFrameStyle?.[1] ?? "" : frameStyle?.[1] ?? "";
+  }
+  return baseFrameStyle[1] ?? "";
+}
+
+function effectiveQuakeRenderBundleLeafFrameExtraStyle(
+  frameStyle: Partial<QuakeRenderBundleLeafFrameStyle> | undefined,
+  baseFrameStyle: Partial<QuakeRenderBundleLeafFrameStyle> | undefined,
+  options: QuakeRenderBundleLeafFrameStyleCompileOptions,
+): string {
+  const shouldRestoreDynamicExtraStyle = Boolean(options.dynamicExtraStylePropertyNames?.length);
+  if (!baseFrameStyle || !frameStyle || frameStyle.length >= 3) return frameStyle?.[2] ?? "";
+  return shouldRestoreDynamicExtraStyle ? baseFrameStyle[2] ?? "" : "";
 }
 
 function quakeRenderBundleFrameSetStyleOptimization(
@@ -302,9 +453,18 @@ function quakeRenderBundleFrameSetStyleOptimization(
   const existing = renderBundleFrameSetStyleOptimizationCache.get(frameSet.renderBundle);
   if (existing) return existing;
   const firstFrameStyles = frameSet.frames[0]?.renderBundle.leafFrameStyles;
+  const firstFrameRenderBundle = frameSet.frames[0]?.renderBundle;
   const extraStylePropertyNames = new Set<string>();
+  const extraStylePropertyNamesByLeaf = new Map<number, Set<string>>();
   let preserveBackground = Boolean(firstFrameStyles?.length);
+  let stableRootVars = Boolean(firstFrameRenderBundle);
   for (const frame of frameSet.frames) {
+    if (
+      firstFrameRenderBundle &&
+      !quakeRenderBundleRootVarsEqual(firstFrameRenderBundle, frame.renderBundle)
+    ) {
+      stableRootVars = false;
+    }
     const frameStyles = frame.renderBundle.leafFrameStyles;
     if (!firstFrameStyles?.length || !frameStyles || frameStyles.length !== firstFrameStyles.length) {
       preserveBackground = false;
@@ -321,6 +481,12 @@ function quakeRenderBundleFrameSetStyleOptimization(
           ...quakeRenderBundleExtraStylePropertyNames(extraStyle),
         ]) {
           extraStylePropertyNames.add(propertyName);
+          let leafPropertyNames = extraStylePropertyNamesByLeaf.get(index);
+          if (!leafPropertyNames) {
+            leafPropertyNames = new Set<string>();
+            extraStylePropertyNamesByLeaf.set(index, leafPropertyNames);
+          }
+          leafPropertyNames.add(propertyName);
         }
       }
       if ((frameStyle?.[1] ?? "") !== (firstFrameStyle?.[1] ?? "")) {
@@ -328,12 +494,33 @@ function quakeRenderBundleFrameSetStyleOptimization(
       }
     }
   }
+  const leafCount = firstFrameStyles?.length ?? 0;
+  const extraStylePropertyNamesByLeafList = Array.from({ length: leafCount }, (_item, index) => {
+    const leafPropertyNames = extraStylePropertyNamesByLeaf.get(index);
+    return leafPropertyNames?.size ? [...leafPropertyNames] : undefined;
+  });
   const optimization = {
     extraStylePropertyNames: [...extraStylePropertyNames],
+    extraStylePropertyNamesByLeaf: extraStylePropertyNamesByLeafList,
+    dynamicExtraStyleLeafCount: extraStylePropertyNamesByLeaf.size,
     preserveBackground,
+    stableRootVars,
   };
   renderBundleFrameSetStyleOptimizationCache.set(frameSet.renderBundle, optimization);
   return optimization;
+}
+
+function quakeRenderBundleRootVarsEqual(
+  left: QuakePreparedRenderBundle,
+  right: QuakePreparedRenderBundle,
+): boolean {
+  const leftVars = quakeRenderBundleRootVars(left);
+  const rightVars = quakeRenderBundleRootVars(right);
+  if (leftVars.size !== rightVars.size) return false;
+  for (const [name, value] of leftVars) {
+    if (rightVars.get(name) !== value) return false;
+  }
+  return true;
 }
 
 function quakeRenderBundleExtraStylePropertyNames(extraStyle?: string): string[] {

@@ -7,7 +7,7 @@ import {
   PLAYER_HEIGHT,
   PLAYER_RADIUS,
   QUAKE_COLLISION_UNIT_SCALE,
-  QUAKE_PLAYER_VIEW_Z,
+  QUAKE_PLAYER_MINS_Z,
   STEP_HEIGHT,
 } from "./constants";
 import { addVec3, dotVec3, lerpVec3, subtractVec3 } from "./math";
@@ -41,7 +41,7 @@ export interface QuakeCollisionWorld {
   staticFloorAt(x: number, y: number, maxZ?: number, minZ?: number): number | null;
   contentsAt?(point: Vec3): number | null;
   traceUse?(start: Vec3, end: Vec3): QuakeUseTrace | null;
-  playerIntersectsBrush?(entityIndex: number, offset: Vec3, origin: [number, number, number]): boolean;
+  playerIntersectsBrush?(entityIndex: number, offset: Vec3, origin: [number, number, number], eyeHeight: number): boolean;
   touchingTriggers?(origin: [number, number, number], eyeHeight: number): QuakeTouchedTrigger[];
   setBrushOffset?(entityIndex: number, offset: Vec3): void;
   resolve(
@@ -171,12 +171,12 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
       headNode < (collision.nodes?.length ?? 0);
   }
 
-  function eyeToHullOrigin(origin: [number, number, number]): Vec3 {
-    return [origin[0], origin[1], origin[2] - QUAKE_PLAYER_VIEW_Z];
+  function eyeToHullOrigin(origin: [number, number, number], eyeHeight: number): Vec3 {
+    return [origin[0], origin[1], origin[2] - eyeHeight - QUAKE_PLAYER_MINS_Z];
   }
 
-  function hullOriginToEye(origin: Vec3): [number, number, number] {
-    return [origin[0], origin[1], origin[2] + QUAKE_PLAYER_VIEW_Z];
+  function hullOriginToEye(origin: Vec3, eyeHeight: number): [number, number, number] {
+    return [origin[0], origin[1], origin[2] + QUAKE_PLAYER_MINS_Z + eyeHeight];
   }
 
   function hullOriginToFootZ(origin: Vec3): number {
@@ -462,8 +462,13 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
     };
   }
 
-  function playerIntersectsBrush(entityIndex: number, offset: Vec3, origin: [number, number, number]): boolean {
-    const hullOrigin = eyeToHullOrigin(origin);
+  function playerIntersectsBrush(
+    entityIndex: number,
+    offset: Vec3,
+    origin: [number, number, number],
+    eyeHeight: number,
+  ): boolean {
+    const hullOrigin = eyeToHullOrigin(origin, eyeHeight);
     for (const brush of solidBrushes) {
       if (brush.entityIndex !== entityIndex) continue;
       const brushOffset = addVec3(brush.baseOffset, offset);
@@ -472,9 +477,9 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
     return false;
   }
 
-  function touchingTriggers(origin: [number, number, number], _eyeHeight: number): QuakeTouchedTrigger[] {
+  function touchingTriggers(origin: [number, number, number], eyeHeight: number): QuakeTouchedTrigger[] {
     if (!triggerBrushes.length) return [];
-    const hullOrigin = eyeToHullOrigin(origin);
+    const hullOrigin = eyeToHullOrigin(origin, eyeHeight);
     const out: QuakeTouchedTrigger[] = [];
     for (const brush of triggerBrushes) {
       if (pointContents(brush.headNode, subtractVec3(hullOrigin, brush.offset)) !== QUAKE_CONTENTS_SOLID) continue;
@@ -515,12 +520,12 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
   function resolve(
     origin: [number, number, number],
     previous: [number, number, number],
-    _eyeHeight: number,
+    eyeHeight: number,
     currentGroundZ: number,
   ): QuakeCollisionResult {
     currentTouches = new Map();
-    const previousHull = eyeToHullOrigin(previous);
-    const targetHull = eyeToHullOrigin(origin);
+    const previousHull = eyeToHullOrigin(previous, eyeHeight);
+    const targetHull = eyeToHullOrigin(origin, eyeHeight);
     const dx = targetHull[0] - previousHull[0];
     const dy = targetHull[1] - previousHull[1];
     const dz = targetHull[2] - previousHull[2];
@@ -539,7 +544,7 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
     }
 
     return {
-      origin: hullOriginToEye(hullOrigin),
+      origin: hullOriginToEye(hullOrigin, eyeHeight),
       groundZ,
       grounded,
       touches: [...currentTouches.values()],

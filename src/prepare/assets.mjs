@@ -1919,8 +1919,8 @@ async function writeQuakeAnimationFrameStyles(bundleName, model) {
   const frameStyles = frames.map((frame) => frame.renderBundle?.leafFrameStyles ?? []);
   if (!frameStyles.some((styles) => styles.length > 0)) return;
   const body = JSON.stringify({
-    version: 1,
-    frames: frameStyles,
+    version: 3,
+    frames: compactQuakeAnimationFrameStyles(frameStyles),
   });
   const hash = createHash("sha256").update(body).digest("hex").slice(0, 12);
   const styleDir = path.join(renderBundleOutputDir, bundleName);
@@ -1940,6 +1940,24 @@ async function writeQuakeAnimationFrameStyles(bundleName, model) {
     model.animationFrameSet.renderBundle.leafFrameStylesIndex = 0;
     delete model.animationFrameSet.renderBundle.leafFrameStyles;
   }
+}
+
+function compactQuakeAnimationFrameStyles(frames) {
+  const baseFrameStyles = frames[0] ?? [];
+  return frames.map((frameStyles, frameIndex) => {
+    if (frameIndex === 0) return frameStyles;
+    return frameStyles.map((frameStyle = [], leafIndex) => {
+      const baseFrameStyle = baseFrameStyles[leafIndex] ?? [];
+      const matrix = frameStyle[0] ?? "";
+      const background = frameStyle[1] ?? "";
+      const extraStyle = frameStyle[2] ?? "";
+      const backgroundChanged = background !== (baseFrameStyle[1] ?? "");
+      const extraStyleChanged = extraStyle !== (baseFrameStyle[2] ?? "");
+      if (extraStyleChanged) return [matrix, backgroundChanged ? background : null, extraStyle];
+      if (backgroundChanged) return [matrix, background];
+      return [matrix];
+    });
+  });
 }
 
 function quakeRenderBundleLeafHasClass(attributes, leafClasses) {

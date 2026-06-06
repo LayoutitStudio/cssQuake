@@ -198,7 +198,8 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     return state.mode === "opening" || state.mode === "closing" || (state.mode === "open" && state.waitUntil !== Infinity);
   };
 
-  const tickMovers = (now: number): void => {
+  const tickMovers = (_frameNow: number): void => {
+    const now = performance.now();
     const dt = Math.min(0.05, moverTime ? (now - moverTime) / 1000 : 0.0167);
     moverTime = now;
     let active = false;

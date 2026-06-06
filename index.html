@@ -25,7 +25,7 @@
         document.head.appendChild(tag);
       })();
     </script>
-    <title>cssQuake - Quake rendered with HTML and CSS</title>
+    <title>cssQuake - Powered by PolyCSS</title>
     <meta
       name="description"
       content="Play Quake shareware maps rendered as real DOM geometry with HTML, CSS transforms, and PolyCSS."
@@ -64,8 +64,7 @@
         "codeRepository": "https://github.com/LayoutitStudio/cssQuake"
       }
     </script>
-    <link rel="icon" href="/src/assets/favicon-16.png" type="image/png" sizes="16x16" />
-    <link rel="icon" href="/src/assets/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/src/assets/favicon.ico" type="image/x-icon" />
     <style>
       html,
       body {
@@ -117,6 +116,14 @@
         image-rendering: pixelated;
         pointer-events: none;
         user-select: none;
+      }
+
+      body[data-loading] .cssquake-logo {
+        display: block;
+      }
+
+      body[data-loading] .cssquake-version {
+        display: block;
       }
 
       .cssquake-version {
@@ -184,19 +191,27 @@
         z-index: 1;
       }
 
-	      #quake-loading-status {
-	        display: flex;
-	        flex-direction: column;
-	        align-items: center;
-	        justify-content: center;
-	        gap: 8px;
-	        min-height: 114px;
-	        color: #f0ad5c;
-	        font: 700 14px/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-	        letter-spacing: 0;
-	        text-transform: uppercase;
-	        text-shadow: 0 2px 0 #000000;
-	      }
+      .quake-loading-readout {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 26px;
+      }
+
+      #quake-loading-status {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 114px;
+        color: #f0ad5c;
+        font: 700 14px/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        letter-spacing: 0;
+        text-transform: uppercase;
+        text-shadow: 0 2px 0 #000000;
+      }
 
       #quake-loading-status::before {
         content: "";
@@ -209,14 +224,54 @@
         background-position: 0 0;
         background-size: 600% 100%;
         image-rendering: pixelated;
+        opacity: 0.75;
       }
 
       #quake-loading-status .quake-bitmap-text {
         justify-content: center;
       }
+
+      #quake-loading-progress {
+        --quake-loading-progress: 0;
+        position: relative;
+        width: min(250px, 72vw);
+        height: 14px;
+        padding: 2px;
+        overflow: hidden;
+        border: 2px solid #523821;
+        background: #120b07;
+        box-shadow:
+          4px 4px 0 #000000,
+          0 2px 0 #000000,
+          inset 0 1px 0 rgba(240, 173, 92, 0.25),
+          inset 0 -1px 0 rgba(0, 0, 0, 0.75);
+      }
+
+      #quake-loading-progress-fill {
+        display: block;
+        width: 100%;
+        height: 100%;
+        transform: scaleX(var(--quake-loading-progress));
+        transform-origin: left center;
+        background: #7f4a2f;
+        image-rendering: pixelated;
+        transition: transform 120ms steps(8, end);
+      }
+
+      #quake-loading-progress[data-indeterminate="true"] #quake-loading-progress-fill {
+        width: 36%;
+        transform: translateX(-100%);
+        animation: quake-loading-progress-indeterminate 900ms steps(12, end) infinite;
+      }
+
+      @keyframes quake-loading-progress-indeterminate {
+        to {
+          transform: translateX(280%);
+        }
+      }
     </style>
   </head>
-  <body>
+  <body data-loading>
     <main id="quake-app">
       <div id="quake-host" tabindex="0"></div>
       <div id="quake-viewmodel-layer" aria-hidden="true"></div>
@@ -336,6 +391,10 @@
                     <span data-bm="label">Jump</span>
                   </li>
                   <li>
+                    <span class="quake-help-keys"><kbd data-bm="key alt">Ctrl</kbd></span>
+                    <span data-bm="label">Crouch</span>
+                  </li>
+                  <li>
                     <span class="quake-help-keys"><kbd data-bm="key alt">Esc</kbd></span>
                     <span data-bm="label">Open menu</span>
                   </li>
@@ -451,7 +510,12 @@
       </p>
       <div id="quake-loading-overlay" role="status" aria-live="polite" aria-busy="true">
         <div class="quake-loading-mark">
-          <span id="quake-loading-status" data-bm="title alt">Loading</span>
+          <div class="quake-loading-readout">
+            <span id="quake-loading-status" data-bm="title alt">Loading</span>
+            <div id="quake-loading-progress" role="progressbar" aria-label="Loading progress" aria-valuemin="0" aria-valuemax="100" data-indeterminate="true">
+              <span id="quake-loading-progress-fill"></span>
+            </div>
+          </div>
         </div>
       </div>
     </main>
