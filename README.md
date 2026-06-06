@@ -1,6 +1,6 @@
 # cssQuake
 
-Turns [Quake](https://github.com/id-software/quake) into playable, inspectable HTML/CSS. cssQuake preprocesses the original data into browser-ready JSON and image assets, then renders the game as real DOM geometry powered by [PolyCSS](https://github.com/LayoutitStudio/polycss) instead of WebGL. 
+cssQuake is a port of id Software's [Quake](https://github.com/id-software/quake) using [PolyCSS](https://github.com/LayoutitStudio/polycss) instead of webGL for rendering. It preprocesses the original data into browser-ready JSON and image assets, then renders the game as real, inspectable HTML/CSS 3D geometry. 
 
 Try the live version: [cssquake.com](https://cssquake.com) 🕹️
 
