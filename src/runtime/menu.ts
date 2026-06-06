@@ -20,7 +20,7 @@ export interface QuakeMenuControllerOptions {
   enabled: boolean;
   host: HTMLElement;
   controls: QuakeMenuControls;
-  mainMenu: HTMLButtonElement | null;
+  mainMenu: HTMLElement | null;
   mainMenuArt: HTMLElement | null;
   levelPanel: HTMLElement | null;
   aboutPanel: HTMLElement | null;
@@ -30,19 +30,7 @@ export interface QuakeMenuControllerOptions {
   syncCrosshairTarget(): void;
 }
 
-const QUAKE_MAIN_MENU_ROWS = [0, 1, 2, 3, 4];
-const QUAKE_MAIN_MENU_ROW_TOPS = [28, 52, 76, 100, 126];
-const QUAKE_MAIN_MENU_ROW_HEIGHT = 20;
-const QUAKE_MAIN_MENU_CURSOR_HEIGHT = 24;
-const QUAKE_MAIN_MENU_ACTIVE_FRAME_COUNT = 5;
-const QUAKE_MAIN_MENU_ACTIVE_FRAMES = new Map<number, number>([
-  [0, 0],
-  [1, 1],
-  [2, 2],
-  [3, 3],
-  [4, 4],
-]);
-const POLYCSS_URL = "https://polycss.com/";
+const QUAKE_MAIN_MENU_ROWS = [0, 1, 2, 3];
 
 export function createQuakeMenuController({
   enabled,
@@ -159,6 +147,11 @@ export function createQuakeMenuController({
     return element?.closest("#quake-about-source-links a") as HTMLAnchorElement | null;
   }
 
+  function mainMenuBrandLinkFor(target: EventTarget | null): HTMLAnchorElement | null {
+    const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+    return element?.closest("#quake-main-menu-brand-meta a") as HTMLAnchorElement | null;
+  }
+
   function menuBackButtonFor(target: EventTarget | null): HTMLButtonElement | null {
     const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
     return element?.closest("#quake-level-back, #quake-about-back, #quake-options-back") as HTMLButtonElement | null;
@@ -174,17 +167,20 @@ export function createQuakeMenuController({
     return element?.closest(".quake-level-button[data-map]") as HTMLButtonElement | null;
   }
 
+  function mainMenuItems(): HTMLElement[] {
+    if (!mainMenuArt) return [];
+    return Array.from(mainMenuArt.querySelectorAll<HTMLElement>(".quake-main-menu-item[data-menu-row]"));
+  }
+
   function updateMainMenuCursor(): void {
     const row = QUAKE_MAIN_MENU_ROWS[mainMenuSelectionIndex] ?? 0;
-    const rowTop = QUAKE_MAIN_MENU_ROW_TOPS[row] ?? QUAKE_MAIN_MENU_ROW_TOPS[0];
-    const cursorTop = rowTop + (QUAKE_MAIN_MENU_ROW_HEIGHT - QUAKE_MAIN_MENU_CURSOR_HEIGHT) / 2;
-    const activeFrame = QUAKE_MAIN_MENU_ACTIVE_FRAMES.get(row);
-    const activeX = activeFrame === undefined
-      ? 0
-      : (activeFrame / (QUAKE_MAIN_MENU_ACTIVE_FRAME_COUNT - 1)) * 100;
-    mainMenuArt?.style.setProperty("--quake-main-menu-cursor-y", `${cursorTop / 2}%`);
-    mainMenuArt?.style.setProperty("--quake-main-menu-active-x", `${activeX}%`);
-    mainMenuArt?.style.setProperty("--quake-main-menu-active-opacity", activeFrame === undefined ? "0" : "1");
+    for (const item of mainMenuItems()) {
+      if (Number(item.dataset.menuRow) === row) {
+        item.dataset.active = "true";
+      } else {
+        delete item.dataset.active;
+      }
+    }
   }
 
   function selectMainMenuRow(row: number): boolean {
@@ -210,11 +206,6 @@ export function createQuakeMenuController({
     if (row === 1) showLevelPanel();
     if (row === 2) showOptionsPanel();
     if (row === 3) showAboutPanel();
-    if (row === 4) openPolycssSite();
-  }
-
-  function openPolycssSite(): void {
-    window.location.assign(POLYCSS_URL);
   }
 
   function levelButtons(): HTMLButtonElement[] {
@@ -404,6 +395,7 @@ export function createQuakeMenuController({
 
   function handleMainMenuKey(event: KeyboardEvent): boolean {
     if (!isMainMenuOpen()) return false;
+    const brandLink = mainMenuBrandLinkFor(event.target);
     switch (event.code) {
       case "ArrowDown":
       case "KeyS":
@@ -418,10 +410,19 @@ export function createQuakeMenuController({
         moveMainMenuCursor(-1);
         return true;
       case "Enter":
-      case "Space":
+        if (brandLink) return false;
         event.preventDefault();
         event.stopPropagation();
         activateMainMenuSelection();
+        return true;
+      case "Space":
+        event.preventDefault();
+        event.stopPropagation();
+        if (brandLink) {
+          brandLink.click();
+        } else {
+          activateMainMenuSelection();
+        }
         return true;
       case "Escape":
         event.preventDefault();
@@ -437,10 +438,9 @@ export function createQuakeMenuController({
   }
 
   function handleMainMenuClick(event: MouseEvent): void {
+    if (mainMenuBrandLinkFor(event.target)) return;
     const row = mainMenuPointerRow(event);
-    if (row !== null) {
-      if (!selectMainMenuRow(row)) return;
-    }
+    if (row === null || !selectMainMenuRow(row)) return;
     activateMainMenuSelection();
   }
 
@@ -459,18 +459,25 @@ export function createQuakeMenuController({
 
   function mainMenuPointerRow(event: MouseEvent): number | null {
     if (!mainMenuArt) return null;
-    const rect = mainMenuArt.getBoundingClientRect();
-    if (
-      event.clientX < rect.left ||
-      event.clientX > rect.right ||
-      event.clientY < rect.top ||
-      event.clientY > rect.bottom
-    ) return null;
-    const y = ((event.clientY - rect.top) / rect.height) * 200;
-    for (let row = 0; row < QUAKE_MAIN_MENU_ROW_TOPS.length; row++) {
-      const top = QUAKE_MAIN_MENU_ROW_TOPS[row];
-      if (top === undefined) continue;
-      if (y >= top && y < top + QUAKE_MAIN_MENU_ROW_HEIGHT) return row;
+    for (const item of mainMenuItems()) {
+      const itemRect = item.getBoundingClientRect();
+      const cursor = item.querySelector<HTMLElement>(".quake-main-menu-item-cursor");
+      const cursorRect = cursor && getComputedStyle(cursor).display !== "none"
+        ? cursor.getBoundingClientRect()
+        : null;
+      const left = cursorRect ? Math.min(itemRect.left, cursorRect.left) : itemRect.left;
+      const right = cursorRect ? Math.max(itemRect.right, cursorRect.right) : itemRect.right;
+      const top = cursorRect ? Math.min(itemRect.top, cursorRect.top) : itemRect.top;
+      const bottom = cursorRect ? Math.max(itemRect.bottom, cursorRect.bottom) : itemRect.bottom;
+      if (
+        event.clientX >= left &&
+        event.clientX <= right &&
+        event.clientY >= top &&
+        event.clientY <= bottom
+      ) {
+        const row = Number(item.dataset.menuRow);
+        return Number.isFinite(row) ? row : null;
+      }
     }
     return null;
   }

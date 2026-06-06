@@ -3,6 +3,28 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preload" as="image" href="/q/hud-numbers-damage.png" />
+    <script>
+      (function () {
+        var GA_ID = "G-XV72TXWTM5";
+        var isProductionHost = window.location.hostname === "cssquake.wtf" || window.location.hostname === "www.cssquake.wtf";
+
+        if (!isProductionHost) {
+          window["ga-disable-" + GA_ID] = true;
+          return;
+        }
+
+        window.dataLayer = window.dataLayer || [];
+        window.gtag = window.gtag || function gtag() { window.dataLayer.push(arguments); };
+        window.gtag("js", new Date());
+        window.gtag("config", GA_ID);
+
+        var tag = document.createElement("script");
+        tag.async = true;
+        tag.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(GA_ID);
+        document.head.appendChild(tag);
+      })();
+    </script>
     <title>cssQuake - Quake rendered with HTML and CSS</title>
     <meta
       name="description"
@@ -125,14 +147,24 @@
         cursor: progress;
       }
 
-      #quake-loading-overlay[hidden] {
-        display: none;
-      }
+	      #quake-loading-overlay[hidden] {
+	        display: none;
+	      }
 
-      .btn-github,
-      .quake-copyright-notice {
-        z-index: 40;
-      }
+	      .btn-github {
+	        color: #f0f6fc;
+	        opacity: 0.4;
+	      }
+
+	      .btn-github:hover {
+	        color: #ffffff;
+	        opacity: 0.8;
+	      }
+
+	      .btn-github,
+	      .quake-copyright-notice {
+	        z-index: 40;
+	      }
 
       .quake-loading-mark {
         position: relative;
@@ -152,18 +184,19 @@
         z-index: 1;
       }
 
-      #quake-loading-status {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 24px;
-        min-height: 60px;
-        color: #f0ad5c;
-        font: 700 14px/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-        letter-spacing: 0;
-        text-transform: uppercase;
-        text-shadow: 0 2px 0 #000000;
-      }
+	      #quake-loading-status {
+	        display: flex;
+	        flex-direction: column;
+	        align-items: center;
+	        justify-content: center;
+	        gap: 8px;
+	        min-height: 114px;
+	        color: #f0ad5c;
+	        font: 700 14px/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+	        letter-spacing: 0;
+	        text-transform: uppercase;
+	        text-shadow: 0 2px 0 #000000;
+	      }
 
       #quake-loading-status::before {
         content: "";
@@ -193,17 +226,49 @@
         (M)ute Audio
       </button>
       <div id="quake-hud">
-        <button id="quake-main-menu" type="button" aria-label="cssQuake menu" hidden>
-          <span id="quake-main-menu-art" aria-hidden="true">
-            <span id="quake-main-menu-active-row"></span>
-            <span id="quake-main-menu-cursor"></span>
+        <div id="quake-main-menu" role="button" tabindex="-1" aria-label="cssQuake menu" hidden>
+          <span id="quake-main-menu-art">
+            <span id="quake-main-menu-brand">
+              <img id="quake-main-menu-logo" src="/src/assets/cssquake-logo.png" width="1383" height="222" alt="" />
+              <span id="quake-main-menu-logo-shimmer"></span>
+              <span id="quake-main-menu-brand-meta">
+                <span>
+                  Powered by <a href="https://polycss.com/">PolyCSS</a>
+                  <svg class="polycss-pixel-heart" viewBox="0 0 7 6" aria-hidden="true" focusable="false">
+                    <path d="M1 0h2v1h1V0h2v1h1v2H6v1H5v1H4v1H3V5H2V4H1V3H0V1h1V0Z" />
+                  </svg>
+                </span>
+                <span id="quake-main-menu-version"></span>
+              </span>
+            </span>
+            <span id="quake-main-menu-list" aria-hidden="true">
+              <span class="quake-main-menu-item" data-menu-row="0">
+                <span class="quake-main-menu-item-cursor"></span>
+                <span class="quake-main-menu-label quake-main-menu-label-single-player"></span>
+              </span>
+              <span class="quake-main-menu-item" data-menu-disabled="true">
+                <span class="quake-main-menu-label quake-main-menu-label-multiplayer"></span>
+              </span>
+              <span class="quake-main-menu-item" data-menu-row="1">
+                <span class="quake-main-menu-item-cursor"></span>
+                <span class="quake-main-menu-label quake-main-menu-label-level-select"></span>
+              </span>
+              <span class="quake-main-menu-item" data-menu-row="2">
+                <span class="quake-main-menu-item-cursor"></span>
+                <span class="quake-main-menu-label quake-main-menu-label-options"></span>
+              </span>
+              <span class="quake-main-menu-item" data-menu-row="3">
+                <span class="quake-main-menu-item-cursor"></span>
+                <span class="quake-main-menu-label quake-main-menu-label-help"></span>
+              </span>
+            </span>
           </span>
-        </button>
+        </div>
         <section id="quake-level-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-level-title" tabindex="-1" hidden>
           <div id="quake-level-card" class="quake-menu-card" role="document">
             <header class="quake-menu-panel-header">
-              <h1 id="quake-level-title" class="quake-menu-panel-title" data-bm="label alt">
-                Select Level
+              <h1 id="quake-level-title" class="quake-menu-panel-title">
+                <img src="/q/menu-title-level-select.png" width="211" height="20" alt="Select Level" />
               </h1>
             </header>
             <div id="quake-level-list" class="quake-level-list" aria-label="Available levels"></div>
@@ -280,6 +345,31 @@
                   </li>
                 </ul>
               </section>
+              <section aria-labelledby="quake-options-game-title">
+                <h2 id="quake-options-game-title" data-bm="label alt">Game</h2>
+                <div class="quake-options-list">
+                  <label class="quake-option-toggle">
+                    <input id="quake-option-disable-sound" type="checkbox" checked />
+                    <span class="quake-option-checkbox" aria-hidden="true"></span>
+                    <span class="quake-option-text" data-bm="label">Disable sound</span>
+                  </label>
+                  <label class="quake-option-toggle">
+                    <input id="quake-option-disable-enemies" type="checkbox" />
+                    <span class="quake-option-checkbox" aria-hidden="true"></span>
+                    <span class="quake-option-text" data-bm="label">Disable enemies</span>
+                  </label>
+                  <label class="quake-option-toggle">
+                    <input id="quake-option-disable-damage" type="checkbox" />
+                    <span class="quake-option-checkbox" aria-hidden="true"></span>
+                    <span class="quake-option-text" data-bm="label">Disable damage</span>
+                  </label>
+                  <label class="quake-option-toggle">
+                    <input id="quake-option-invert-mouse" type="checkbox" />
+                    <span class="quake-option-checkbox" aria-hidden="true"></span>
+                    <span class="quake-option-text" data-bm="label">Invert mouse</span>
+                  </label>
+                </div>
+              </section>
             </div>
             <nav id="quake-options-actions" class="quake-menu-actions" aria-label="Options actions">
               <button id="quake-options-back" type="button" data-bm="label alt">Back</button>
@@ -303,6 +393,14 @@
               <span class="quake-hud-digit" data-digit="0"></span>
               <span class="quake-hud-digit" data-digit="0"></span>
             </span>
+            <span
+              id="quake-hud-health-damage-value"
+              class="quake-hud-readout quake-hud-readout-health quake-hud-readout-health-damage"
+            >
+              <span class="quake-hud-digit" data-digit="1"></span>
+              <span class="quake-hud-digit" data-digit="0"></span>
+              <span class="quake-hud-digit" data-digit="0"></span>
+            </span>
             <span id="quake-hud-ammo-value" class="quake-hud-readout quake-hud-readout-ammo">
               <span class="quake-hud-digit"></span>
               <span class="quake-hud-digit" data-digit="2"></span>
@@ -322,15 +420,33 @@
         aria-label="View source on GitHub"
         href="https://github.com/LayoutitStudio/cssQuake"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="108 38 112 108" aria-hidden="true">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          data-component="Octicon"
+          aria-hidden="true"
+          focusable="false"
+          class="octicon octicon-mark-github"
+          viewBox="0 0 24 24"
+          width="40"
+          height="40"
+          fill="currentColor"
+          display="inline-block"
+          overflow="visible"
+        >
           <path
-            transform="rotate(-45 164 92)"
-            d="M128 109c-15-9-9-19-9-19 3-7 2-11 2-11-1-7 3-2 3-2 4 5 2 11 2 11-3 10 5 15 9 16M115 115s4 2 5 0l14-14c3-2 6-3 8-3-8-11-15-24 2-41 5-5 10-7 16-7 1-2 3-7 12-11 0 0 5 3 7 16 4 2 8 5 12 9s7 8 9 12c14 3 17 7 17 7-4 8-9 11-11 11 0 6-2 11-7 16-16 16-30 10-41 2 0 3-1 7-5 11l-12 11c-1 1 1 5 1 5z"
+            class="btn-github-mark"
+            d="M10.226 17.284c-2.965-.36-5.054-2.493-5.054-5.256 0-1.123.404-2.336 1.078-3.144-.292-.741-.247-2.314.09-2.965.898-.112 2.111.36 2.83 1.01.853-.269 1.752-.404 2.853-.404 1.1 0 1.999.135 2.807.382.696-.629 1.932-1.1 2.83-.988.315.606.36 2.179.067 2.942.72.854 1.101 2 1.101 3.167 0 2.763-2.089 4.852-5.098 5.234.763.494 1.28 1.572 1.28 2.807v2.336c0 .674.561 1.056 1.235.786 4.066-1.55 7.255-5.615 7.255-10.646C23.5 6.188 18.334 1 11.978 1 5.62 1 .5 6.188.5 12.545c0 4.986 3.167 9.12 7.435 10.669.606.225 1.19-.18 1.19-.786V20.63a2.9 2.9 0 0 1-1.078.224c-1.483 0-2.359-.808-2.987-2.313-.247-.607-.517-.966-1.034-1.033-.27-.023-.359-.135-.359-.27 0-.27.45-.471.898-.471.652 0 1.213.404 1.797 1.235.45.651.921.943 1.483.943.561 0 .92-.202 1.437-.719.382-.381.674-.718.944-.943"
           />
         </svg>
       </a>
       <p class="quake-copyright-notice">
-        <span>Powered by PolyCSS v0.2.2</span>
+        <span>
+          Powered by PolyCSS
+          <svg class="polycss-pixel-heart" viewBox="0 0 7 6" aria-hidden="true" focusable="false">
+            <path d="M1 0h2v1h1V0h2v1h1v2H6v1H5v1H4v1H3V5H2V4H1V3H0V1h1V0Z" />
+          </svg>
+          v0.2.2
+        </span>
         <span>Quake assets &copy; id Software LLC.</span>
       </p>
       <div id="quake-loading-overlay" role="status" aria-live="polite" aria-busy="true">

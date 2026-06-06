@@ -7,8 +7,6 @@ import {
 const QUAKE_RENDER_SUPERSAMPLE = 1;
 const QUAKE_CAMERA_ZOOM = (BASE_TILE * 0.65) / QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_RENDER_BUNDLE_TIMEOUT_MS = 30000;
-const QUAKE_RENDER_BUNDLE_ASSET_MIME = "image/webp";
-const QUAKE_RENDER_BUNDLE_ASSET_QUALITY = 0.9;
 
 window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
   polygons,
@@ -16,6 +14,7 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
   merge = false,
   extractLeafStyles = false,
   styleClassName = "",
+  tightenAtlasLeaves = false,
 }) {
   const host = createQuakeRenderHost();
 
@@ -31,9 +30,11 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
     );
 
     await waitForBakedTextureLeaves(handle.element);
+    if (tightenAtlasLeaves) await tightenQuakeAtlasLeaves(handle.element);
     const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await serializeMeshWithAssets(handle.element, {
       extractLeafStyles,
       styleClassName,
+      mutateOriginal: true,
     });
     return {
       meshHtml,
@@ -54,6 +55,7 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
   frames,
   textureQuality = 1,
   extractLeafStyles = true,
+  tightenAtlasLeaves = false,
 }) {
   if (!Array.isArray(frames) || !frames.length) {
     throw new Error("Animated render bundle build requires at least one frame.");
@@ -76,6 +78,8 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
       },
     );
     const outFrames = [];
+    let baseLeafFrameStylesByClass = new Map();
+    let baseTightAtlasBoundsByKey = null;
     for (let index = 0; index < frames.length; index++) {
       const frame = frames[index];
       if (!frame?.polygons?.length) {
@@ -89,18 +93,38 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
         });
         await waitForRenderBundleFrameUpdate();
       }
+      const name = frame.name ?? `frame-${index}`;
       await waitForBakedTextureLeaves(handle.element);
-      const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await serializeMeshWithAssets(handle.element, {
-        extractLeafStyles,
+      if (tightenAtlasLeaves) {
+        baseTightAtlasBoundsByKey = await tightenQuakeAtlasLeaves(handle.element, baseTightAtlasBoundsByKey);
+      }
+      if (index === 0) {
+        const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await serializeMeshWithAssets(handle.element, {
+          extractLeafStyles,
+          styleClassName: frame.styleClassName,
+        });
+        baseLeafFrameStylesByClass = new Map(leafFrameStyles);
+        outFrames.push({
+          name,
+          styleClassName: frame.styleClassName,
+          meshHtml,
+          meshCss,
+          assets,
+          leafMetadata,
+          leafFrameStyles,
+          leafCount: handle.element.querySelectorAll("b,i,s,u").length,
+          atlasLeafCount: handle.element.querySelectorAll("s").length,
+          polygonCount: frame.polygons.length,
+        });
+        continue;
+      }
+      const { leafFrameStyles } = extractRenderBundleFrameStyles(handle.element, {
         styleClassName: frame.styleClassName,
+        baseLeafFrameStylesByClass,
       });
       outFrames.push({
-        name: frame.name ?? `frame-${index}`,
+        name,
         styleClassName: frame.styleClassName,
-        meshHtml,
-        meshCss,
-        assets,
-        leafMetadata,
         leafFrameStyles,
         leafCount: handle.element.querySelectorAll("b,i,s,u").length,
         atlasLeafCount: handle.element.querySelectorAll("s").length,
@@ -164,8 +188,171 @@ async function waitForBakedTextureLeaves(mesh) {
   }
 }
 
+const quakeAtlasImageDataCache = new Map();
+
+async function tightenQuakeAtlasLeaves(mesh, boundsByKey = null) {
+  const leaves = [...mesh.querySelectorAll("s")];
+  if (!leaves.length) return boundsByKey ?? new Map();
+  const outBoundsByKey = boundsByKey ?? new Map();
+  await Promise.all(leaves.map((leaf) => tightenQuakeAtlasLeaf(leaf, outBoundsByKey, Boolean(boundsByKey))));
+  return outBoundsByKey;
+}
+
+async function tightenQuakeAtlasLeaf(leaf, boundsByKey, useExistingBounds) {
+  const win = leaf.ownerDocument.defaultView ?? window;
+  const style = win.getComputedStyle(leaf);
+  const atlasSize = cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
+    cssPixelValue(style.width) ||
+    64;
+  const position = cssPixelPair(style.backgroundPosition, style.backgroundPositionX, style.backgroundPositionY);
+  const size = cssPixelPair(style.backgroundSize);
+  const matrix = parseMatrix3d(leaf.style.transform || style.transform);
+  if (!position || !size || !matrix || atlasSize <= 0 || size[0] <= 0 || size[1] <= 0) return;
+  const key = quakeAtlasLeafKey(leaf);
+  let bounds = key ? boundsByKey.get(key) : null;
+  if (!bounds && !useExistingBounds) {
+    const imageUrl = cssUrlValue(style.backgroundImage);
+    if (!imageUrl) return;
+    const atlas = await loadQuakeAtlasImageData(imageUrl);
+    if (!atlas) return;
+    bounds = atlasLeafAlphaBounds(atlas, atlasSize, position, size);
+    if (bounds && key) boundsByKey.set(key, bounds);
+  }
+  if (!bounds) return;
+  const fullArea = atlasSize * atlasSize;
+  const tightArea = bounds.width * bounds.height;
+  if (tightArea <= 0 || tightArea >= fullArea * 0.985) return;
+  const nextMatrix = translateMatrix3d(matrix, bounds.x, bounds.y);
+  leaf.style.transform = formatMatrix3d(nextMatrix);
+  leaf.style.width = `${roundCssPx(bounds.width)}px`;
+  leaf.style.height = `${roundCssPx(bounds.height)}px`;
+  leaf.style.background = `${style.backgroundImage} ${roundCssPx(position[0] - bounds.x)}px ` +
+    `${roundCssPx(position[1] - bounds.y)}px / ${roundCssPx(size[0])}px ${roundCssPx(size[1])}px no-repeat`;
+}
+
+function quakeAtlasLeafKey(leaf) {
+  const polyIndex = leaf.getAttribute("data-poly-index");
+  if (polyIndex) return `p:${polyIndex}`;
+  const leafClass = [...leaf.classList].find((className) => /^q[a-z0-9]+$/i.test(className));
+  return leafClass ? `c:${leafClass}` : "";
+}
+
+async function loadQuakeAtlasImageData(url) {
+  let cached = quakeAtlasImageDataCache.get(url);
+  if (cached) return cached;
+  cached = (async () => {
+    const image = new Image();
+    image.decoding = "async";
+    image.src = url;
+    await (image.decode?.() ?? new Promise((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error(`Could not load atlas image ${url}.`));
+    }));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, image.naturalWidth || image.width || 1);
+    canvas.height = Math.max(1, image.naturalHeight || image.height || 1);
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return null;
+    context.drawImage(image, 0, 0);
+    return {
+      width: canvas.width,
+      height: canvas.height,
+      data: context.getImageData(0, 0, canvas.width, canvas.height).data,
+    };
+  })();
+  quakeAtlasImageDataCache.set(url, cached);
+  return cached;
+}
+
+function atlasLeafAlphaBounds(atlas, atlasSize, position, backgroundSize) {
+  const [positionX, positionY] = position;
+  const [backgroundWidth, backgroundHeight] = backgroundSize;
+  const sourceLeft = Math.max(0, Math.floor((-positionX / backgroundWidth) * atlas.width) - 1);
+  const sourceTop = Math.max(0, Math.floor((-positionY / backgroundHeight) * atlas.height) - 1);
+  const sourceRight = Math.min(
+    atlas.width,
+    Math.ceil(((atlasSize - positionX) / backgroundWidth) * atlas.width) + 1,
+  );
+  const sourceBottom = Math.min(
+    atlas.height,
+    Math.ceil(((atlasSize - positionY) / backgroundHeight) * atlas.height) + 1,
+  );
+  if (sourceRight <= sourceLeft || sourceBottom <= sourceTop) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let y = sourceTop; y < sourceBottom; y++) {
+    for (let x = sourceLeft; x < sourceRight; x++) {
+      const alpha = atlas.data[(y * atlas.width + x) * 4 + 3];
+      if (alpha <= 2) continue;
+      const localX = ((x + 0.5) / atlas.width) * backgroundWidth + positionX;
+      const localY = ((y + 0.5) / atlas.height) * backgroundHeight + positionY;
+      if (localX < -1 || localY < -1 || localX > atlasSize + 1 || localY > atlasSize + 1) continue;
+      minX = Math.min(minX, localX);
+      minY = Math.min(minY, localY);
+      maxX = Math.max(maxX, localX);
+      maxY = Math.max(maxY, localY);
+    }
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return null;
+  }
+  const padding = 1;
+  const x = Math.max(0, Math.floor(minX - padding));
+  const y = Math.max(0, Math.floor(minY - padding));
+  const right = Math.min(atlasSize, Math.ceil(maxX + padding));
+  const bottom = Math.min(atlasSize, Math.ceil(maxY + padding));
+  if (right <= x || bottom <= y) return null;
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+function cssUrlValue(value) {
+  const match = /^url\((?:"([^"]+)"|'([^']+)'|([^)]*))\)$/.exec(value.trim());
+  return match ? (match[1] ?? match[2] ?? match[3] ?? "").trim() : "";
+}
+
+function cssPixelPair(value, fallbackX = "", fallbackY = "") {
+  const parts = value && value !== "normal"
+    ? value.trim().split(/\s+/)
+    : [fallbackX, fallbackY].filter(Boolean);
+  if (parts.length === 1) parts.push(parts[0]);
+  const x = cssPixelValue(parts[0]);
+  const y = cssPixelValue(parts[1]);
+  return x === null || y === null ? null : [x, y];
+}
+
+function cssPixelValue(value) {
+  const match = /^(-?\d+(?:\.\d+)?)px$/.exec(String(value).trim());
+  return match ? Number(match[1]) : null;
+}
+
+function parseMatrix3d(value) {
+  const match = /^matrix3d\(([^)]+)\)$/.exec(String(value).trim());
+  if (!match) return null;
+  const values = match[1].split(",").map((part) => Number(part.trim()));
+  return values.length === 16 && values.every(Number.isFinite) ? values : null;
+}
+
+function translateMatrix3d(matrix, localX, localY) {
+  const next = [...matrix];
+  next[12] += matrix[0] * localX + matrix[4] * localY;
+  next[13] += matrix[1] * localX + matrix[5] * localY;
+  next[14] += matrix[2] * localX + matrix[6] * localY;
+  next[15] += matrix[3] * localX + matrix[7] * localY;
+  return next;
+}
+
+function formatMatrix3d(values) {
+  return `matrix3d(${values.map((value) => Number(value.toFixed(6))).join(",")})`;
+}
+
+function roundCssPx(value) {
+  return Number(value.toFixed(3));
+}
+
 async function serializeMeshWithAssets(mesh, options = {}) {
-  const serializableMesh = mesh.cloneNode(true);
+  const serializableMesh = options.mutateOriginal ? mesh : mesh.cloneNode(true);
   const leafMetadata = extractRenderBundleLeafMetadata(serializableMesh);
   stripRenderBundleMeshMetadata(serializableMesh, {
     preserveLeafPolyIndex: Boolean(options.extractLeafStyles),
@@ -196,12 +383,7 @@ async function serializeMeshWithAssets(mesh, options = {}) {
   const assets = [];
   for (const asset of assetByBlobUrl.values()) {
     const response = await fetch(asset.blobUrl);
-    const sourceBlob = await response.blob();
-    const blob = await transcodeImageBlob(
-      sourceBlob,
-      QUAKE_RENDER_BUNDLE_ASSET_MIME,
-      QUAKE_RENDER_BUNDLE_ASSET_QUALITY,
-    );
+    const blob = await response.blob();
     assets.push({
       placeholder: asset.placeholder,
       mime: blob.type || "image/png",
@@ -216,6 +398,31 @@ async function serializeMeshWithAssets(mesh, options = {}) {
     leafMetadata,
     leafFrameStyles,
   };
+}
+
+function extractRenderBundleFrameStyles(mesh, options = {}) {
+  const serializableMesh = mesh.cloneNode(true);
+  stripRenderBundleMeshMetadata(serializableMesh, {
+    preserveLeafPolyIndex: true,
+  });
+  hoistRenderBundleBackgroundImages(serializableMesh);
+  const { leafFrameStyles } = extractRenderBundleLeafStyles(serializableMesh, options.styleClassName);
+  return {
+    leafFrameStyles: inheritRenderBundleFrameStyleBackgrounds(
+      leafFrameStyles,
+      options.baseLeafFrameStylesByClass ?? new Map(),
+    ),
+  };
+}
+
+function inheritRenderBundleFrameStyleBackgrounds(leafFrameStyles, baseLeafFrameStylesByClass) {
+  return leafFrameStyles.map(([leafClass, frameStyle]) => {
+    const baseFrameStyle = baseLeafFrameStylesByClass.get(leafClass);
+    const background = baseFrameStyle?.[1] ?? frameStyle[1];
+    return background
+      ? [leafClass, [frameStyle[0] ?? "", background, frameStyle[2] ?? ""]]
+      : [leafClass, frameStyle];
+  });
 }
 
 function extractRenderBundleLeafMetadata(mesh) {
@@ -443,26 +650,6 @@ function stripRenderBundleStyleMetadata(style) {
       !/^background-repeat\s*:\s*no-repeat$/i.test(part)
     )
     .join(";");
-}
-
-async function transcodeImageBlob(blob, mime, quality) {
-  if (!mime || blob.type === mime) return blob;
-  if (typeof createImageBitmap !== "function") return blob;
-  const bitmap = await createImageBitmap(blob);
-  try {
-    const canvas = document.createElement("canvas");
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    const context = canvas.getContext("2d");
-    if (!context) return blob;
-    context.drawImage(bitmap, 0, 0);
-    const converted = await new Promise((resolve) => {
-      canvas.toBlob(resolve, mime, quality);
-    });
-    return converted || blob;
-  } finally {
-    bitmap.close?.();
-  }
 }
 
 function blobToBase64(blob) {

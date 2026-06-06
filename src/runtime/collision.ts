@@ -38,6 +38,7 @@ interface WallSegment {
 export interface QuakeCollisionWorld {
   floorAt(x: number, y: number, maxZ?: number, minZ?: number): number | null;
   floorContactAt?(x: number, y: number, maxZ?: number, minZ?: number): QuakeFloorContact | null;
+  staticFloorAt(x: number, y: number, maxZ?: number, minZ?: number): number | null;
   contentsAt?(point: Vec3): number | null;
   traceUse?(start: Vec3, end: Vec3): QuakeUseTrace | null;
   playerIntersectsBrush?(entityIndex: number, offset: Vec3, origin: [number, number, number]): boolean;
@@ -106,6 +107,16 @@ interface QuakeClipBrush {
   targetname?: string;
 }
 
+interface QuakeStaticGroundGrid {
+  cellSize: number;
+  height: number;
+  nullSample: number;
+  origin: [number, number];
+  samples: Int16Array;
+  width: number;
+  zScale: number;
+}
+
 export interface QuakeTouchedTrigger {
   entityIndex: number;
   modelIndex: number;
@@ -128,7 +139,12 @@ const COLLISION_FLOOR_EDGE_SNAP = 1 * QUAKE_COLLISION_UNIT_SCALE;
 export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision): QuakeCollisionWorld | null {
   const runtime = collision.runtime;
   if (!runtime.brushes.length || !runtime.planes.length) return null;
+  const preparedGroundGrid = runtime.groundGrid;
+  if (!preparedGroundGrid) {
+    throw new Error("Prepared Quake collision is missing runtime.groundGrid. Regenerate the Quake assets.");
+  }
   const hullMinsZ = runtime.hullMinsZ;
+  const groundGrid = decodeQuakeStaticGroundGrid(preparedGroundGrid);
   const planes = runtime.planes.map((plane): QuakeClipPlane => ({
     normal: [...plane.normal] as Vec3,
     dist: plane.dist,
@@ -405,6 +421,17 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
     return floorTraceAt(x, y, maxZ, minZ)?.z ?? null;
   }
 
+  function staticFloorAt(x: number, y: number, maxZ = Infinity, minZ = -Infinity): number | null {
+    const column = Math.round((x - groundGrid.origin[0]) / groundGrid.cellSize);
+    const row = Math.round((y - groundGrid.origin[1]) / groundGrid.cellSize);
+    if (column < 0 || row < 0 || column >= groundGrid.width || row >= groundGrid.height) return null;
+    const sample = groundGrid.samples[row * groundGrid.width + column];
+    if (sample === undefined || sample === groundGrid.nullSample) return null;
+    const z = sample * groundGrid.zScale;
+    if (z > maxZ + COLLISION_EPSILON || z < minZ - COLLISION_EPSILON) return null;
+    return z;
+  }
+
   function floorContactAt(x: number, y: number, maxZ = Infinity, minZ = -Infinity): QuakeFloorContact | null {
     const floor = floorTraceAt(x, y, maxZ, minZ);
     if (!floor) return null;
@@ -664,7 +691,17 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
     return { position: from, blocked };
   }
 
-  return { floorAt, floorContactAt, contentsAt, traceUse, playerIntersectsBrush, resolve, touchingTriggers, setBrushOffset };
+  return {
+    floorAt,
+    floorContactAt,
+    staticFloorAt,
+    contentsAt,
+    traceUse,
+    playerIntersectsBrush,
+    resolve,
+    touchingTriggers,
+    setBrushOffset,
+  };
 }
 
 export function buildQuakeCollisionWorld(polygons: Polygon[]): QuakeCollisionWorld {
@@ -861,7 +898,40 @@ export function buildQuakeCollisionWorld(polygons: Polygon[]): QuakeCollisionWor
     return false;
   }
 
-  return { floorAt, resolve };
+  return { floorAt, staticFloorAt: floorAt, resolve };
+}
+
+function decodeQuakeStaticGroundGrid(
+  grid: QuakePreparedCollision["runtime"]["groundGrid"],
+): QuakeStaticGroundGrid {
+  const sampleCount = grid.width * grid.height;
+  const bytes = base64ToBytes(grid.samples);
+  if (bytes.byteLength < sampleCount * 2) {
+    throw new Error("Quake prepared ground grid sample data is truncated.");
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const samples = new Int16Array(sampleCount);
+  for (let index = 0; index < sampleCount; index++) {
+    samples[index] = view.getInt16(index * 2, true);
+  }
+  return {
+    cellSize: grid.cellSize,
+    height: grid.height,
+    nullSample: grid.nullSample,
+    origin: [...grid.origin] as [number, number],
+    samples,
+    width: grid.width,
+    zScale: grid.zScale,
+  };
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 function polygonNormal(vertices: Vec3[]): Vec3 {

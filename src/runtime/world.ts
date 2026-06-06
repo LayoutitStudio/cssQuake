@@ -14,6 +14,7 @@ import {
   recordQuakeWorldVisibilitySync,
   type QuakeWorldVisibilityChurnStats,
 } from "./debug/churnStats";
+import { markQuakeTrace } from "./debug/traceMarks";
 import { mountQuakeRenderBundleMesh, stripPolyMeshMetadata } from "./renderBundleMesh";
 
 const QUAKE_LEAF_PRESENTATION_RESYNC_DELAYS = [0, 80, 300] as const;
@@ -207,6 +208,15 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
         visibleFaceKey = "all";
       }
       recordQuakeWorldVisibilitySync(visibilityChurn, "no-pvs", startedAt, { force, addedLeaves, removedLeaves });
+      if (force || addedLeaves > 0 || removedLeaves > 0) {
+        markQuakeTrace("world-visibility", {
+          reason: "no-pvs",
+          force,
+          addedLeaves,
+          removedLeaves,
+          mountedLeaves: quakeLeaves.length,
+        });
+      }
       return;
     }
 
@@ -230,6 +240,13 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     recordQuakeWorldVisibilitySync(visibilityChurn, force ? "force" : "leaf-change", startedAt, {
       force,
       pvsFaceCount: visibleFaces.size,
+      addedLeaves,
+      removedLeaves,
+    });
+    markQuakeTrace("world-visibility", {
+      reason: force ? "force" : "leaf-change",
+      force,
+      pvsFaces: visibleFaces.size,
       addedLeaves,
       removedLeaves,
     });

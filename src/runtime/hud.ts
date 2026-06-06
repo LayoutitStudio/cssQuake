@@ -25,6 +25,7 @@ export interface QuakeHudElements {
   root: HTMLElement | null;
   armor: HTMLElement | null;
   health: HTMLElement | null;
+  healthDamage: HTMLElement | null;
   ammo: HTMLElement | null;
   keys: HTMLElement | null;
 }
@@ -47,15 +48,14 @@ export function syncQuakeHud(elements: QuakeHudElements, inventory: QuakePlayerI
   const ammo = formatHudNumber(inventory.shells);
   setHudValue(elements.armor, armor);
   setHudValue(elements.health, health);
+  setHudValue(elements.healthDamage, health);
   setHudValue(elements.ammo, ammo);
   if (elements.root) {
-    elements.root.dataset.state = inventory.health <= 25 ? "critical" : inventory.health <= 50 ? "hurt" : "ok";
+    setHudDatasetValue(elements.root, "state", inventory.health <= 25 ? "critical" : inventory.health <= 50 ? "hurt" : "ok");
     setHudFlag(elements.root, "silver", inventory.keys.has("silver"));
     setHudFlag(elements.root, "gold", inventory.keys.has("gold"));
-    elements.root.setAttribute(
-      "aria-label",
-      `Quake status: armor ${Math.max(0, Math.round(inventory.armor))}, health ${Math.max(0, Math.round(inventory.health))}, shells ${Math.max(0, Math.round(inventory.shells))}`,
-    );
+    const label = `Quake status: armor ${Math.max(0, Math.round(inventory.armor))}, health ${Math.max(0, Math.round(inventory.health))}, shells ${Math.max(0, Math.round(inventory.shells))}`;
+    if (elements.root.getAttribute("aria-label") !== label) elements.root.setAttribute("aria-label", label);
   }
 }
 
@@ -83,17 +83,27 @@ function setHudValue(element: HTMLElement | null, value: string): void {
   for (let i = 0; i < digits.length; i++) {
     const digit = value[i] ?? " ";
     if (digit >= "0" && digit <= "9") {
-      digits[i].dataset.digit = digit;
+      setHudDatasetValue(digits[i], "digit", digit);
     } else {
-      delete digits[i].dataset.digit;
+      removeHudDatasetValue(digits[i], "digit");
     }
   }
 }
 
 function setHudFlag(element: HTMLElement, flag: string, enabled: boolean): void {
   if (enabled) {
-    element.dataset[flag] = "true";
+    setHudDatasetValue(element, flag, "true");
   } else {
-    delete element.dataset[flag];
+    removeHudDatasetValue(element, flag);
   }
+}
+
+function setHudDatasetValue(element: HTMLElement, key: string, value: string): void {
+  if (element.dataset[key] === value) return;
+  element.dataset[key] = value;
+}
+
+function removeHudDatasetValue(element: HTMLElement, key: string): void {
+  if (element.dataset[key] === undefined) return;
+  delete element.dataset[key];
 }

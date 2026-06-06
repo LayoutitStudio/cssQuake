@@ -31,6 +31,7 @@ import {
   type QuakeTouchedTrigger,
 } from "./runtime/collision";
 import { installQuakeDebugHooks } from "./runtime/debug/quakeDebug";
+import { markQuakeTrace } from "./runtime/debug/traceMarks";
 import { quakeDoorGroupKeyRequirement, quakePlayerHasDoorKey } from "./runtime/doors";
 import {
   quakeEntityNumber,
@@ -82,18 +83,24 @@ declare const __CSSQUAKE_VERSION__: string;
 
 const host = document.getElementById("quake-host") as HTMLElement;
 const viewmodelLayer = document.getElementById("quake-viewmodel-layer") as HTMLElement | null;
-const mainMenu = document.getElementById("quake-main-menu") as HTMLButtonElement | null;
+const mainMenu = document.getElementById("quake-main-menu") as HTMLElement | null;
 const mainMenuArt = document.getElementById("quake-main-menu-art") as HTMLElement | null;
 const audioToggle = document.getElementById("quake-audio-toggle") as HTMLButtonElement | null;
 const versionLabel = document.getElementById("cssquake-version") as HTMLElement | null;
+const mainMenuVersionLabel = document.getElementById("quake-main-menu-version") as HTMLElement | null;
 const levelPanel = document.getElementById("quake-level-panel") as HTMLElement | null;
 const levelList = document.getElementById("quake-level-list") as HTMLElement | null;
 const aboutPanel = document.getElementById("quake-about-panel") as HTMLElement | null;
 const optionsPanel = document.getElementById("quake-options-panel") as HTMLElement | null;
+const disableSoundOption = document.getElementById("quake-option-disable-sound") as HTMLInputElement | null;
+const disableEnemiesOption = document.getElementById("quake-option-disable-enemies") as HTMLInputElement | null;
+const disableDamageOption = document.getElementById("quake-option-disable-damage") as HTMLInputElement | null;
+const invertMouseOption = document.getElementById("quake-option-invert-mouse") as HTMLInputElement | null;
 const loadingOverlay = document.getElementById("quake-loading-overlay") as HTMLElement | null;
 const loadingStatus = document.getElementById("quake-loading-status") as HTMLElement | null;
 const hudArmorValue = document.getElementById("quake-hud-armor-value") as HTMLElement | null;
 const hudHealthValue = document.getElementById("quake-hud-health-value") as HTMLElement | null;
+const hudHealthDamageValue = document.getElementById("quake-hud-health-damage-value") as HTMLElement | null;
 const hudAmmoValue = document.getElementById("quake-hud-ammo-value") as HTMLElement | null;
 const hudKeysValue = document.getElementById("quake-hud-keys-value") as HTMLElement | null;
 const classicHud = document.getElementById("quake-classic-hud") as HTMLElement | null;
@@ -102,13 +109,28 @@ const hudElements: QuakeHudElements = {
   root: classicHud,
   armor: hudArmorValue,
   health: hudHealthValue,
+  healthDamage: hudHealthDamageValue,
   ammo: hudAmmoValue,
   keys: hudKeysValue,
 };
+const QUAKE_HUD_DAMAGE_CUE_MS = 900;
+let quakeHudDamageTimer: number | null = null;
+let quakeHudDamageCueActive = false;
 const QUAKE_ASSET_ROOT = "/q";
 const QUAKE_MANIFEST_URL = `${QUAKE_ASSET_ROOT}/manifest.json`;
 
-if (versionLabel) versionLabel.textContent = `v${__CSSQUAKE_VERSION__}`;
+function setQuakeHudDamageCue(active: boolean): void {
+  if (quakeHudDamageCueActive === active) return;
+  quakeHudDamageCueActive = active;
+  markQuakeTrace("hud-damage-cue", { active });
+  setInlineStyleValue(hudHealthValue, "visibility", active ? "hidden" : "");
+  setInlineStyleValue(hudHealthDamageValue, "visibility", active ? "visible" : "");
+}
+
+const cssQuakeVersionLabel = `Version ${__CSSQUAKE_VERSION__}`;
+
+if (versionLabel) versionLabel.textContent = cssQuakeVersionLabel;
+if (mainMenuVersionLabel) mainMenuVersionLabel.textContent = cssQuakeVersionLabel;
 
 interface QuakeAssetManifestMap {
   mapName: string;
@@ -246,6 +268,9 @@ const QUAKE_MONSTER_RUNTIME_ENABLED = true;
 const QUAKE_MONSTER_MOUNT_VIEW_DOT_MIN = -0.1;
 let quakeAssetManifest = FALLBACK_QUAKE_ASSET_MANIFEST;
 let quakeMapUrls = quakeSceneUrlMap(quakeAssetManifest);
+let quakeEnemiesDisabled = disableEnemiesOption?.checked ?? false;
+let quakeDamageDisabled = disableDamageOption?.checked ?? false;
+let quakeInvertMouse = invertMouseOption?.checked ?? false;
 
 function mountQuakeLevelSelector(renderBitmapText = false): void {
   if (!levelList) return;
@@ -322,6 +347,7 @@ const controls = createPolyFirstPersonControls(scene, {
   groundZ: 0,
   moveSpeed: 5.4 * QUAKE_RENDER_SUPERSAMPLE,
   lookSensitivity: 0.12,
+  invertY: quakeInvertMouse,
   jumpEnabled: true,
   crouchEnabled: false,
   jumpVelocity: QUAKE_JUMP_VELOCITY,
@@ -378,11 +404,15 @@ const viewmodel = createQuakeViewmodelController({
 const shootables = createQuakeShootablesController({
   addMesh: addQuakeShootableMesh,
   damagePlayer: (amount) => getPlayer().damage(amount),
+  floorAt: (x, y, maxZ, minZ) =>
+    currentCollisionWorld?.staticFloorAt(x, y, maxZ, minZ) ??
+    currentCollisionWorld?.floorAt(x, y, maxZ, minZ) ??
+    null,
   getPlayerOrigin: () => getPlayer().currentOrigin(),
   hasLineOfSight: quakeLineOfSight,
   isInPlayerView: isQuakePointInPlayerView,
   leafIndexAt: world.leafIndexAt,
-  monsterRuntimeEnabled: () => QUAKE_MONSTER_RUNTIME_ENABLED,
+  monsterRuntimeEnabled: () => QUAKE_MONSTER_RUNTIME_ENABLED && !quakeEnemiesDisabled,
   pointToPoly: quakePointToPoly,
   shouldSpawn: shouldSpawnQuakeEntityForCurrentGame,
   pixelate: world.pixelate,
@@ -450,6 +480,7 @@ const weapons = createQuakeWeaponsController({
 });
 player = createQuakePlayerController({
   activateSolidTouch,
+  canTakeDamage: () => !quakeDamageDisabled,
   controls,
   getCollisionWorld: () => currentCollisionWorld,
   getCurrentScene: () => currentResult,
@@ -457,11 +488,16 @@ player = createQuakePlayerController({
   jumpVelocity: QUAKE_JUMP_VELOCITY,
   onDamageFlash: (active) => {
     if (!active) {
-      delete document.body.dataset.damage;
+      if (quakeHudDamageTimer === null) setQuakeHudDamageCue(false);
       return;
     }
-    void host.offsetWidth;
-    document.body.dataset.damage = "true";
+    const damageCueActive = quakeHudDamageTimer !== null;
+    if (quakeHudDamageTimer !== null) window.clearTimeout(quakeHudDamageTimer);
+    if (!damageCueActive) setQuakeHudDamageCue(true);
+    quakeHudDamageTimer = window.setTimeout(() => {
+      setQuakeHudDamageCue(false);
+      quakeHudDamageTimer = null;
+    }, QUAKE_HUD_DAMAGE_CUE_MS);
     audio.playEvent("pain", { volume: 0.58 });
   },
   onHazardState: () => undefined,
@@ -514,13 +550,20 @@ let quakeSoundManifestPromise: Promise<void> | null = null;
 
 interface QuakeStatsPanel {
   value: HTMLElement;
-  bar: HTMLElement;
+  canvas: HTMLCanvasElement;
+  context: CanvasRenderingContext2D;
+  history: number[];
   max: number;
   label: string;
+  fg: string;
 }
 
 const FPS_SAMPLE_MS = 1000;
 const MS_SAMPLE_MS = 500;
+const STATS_GRAPH_COLUMNS = 40;
+const STATS_GRAPH_COLUMN_WIDTH = 2;
+const STATS_GRAPH_WIDTH = STATS_GRAPH_COLUMNS * STATS_GRAPH_COLUMN_WIDTH;
+const STATS_GRAPH_HEIGHT = 30;
 const QUAKE_HAZARD_FOOT_SAMPLE_Z = 2 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_CHANGELEVEL_DELAY_MS = 850;
 const QUAKE_HUD_MESSAGE_MS = 2600;
@@ -547,22 +590,60 @@ function makeParseResult(polygons: Polygon[]): ParseResult {
 }
 
 function syncQuakeHud(): void {
-  syncQuakeHudElements(hudElements, getPlayer().inventory());
+  const inventory = getPlayer().inventory();
+  markQuakeTrace("hud-sync", {
+    health: inventory.health,
+    armor: inventory.armor,
+    shells: inventory.shells,
+  });
+  syncQuakeHudElements(hudElements, inventory);
+}
+
+function setQuakeAudioMuted(muted: boolean): void {
+  audio.setMuted(muted);
+  syncQuakeAudioToggle();
+  if (!muted) void ensureQuakeSoundManifestLoaded();
 }
 
 function toggleQuakeAudioMuted(): void {
-  audio.toggleMuted();
-  syncQuakeAudioToggle();
-  if (!audio.isMuted()) void ensureQuakeSoundManifestLoaded();
+  setQuakeAudioMuted(!audio.isMuted());
 }
 
 function syncQuakeAudioToggle(): void {
-  if (!audioToggle) return;
   const muted = audio.isMuted();
-  audioToggle.dataset.muted = String(muted);
-  audioToggle.setAttribute("aria-pressed", String(muted));
-  audioToggle.setAttribute("aria-label", muted ? "Unmute audio" : "Mute audio");
-  audioToggle.title = muted ? "Unmute audio (M)" : "Mute audio (M)";
+  if (disableSoundOption) disableSoundOption.checked = muted;
+  if (!audioToggle) return;
+  const mutedValue = String(muted);
+  setElementDatasetValue(audioToggle, "muted", mutedValue);
+  setElementAttributeValue(audioToggle, "aria-pressed", mutedValue);
+  setElementAttributeValue(audioToggle, "aria-label", muted ? "Unmute audio" : "Mute audio");
+  if (audioToggle.title !== (muted ? "Unmute audio (M)" : "Mute audio (M)")) {
+    audioToggle.title = muted ? "Unmute audio (M)" : "Mute audio (M)";
+  }
+}
+
+function setQuakeEnemiesDisabled(disabled: boolean): void {
+  quakeEnemiesDisabled = disabled;
+  if (disableEnemiesOption) disableEnemiesOption.checked = disabled;
+  shootables.syncMonsterRuntime();
+}
+
+function setQuakeDamageDisabled(disabled: boolean): void {
+  quakeDamageDisabled = disabled;
+  if (disableDamageOption) disableDamageOption.checked = disabled;
+}
+
+function setQuakeInvertMouse(invert: boolean): void {
+  quakeInvertMouse = invert;
+  if (invertMouseOption) invertMouseOption.checked = invert;
+  controls.update({ invertY: invert });
+}
+
+function syncQuakeOptionControls(): void {
+  syncQuakeAudioToggle();
+  if (disableEnemiesOption) disableEnemiesOption.checked = quakeEnemiesDisabled;
+  if (disableDamageOption) disableDamageOption.checked = quakeDamageDisabled;
+  if (invertMouseOption) invertMouseOption.checked = quakeInvertMouse;
 }
 
 function clearQuakeLevelLoadTimer(): void {
@@ -696,6 +777,8 @@ function addQuakePickupMesh(entity: QuakeEntity, model?: QuakePickupModel, frame
   if (!handle) return null;
   handle.element.classList.add("pickup");
   stripPolyMeshMetadata(handle.element);
+  handle.element.dataset.entityIndex = String(entity.index);
+  handle.element.dataset.classname = entity.classname;
   const angle = entity.angle ?? quakeEntityNumber(entity, "angle", 0);
   handle.setTransform({
     position: quakePointToPoly(entity.origin),
@@ -1448,19 +1531,44 @@ function syncQuakeCrosshairTarget(): void {
   }
   const trace = weapons.viewTraceAtCrosshair(QUAKE_BUTTON_USE_RANGE);
   if (weapons.traceIsActionable(trace)) {
-    document.body.dataset.action = trace.classname ?? "action";
+    setElementDatasetValue(document.body, "action", trace.classname ?? "action");
     return;
   }
   const weaponTrace = weapons.weaponTraceAtCrosshair();
   if (weapons.traceIsShootable(weaponTrace)) {
-    document.body.dataset.action = weaponTrace.classname ?? "action";
+    setElementDatasetValue(document.body, "action", weaponTrace.classname ?? "action");
     return;
   }
   clearQuakeCrosshairTarget();
 }
 
 function clearQuakeCrosshairTarget(): void {
-  delete document.body.dataset.action;
+  removeElementDatasetValue(document.body, "action");
+}
+
+function setInlineStyleValue(element: HTMLElement | null, property: string, value: string): void {
+  if (!element) return;
+  if (element.style.getPropertyValue(property) === value) return;
+  if (value) {
+    element.style.setProperty(property, value);
+  } else {
+    element.style.removeProperty(property);
+  }
+}
+
+function setElementDatasetValue(element: HTMLElement, key: string, value: string): void {
+  if (element.dataset[key] === value) return;
+  element.dataset[key] = value;
+}
+
+function removeElementDatasetValue(element: HTMLElement, key: string): void {
+  if (element.dataset[key] === undefined) return;
+  delete element.dataset[key];
+}
+
+function setElementAttributeValue(element: HTMLElement, name: string, value: string): void {
+  if (element.getAttribute(name) === value) return;
+  element.setAttribute(name, value);
 }
 
 function handleQuakeAudioToggleClick(event: MouseEvent): void {
@@ -1468,6 +1576,23 @@ function handleQuakeAudioToggleClick(event: MouseEvent): void {
   event.stopPropagation();
   audio.unlock();
   toggleQuakeAudioMuted();
+}
+
+function handleQuakeDisableSoundOptionChange(event: Event): void {
+  audio.unlock();
+  setQuakeAudioMuted((event.currentTarget as HTMLInputElement).checked);
+}
+
+function handleQuakeDisableEnemiesOptionChange(event: Event): void {
+  setQuakeEnemiesDisabled((event.currentTarget as HTMLInputElement).checked);
+}
+
+function handleQuakeDisableDamageOptionChange(event: Event): void {
+  setQuakeDamageDisabled((event.currentTarget as HTMLInputElement).checked);
+}
+
+function handleQuakeInvertMouseOptionChange(event: Event): void {
+  setQuakeInvertMouse((event.currentTarget as HTMLInputElement).checked);
 }
 
 function quakeOffsetCss(offset: Vec3): string {
@@ -1615,27 +1740,48 @@ function createStatsPanel(label: string, fg: string, bg: string, max: number): Q
 
   const graph = document.createElement("div");
   graph.style.position = "relative";
-  graph.style.height = "30px";
+  graph.style.height = `${STATS_GRAPH_HEIGHT}px`;
   graph.style.background = "#000";
   graph.style.overflow = "hidden";
 
-  const bar = document.createElement("div");
-  bar.style.position = "absolute";
-  bar.style.left = "0";
-  bar.style.bottom = "0";
-  bar.style.width = "100%";
-  bar.style.height = "0";
-  bar.style.background = fg;
-  graph.appendChild(bar);
+  const canvas = document.createElement("canvas");
+  canvas.width = STATS_GRAPH_WIDTH;
+  canvas.height = STATS_GRAPH_HEIGHT;
+  canvas.style.display = "block";
+  canvas.style.width = "100%";
+  canvas.style.height = `${STATS_GRAPH_HEIGHT}px`;
+  canvas.style.imageRendering = "pixelated";
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Stats panel canvas context unavailable.");
+  graph.appendChild(canvas);
   element.append(value, graph);
-  return { element, value, bar, max, label };
+  const panel = { element, value, canvas, context, history: [], max, label, fg };
+  drawStatsPanelGraph(panel);
+  return panel;
 }
 
 function updateStatsPanel(panel: QuakeStatsPanel, value: number): void {
   const rounded = Math.round(value);
   panel.value.textContent = `${rounded} ${panel.label}`;
-  const height = Math.max(0, Math.min(100, (value / panel.max) * 100));
-  panel.bar.style.height = `${height}%`;
+  panel.history.push(Math.max(0, Math.min(panel.max, value)));
+  while (panel.history.length > STATS_GRAPH_COLUMNS) panel.history.shift();
+  drawStatsPanelGraph(panel);
+}
+
+function drawStatsPanelGraph(panel: QuakeStatsPanel): void {
+  const { context } = panel;
+  context.clearRect(0, 0, STATS_GRAPH_WIDTH, STATS_GRAPH_HEIGHT);
+  context.fillStyle = "#000";
+  context.fillRect(0, 0, STATS_GRAPH_WIDTH, STATS_GRAPH_HEIGHT);
+  context.fillStyle = panel.fg;
+  const offset = STATS_GRAPH_COLUMNS - panel.history.length;
+  for (let index = 0; index < panel.history.length; index++) {
+    const value = panel.history[index] ?? 0;
+    const height = Math.round((value / panel.max) * STATS_GRAPH_HEIGHT);
+    const x = (offset + index) * STATS_GRAPH_COLUMN_WIDTH;
+    const y = STATS_GRAPH_HEIGHT - height;
+    context.fillRect(x, y, STATS_GRAPH_COLUMN_WIDTH, height);
+  }
 }
 
 async function fetchQuakeScene(url: string, mapName?: string): Promise<QuakeScene> {
@@ -1710,9 +1856,13 @@ async function waitForQuakePaintFrames(count: number): Promise<void> {
 
 function installQuakeAppDebugHooks(): void {
   installQuakeDebugHooks(import.meta.env.DEV, {
+    cameraRotation: () => ({
+      rotX: scene.camera.state.rotX ?? 88,
+      rotY: scene.camera.state.rotY ?? 270,
+    }),
     controls: {
       getOrigin: () => controls.getOrigin(),
-      setOrigin: (origin) => controls.setOrigin(origin),
+      setOrigin: (origin) => getPlayer().setDebugOrigin(origin),
     },
     currentMapName: () => currentMapName,
     entities: () => entityByIndex,
@@ -1772,7 +1922,10 @@ async function preloadQuakePickupModelRenderBundleAssets(
     const model = library.models[modelPath];
     if (!model) continue;
     if (model.renderBundle) bundles.add(model.renderBundle);
-    if (model.animationFrameSet) bundles.add(model.animationFrameSet.renderBundle);
+    const frameSet = quakePickupModelRenderBundleFrameSet(model);
+    if (frameSet) {
+      bundles.add(frameSet.renderBundle);
+    }
     for (const frame of model.animationFrames ?? []) bundles.add(frame.renderBundle);
   }
   await Promise.all([...bundles].map(preloadQuakeRenderBundleAssets));
@@ -1958,6 +2111,10 @@ function disposeQuakeApp(): void {
   window.visualViewport?.removeEventListener("resize", handleViewportResize);
   host.removeEventListener("pointerdown", handleQuakeUsePointerDown, { capture: true });
   audioToggle?.removeEventListener("click", handleQuakeAudioToggleClick);
+  disableSoundOption?.removeEventListener("change", handleQuakeDisableSoundOptionChange);
+  disableEnemiesOption?.removeEventListener("change", handleQuakeDisableEnemiesOptionChange);
+  disableDamageOption?.removeEventListener("change", handleQuakeDisableDamageOptionChange);
+  invertMouseOption?.removeEventListener("change", handleQuakeInvertMouseOptionChange);
   controls.removeEventListener("change", syncPlayerCollision);
   menu.dispose();
   audio.dispose();
@@ -1971,9 +2128,14 @@ window.visualViewport?.addEventListener("resize", handleViewportResize);
 
 host.addEventListener("pointerdown", handleQuakeUsePointerDown, { capture: true });
 audioToggle?.addEventListener("click", handleQuakeAudioToggleClick);
+disableSoundOption?.addEventListener("change", handleQuakeDisableSoundOptionChange);
+disableEnemiesOption?.addEventListener("change", handleQuakeDisableEnemiesOptionChange);
+disableDamageOption?.addEventListener("change", handleQuakeDisableDamageOptionChange);
+invertMouseOption?.addEventListener("change", handleQuakeInvertMouseOptionChange);
 controls.addEventListener("change", syncPlayerCollision);
 
 syncQuakeHud();
+syncQuakeOptionControls();
 installQuakeAppDebugHooks();
 
 void loadQuake().catch((error) => {

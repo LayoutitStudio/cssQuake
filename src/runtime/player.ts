@@ -10,6 +10,7 @@ import {
   STEP_HEIGHT,
 } from "./constants";
 import type { QuakeHazardDamage } from "./hazards";
+import { markQuakeTrace } from "./debug/traceMarks";
 import { createInitialInventory, type QuakePlayerInventory } from "./hud";
 import { distanceSq3, subtractVec3 } from "./math";
 
@@ -25,6 +26,7 @@ const QUAKE_DAMAGE_FLASH_MS = 260;
 
 export interface QuakePlayerControllerOptions {
   activateSolidTouch: (touch: QuakeTouchedTrigger) => void;
+  canTakeDamage: () => boolean;
   controls: PolyFirstPersonControlsHandle;
   getCollisionWorld: () => QuakeCollisionWorld | null;
   getCurrentScene: () => QuakeScene | null;
@@ -61,6 +63,7 @@ export interface QuakePlayerController {
   resetInventory: () => void;
   resetForSceneDispose: () => void;
   spawn: (spawn: QuakeScene["spawn"]) => void;
+  setDebugOrigin: (origin: [number, number, number]) => void;
   syncCollision: () => void;
   syncHazard: (hazard: QuakeHazardDamage | null) => boolean;
   teleportTo: (destination: QuakeEntity) => boolean;
@@ -101,11 +104,16 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
       window.clearTimeout(damageFlashTimer);
       damageFlashTimer = null;
     }
+    markQuakeTrace("damage-flash", { active: false });
     options.onDamageFlash(false);
   };
 
   const flashDamage = (): void => {
-    clearDamageFlash();
+    if (damageFlashTimer !== null) {
+      window.clearTimeout(damageFlashTimer);
+      damageFlashTimer = null;
+    }
+    markQuakeTrace("damage-flash", { active: true, durationMs: QUAKE_DAMAGE_FLASH_MS });
     options.onDamageFlash(true);
     damageFlashTimer = window.setTimeout(clearDamageFlash, QUAKE_DAMAGE_FLASH_MS);
   };
@@ -164,9 +172,17 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     return true;
   };
 
+  const setDebugOrigin = (origin: [number, number, number]): void => {
+    stopFalling();
+    stopPush();
+    setOrigin(origin, origin[2] - currentEyeHeight);
+  };
+
   const applyDamage = (amount: number): boolean => {
-    if (amount <= 0) return false;
-    inventory.health = Math.max(0, inventory.health - Math.round(amount));
+    if (amount <= 0 || !options.canTakeDamage()) return false;
+    const damage = Math.round(amount);
+    inventory.health = Math.max(0, inventory.health - damage);
+    markQuakeTrace("player-damage", { amount: damage, health: inventory.health, died: inventory.health <= 0 });
     options.onInventoryChanged();
     flashDamage();
     if (inventory.health > 0) return false;
@@ -255,10 +271,12 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     const now = performance.now();
     const delay = nextDamageAt - now;
     if (delay > 0) {
+      markQuakeTrace("hazard-delay", { kind: hazard.kind, delayMs: delay });
       scheduleHazardTick(delay);
       return false;
     }
 
+    markQuakeTrace("hazard-damage", { kind: hazard.kind, amount: hazard.amount });
     const died = applyDamage(hazard.amount);
     nextDamageAt = performance.now() + QUAKE_DAMAGE_INTERVAL_MS;
     if (!died) scheduleHazardTick(QUAKE_DAMAGE_INTERVAL_MS);
@@ -449,6 +467,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     jumpEnabled = true,
     landed = true,
   ): void => {
+    const previousGroundZ = currentGroundZ;
     syncingCollision = true;
     currentGroundZ = groundZ;
     options.controls.update({
@@ -462,6 +481,18 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     syncingCollision = false;
     lastValidOrigin = origin;
     if (landed) lastSafeOrigin = origin;
+    const groundDelta = groundZ - previousGroundZ;
+    if (Math.abs(groundDelta) > COLLISION_EPSILON || !landed) {
+      markQuakeTrace("player-origin", {
+        x: origin[0],
+        y: origin[1],
+        z: origin[2],
+        groundZ,
+        groundDz: groundDelta,
+        landed,
+        jumpEnabled,
+      });
+    }
   };
 
   const carryWithMover = (delta: Vec3, entityIndex: number): void => {
@@ -495,6 +526,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     resetInventory,
     resetForSceneDispose,
     spawn,
+    setDebugOrigin,
     syncCollision,
     syncHazard,
     teleportTo,

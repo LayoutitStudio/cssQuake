@@ -164,8 +164,10 @@ export function createQuakeViewmodelController({
   function setNozzleVisible(visible: boolean): void {
     if (!handle) return;
     if (visible) {
+      if (handle.element.dataset.nozzleVisible === "true") return;
       handle.element.dataset.nozzleVisible = "true";
     } else {
+      if (handle.element.dataset.nozzleVisible === undefined) return;
       delete handle.element.dataset.nozzleVisible;
     }
   }
@@ -196,15 +198,20 @@ export function createQuakeViewmodelController({
       : scene.camera.perspectiveStyle === "none"
         ? "1000000px"
         : scene.camera.perspectiveStyle;
-    layer.style.perspective = perspective;
-    layer.style.perspectiveOrigin = cameraStyle.perspectiveOrigin;
-    stage.style.top = `calc(50% + ${screenOffset().toFixed(3)}px)`;
-    stage.style.transform = mainSceneElement?.style.transform ?? "";
+    setStyleValue(layer, "perspective", perspective);
+    setStyleValue(layer, "perspective-origin", cameraStyle.perspectiveOrigin);
+    setStyleValue(stage, "top", `calc(50% + ${screenOffset().toFixed(3)}px)`);
+    setStyleValue(stage, "transform", mainSceneElement?.style.transform ?? "");
     const zoom = mainSceneElement?.style.getPropertyValue("zoom") ?? "";
-    if (zoom) {
-      stage.style.setProperty("zoom", zoom);
+    setStyleValue(stage, "zoom", zoom);
+  }
+
+  function setStyleValue(element: HTMLElement, property: string, value: string): void {
+    if (element.style.getPropertyValue(property) === value) return;
+    if (value) {
+      element.style.setProperty(property, value);
     } else {
-      stage.style.removeProperty("zoom");
+      element.style.removeProperty(property);
     }
   }
 

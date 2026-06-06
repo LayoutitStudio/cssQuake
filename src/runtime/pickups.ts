@@ -5,6 +5,7 @@ import type { QuakeInventoryDelta } from "./hud";
 import { QUAKE_COLLISION_UNIT_SCALE } from "./constants";
 import { quakeEntityNumber, quakeEntitySpawnflags } from "./entities";
 import {
+  isQuakeRenderBundleFrameSetHandle,
   setQuakeRenderBundleFrameSetHandleFrame,
   type QuakeRenderBundleFrameSet,
 } from "./renderBundleMesh";
@@ -216,7 +217,9 @@ export function createQuakePickupController(options: QuakePickupControllerOption
       if (animation.frameCount > 1 && now >= animation.nextFrameAt) {
         animation.frameIndex = (animation.frameIndex + 1) % animation.frameCount;
         animation.nextFrameAt = now + 1000 / QUAKE_PICKUP_ALIAS_ANIMATION_FPS;
-        if (!setQuakeRenderBundleFrameSetHandleFrame(pickup.handle, animation.frameIndex)) {
+        if (isQuakeRenderBundleFrameSetHandle(pickup.handle)) {
+          setQuakeRenderBundleFrameSetHandleFrame(pickup.handle, animation.frameIndex);
+        } else {
           const previousHandle = pickup.handle;
           const nextHandle = options.addMesh(pickup.entity, animation.model, animation.frameIndex);
           if (nextHandle) {

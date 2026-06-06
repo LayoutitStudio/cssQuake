@@ -285,7 +285,6 @@ export interface QuakePreparedRenderBundle {
   styleUrl?: string;
   styleClassName?: string;
   assetUrls: string[];
-  assetVariants?: QuakePreparedRenderBundleAssetVariant[];
   leafMetadata: QuakeRenderBundleLeafMetadata[];
   leafFrameStyles?: QuakeRenderBundleLeafFrameStyle[];
   leafFrameStylesUrl?: string;
@@ -307,12 +306,6 @@ export interface QuakeRenderBundleLeafMetadata {
   e?: number;
   t?: string;
   l?: string;
-}
-
-export interface QuakePreparedRenderBundleAssetVariant {
-  sourceUrl: string;
-  url: string;
-  mime: string;
 }
 
 export interface QuakePreparedVisibility {
@@ -374,12 +367,23 @@ export interface QuakePreparedCollision {
 }
 
 export interface QuakePreparedRuntimeCollision {
+  groundGrid: QuakePreparedRuntimeGroundGrid;
   hullMinsZ: number;
   pointHeadNode?: number;
   planes: QuakePreparedRuntimeCollisionPlane[];
   brushes: QuakePreparedRuntimeCollisionBrush[];
   solidBrushIndexes: number[];
   triggerBrushIndexes: number[];
+}
+
+export interface QuakePreparedRuntimeGroundGrid {
+  cellSize: number;
+  height: number;
+  nullSample: number;
+  origin: [number, number];
+  samples: string;
+  width: number;
+  zScale: number;
 }
 
 export interface QuakePreparedRuntimeCollisionPlane {
@@ -508,6 +512,14 @@ const QUAKE_COLLISION_HULL_DEFS: Array<{ mins: QuakeVertex; maxs: QuakeVertex }>
   { mins: { x: -32, y: -32, z: -24 }, maxs: { x: 32, y: 32, z: 64 } },
   { mins: { x: -16, y: -16, z: -24 }, maxs: { x: 16, y: 16, z: -8 } },
 ];
+const QUAKE_MAP_SPAWN_OVERRIDES = new Map<string, QuakeSpawn>([
+  ["maps/e1m1.bsp", { origin: { x: 480, y: -40, z: 30 }, angle: 90 }],
+]);
+const QUAKE_GROUND_GRID_CELL_SIZE = 0.5;
+const QUAKE_GROUND_GRID_Z_SCALE = 1 / 256;
+const QUAKE_GROUND_GRID_NULL_SAMPLE = -32768;
+const QUAKE_GROUND_GRID_MAX_CELLS = 180000;
+const QUAKE_GROUND_WALKABLE_NORMAL_Z = 0.52;
 const QUAKE_LIGHT_SAMPLE_SIZE = 16;
 const QUAKE_LIGHT_MIN = 0.18;
 const QUAKE_LIGHT_MAX = 1.45;
@@ -617,9 +629,6 @@ function clonePreparedRenderBundle(renderBundle: QuakePreparedRenderBundle): Qua
   return {
     ...renderBundle,
     assetUrls: [...renderBundle.assetUrls],
-    ...(renderBundle.assetVariants ? {
-      assetVariants: renderBundle.assetVariants.map((variant) => ({ ...variant })),
-    } : {}),
     leafMetadata: renderBundle.leafMetadata.map((leaf) => ({ ...leaf })),
     ...(renderBundle.leafFrameStyles ? {
       leafFrameStyles: renderBundle.leafFrameStyles.map((frameStyle) => [...frameStyle]),
@@ -699,11 +708,12 @@ async function createQuakePreparedSceneFromBsp(
 
   const entitiesText = readLumpText(view, buffer, BSP_LUMP_ENTITIES);
   const entities = parseEntities(entitiesText);
-  const spawn = parseSpawn(entities);
+  const sourceSpawn = parseSpawn(entities);
+  const spawn = quakeGameplaySpawn(label, sourceSpawn);
   const rawVertices = parseVertices(view);
   const bounds = vertexBounds(rawVertices);
-  const floorZ = spawn ? spawn.origin.z + QUAKE_PLAYER_MINS_Z : bounds.min.z;
-  const pivot = spawn ? { x: spawn.origin.x, y: spawn.origin.y, z: floorZ } : {
+  const floorZ = sourceSpawn ? sourceSpawn.origin.z + QUAKE_PLAYER_MINS_Z : bounds.min.z;
+  const pivot = sourceSpawn ? { x: sourceSpawn.origin.x, y: sourceSpawn.origin.y, z: floorZ } : {
     x: (bounds.min.x + bounds.max.x) * 0.5,
     y: (bounds.min.y + bounds.max.y) * 0.5,
     z: bounds.min.z,
@@ -894,9 +904,10 @@ async function createQuakePreparedSceneFromBsp(
   }
 
   const angle = spawn?.angle ?? 90;
+  const spawnGroundZ = spawn ? quakeSpawnGroundZToPoly(spawn.origin, pivot) : 0;
   const spawnState = {
-    origin: spawn ? [0, 0, QUAKE_EYE_HEIGHT] : [0, -6, QUAKE_EYE_HEIGHT],
-    groundZ: 0,
+    origin: spawn ? quakeSpawnOriginToPoly(spawn.origin, pivot) : [0, -6, QUAKE_EYE_HEIGHT],
+    groundZ: spawnGroundZ,
     eyeHeight: QUAKE_EYE_HEIGHT,
     rotX: 90,
     rotY: (180 + angle + 360) % 360,
@@ -916,7 +927,17 @@ async function createQuakePreparedSceneFromBsp(
     models: preparedModels,
     spawn: spawnState,
     visibility: buildPreparedVisibility(planes, nodes, leaves, markSurfaces, visData, renderCandidates, brushModels, pivot),
-    collision: buildPreparedCollision(planes, nodes, leaves, clipNodes, preparedModels, entities, model.headNodes, pivot),
+    collision: buildPreparedCollision(
+      planes,
+      nodes,
+      leaves,
+      clipNodes,
+      preparedModels,
+      entities,
+      model.headNodes,
+      pivot,
+      candidates.map((candidate) => candidate.polygon),
+    ),
   };
 }
 
@@ -1069,6 +1090,7 @@ function buildPreparedCollision(
   entities: QuakeEntity[],
   headNodes: [number, number, number, number],
   pivot: QuakeVertex,
+  facePolygons: Polygon[],
 ): QuakePreparedCollision | undefined {
   if (!planes.length || !clipNodes.length) return undefined;
   const worldModel = models[0];
@@ -1094,6 +1116,7 @@ function buildPreparedCollision(
       preparedHulls,
       brushModels,
       pivot,
+      facePolygons,
     ),
   };
 }
@@ -1107,10 +1130,13 @@ function buildPreparedRuntimeCollision(
   hulls: QuakeCollisionHull[],
   brushModels: QuakePreparedBrushCollision[],
   pivot: QuakeVertex,
+  facePolygons: Polygon[],
 ): QuakePreparedRuntimeCollision {
   const playerHull = hulls.find((item) => item.index === 1);
   const playerHeadNode = playerHull?.headNode ?? headNodes[1];
   const pointHeadNode = validPreparedPointHeadNode(headNodes[0], nodes, leaves) ? headNodes[0] : undefined;
+  const groundGrid = buildPreparedRuntimeGroundGrid(facePolygons);
+  if (!groundGrid) throw new Error("Prepared collision requires a static ground grid.");
   const brushes: QuakePreparedRuntimeCollisionBrush[] = [{
     headNode: playerHeadNode,
     ...(pointHeadNode !== undefined ? { pointHeadNode } : {}),
@@ -1149,6 +1175,7 @@ function buildPreparedRuntimeCollision(
   }
 
   return {
+    groundGrid,
     hullMinsZ: (playerHull?.mins.z ?? -24) * QUAKE_UNIT_SCALE,
     ...(pointHeadNode !== undefined ? { pointHeadNode } : {}),
     planes: planes.map((plane) => ({
@@ -1164,6 +1191,134 @@ function buildPreparedRuntimeCollision(
     solidBrushIndexes,
     triggerBrushIndexes,
   };
+}
+
+interface QuakeGroundGridSurface {
+  anchor: Vec3;
+  maxX: number;
+  maxY: number;
+  minX: number;
+  minY: number;
+  normal: Vec3;
+  vertices: Vec3[];
+}
+
+function buildPreparedRuntimeGroundGrid(polygons: Polygon[]): QuakePreparedRuntimeGroundGrid | undefined {
+  const surfaces = polygons
+    .map((polygon) => quakeGroundGridSurface(polygon))
+    .filter((surface): surface is QuakeGroundGridSurface => Boolean(surface));
+  if (!surfaces.length) return undefined;
+
+  const minX = Math.floor(Math.min(...surfaces.map((surface) => surface.minX)) / QUAKE_GROUND_GRID_CELL_SIZE) *
+    QUAKE_GROUND_GRID_CELL_SIZE;
+  const minY = Math.floor(Math.min(...surfaces.map((surface) => surface.minY)) / QUAKE_GROUND_GRID_CELL_SIZE) *
+    QUAKE_GROUND_GRID_CELL_SIZE;
+  const maxX = Math.ceil(Math.max(...surfaces.map((surface) => surface.maxX)) / QUAKE_GROUND_GRID_CELL_SIZE) *
+    QUAKE_GROUND_GRID_CELL_SIZE;
+  const maxY = Math.ceil(Math.max(...surfaces.map((surface) => surface.maxY)) / QUAKE_GROUND_GRID_CELL_SIZE) *
+    QUAKE_GROUND_GRID_CELL_SIZE;
+  const width = Math.max(1, Math.floor((maxX - minX) / QUAKE_GROUND_GRID_CELL_SIZE) + 1);
+  const height = Math.max(1, Math.floor((maxY - minY) / QUAKE_GROUND_GRID_CELL_SIZE) + 1);
+  if (width * height > QUAKE_GROUND_GRID_MAX_CELLS) return undefined;
+
+  const samples = new Int16Array(width * height);
+  samples.fill(QUAKE_GROUND_GRID_NULL_SAMPLE);
+  for (const surface of surfaces) {
+    const startX = Math.max(0, Math.floor((surface.minX - minX) / QUAKE_GROUND_GRID_CELL_SIZE));
+    const endX = Math.min(width - 1, Math.ceil((surface.maxX - minX) / QUAKE_GROUND_GRID_CELL_SIZE));
+    const startY = Math.max(0, Math.floor((surface.minY - minY) / QUAKE_GROUND_GRID_CELL_SIZE));
+    const endY = Math.min(height - 1, Math.ceil((surface.maxY - minY) / QUAKE_GROUND_GRID_CELL_SIZE));
+    for (let row = startY; row <= endY; row++) {
+      const y = minY + row * QUAKE_GROUND_GRID_CELL_SIZE;
+      for (let column = startX; column <= endX; column++) {
+        const x = minX + column * QUAKE_GROUND_GRID_CELL_SIZE;
+        if (!pointInQuakePolygon2(x, y, surface.vertices)) continue;
+        const z = quakeGroundGridZOnPlane(x, y, surface);
+        if (!Number.isFinite(z)) continue;
+        const sample = Math.max(
+          QUAKE_GROUND_GRID_NULL_SAMPLE + 1,
+          Math.min(32767, Math.round(z / QUAKE_GROUND_GRID_Z_SCALE)),
+        );
+        const index = row * width + column;
+        if (samples[index] === QUAKE_GROUND_GRID_NULL_SAMPLE || sample > samples[index]) {
+          samples[index] = sample;
+        }
+      }
+    }
+  }
+
+  if (!samples.some((sample) => sample !== QUAKE_GROUND_GRID_NULL_SAMPLE)) return undefined;
+  return {
+    cellSize: QUAKE_GROUND_GRID_CELL_SIZE,
+    height,
+    nullSample: QUAKE_GROUND_GRID_NULL_SAMPLE,
+    origin: [minX, minY],
+    samples: int16SamplesToBase64(samples),
+    width,
+    zScale: QUAKE_GROUND_GRID_Z_SCALE,
+  };
+}
+
+function quakeGroundGridSurface(polygon: Polygon): QuakeGroundGridSurface | null {
+  const data = polygon.data ?? {};
+  if (data["e"] !== undefined || Number(data["m"] ?? 0) !== 0) return null;
+  if (String(data["tex"] ?? "").startsWith("*")) return null;
+  const vertices = polygon.vertices;
+  if (vertices.length < 3) return null;
+  const normal = quakePolygonNormal(vertices);
+  if (normal[2] <= QUAKE_GROUND_WALKABLE_NORMAL_Z) return null;
+  const bounds = quakeGroundGridBounds2(vertices);
+  return {
+    anchor: vertices[0] ?? [0, 0, 0],
+    normal,
+    vertices,
+    ...bounds,
+  };
+}
+
+function quakeGroundGridBounds2(vertices: Vec3[]): { minX: number; maxX: number; minY: number; maxY: number } {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const vertex of vertices) {
+    minX = Math.min(minX, vertex[0]);
+    maxX = Math.max(maxX, vertex[0]);
+    minY = Math.min(minY, vertex[1]);
+    maxY = Math.max(maxY, vertex[1]);
+  }
+  return { minX, maxX, minY, maxY };
+}
+
+function quakeGroundGridZOnPlane(x: number, y: number, surface: QuakeGroundGridSurface): number {
+  const normalZ = surface.normal[2];
+  if (Math.abs(normalZ) < QUAKE_RENDER_COLLINEAR_EPS) return NaN;
+  return surface.anchor[2] - (
+    surface.normal[0] * (x - surface.anchor[0]) +
+    surface.normal[1] * (y - surface.anchor[1])
+  ) / normalZ;
+}
+
+function pointInQuakePolygon2(x: number, y: number, vertices: Vec3[]): boolean {
+  let inside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const a = vertices[i];
+    const b = vertices[j];
+    if (!a || !b) continue;
+    const intersects = (a[1] > y) !== (b[1] > y) &&
+      x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0];
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function int16SamplesToBase64(samples: Int16Array): string {
+  const bytes = new Uint8Array(samples.length * 2);
+  const view = new DataView(bytes.buffer);
+  for (let index = 0; index < samples.length; index++) {
+    view.setInt16(index * 2, samples[index] ?? QUAKE_GROUND_GRID_NULL_SAMPLE, true);
+  }
+  return bytesToBase64(bytes);
 }
 
 function validPreparedPointHeadNode(
@@ -1544,6 +1699,23 @@ function visibleBrushModels(entities: QuakeEntity[], models: QuakeModel[]): Quak
 
 function isVisibleBrushEntity(classname: string): boolean {
   return classname.startsWith("func_");
+}
+
+function quakeGameplaySpawn(label: string, sourceSpawn: QuakeSpawn | null): QuakeSpawn | null {
+  return QUAKE_MAP_SPAWN_OVERRIDES.get(label) ?? sourceSpawn;
+}
+
+function quakeSpawnOriginToPoly(origin: QuakeVertex, pivot: QuakeVertex): Vec3 {
+  const groundZ = quakeSpawnGroundZToPoly(origin, pivot);
+  return [
+    (origin.x - pivot.x) * QUAKE_UNIT_SCALE,
+    (origin.y - pivot.y) * QUAKE_UNIT_SCALE,
+    groundZ + QUAKE_EYE_HEIGHT,
+  ];
+}
+
+function quakeSpawnGroundZToPoly(origin: QuakeVertex, pivot: QuakeVertex): number {
+  return (origin.z + QUAKE_PLAYER_MINS_Z - pivot.z) * QUAKE_UNIT_SCALE;
 }
 
 function parseSpawn(entities: QuakeEntity[]): QuakeSpawn | null {

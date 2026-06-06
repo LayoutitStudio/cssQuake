@@ -5,6 +5,12 @@ import type { QuakePlayerInventory } from "../hud";
 import type { QuakeShootablesDebugStats } from "../shootables";
 import type { QuakeWorldDebugStats } from "../world";
 
+const QUAKE_DEBUG_PROJECTION_LEAF_BUDGET_PX = 5000;
+const QUAKE_DEBUG_PROJECTION_MESH_VIEWPORT_BUDGET = 0.55;
+const QUAKE_DEBUG_PROJECTION_TOTAL_VIEWPORT_BUDGET = 0.45;
+const QUAKE_DEBUG_PROJECTION_MESH_LIMIT = 8;
+const QUAKE_DEBUG_POSE_EPSILON = 0.0001;
+
 export interface QuakeDebugHooks {
   fire(): boolean;
   focusEntity(entityIndex: number, distance?: number, rotX?: number, rotY?: number): boolean;
@@ -18,6 +24,7 @@ interface QuakeDebugWindow extends Window {
 }
 
 export interface QuakeDebugRuntime {
+  cameraRotation(): { rotX: number; rotY: number };
   controls: {
     getOrigin(): [number, number, number];
     setOrigin(origin: [number, number, number]): void;
@@ -101,26 +108,49 @@ function focusQuakeDebugEntity(
 function setQuakeDebugPose(runtime: QuakeDebugRuntime, origin: Vec3, rotX = 90, rotY = 270): boolean {
   if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
   const nextOrigin = [origin[0], origin[1], origin[2]] as [number, number, number];
+  const currentOrigin = runtime.controls.getOrigin();
+  const currentRotation = runtime.cameraRotation();
+  const originChanged = !debugVec3Equals(currentOrigin, nextOrigin);
+  const rotationChanged =
+    !debugNumberEquals(currentRotation.rotX, rotX) ||
+    !debugNumberEquals(currentRotation.rotY, rotY);
   runtime.setCollisionBypassUntil(performance.now() + 10000);
   runtime.hideMainMenu();
-  runtime.controls.setOrigin(nextOrigin);
+  if (!originChanged && !rotationChanged) return true;
+  if (originChanged) runtime.controls.setOrigin(nextOrigin);
   runtime.syncSceneCameraAt(nextOrigin, rotX, rotY);
-  runtime.syncShootablesVisibility(nextOrigin, true);
-  runtime.syncPickupsVisibility(nextOrigin);
+  runtime.syncShootablesVisibility(nextOrigin, originChanged);
+  if (originChanged) {
+    runtime.syncPickupsVisibility(nextOrigin);
+    runtime.syncWorldVisibility(true);
+  }
   runtime.syncViewmodel();
-  runtime.syncWorldVisibility(true);
   runtime.syncCrosshairTarget();
   return true;
+}
+
+function debugVec3Equals(previous: Vec3, next: Vec3): boolean {
+  return debugNumberEquals(previous[0], next[0]) &&
+    debugNumberEquals(previous[1], next[1]) &&
+    debugNumberEquals(previous[2], next[2]);
+}
+
+function debugNumberEquals(previous: number, next: number): boolean {
+  return Math.abs(previous - next) <= QUAKE_DEBUG_POSE_EPSILON;
 }
 
 function buildQuakeDebugStats(runtime: QuakeDebugRuntime): Record<string, unknown> {
   const worldStats = runtime.worldStats();
   const shootableStats = runtime.shootablesStats();
   const inventory = runtime.inventory();
+  const cameraRotation = runtime.cameraRotation();
+  const cameraForward = runtime.forwardDirection(cameraRotation.rotX, cameraRotation.rotY);
   const enemyMeshes = Array.from(document.querySelectorAll<HTMLElement>(".polycss-mesh.shootable.enemy"));
   const activeEnemyMeshes = enemyMeshes.filter(
     (element) => element.dataset.prewarmed !== "true" && element.dataset.frameHidden !== "true",
   );
+  const pickupMeshes = Array.from(document.querySelectorAll<HTMLElement>(".polycss-mesh.pickup"));
+  const activePickupMeshes = pickupMeshes.filter((element) => !element.hidden);
   const hiddenEnemyFrameMeshes = enemyMeshes.filter((element) => element.dataset.frameHidden === "true");
   const prewarmedEnemyMeshes = enemyMeshes.filter((element) => element.dataset.prewarmed === "true");
   const mountedEnemyLeaves = enemyMeshes.reduce(
@@ -131,6 +161,9 @@ function buildQuakeDebugStats(runtime: QuakeDebugRuntime): Record<string, unknow
     loading: runtime.isLoading(),
     mapName: runtime.currentMapName(),
     origin: runtime.controls.getOrigin(),
+    cameraRotX: cameraRotation.rotX,
+    cameraRotY: cameraRotation.rotY,
+    cameraForward,
     currentLeafIndex: worldStats.currentLeafIndex,
     visibleLeafCount: worldStats.visibleLeafCount,
     pvsFaceCount: worldStats.pvsFaceCount,
@@ -146,14 +179,145 @@ function buildQuakeDebugStats(runtime: QuakeDebugRuntime): Record<string, unknow
     activeEnemyMeshes: activeEnemyMeshes.length,
     hiddenEnemyFrameMeshes: hiddenEnemyFrameMeshes.length,
     prewarmedEnemyMeshes: prewarmedEnemyMeshes.length,
+    pickupMeshes: pickupMeshes.length,
+    activePickupMeshes: activePickupMeshes.length,
     mountedEnemyLeaves,
     mountedEnemyAtlasLeaves: enemyMeshes.reduce(
       (total, element) => total + element.querySelectorAll("s").length,
       0,
     ),
+    projectionBudget: {
+      leafArea: QUAKE_DEBUG_PROJECTION_LEAF_BUDGET_PX,
+      meshViewportRatio: QUAKE_DEBUG_PROJECTION_MESH_VIEWPORT_BUDGET,
+      totalViewportRatio: QUAKE_DEBUG_PROJECTION_TOTAL_VIEWPORT_BUDGET,
+    },
+    enemyProjection: buildQuakeProjectionStats(activeEnemyMeshes, "enemy"),
+    pickupProjection: buildQuakeProjectionStats(activePickupMeshes, "pickup"),
     worldLeaves: worldStats.mountedLeaves,
     worldAtlasLeaves: worldStats.mountedAtlasLeaves,
     world: worldStats,
     shootables: shootableStats,
   };
+}
+
+type QuakeProjectionMeshKind = "enemy" | "pickup";
+
+interface QuakeProjectionMeshStats {
+  kind: QuakeProjectionMeshKind;
+  entityIndex: number | null;
+  classname: string | null;
+  leafCount: number;
+  atlasLeafCount: number;
+  tagCounts: Record<"b" | "i" | "s" | "u", number>;
+  clippedArea: number;
+  maxLeafArea: number;
+  p95LeafArea: number;
+  leavesOverBudget: number;
+  overBudget: boolean;
+  prewarmed: boolean;
+  frameHidden: boolean;
+  animationFrame: number | null;
+  animationMode: string | null;
+  paintBackend: string | null;
+  attack: string | null;
+}
+
+function buildQuakeProjectionStats(meshes: HTMLElement[], kind: QuakeProjectionMeshKind): Record<string, unknown> {
+  const viewportWidth = Math.max(0, window.innerWidth || document.documentElement.clientWidth || 0);
+  const viewportHeight = Math.max(0, window.innerHeight || document.documentElement.clientHeight || 0);
+  const viewportArea = viewportWidth * viewportHeight;
+  const meshAreaBudget = viewportArea * QUAKE_DEBUG_PROJECTION_MESH_VIEWPORT_BUDGET;
+  const totalAreaBudget = viewportArea * QUAKE_DEBUG_PROJECTION_TOTAL_VIEWPORT_BUDGET;
+  const meshStats = meshes.map((element) => buildQuakeProjectionMeshStats(
+    element,
+    kind,
+    viewportWidth,
+    viewportHeight,
+    meshAreaBudget,
+  ));
+  const rankedMeshes = [...meshStats].sort((a, b) => b.clippedArea - a.clippedArea);
+  const clippedArea = meshStats.reduce((total, mesh) => total + mesh.clippedArea, 0);
+  return {
+    viewportWidth,
+    viewportHeight,
+    meshAreaBudget: Math.round(meshAreaBudget),
+    totalAreaBudget: Math.round(totalAreaBudget),
+    leafAreaBudget: QUAKE_DEBUG_PROJECTION_LEAF_BUDGET_PX,
+    meshCount: meshStats.length,
+    leafCount: meshStats.reduce((total, mesh) => total + mesh.leafCount, 0),
+    atlasLeafCount: meshStats.reduce((total, mesh) => total + mesh.atlasLeafCount, 0),
+    clippedArea: Math.round(clippedArea),
+    maxMeshClippedArea: Math.round(rankedMeshes[0]?.clippedArea ?? 0),
+    maxLeafArea: Math.round(Math.max(0, ...meshStats.map((mesh) => mesh.maxLeafArea))),
+    overBudgetTotal: clippedArea > totalAreaBudget,
+    overBudgetMeshes: meshStats.filter((mesh) => mesh.overBudget).length,
+    meshes: rankedMeshes.slice(0, QUAKE_DEBUG_PROJECTION_MESH_LIMIT),
+  };
+}
+
+function buildQuakeProjectionMeshStats(
+  element: HTMLElement,
+  kind: QuakeProjectionMeshKind,
+  viewportWidth: number,
+  viewportHeight: number,
+  meshAreaBudget: number,
+): QuakeProjectionMeshStats {
+  const leaves = Array.from(element.querySelectorAll<HTMLElement>("b,i,s,u"));
+  const tagCounts: Record<"b" | "i" | "s" | "u", number> = { b: 0, i: 0, s: 0, u: 0 };
+  const visibleLeafAreas: number[] = [];
+  let clippedArea = 0;
+  let maxLeafArea = 0;
+  let leavesOverBudget = 0;
+
+  for (const leaf of leaves) {
+    const tag = leaf.tagName.toLowerCase();
+    if (tag === "b" || tag === "i" || tag === "s" || tag === "u") tagCounts[tag] += 1;
+    const area = clippedRectArea(leaf.getBoundingClientRect(), viewportWidth, viewportHeight);
+    if (area <= 0) continue;
+    visibleLeafAreas.push(area);
+    clippedArea += area;
+    maxLeafArea = Math.max(maxLeafArea, area);
+    if (area > QUAKE_DEBUG_PROJECTION_LEAF_BUDGET_PX) leavesOverBudget++;
+  }
+
+  visibleLeafAreas.sort((a, b) => a - b);
+  return {
+    kind,
+    entityIndex: numericDatasetValue(element.dataset.entityIndex),
+    classname: element.dataset.classname ?? null,
+    leafCount: leaves.length,
+    atlasLeafCount: tagCounts.s,
+    tagCounts,
+    clippedArea: Math.round(clippedArea),
+    maxLeafArea: Math.round(maxLeafArea),
+    p95LeafArea: Math.round(percentileSorted(visibleLeafAreas, 0.95)),
+    leavesOverBudget,
+    overBudget: clippedArea > meshAreaBudget || leavesOverBudget > 0,
+    prewarmed: element.dataset.prewarmed === "true",
+    frameHidden: element.dataset.frameHidden === "true",
+    animationFrame: numericDatasetValue(element.dataset.animationFrame),
+    animationMode: element.dataset.animationMode ?? null,
+    paintBackend: element.dataset.paintBackend ?? null,
+    attack: element.dataset.attack ?? null,
+  };
+}
+
+function clippedRectArea(rect: DOMRect, viewportWidth: number, viewportHeight: number): number {
+  const left = Math.max(0, Math.min(viewportWidth, rect.left));
+  const right = Math.max(0, Math.min(viewportWidth, rect.right));
+  const top = Math.max(0, Math.min(viewportHeight, rect.top));
+  const bottom = Math.max(0, Math.min(viewportHeight, rect.bottom));
+  return Math.max(0, right - left) * Math.max(0, bottom - top);
+}
+
+function percentileSorted(values: number[], ratio: number): number {
+  if (!values.length) return 0;
+  const index = Math.min(values.length - 1, Math.max(0, Math.floor((values.length - 1) * ratio)));
+  return values[index] ?? 0;
+}
+
+function numericDatasetValue(value: string | undefined): number | null {
+  if (value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
