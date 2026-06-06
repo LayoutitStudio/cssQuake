@@ -2,7 +2,7 @@
 
 A port of id Software's [Quake](https://github.com/id-software/quake) that uses the [PolyCSS](https://github.com/LayoutitStudio/polycss) engine instead of webGL. cssQuake preprocesses the original data into browser-ready JSON and image assets, then renders the game as real HTML/CSS 3D geometry. 
 
-Try the live version: [cssquake.com](https://cssquake.com) 🕹️
+Play the live version: [cssquake.com](https://cssquake.com) 🕹️
 
 <img src="src/assets/cssquake-social.png" alt="cssQuake gameplay rendered as DOM and CSS markup" width="960">
 
