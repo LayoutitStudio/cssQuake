@@ -68,7 +68,7 @@ class QuakeMonsterGeneratedStateRunner implements QuakeMonsterStateRunner {
 
   advance(): QuakeMonsterStateStep {
     const state = this.currentState();
-    const nextLocation = this.stateLocations.get(state.next);
+    const nextLocation = this.stateLocation(state.next, this.chainName);
     if (nextLocation) {
       this.chainName = nextLocation.chain;
       this.stateIndex = nextLocation.index;
@@ -105,7 +105,7 @@ class QuakeMonsterGeneratedStateRunner implements QuakeMonsterStateRunner {
   }
 
   enterState(stateName: string): QuakeMonsterStateStep | null {
-    const location = this.stateLocations.get(stateName);
+    const location = this.stateLocation(stateName);
     if (!location) return null;
     this.chainName = location.chain;
     this.stateIndex = location.index;
@@ -126,8 +126,17 @@ class QuakeMonsterGeneratedStateRunner implements QuakeMonsterStateRunner {
   }
 
   private currentStateEndsChainCycle(state: QuakeMonsterFrameState): boolean {
-    const nextLocation = this.stateLocations.get(state.next);
+    const nextLocation = this.stateLocation(state.next, this.chainName);
     return !nextLocation || nextLocation.chain !== this.chainName || nextLocation.index <= this.stateIndex;
+  }
+
+  private stateLocation(stateName: string, preferredChain?: string): QuakeMonsterStateLocation | undefined {
+    if (preferredChain) {
+      const chain = this.logic.chains[preferredChain];
+      const index = chain?.states.findIndex((state) => state.name === stateName) ?? -1;
+      if (index >= 0) return { chain: preferredChain, index };
+    }
+    return this.stateLocations.get(stateName);
   }
 }
 

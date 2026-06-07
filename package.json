@@ -10,6 +10,7 @@
     "prebuild": "pnpm exec playwright install chromium --only-shell",
     "prepare:quake": "node src/prepare/assets.mjs",
     "prepare:quake-logic": "node src/prepare/quakecLogic.mjs",
+    "smoke:monster-combat": "node scripts/smokeMonsterCombat.mjs",
     "smoke:monster-dom": "node scripts/smokeDomMonsters.mjs",
     "build": "pnpm prepare:quake && vite build",
     "preview": "vite preview"
