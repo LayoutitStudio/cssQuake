@@ -6,4 +6,6 @@ pnpm-lock.yaml
 build/generated/
 dist/**
 bench/
+notes/*
+!notes/quake-logic-*.md
 chrome-trace*.json

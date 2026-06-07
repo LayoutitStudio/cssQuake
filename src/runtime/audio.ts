@@ -35,6 +35,7 @@ export interface QuakeSoundController {
   unlock(): void;
   playEvent(event: QuakeSoundEvent, options?: QuakeSoundPlayOptions): boolean;
   playPickup(entity: QuakeEntity): boolean;
+  playSound(soundPath: string, options?: QuakeSoundPlayOptions): boolean;
 }
 
 interface QuakeAmbientLoop {
@@ -111,6 +112,10 @@ export function createQuakeSoundController(): QuakeSoundController {
 
   function playPickup(entity: QuakeEntity): boolean {
     return playEvent(pickupSoundEvent(entity));
+  }
+
+  function playSound(soundPath: string, options: QuakeSoundPlayOptions = {}): boolean {
+    return playFirst([soundPath], options);
   }
 
   function syncAmbientEntities(entities: QuakeEntity[]): void {
@@ -195,6 +200,7 @@ export function createQuakeSoundController(): QuakeSoundController {
     unlock,
     playEvent,
     playPickup,
+    playSound,
   };
 }
 

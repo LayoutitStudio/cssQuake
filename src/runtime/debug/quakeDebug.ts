@@ -1,39 +1,74 @@
 import type { Vec3 } from "@layoutit/polycss";
 
 import type { QuakeEntity } from "../../prepare/scene";
+import { QUAKE_PLAYER_MINS_Z, STEP_HEIGHT } from "../constants";
 import type { QuakePlayerInventory } from "../hud";
 import type { QuakeShootablesDebugStats } from "../shootables";
 import type { QuakeWorldDebugStats } from "../world";
 
 const QUAKE_DEBUG_PROJECTION_LEAF_BUDGET_PX = 5000;
+const QUAKE_DEBUG_PICKUP_PROJECTION_LEAF_VIEWPORT_BUDGET = 0.1;
 const QUAKE_DEBUG_PROJECTION_MESH_VIEWPORT_BUDGET = 0.55;
 const QUAKE_DEBUG_PROJECTION_TOTAL_VIEWPORT_BUDGET = 0.45;
 const QUAKE_DEBUG_PROJECTION_MESH_LIMIT = 8;
 const QUAKE_DEBUG_POSE_EPSILON = 0.0001;
 
 export interface QuakeDebugHooks {
+  copyViewUrl(): Promise<string>;
+  debugMountEntity(entityIndex: number): boolean;
   fire(): boolean;
   focusEntity(entityIndex: number, distance?: number, rotX?: number, rotY?: number): boolean;
   loadMap(mapName: string): Promise<boolean>;
-  setPose(origin: Vec3, rotX?: number, rotY?: number): boolean;
+  setPose(origin: Vec3, rotX?: number, rotY?: number, options?: QuakeDebugPoseOptions): boolean;
+  setGroundViewpos(
+    x: number,
+    y: number,
+    z: number,
+    pitch?: number,
+    yaw?: number,
+    rollOrOptions?: number | QuakeDebugPoseOptions,
+    options?: QuakeDebugPoseOptions,
+  ): boolean;
+  setViewpos(
+    x: number,
+    y: number,
+    z: number,
+    pitch?: number,
+    yaw?: number,
+    rollOrOptions?: number | QuakeDebugPoseOptions,
+    options?: QuakeDebugPoseOptions,
+  ): boolean;
   stats(): Record<string, unknown>;
+  viewUrl(): string;
+}
+
+export interface QuakeDebugPoseOptions {
+  collisionBypassMs?: number;
+  gameplay?: boolean;
 }
 
 interface QuakeDebugWindow extends Window {
   __cssQuakeDebug?: QuakeDebugHooks;
 }
 
+export function isQuakeDebugHooksEnabled(): boolean {
+  return import.meta.env.DEV || new URLSearchParams(window.location.search).has("debug");
+}
+
 export interface QuakeDebugRuntime {
   cameraRotation(): { rotX: number; rotY: number };
+  copyViewUrl(): Promise<string>;
   controls: {
     getOrigin(): [number, number, number];
     setOrigin(origin: [number, number, number]): void;
   };
   currentMapName(): string;
+  debugMountEntity(entityIndex: number): boolean;
   entities(): ReadonlyMap<number, QuakeEntity>;
   fireWeapon(): void;
   fireballEmittersCount(): number;
   fireballsCount(): number;
+  floorAt(x: number, y: number, maxZ?: number, minZ?: number): number | null;
   forwardDirection(rotX: number, rotY: number): Vec3;
   hasCurrentScene(): boolean;
   hideMainMenu(): void;
@@ -46,24 +81,39 @@ export interface QuakeDebugRuntime {
   setCollisionBypassUntil(until: number): void;
   shootablesStats(): QuakeShootablesDebugStats;
   syncCrosshairTarget(): void;
+  syncGameplay(origin: [number, number, number]): void;
   syncPickupsVisibility(origin: [number, number, number]): void;
   syncSceneCameraAt(origin: [number, number, number], rotX: number, rotY: number): void;
   syncShootablesVisibility(origin: [number, number, number], force?: boolean): void;
   syncViewmodel(): void;
   syncWorldVisibility(force?: boolean): void;
+  viewUrl(): string;
   worldStats(): QuakeWorldDebugStats;
 }
 
 export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRuntime): void {
   if (!enabled) return;
   (window as QuakeDebugWindow).__cssQuakeDebug = {
+    copyViewUrl: () => runtime.copyViewUrl(),
+    debugMountEntity: (entityIndex) => debugMountQuakeEntity(runtime, entityIndex),
     fire: () => fireQuakeDebugWeapon(runtime),
     focusEntity: (entityIndex, distance, rotX, rotY) =>
       focusQuakeDebugEntity(runtime, entityIndex, distance, rotX, rotY),
     loadMap: (mapName) => loadQuakeDebugMap(runtime, mapName),
-    setPose: (origin, rotX, rotY) => setQuakeDebugPose(runtime, origin, rotX, rotY),
+    setGroundViewpos: (x, y, z, pitch, yaw, rollOrOptions, options) =>
+      setQuakeDebugGroundViewpos(runtime, x, y, z, pitch, yaw, rollOrOptions, options),
+    setPose: (origin, rotX, rotY, options) => setQuakeDebugPose(runtime, origin, rotX, rotY, options),
+    setViewpos: (x, y, z, pitch, yaw, rollOrOptions, options) =>
+      setQuakeDebugViewpos(runtime, x, y, z, pitch, yaw, rollOrOptions, options),
     stats: () => buildQuakeDebugStats(runtime),
+    viewUrl: () => runtime.viewUrl(),
   };
+}
+
+function debugMountQuakeEntity(runtime: QuakeDebugRuntime, entityIndex: number): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  runtime.hideMainMenu();
+  return runtime.debugMountEntity(entityIndex);
 }
 
 async function loadQuakeDebugMap(runtime: QuakeDebugRuntime, mapName: string): Promise<boolean> {
@@ -105,7 +155,13 @@ function focusQuakeDebugEntity(
   ], rotX, rotY);
 }
 
-function setQuakeDebugPose(runtime: QuakeDebugRuntime, origin: Vec3, rotX = 90, rotY = 270): boolean {
+function setQuakeDebugPose(
+  runtime: QuakeDebugRuntime,
+  origin: Vec3,
+  rotX = 90,
+  rotY = 270,
+  options: QuakeDebugPoseOptions = {},
+): boolean {
   if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
   const nextOrigin = [origin[0], origin[1], origin[2]] as [number, number, number];
   const currentOrigin = runtime.controls.getOrigin();
@@ -114,11 +170,19 @@ function setQuakeDebugPose(runtime: QuakeDebugRuntime, origin: Vec3, rotX = 90, 
   const rotationChanged =
     !debugNumberEquals(currentRotation.rotX, rotX) ||
     !debugNumberEquals(currentRotation.rotY, rotY);
-  runtime.setCollisionBypassUntil(performance.now() + 10000);
+  const collisionBypassMs = options.collisionBypassMs ?? (options.gameplay ? 0 : 10000);
+  runtime.setCollisionBypassUntil(collisionBypassMs > 0 ? performance.now() + collisionBypassMs : 0);
   runtime.hideMainMenu();
-  if (!originChanged && !rotationChanged) return true;
+  if (!originChanged && !rotationChanged) {
+    if (options.gameplay) runtime.syncGameplay(nextOrigin);
+    return true;
+  }
   if (originChanged) runtime.controls.setOrigin(nextOrigin);
   runtime.syncSceneCameraAt(nextOrigin, rotX, rotY);
+  if (options.gameplay) {
+    runtime.syncGameplay(nextOrigin);
+    return true;
+  }
   runtime.syncShootablesVisibility(nextOrigin, originChanged);
   if (originChanged) {
     runtime.syncPickupsVisibility(nextOrigin);
@@ -127,6 +191,69 @@ function setQuakeDebugPose(runtime: QuakeDebugRuntime, origin: Vec3, rotX = 90, 
   runtime.syncViewmodel();
   runtime.syncCrosshairTarget();
   return true;
+}
+
+function setQuakeDebugViewpos(
+  runtime: QuakeDebugRuntime,
+  x: number,
+  y: number,
+  z: number,
+  pitch?: number,
+  yaw?: number,
+  rollOrOptions?: number | QuakeDebugPoseOptions,
+  options: QuakeDebugPoseOptions = {},
+): boolean {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return false;
+  if (pitch !== undefined && !Number.isFinite(pitch)) return false;
+  if (yaw !== undefined && !Number.isFinite(yaw)) return false;
+  if (typeof rollOrOptions === "number" && !Number.isFinite(rollOrOptions)) return false;
+
+  const currentRotation = runtime.cameraRotation();
+  const origin = runtime.pointToPoly({ x, y, z });
+  const eyeOrigin = [
+    origin[0],
+    origin[1],
+    origin[2] + QUAKE_PLAYER_MINS_Z + runtime.playerEyeHeight(),
+  ] as Vec3;
+  const rotX = pitch === undefined ? currentRotation.rotX : 90 - pitch;
+  const rotY = yaw === undefined ? currentRotation.rotY : (180 + yaw + 360) % 360;
+  const poseOptions = typeof rollOrOptions === "object" ? rollOrOptions : options;
+  return setQuakeDebugPose(runtime, eyeOrigin, rotX, rotY, poseOptions);
+}
+
+function setQuakeDebugGroundViewpos(
+  runtime: QuakeDebugRuntime,
+  x: number,
+  y: number,
+  z: number,
+  pitch?: number,
+  yaw?: number,
+  rollOrOptions?: number | QuakeDebugPoseOptions,
+  options: QuakeDebugPoseOptions = {},
+): boolean {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return false;
+  if (pitch !== undefined && !Number.isFinite(pitch)) return false;
+  if (yaw !== undefined && !Number.isFinite(yaw)) return false;
+  if (typeof rollOrOptions === "number" && !Number.isFinite(rollOrOptions)) return false;
+
+  const currentRotation = runtime.cameraRotation();
+  const playerOrigin = runtime.pointToPoly({ x, y, z });
+  const footZ = playerOrigin[2] + QUAKE_PLAYER_MINS_Z;
+  const groundZ = runtime.floorAt(
+    playerOrigin[0],
+    playerOrigin[1],
+    footZ + STEP_HEIGHT,
+    footZ - STEP_HEIGHT,
+  ) ?? runtime.floorAt(playerOrigin[0], playerOrigin[1], footZ + STEP_HEIGHT, -Infinity) ?? footZ;
+  const eyeOrigin = [
+    playerOrigin[0],
+    playerOrigin[1],
+    groundZ + runtime.playerEyeHeight(),
+  ] as Vec3;
+  const rotX = pitch === undefined ? currentRotation.rotX : 90 - pitch;
+  const rotY = yaw === undefined ? currentRotation.rotY : (180 + yaw + 360) % 360;
+  const poseOptions = typeof rollOrOptions === "object" ? rollOrOptions : options;
+  return setQuakeDebugPose(runtime, eyeOrigin, rotX, rotY, poseOptions);
 }
 
 function debugVec3Equals(previous: Vec3, next: Vec3): boolean {
@@ -228,12 +355,14 @@ function buildQuakeProjectionStats(meshes: HTMLElement[], kind: QuakeProjectionM
   const viewportArea = viewportWidth * viewportHeight;
   const meshAreaBudget = viewportArea * QUAKE_DEBUG_PROJECTION_MESH_VIEWPORT_BUDGET;
   const totalAreaBudget = viewportArea * QUAKE_DEBUG_PROJECTION_TOTAL_VIEWPORT_BUDGET;
+  const leafAreaBudget = quakeDebugProjectionLeafAreaBudget(kind, viewportArea);
   const meshStats = meshes.map((element) => buildQuakeProjectionMeshStats(
     element,
     kind,
     viewportWidth,
     viewportHeight,
     meshAreaBudget,
+    leafAreaBudget,
   ));
   const rankedMeshes = [...meshStats].sort((a, b) => b.clippedArea - a.clippedArea);
   const clippedArea = meshStats.reduce((total, mesh) => total + mesh.clippedArea, 0);
@@ -242,7 +371,7 @@ function buildQuakeProjectionStats(meshes: HTMLElement[], kind: QuakeProjectionM
     viewportHeight,
     meshAreaBudget: Math.round(meshAreaBudget),
     totalAreaBudget: Math.round(totalAreaBudget),
-    leafAreaBudget: QUAKE_DEBUG_PROJECTION_LEAF_BUDGET_PX,
+    leafAreaBudget,
     meshCount: meshStats.length,
     leafCount: meshStats.reduce((total, mesh) => total + mesh.leafCount, 0),
     atlasLeafCount: meshStats.reduce((total, mesh) => total + mesh.atlasLeafCount, 0),
@@ -261,6 +390,7 @@ function buildQuakeProjectionMeshStats(
   viewportWidth: number,
   viewportHeight: number,
   meshAreaBudget: number,
+  leafAreaBudget: number,
 ): QuakeProjectionMeshStats {
   const leaves = Array.from(element.querySelectorAll<HTMLElement>("b,i,s,u"));
   const tagCounts: Record<"b" | "i" | "s" | "u", number> = { b: 0, i: 0, s: 0, u: 0 };
@@ -277,7 +407,7 @@ function buildQuakeProjectionMeshStats(
     visibleLeafAreas.push(area);
     clippedArea += area;
     maxLeafArea = Math.max(maxLeafArea, area);
-    if (area > QUAKE_DEBUG_PROJECTION_LEAF_BUDGET_PX) leavesOverBudget++;
+    if (area > leafAreaBudget) leavesOverBudget++;
   }
 
   visibleLeafAreas.sort((a, b) => a - b);
@@ -300,6 +430,13 @@ function buildQuakeProjectionMeshStats(
     paintBackend: element.dataset.paintBackend ?? null,
     attack: element.dataset.attack ?? null,
   };
+}
+
+function quakeDebugProjectionLeafAreaBudget(kind: QuakeProjectionMeshKind, viewportArea: number): number {
+  if (kind === "pickup") {
+    return Math.round(viewportArea * QUAKE_DEBUG_PICKUP_PROJECTION_LEAF_VIEWPORT_BUDGET);
+  }
+  return QUAKE_DEBUG_PROJECTION_LEAF_BUDGET_PX;
 }
 
 function clippedRectArea(rect: DOMRect, viewportWidth: number, viewportHeight: number): number {

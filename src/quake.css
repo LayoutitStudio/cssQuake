@@ -100,7 +100,7 @@ body[data-loading] .cssquake-version {
   top: 12px;
   right: 12px;
   z-index: 40;
-  display: grid;
+  display: none;
   place-items: center;
   width: 40px;
   height: 40px;
@@ -114,6 +114,9 @@ body[data-loading] .cssquake-version {
   pointer-events: auto;
   cursor: pointer;
   transition: opacity 120ms ease-out;
+}
+body[data-menu] .btn-github {
+  display: grid;
 }
 .btn-github svg {
   display: block;
@@ -137,16 +140,20 @@ body[data-loading] .cssquake-version {
   left: 12px;
   bottom: 10px;
   z-index: 40;
+  display: none;
   margin: 0;
   color: #ffffff;
   font-family: ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: 15px;
   line-height: 1.35;
   letter-spacing: 0;
   opacity: 0.4;
   text-shadow: 0 1px 0 #000000;
   pointer-events: none;
   user-select: none;
+}
+body[data-menu] .quake-copyright-notice {
+  display: block;
 }
 .quake-copyright-notice span {
   display: block;
@@ -210,7 +217,6 @@ body[data-loading] .dn-stats-overlay[data-stats] {
   color: #f0ad5c;
   font: 700 14px/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   letter-spacing: 0;
-  text-transform: uppercase;
   text-shadow: 0 2px 0 #000000;
 }
 #quake-loading-status::before {
@@ -332,45 +338,6 @@ body[data-complete] #quake-hud::after {
 #quake-main-menu[hidden] {
   display: none;
 }
-#quake-audio-toggle {
-  position: absolute;
-  left: 12px;
-  bottom: 42.4px;
-  z-index: 40;
-  display: inline-block;
-  width: auto;
-  height: auto;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  appearance: none;
-  background: transparent;
-  color: #ffffff;
-  cursor: pointer;
-  font-family: ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.35;
-  letter-spacing: 0;
-  opacity: 0.4;
-  text-align: left;
-  text-decoration: none;
-  text-shadow: 0 1px 0 #000000;
-  text-transform: none;
-  pointer-events: auto;
-  transition: opacity 120ms ease-out;
-  -webkit-tap-highlight-color: transparent;
-}
-#quake-audio-toggle:hover,
-#quake-audio-toggle:focus-visible {
-  opacity: 0.9;
-  outline: none;
-}
-@media (max-width: 940px) {
-  #quake-audio-toggle {
-    bottom: calc(8vw + 42.4px);
-  }
-}
 #quake-main-menu-art {
   --quake-main-menu-px: calc(100cqw / 320);
   --quake-main-menu-row-height: 6.25cqw;
@@ -465,7 +432,7 @@ body[data-menu] #quake-main-menu-logo-shimmer::before {
   justify-content: space-between;
   margin-top: -30px;
   color: rgba(255, 255, 255, 0.3);
-  font: 400 16px / 1 ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
+  font: 400 15px / 1 ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
   letter-spacing: 0;
   user-select: none;
   padding: 0 5px 0 15px;
@@ -1225,6 +1192,9 @@ body[data-menu] #quake-main-menu-logo-shimmer::before {
 }
 .polycss-mesh[data-dead] {
   visibility: hidden;
+  pointer-events: none;
+}
+.polycss-mesh.shootable[data-corpse] {
   pointer-events: none;
 }
 body[data-menu] #quake-crosshair,

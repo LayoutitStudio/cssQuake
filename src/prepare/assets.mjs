@@ -73,6 +73,14 @@ const renderBundleOutputDir = path.join(quakeOutputDir, "b");
 const quakeRenderBundleAvifQuality = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_AVIF_QUALITY ?? "80", 10);
 const quakeRenderBundleAvifEffort = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_AVIF_EFFORT ?? "4", 10);
 const quakeRenderBundleConcurrency = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_CONCURRENCY ?? "", 10);
+const quakeLightmapBake = process.env.QUAKE_LIGHTMAP_BAKE !== "0";
+const quakeLightmapBakeMaxSide = Number.parseInt(process.env.QUAKE_LIGHTMAP_BAKE_MAX_SIDE ?? "", 10);
+const quakeLightmapBakeMaxTotalTexels = Number.parseInt(process.env.QUAKE_LIGHTMAP_BAKE_MAX_TOTAL_TEXELS ?? "", 10);
+const quakeLightmapBakeMinRange = Number.parseFloat(process.env.QUAKE_LIGHTMAP_BAKE_MIN_RANGE ?? "");
+const quakeLightmapOverlay = process.env.QUAKE_LIGHTMAP_OVERLAY === "1";
+const quakeLightmapOverlayMaxExtraRatio = Number.parseFloat(process.env.QUAKE_LIGHTMAP_OVERLAY_MAX_EXTRA_RATIO ?? "");
+const quakeLightmapOverlayMaxSide = Number.parseInt(process.env.QUAKE_LIGHTMAP_OVERLAY_MAX_SIDE ?? "", 10);
+const quakeLightmapOverlayMinRange = Number.parseFloat(process.env.QUAKE_LIGHTMAP_OVERLAY_MIN_RANGE ?? "");
 const renderBundleMapNames = new Set(
   (process.env.QUAKE_RENDER_BUNDLE_MAPS ?? quakeRenderBundleDefaultMapNames.join(","))
     .split(",")
@@ -160,10 +168,15 @@ const QUAKE_MONSTER_MODEL_PATHS = {
   monster_oldone: "progs/oldone.mdl",
 };
 const QUAKE_ANIMATED_MONSTER_ALIAS_MODEL_PATHS = [
+  "progs/boss.mdl",
+  "progs/demon.mdl",
   "progs/dog.mdl",
   "progs/knight.mdl",
   "progs/ogre.mdl",
+  "progs/shambler.mdl",
   "progs/soldier.mdl",
+  "progs/wizard.mdl",
+  "progs/zombie.mdl",
 ];
 const QUAKE_PROJECTILE_ALIAS_MODEL_PATHS = [
   "progs/bolt.mdl",
@@ -173,12 +186,15 @@ const QUAKE_PROJECTILE_ALIAS_MODEL_PATHS = [
   "progs/lavaball.mdl",
   "progs/v_spike.mdl",
   "progs/w_spike.mdl",
+  "progs/zom_gib.mdl",
 ];
 const QUAKE_MONSTER_PROJECTILE_MODEL_PATHS = {
+  monster_boss: "progs/lavaball.mdl",
   monster_hell_knight: "progs/k_spike.mdl",
   monster_ogre: "progs/grenade.mdl",
   monster_shalrath: "progs/v_spike.mdl",
   monster_wizard: "progs/w_spike.mdl",
+  monster_zombie: "progs/zom_gib.mdl",
 };
 
 const tempDir = await mkdtemp(path.join(tmpdir(), "polycss-quake-preparse-"));
@@ -245,6 +261,18 @@ try {
     async ([mapPath, outputPath]) => {
       const prepared = await createQuakePreparedSceneFromPakBuffer(buffer, {
         encodeTextureUrl: encodeTextureFileUrl,
+        lightmapBake: quakeLightmapBake,
+        ...(Number.isFinite(quakeLightmapBakeMaxSide) ? { lightmapBakeMaxSide: quakeLightmapBakeMaxSide } : {}),
+        ...(Number.isFinite(quakeLightmapBakeMaxTotalTexels)
+          ? { lightmapBakeMaxTotalTexels: quakeLightmapBakeMaxTotalTexels }
+          : {}),
+        ...(Number.isFinite(quakeLightmapBakeMinRange) ? { lightmapBakeMinRange: quakeLightmapBakeMinRange } : {}),
+        lightmapOverlay: quakeLightmapOverlay,
+        ...(Number.isFinite(quakeLightmapOverlayMaxExtraRatio)
+          ? { lightmapOverlayMaxExtraRatio: quakeLightmapOverlayMaxExtraRatio }
+          : {}),
+        ...(Number.isFinite(quakeLightmapOverlayMaxSide) ? { lightmapOverlayMaxSide: quakeLightmapOverlayMaxSide } : {}),
+        ...(Number.isFinite(quakeLightmapOverlayMinRange) ? { lightmapOverlayMinRange: quakeLightmapOverlayMinRange } : {}),
         mapPath,
       });
       const menuPanelTextureMap = {
@@ -2023,7 +2051,7 @@ function isQuakeMonsterBodyModel(modelPath) {
   const filename = path.basename(modelPath).toLowerCase();
   return !filename.startsWith("h_") &&
     !filename.includes("gib") &&
-    !["bolt.mdl", "grenade.mdl", "k_spike.mdl", "lavaball.mdl", "laser.mdl", "s_light.mdl", "v_spike.mdl", "w_spike.mdl"].includes(filename);
+    !["bolt.mdl", "grenade.mdl", "k_spike.mdl", "lavaball.mdl", "laser.mdl", "s_light.mdl", "v_spike.mdl", "w_spike.mdl", "zom_gib.mdl"].includes(filename);
 }
 
 function buildQuakeProgramMetadata(assets) {
@@ -3100,7 +3128,12 @@ async function writeTextureFileIfMissing(outputPath, png) {
   }
 }
 
-async function encodeTexturePng({ width, height, pixels, palette, brightness, alpha }) {
+async function encodeTexturePng({ width, height, pixels, palette, brightness, alpha, rgba: sourceRgba }) {
+  if (sourceRgba) {
+    return sharp(sourceRgba, {
+      raw: { width, height, channels: 4 },
+    }).png().toBuffer();
+  }
   const rgba = Buffer.alloc(width * height * 4);
   for (let i = 0; i < pixels.length; i++) {
     const paletteIndex = pixels[i] ?? 0;

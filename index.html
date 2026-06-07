@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preload" as="image" href="/q/conchars.png" />
     <link rel="preload" as="image" href="/q/hud-numbers-damage.png" />
     <script>
       (function () {
@@ -159,8 +160,13 @@
 	      }
 
 	      .btn-github {
+	        display: none;
 	        color: #f0f6fc;
 	        opacity: 0.4;
+	      }
+
+	      body[data-menu] .btn-github {
+	        display: grid;
 	      }
 
 	      .btn-github:hover {
@@ -209,7 +215,6 @@
         color: #f0ad5c;
         font: 700 14px/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
         letter-spacing: 0;
-        text-transform: uppercase;
         text-shadow: 0 2px 0 #000000;
       }
 
@@ -230,6 +235,68 @@
       #quake-loading-status .quake-bitmap-text {
         justify-content: center;
       }
+
+      .quake-bitmap-source {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      .quake-bitmap-host {
+        font-size: 0;
+        line-height: 0;
+      }
+
+      .quake-bitmap-text {
+        --quake-bitmap-glyph-size: 16px;
+        --quake-bitmap-sheet-size: 256px;
+        --quake-bitmap-space-size: 11px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px var(--quake-bitmap-space-size);
+        max-width: 100%;
+        image-rendering: pixelated;
+        pointer-events: none;
+        vertical-align: top;
+      }
+
+      .quake-bitmap-text--title {
+        --quake-bitmap-glyph-size: 40px;
+        --quake-bitmap-sheet-size: 640px;
+        --quake-bitmap-space-size: 28px;
+      }
+
+      .quake-bitmap-word {
+        display: inline-flex;
+        flex: 0 0 auto;
+        height: var(--quake-bitmap-glyph-size);
+      }
+
+      .quake-bitmap-glyph {
+        display: block;
+        flex: 0 0 auto;
+        width: var(--quake-bitmap-glyph-size);
+        height: var(--quake-bitmap-glyph-size);
+        background-image: url("/q/conchars.png");
+        background-size: var(--quake-bitmap-sheet-size) var(--quake-bitmap-sheet-size);
+        image-rendering: pixelated;
+      }
+
+      .quake-bitmap-col-1 { background-position-x: calc(var(--quake-bitmap-glyph-size) * -1); }
+      .quake-bitmap-col-4 { background-position-x: calc(var(--quake-bitmap-glyph-size) * -4); }
+      .quake-bitmap-col-7 { background-position-x: calc(var(--quake-bitmap-glyph-size) * -7); }
+      .quake-bitmap-col-9 { background-position-x: calc(var(--quake-bitmap-glyph-size) * -9); }
+      .quake-bitmap-col-12 { background-position-x: calc(var(--quake-bitmap-glyph-size) * -12); }
+      .quake-bitmap-col-14 { background-position-x: calc(var(--quake-bitmap-glyph-size) * -14); }
+      .quake-bitmap-col-15 { background-position-x: calc(var(--quake-bitmap-glyph-size) * -15); }
+      .quake-bitmap-row-12 { background-position-y: calc(var(--quake-bitmap-glyph-size) * -12); }
+      .quake-bitmap-row-14 { background-position-y: calc(var(--quake-bitmap-glyph-size) * -14); }
 
       #quake-loading-progress {
         --quake-loading-progress: 0;
@@ -277,9 +344,6 @@
       <div id="quake-viewmodel-layer" aria-hidden="true"></div>
       <img class="cssquake-logo" src="/src/assets/cssquake-logo.png" width="1383" height="222" alt="cssQuake" />
       <span id="cssquake-version" class="cssquake-version" aria-hidden="true"></span>
-      <button id="quake-audio-toggle" type="button" aria-label="Unmute audio" aria-pressed="true" title="Unmute audio (M)" data-muted="true">
-        (M)ute Audio
-      </button>
       <div id="quake-hud">
         <div id="quake-main-menu" role="button" tabindex="-1" aria-label="cssQuake menu" hidden>
           <span id="quake-main-menu-art">
@@ -499,19 +563,25 @@
         </svg>
       </a>
       <p class="quake-copyright-notice">
-        <span>
-          Powered by PolyCSS
-          <svg class="polycss-pixel-heart" viewBox="0 0 7 6" aria-hidden="true" focusable="false">
-            <path d="M1 0h2v1h1V0h2v1h1v2H6v1H5v1H4v1H3V5H2V4H1V3H0V1h1V0Z" />
-          </svg>
-          v0.2.2
-        </span>
-        <span>Quake assets &copy; id Software LLC.</span>
+        <span>Quake &copy; id Software, Inc.</span>
       </p>
       <div id="quake-loading-overlay" role="status" aria-live="polite" aria-busy="true">
         <div class="quake-loading-mark">
           <div class="quake-loading-readout">
-            <span id="quake-loading-status" data-bm="title alt">Loading</span>
+            <span id="quake-loading-status" class="quake-bitmap-host" data-bm="title alt">
+              <span class="quake-bitmap-source">Loading</span>
+              <span class="quake-bitmap-text quake-bitmap-text--title quake-bitmap-text--word" aria-hidden="true">
+                <span class="quake-bitmap-word">
+                  <span class="quake-bitmap-glyph quake-bitmap-col-12 quake-bitmap-row-12"></span>
+                  <span class="quake-bitmap-glyph quake-bitmap-col-15 quake-bitmap-row-14"></span>
+                  <span class="quake-bitmap-glyph quake-bitmap-col-1 quake-bitmap-row-14"></span>
+                  <span class="quake-bitmap-glyph quake-bitmap-col-4 quake-bitmap-row-14"></span>
+                  <span class="quake-bitmap-glyph quake-bitmap-col-9 quake-bitmap-row-14"></span>
+                  <span class="quake-bitmap-glyph quake-bitmap-col-14 quake-bitmap-row-14"></span>
+                  <span class="quake-bitmap-glyph quake-bitmap-col-7 quake-bitmap-row-14"></span>
+                </span>
+              </span>
+            </span>
             <div id="quake-loading-progress" role="progressbar" aria-label="Loading progress" aria-valuemin="0" aria-valuemax="100" data-indeterminate="true">
               <span id="quake-loading-progress-fill"></span>
             </div>

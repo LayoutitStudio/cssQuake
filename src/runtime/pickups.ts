@@ -2,7 +2,8 @@ import type { Polygon, PolyMeshHandle, Vec3 } from "@layoutit/polycss";
 
 import type { QuakeEntity, QuakePreparedRenderBundle } from "../prepare/scene";
 import type { QuakeInventoryDelta } from "./hud";
-import { QUAKE_COLLISION_UNIT_SCALE } from "./constants";
+import { COLLISION_EPSILON, PLAYER_RADIUS, QUAKE_COLLISION_UNIT_SCALE } from "./constants";
+import { distanceSq3, dotVec3, normalizeVec3 } from "./math";
 import { quakeEntityNumber, quakeEntitySpawnflags } from "./entities";
 import {
   isQuakeRenderBundleFrameSetHandle,
@@ -17,6 +18,13 @@ const QUAKE_PICKUP_ALIAS_MOTION_FPS = 30;
 const QUAKE_PICKUP_ALIAS_SPIN_DEGREES_PER_SECOND = 90;
 const QUAKE_PICKUP_ALIAS_BOB_AMPLITUDE = 4 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_PICKUP_ALIAS_BOB_RADIANS_PER_SECOND = Math.PI * 2 * 0.65;
+const QUAKE_PICKUP_MOUNT_DISTANCE = 896 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_PICKUP_UNMOUNT_DISTANCE = 1152 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_PICKUP_MOUNT_DISTANCE_SQ = QUAKE_PICKUP_MOUNT_DISTANCE * QUAKE_PICKUP_MOUNT_DISTANCE;
+const QUAKE_PICKUP_UNMOUNT_DISTANCE_SQ = QUAKE_PICKUP_UNMOUNT_DISTANCE * QUAKE_PICKUP_UNMOUNT_DISTANCE;
+const QUAKE_PICKUP_MOUNT_VIEW_DOT_MIN = 0.3;
+const QUAKE_PICKUP_UNMOUNT_VIEW_DOT_MIN = 0.15;
+const QUAKE_PICKUP_MIN_VIEW_DEPTH = PLAYER_RADIUS;
 
 export interface QuakePickupModel {
   source: string;
@@ -72,6 +80,7 @@ interface QuakePickupState {
   radius: number;
   height: number;
   handle: PolyMeshHandle | null;
+  renderRadius: number;
   effect: QuakePickupEffect;
   picked: boolean;
   visible: boolean;
@@ -92,6 +101,8 @@ export interface QuakePickupControllerOptions {
   addMesh: (entity: QuakeEntity, model?: QuakePickupModel, frameIndex?: number) => PolyMeshHandle | null;
   applyEffect: (effect: QuakePickupEffect, entity: QuakeEntity) => void;
   leafIndexAt: (origin: Vec3) => number | undefined;
+  playerForward: () => Vec3;
+  playerViewDot: (origin: Vec3) => number;
   pointToPoly: (point: { x: number; y: number; z: number }) => Vec3;
   programMetadata: () => QuakeProgramMetadata | null;
   shouldSpawn: (entity: QuakeEntity) => boolean;
@@ -139,7 +150,10 @@ export function createQuakePickupController(options: QuakePickupControllerOption
       const origin = options.pointToPoly(entity.origin);
       const model = quakePickupModelForEntity(entity, modelLibrary, programMetadata);
       const handle = options.addMesh(entity, model);
-      if (handle) handles.push(handle);
+      if (handle) {
+        handle.element.hidden = true;
+        handles.push(handle);
+      }
       const animation = quakePickupAnimationStateForModel(entity, model);
       pickups.push({
         entity,
@@ -148,13 +162,14 @@ export function createQuakePickupController(options: QuakePickupControllerOption
         radius: QUAKE_PICKUP_RADIUS,
         height: QUAKE_PICKUP_HEIGHT,
         handle,
+        renderRadius: quakePickupHorizontalRadius(model),
         effect: effect ?? {},
         picked: false,
-        visible: true,
+        visible: false,
         ...(animation ? { animation } : {}),
       });
     }
-    if (visibilityOrigin) syncVisibility(visibilityOrigin);
+    syncVisibility(visibilityOrigin);
     startAnimationLoop();
   };
 
@@ -183,9 +198,42 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     const visibleLeaves = origin ? options.visibleLeavesAt(origin) : null;
     for (const pickup of pickups) {
       if (pickup.picked || !pickup.handle) continue;
-      const visible = !visibleLeaves || pickup.leafIndex === undefined || visibleLeaves.has(pickup.leafIndex);
+      const visible = isPickupRenderVisible(pickup, origin, visibleLeaves);
       setPickupVisible(pickup, visible);
     }
+  };
+
+  const isPickupRenderVisible = (
+    pickup: QuakePickupState,
+    origin: [number, number, number] | undefined,
+    visibleLeaves: Set<number> | null,
+  ): boolean => {
+    if (visibleLeaves && pickup.leafIndex !== undefined && !visibleLeaves.has(pickup.leafIndex)) return false;
+    if (!origin) return true;
+    const maxDistanceSq = pickup.visible ? QUAKE_PICKUP_UNMOUNT_DISTANCE_SQ : QUAKE_PICKUP_MOUNT_DISTANCE_SQ;
+    if (distanceSq3(origin, pickup.origin) > maxDistanceSq) return false;
+    if (!isPickupInFrontOfCameraNearPlane(pickup, origin)) return false;
+    const minViewDot = pickup.visible ? QUAKE_PICKUP_UNMOUNT_VIEW_DOT_MIN : QUAKE_PICKUP_MOUNT_VIEW_DOT_MIN;
+    return options.playerViewDot(pickup.origin) >= minViewDot;
+  };
+
+  const isPickupInFrontOfCameraNearPlane = (
+    pickup: QuakePickupState,
+    playerOrigin: [number, number, number],
+  ): boolean => {
+    const forward = options.playerForward();
+    const forwardHorizontal = normalizeVec3([forward[0], forward[1], 0]);
+    if (Math.abs(forwardHorizontal[0]) <= COLLISION_EPSILON &&
+      Math.abs(forwardHorizontal[1]) <= COLLISION_EPSILON) {
+      return true;
+    }
+    const toPickup: Vec3 = [
+      pickup.origin[0] - playerOrigin[0],
+      pickup.origin[1] - playerOrigin[1],
+      0,
+    ];
+    const depth = dotVec3(toPickup, forwardHorizontal);
+    return depth - pickup.renderRadius > QUAKE_PICKUP_MIN_VIEW_DEPTH;
   };
 
   const setPickupVisible = (pickup: QuakePickupState, visible: boolean): void => {
@@ -288,6 +336,16 @@ function quakePickupAnimationStateForModel(
     phase: (entity.index % 97) * 0.37,
     spin: true,
   };
+}
+
+function quakePickupHorizontalRadius(model: QuakePickupModel | undefined): number {
+  if (!model) return QUAKE_PICKUP_RADIUS;
+  return Math.max(
+    Math.abs(model.bounds.min[0]),
+    Math.abs(model.bounds.max[0]),
+    Math.abs(model.bounds.min[1]),
+    Math.abs(model.bounds.max[1]),
+  );
 }
 
 const QUAKE_PICKUP_MODEL_PATHS: Record<string, string> = {

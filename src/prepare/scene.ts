@@ -14,9 +14,75 @@ export interface QuakeTextureEncodeInput {
   palette: RGB[];
   brightness: number;
   alpha?: Uint8Array;
+  rgba?: Uint8Array;
 }
 
 export type QuakeTextureUrlEncoder = (input: QuakeTextureEncodeInput) => Promise<string>;
+
+export interface QuakePreparedSceneCreateOptions {
+  encodeTextureUrl?: QuakeTextureUrlEncoder;
+  lightmapBake?: boolean;
+  lightmapBakeMaxSide?: number;
+  lightmapBakeMaxTotalTexels?: number;
+  lightmapBakeMinRange?: number;
+  lightmapOverlay?: boolean;
+  lightmapOverlayMaxExtraRatio?: number;
+  lightmapOverlayMaxSide?: number;
+  lightmapOverlayMinRange?: number;
+  mapPath?: string;
+}
+
+interface QuakeBspPrepareOptions {
+  lightmapBake: QuakeLightmapBakeOptions;
+  lightmapOverlay: QuakeLightmapOverlayOptions;
+}
+
+interface QuakeLightmapBakeOptions {
+  enabled: boolean;
+  maxTextureSide: number;
+  maxTotalTexels: number;
+  minDisplayRange: number;
+}
+
+interface QuakeLightmapOverlayOptions {
+  enabled: boolean;
+  maxExtraRatio: number;
+  maxTextureSide: number;
+  minDisplayRange: number;
+}
+
+interface QuakeFaceLightmapGrid {
+  lightOffset: number;
+  minS: number;
+  minT: number;
+  width: number;
+  height: number;
+  sampleCount: number;
+  styles: number[];
+}
+
+interface QuakeFaceLightmapOverlaySelection {
+  baseBrightness: number;
+  displayRange: number;
+  overlay: QuakeFaceCandidate;
+  renderCandidate: QuakeFaceCandidate;
+  score: number;
+  sourceCandidate: QuakeFaceBuildCandidate;
+  sourceFaceIndex: number;
+}
+
+interface QuakeFaceLightmapBakeSelection {
+  baseBrightness: number;
+  bounds: QuakeTextureCoordinateBounds;
+  dimensions: { width: number; height: number };
+  displayRange: number;
+  grid: QuakeFaceLightmapGrid;
+  renderCandidate: QuakeFaceCandidate;
+  score: number;
+  sourceCandidate: QuakeFaceBuildCandidate;
+  texelCount: number;
+  uvs: Vec2[];
+}
 
 interface QuakeMipTexture {
   name: string;
@@ -227,6 +293,7 @@ interface QuakeFaceBuildCandidate {
   faceIndex: number;
   modelIndex: number;
   entityIndex?: number;
+  face: QuakeFace;
   points: QuakeVertex[];
   texture: QuakeMipTexture;
   texInfo: QuakeTexInfo;
@@ -531,6 +598,16 @@ const QUAKE_LIGHT_SMOOTHING_NORMAL_DOT = 0.999;
 const QUAKE_LIGHT_SMOOTHING_PLANE_EPS = 0.5;
 const QUAKE_LIGHT_SMOOTHING_TOUCH_EPS = 1.5;
 const QUAKE_RENDER_COLLINEAR_EPS = 1e-6;
+const QUAKE_LIGHTMAP_BAKE_DEFAULT_MAX_TEXTURE_SIDE = 384;
+const QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SIDE = 4;
+const QUAKE_LIGHTMAP_BAKE_MAX_TEXTURE_SIDE = 512;
+const QUAKE_LIGHTMAP_BAKE_DEFAULT_MAX_TOTAL_TEXELS = 8_000_000;
+const QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_DISPLAY_RANGE = 0.02;
+const QUAKE_LIGHTMAP_OVERLAY_DEFAULT_MAX_TEXTURE_SIDE = 128;
+const QUAKE_LIGHTMAP_OVERLAY_DEFAULT_MAX_EXTRA_RATIO = 0.05;
+const QUAKE_LIGHTMAP_OVERLAY_DEFAULT_MIN_DISPLAY_RANGE = 0.14;
+const QUAKE_LIGHTMAP_OVERLAY_OFFSET = 0.0015;
+const QUAKE_LIGHTMAP_OVERLAY_MAX_OPACITY = 0.86;
 const QUAKE_LIGHTSTYLE_OVERLAY_STRENGTH = 0.72;
 const QUAKE_LIGHTSTYLE_OVERLAY_GAMMA = 1.35;
 const QUAKE_LIGHTSTYLE_OVERLAY_MAX_OPACITY = 0.52;
@@ -562,7 +639,7 @@ export async function createQuakeSceneFromPakFile(file: File): Promise<QuakeScen
 
 export async function createQuakePreparedSceneFromPakBuffer(
   buffer: ArrayBuffer,
-  options: { encodeTextureUrl?: QuakeTextureUrlEncoder; mapPath?: string } = {},
+  options: QuakePreparedSceneCreateOptions = {},
 ): Promise<QuakePreparedScene> {
   const entries = parseQuakePakDirectory(buffer);
   const palette = paletteFromPak(buffer, entries);
@@ -576,6 +653,10 @@ export async function createQuakePreparedSceneFromPakBuffer(
     palette,
     mapEntry.name,
     options.encodeTextureUrl ?? browserTextureUrlEncoder,
+    {
+      lightmapBake: normalizeQuakeLightmapBakeOptions(options),
+      lightmapOverlay: normalizeQuakeLightmapOverlayOptions(options),
+    },
   );
 }
 
@@ -697,6 +778,10 @@ async function createQuakePreparedSceneFromBsp(
   palette: RGB[],
   label: string,
   encodeTextureUrl: QuakeTextureUrlEncoder,
+  options: QuakeBspPrepareOptions = {
+    lightmapBake: normalizeQuakeLightmapBakeOptions(),
+    lightmapOverlay: normalizeQuakeLightmapOverlayOptions(),
+  },
 ): Promise<QuakePreparedScene> {
   const view = new DataView(buffer);
   assertValidBspHeader(view);
@@ -795,6 +880,7 @@ async function createQuakePreparedSceneFromBsp(
       ...(entityByModel.get(faceModels[faceIndex] ?? 0) !== undefined
         ? { entityIndex: entityByModel.get(faceModels[faceIndex] ?? 0) }
         : {}),
+      face,
       points: oriented,
       texture,
       texInfo,
@@ -888,6 +974,30 @@ async function createQuakePreparedSceneFromBsp(
   const sourceFaceCount = uniqueSorted(candidates.flatMap((candidate) => candidate.sourceFaceIndices)).length;
   const visibilityKeys = buildSourceFaceVisibilityKeys(planes, nodes, leaves, markSurfaces, visData, candidates, brushModels);
   const renderCandidates = mergeQuakeFaceCandidates(candidates, visibilityKeys);
+  const buildCandidateByFaceIndex = new Map(buildCandidates.map((candidate) => [candidate.faceIndex, candidate]));
+  const lightmapOverlaySourceFaceIndices = await applyFaceLightmapOverlayBudgetToRenderCandidates(
+    renderCandidates,
+    buildCandidateByFaceIndex,
+    lighting,
+    textures,
+    palette,
+    textureUrls,
+    litTextureCache,
+    encodeTextureUrl,
+    options.lightmapOverlay,
+  );
+  await applyFaceLightmapBakeToRenderCandidates(
+    renderCandidates,
+    buildCandidateByFaceIndex,
+    lighting,
+    textures,
+    palette,
+    textureUrls,
+    litTextureCache,
+    encodeTextureUrl,
+    options.lightmapBake,
+    lightmapOverlaySourceFaceIndices,
+  );
   await addTextureAnimationSpritesToRenderCandidates(
     renderCandidates,
     textures,
@@ -2390,6 +2500,624 @@ function textureUv(point: QuakeVertex, texInfo: QuakeTexInfo, texture: QuakeMipT
   return [s / texture.width, -t / texture.height];
 }
 
+async function applyFaceLightmapOverlayBudgetToRenderCandidates(
+  renderCandidates: QuakeFaceCandidate[],
+  buildCandidateByFaceIndex: Map<number, QuakeFaceBuildCandidate>,
+  lighting: Uint8Array,
+  textures: Array<QuakeMipTexture | null>,
+  palette: RGB[],
+  urls: string[],
+  cache: Map<string, Promise<string> | string>,
+  encodeTextureUrl: QuakeTextureUrlEncoder,
+  options: QuakeLightmapOverlayOptions,
+): Promise<Set<number>> {
+  const selectedSourceFaceIndices = new Set<number>();
+  if (!options.enabled || options.maxExtraRatio <= 0) return selectedSourceFaceIndices;
+  const maxExtraLeaves = Math.floor(renderCandidates.length * options.maxExtraRatio);
+  if (maxExtraLeaves <= 0) return selectedSourceFaceIndices;
+
+  const selections: QuakeFaceLightmapOverlaySelection[] = [];
+  for (const renderCandidate of renderCandidates) {
+    if (renderCandidate.sourceFaceIndices.length !== 1) continue;
+    const sourceFaceIndex = renderCandidate.sourceFaceIndices[0];
+    const sourceCandidate = sourceFaceIndex === undefined
+      ? undefined
+      : buildCandidateByFaceIndex.get(sourceFaceIndex);
+    if (!sourceCandidate) continue;
+    const brightness = brightnessFromPolygonData(renderCandidate.polygon.data?.["lit"]) ?? sourceCandidate.brightness;
+    const selection = await faceLightmapOverlaySelectionFor(
+      renderCandidate,
+      sourceCandidate,
+      brightness,
+      lighting,
+      textures,
+      palette,
+      urls,
+      cache,
+      encodeTextureUrl,
+      options,
+    );
+    if (selection) selections.push(selection);
+  }
+
+  selections.sort((a, b) => b.score - a.score || a.sourceFaceIndex - b.sourceFaceIndex);
+  const overlays: QuakeFaceCandidate[] = [];
+  for (const selection of selections.slice(0, maxExtraLeaves)) {
+    const baseTexture = await litTextureUrlFor(
+      selection.sourceCandidate.texture,
+      selection.baseBrightness,
+      palette,
+      urls,
+      cache,
+      encodeTextureUrl,
+    );
+    selection.renderCandidate.polygon = {
+      ...selection.renderCandidate.polygon,
+      texture: baseTexture,
+      textureWrap: REPEAT_WRAP,
+      textureAlphaMode: "opaque",
+      color: litTextureFallbackColor(selection.sourceCandidate.texture, selection.baseBrightness, palette, new Map()),
+      data: {
+        ...selection.renderCandidate.polygon.data,
+        "lit": formatQuakeBrightness(selection.baseBrightness),
+        "lm-overlay-base": true,
+      },
+    };
+    overlays.push(selection.overlay);
+    selectedSourceFaceIndices.add(selection.sourceFaceIndex);
+  }
+  renderCandidates.push(...overlays);
+  return selectedSourceFaceIndices;
+}
+
+async function applyFaceLightmapBakeToRenderCandidates(
+  renderCandidates: QuakeFaceCandidate[],
+  buildCandidateByFaceIndex: Map<number, QuakeFaceBuildCandidate>,
+  lighting: Uint8Array,
+  textures: Array<QuakeMipTexture | null>,
+  palette: RGB[],
+  urls: string[],
+  cache: Map<string, Promise<string> | string>,
+  encodeTextureUrl: QuakeTextureUrlEncoder,
+  options: QuakeLightmapBakeOptions,
+  skipSourceFaceIndices = new Set<number>(),
+): Promise<void> {
+  if (!options.enabled) return;
+  const selections: QuakeFaceLightmapBakeSelection[] = [];
+  for (const renderCandidate of renderCandidates) {
+    if (renderCandidate.sourceFaceIndices.length !== 1) continue;
+    const sourceFaceIndex = renderCandidate.sourceFaceIndices[0];
+    if (sourceFaceIndex === undefined || skipSourceFaceIndices.has(sourceFaceIndex)) continue;
+    const sourceCandidate = sourceFaceIndex === undefined
+      ? undefined
+      : buildCandidateByFaceIndex.get(sourceFaceIndex);
+    if (!sourceCandidate) continue;
+    const selection = faceLightmapBakeSelectionFor(
+      renderCandidate,
+      sourceCandidate,
+      lighting,
+      textures,
+      options,
+    );
+    if (selection) selections.push(selection);
+  }
+
+  let texelsUsed = 0;
+  selections.sort((a, b) => b.score - a.score || a.sourceCandidate.faceIndex - b.sourceCandidate.faceIndex);
+  for (const selection of selections) {
+    if (texelsUsed + selection.texelCount > options.maxTotalTexels) continue;
+    const baked = await encodeFaceLightmapBakeSelection(
+      selection,
+      lighting,
+      palette,
+      urls,
+      cache,
+      encodeTextureUrl,
+      options,
+    );
+    if (!baked) continue;
+    selection.renderCandidate.polygon = {
+      ...selection.renderCandidate.polygon,
+      texture: baked.url,
+      uvs: selection.uvs,
+      textureWrap: undefined,
+      color: litTextureFallbackColor(selection.sourceCandidate.texture, selection.baseBrightness, palette, new Map()),
+      data: {
+        ...selection.renderCandidate.polygon.data,
+        "lit": formatQuakeBrightness(selection.baseBrightness),
+        "lm-bake": true,
+        "lm-range": formatQuakeBrightness(selection.displayRange),
+        "lm-texels": selection.texelCount,
+      },
+    };
+    texelsUsed += selection.texelCount;
+  }
+}
+
+function normalizeQuakeLightmapBakeOptions(
+  options: Pick<
+    QuakePreparedSceneCreateOptions,
+    "lightmapBake" | "lightmapBakeMaxSide" | "lightmapBakeMaxTotalTexels" | "lightmapBakeMinRange"
+  > = {},
+): QuakeLightmapBakeOptions {
+  const rawMaxSide = options.lightmapBakeMaxSide ?? QUAKE_LIGHTMAP_BAKE_DEFAULT_MAX_TEXTURE_SIDE;
+  const maxTextureSide = Math.max(
+    QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SIDE,
+    Math.min(
+      QUAKE_LIGHTMAP_BAKE_MAX_TEXTURE_SIDE,
+      Number.isFinite(rawMaxSide) ? Math.round(rawMaxSide) : QUAKE_LIGHTMAP_BAKE_DEFAULT_MAX_TEXTURE_SIDE,
+    ),
+  );
+  const rawMinRange = options.lightmapBakeMinRange ?? QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_DISPLAY_RANGE;
+  const minDisplayRange = Math.max(
+    0,
+    Math.min(
+      1,
+      Number.isFinite(rawMinRange) ? rawMinRange : QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_DISPLAY_RANGE,
+    ),
+  );
+  const rawMaxTotalTexels = options.lightmapBakeMaxTotalTexels ?? QUAKE_LIGHTMAP_BAKE_DEFAULT_MAX_TOTAL_TEXELS;
+  const maxTotalTexels = Math.max(
+    0,
+    Number.isFinite(rawMaxTotalTexels) ? Math.floor(rawMaxTotalTexels) : Number.POSITIVE_INFINITY,
+  );
+  return {
+    enabled: options.lightmapBake === true,
+    maxTextureSide,
+    maxTotalTexels,
+    minDisplayRange,
+  };
+}
+
+function normalizeQuakeLightmapOverlayOptions(
+  options: Pick<
+    QuakePreparedSceneCreateOptions,
+    "lightmapOverlay" | "lightmapOverlayMaxExtraRatio" | "lightmapOverlayMaxSide" | "lightmapOverlayMinRange"
+  > = {},
+): QuakeLightmapOverlayOptions {
+  const rawMaxSide = options.lightmapOverlayMaxSide ?? QUAKE_LIGHTMAP_OVERLAY_DEFAULT_MAX_TEXTURE_SIDE;
+  const maxTextureSide = Math.max(
+    QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SIDE,
+    Math.min(
+      QUAKE_LIGHTMAP_BAKE_MAX_TEXTURE_SIDE,
+      Number.isFinite(rawMaxSide) ? Math.round(rawMaxSide) : QUAKE_LIGHTMAP_OVERLAY_DEFAULT_MAX_TEXTURE_SIDE,
+    ),
+  );
+  const rawMaxExtraRatio = options.lightmapOverlayMaxExtraRatio ?? QUAKE_LIGHTMAP_OVERLAY_DEFAULT_MAX_EXTRA_RATIO;
+  const maxExtraRatio = Math.max(
+    0,
+    Math.min(
+      0.25,
+      Number.isFinite(rawMaxExtraRatio) ? rawMaxExtraRatio : QUAKE_LIGHTMAP_OVERLAY_DEFAULT_MAX_EXTRA_RATIO,
+    ),
+  );
+  const rawMinRange = options.lightmapOverlayMinRange ?? QUAKE_LIGHTMAP_OVERLAY_DEFAULT_MIN_DISPLAY_RANGE;
+  const minDisplayRange = Math.max(
+    0,
+    Math.min(
+      1,
+      Number.isFinite(rawMinRange) ? rawMinRange : QUAKE_LIGHTMAP_OVERLAY_DEFAULT_MIN_DISPLAY_RANGE,
+    ),
+  );
+  return {
+    enabled: options.lightmapOverlay === true,
+    maxExtraRatio,
+    maxTextureSide,
+    minDisplayRange,
+  };
+}
+
+async function faceLightmapOverlaySelectionFor(
+  renderCandidate: QuakeFaceCandidate,
+  sourceCandidate: QuakeFaceBuildCandidate,
+  currentBrightness: number,
+  lighting: Uint8Array,
+  textures: Array<QuakeMipTexture | null>,
+  palette: RGB[],
+  urls: string[],
+  cache: Map<string, Promise<string> | string>,
+  encodeTextureUrl: QuakeTextureUrlEncoder,
+  options: QuakeLightmapOverlayOptions,
+): Promise<QuakeFaceLightmapOverlaySelection | undefined> {
+  if (!staticWorldLightmapCandidate(sourceCandidate, textures)) return undefined;
+  const bounds = faceTextureCoordinateBounds(sourceCandidate.points, sourceCandidate.texInfo);
+  if (!bounds) return undefined;
+  const grid = faceLightmapGridFor(sourceCandidate.face, bounds, lighting);
+  if (!grid) return undefined;
+  const stats = faceLightmapDisplayStats(grid, lighting);
+  const displayRange = stats.max - stats.min;
+  if (displayRange < options.minDisplayRange) return undefined;
+  const dimensions = faceLightmapBakeDimensions(bounds, options.maxTextureSide);
+  if (!dimensions) return undefined;
+
+  const baseDisplayBrightness = Math.max(stats.max, displayLightBrightness(currentBrightness));
+  const baseBrightness = Math.max(QUAKE_LIGHT_MIN, Math.min(QUAKE_LIGHT_MAX, undisplayLightBrightness(baseDisplayBrightness)));
+  const uvs = sourceCandidate.points.map((point) =>
+    faceLightmapBakeUv(point, sourceCandidate.texInfo, bounds),
+  );
+  const key = [
+    "lightmap-overlay",
+    sourceCandidate.faceIndex,
+    dimensions.width,
+    dimensions.height,
+    options.maxTextureSide,
+    baseDisplayBrightness.toFixed(4),
+    bounds.minS.toFixed(3),
+    bounds.maxS.toFixed(3),
+    bounds.minT.toFixed(3),
+    bounds.maxT.toFixed(3),
+  ].join(":");
+  const cached = cache.get(key);
+  let url: string;
+  if (cached) {
+    url = await cached;
+  } else {
+    const task = encodeTextureUrl({
+      width: dimensions.width,
+      height: dimensions.height,
+      pixels: new Uint8Array(dimensions.width * dimensions.height),
+      palette,
+      brightness: 1,
+      rgba: buildFaceLightmapOverlayRgba(bounds, grid, lighting, dimensions, baseDisplayBrightness),
+    });
+    cache.set(key, task);
+    url = await task;
+    cache.set(key, url);
+    urls.push(url);
+  }
+
+  const renderFaceIndex = renderCandidate.faceIndex;
+  const sourceFaceIndex = sourceCandidate.faceIndex;
+  const area = quakeFaceArea(sourceCandidate.points);
+  const overlay: QuakeFaceCandidate = {
+    faceIndex: renderFaceIndex,
+    sourceFaceIndices: [sourceFaceIndex],
+    points: sourceCandidate.points,
+    polygon: {
+      vertices: offsetQuakePolygonVertices(renderCandidate.polygon.vertices, QUAKE_LIGHTMAP_OVERLAY_OFFSET),
+      texture: url,
+      textureAlphaMode: "blend",
+      color: "#000000",
+      uvs,
+      data: {
+        "f": renderFaceIndex,
+        "m": sourceCandidate.modelIndex,
+        "tex": "lm-overlay",
+        "lm-overlay": true,
+        "lm-range": formatQuakeBrightness(displayRange),
+      },
+    },
+  };
+  return {
+    baseBrightness,
+    displayRange,
+    overlay,
+    renderCandidate,
+    score: displayRange * Math.sqrt(Math.max(1, area)),
+    sourceCandidate,
+    sourceFaceIndex,
+  };
+}
+
+function faceLightmapBakeSelectionFor(
+  renderCandidate: QuakeFaceCandidate,
+  sourceCandidate: QuakeFaceBuildCandidate,
+  lighting: Uint8Array,
+  textures: Array<QuakeMipTexture | null>,
+  options: QuakeLightmapBakeOptions,
+): QuakeFaceLightmapBakeSelection | undefined {
+  if (!options.enabled) return undefined;
+  if (!staticWorldLightmapCandidate(sourceCandidate, textures)) return undefined;
+  const bounds = faceTextureCoordinateBounds(sourceCandidate.points, sourceCandidate.texInfo);
+  if (!bounds) return undefined;
+  const grid = faceLightmapGridFor(sourceCandidate.face, bounds, lighting);
+  if (!grid) return undefined;
+  const stats = faceLightmapDisplayStats(grid, lighting);
+  const displayRange = stats.max - stats.min;
+  if (displayRange < options.minDisplayRange) return undefined;
+  const dimensions = faceLightmapBakeDimensions(bounds, options.maxTextureSide);
+  if (!dimensions) return undefined;
+  const uvs = sourceCandidate.points.map((point) => faceLightmapBakeUv(point, sourceCandidate.texInfo, bounds));
+  const baseBrightness = Math.max(
+    QUAKE_LIGHT_MIN,
+    Math.min(QUAKE_LIGHT_MAX, undisplayLightBrightness(Math.max(stats.max, stats.mean))),
+  );
+  const area = quakeFaceArea(sourceCandidate.points);
+  const texelCount = dimensions.width * dimensions.height;
+  return {
+    baseBrightness,
+    bounds,
+    dimensions,
+    displayRange,
+    grid,
+    renderCandidate,
+    score: displayRange * Math.sqrt(Math.max(1, area)),
+    sourceCandidate,
+    texelCount,
+    uvs,
+  };
+}
+
+async function encodeFaceLightmapBakeSelection(
+  selection: QuakeFaceLightmapBakeSelection,
+  lighting: Uint8Array,
+  palette: RGB[],
+  urls: string[],
+  cache: Map<string, Promise<string> | string>,
+  encodeTextureUrl: QuakeTextureUrlEncoder,
+  options: QuakeLightmapBakeOptions,
+): Promise<{ url: string } | undefined> {
+  const { bounds, dimensions, sourceCandidate } = selection;
+  const key = [
+    "lightmap-bake",
+    sourceCandidate.faceIndex,
+    sourceCandidate.texture.name,
+    dimensions.width,
+    dimensions.height,
+    options.maxTextureSide,
+    selection.baseBrightness.toFixed(4),
+    bounds.minS.toFixed(3),
+    bounds.maxS.toFixed(3),
+    bounds.minT.toFixed(3),
+    bounds.maxT.toFixed(3),
+  ].join(":");
+  const cached = cache.get(key);
+  if (cached) return { url: await cached };
+
+  const task = encodeTextureUrl({
+    width: dimensions.width,
+    height: dimensions.height,
+    pixels: new Uint8Array(dimensions.width * dimensions.height),
+    palette,
+    brightness: 1,
+    rgba: buildFaceLightmapBakeRgba(sourceCandidate.texture, bounds, selection.grid, lighting, palette, dimensions),
+  });
+  cache.set(key, task);
+  const url = await task;
+  cache.set(key, url);
+  urls.push(url);
+  return { url };
+}
+
+function staticWorldLightmapCandidate(
+  candidate: QuakeFaceBuildCandidate,
+  textures: Array<QuakeMipTexture | null>,
+): boolean {
+  if (candidate.modelIndex !== 0 || candidate.entityIndex !== undefined) return false;
+  const textureName = candidate.texture.name.toLowerCase();
+  if (textureName.startsWith("sky") || textureName.startsWith("*") || textureName.startsWith("+")) return false;
+  if (textureAnimationFrameTextures(candidate.texture, textures)) return false;
+  return !candidate.lightStyles.some((style) => style !== 0);
+}
+
+function brightnessFromPolygonData(value: string | number | boolean | undefined): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function faceLightmapBakeDimensions(
+  bounds: QuakeTextureCoordinateBounds,
+  maxTextureSide: number,
+): { width: number; height: number } | undefined {
+  const spanS = bounds.maxS - bounds.minS;
+  const spanT = bounds.maxT - bounds.minT;
+  if (![spanS, spanT].every(Number.isFinite) || spanS <= 0 || spanT <= 0) return undefined;
+  const scale = Math.min(1, maxTextureSide / Math.max(spanS, spanT));
+  const width = Math.max(QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SIDE, Math.ceil(spanS * scale));
+  const height = Math.max(QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SIDE, Math.ceil(spanT * scale));
+  return {
+    width: Math.min(maxTextureSide, width),
+    height: Math.min(maxTextureSide, height),
+  };
+}
+
+function faceLightmapGridFor(
+  face: QuakeFace,
+  bounds: QuakeTextureCoordinateBounds,
+  lighting: Uint8Array,
+): QuakeFaceLightmapGrid | undefined {
+  if (!lighting.length || face.lightOffset < 0) return undefined;
+  const styles = activeLightStyles(face.styles);
+  if (styles.length === 0) return undefined;
+  const minS = Math.floor(bounds.minS / QUAKE_LIGHT_SAMPLE_SIZE);
+  const minT = Math.floor(bounds.minT / QUAKE_LIGHT_SAMPLE_SIZE);
+  const width = Math.max(1, Math.ceil(bounds.maxS / QUAKE_LIGHT_SAMPLE_SIZE) - minS + 1);
+  const height = Math.max(1, Math.ceil(bounds.maxT / QUAKE_LIGHT_SAMPLE_SIZE) - minT + 1);
+  const sampleCount = width * height;
+  const byteCount = sampleCount * styles.length;
+  if (!Number.isFinite(byteCount) || byteCount <= 0 || face.lightOffset + byteCount > lighting.length) {
+    return undefined;
+  }
+  return { lightOffset: face.lightOffset, minS, minT, width, height, sampleCount, styles };
+}
+
+function faceLightmapBakeUv(
+  point: QuakeVertex,
+  texInfo: QuakeTexInfo,
+  bounds: QuakeTextureCoordinateBounds,
+): Vec2 {
+  const spanS = Math.max(1e-6, bounds.maxS - bounds.minS);
+  const spanT = Math.max(1e-6, bounds.maxT - bounds.minT);
+  const s = point.x * texInfo.s[0] + point.y * texInfo.s[1] + point.z * texInfo.s[2] + texInfo.s[3];
+  const t = point.x * texInfo.t[0] + point.y * texInfo.t[1] + point.z * texInfo.t[2] + texInfo.t[3];
+  return [(s - bounds.minS) / spanS, (bounds.maxT - t) / spanT];
+}
+
+function faceLightmapDisplayStats(
+  grid: QuakeFaceLightmapGrid,
+  lighting: Uint8Array,
+): { min: number; max: number; mean: number } {
+  let min = Infinity;
+  let max = -Infinity;
+  let total = 0;
+  let count = 0;
+  for (let y = 0; y < grid.height; y++) {
+    for (let x = 0; x < grid.width; x++) {
+      const brightness = displayLightBrightness(faceLightmapSampleBrightness(grid, lighting, x, y));
+      min = Math.min(min, brightness);
+      max = Math.max(max, brightness);
+      total += brightness;
+      count++;
+    }
+  }
+  if (count === 0) return { min: 1, max: 1, mean: 1 };
+  return { min, max, mean: total / count };
+}
+
+function buildFaceLightmapBakeRgba(
+  texture: QuakeMipTexture,
+  bounds: QuakeTextureCoordinateBounds,
+  grid: QuakeFaceLightmapGrid,
+  lighting: Uint8Array,
+  palette: RGB[],
+  dimensions: { width: number; height: number },
+): Uint8Array {
+  const rgba = new Uint8Array(dimensions.width * dimensions.height * 4);
+  const spanS = bounds.maxS - bounds.minS;
+  const spanT = bounds.maxT - bounds.minT;
+  for (let y = 0; y < dimensions.height; y++) {
+    const t = bounds.maxT - ((y + 0.5) / dimensions.height) * spanT;
+    for (let x = 0; x < dimensions.width; x++) {
+      const s = bounds.minS + ((x + 0.5) / dimensions.width) * spanS;
+      const paletteIndex = sampleWrappedTextureTexel(texture, s, t);
+      const [r, g, b] = palette[paletteIndex] ?? [0, 0, 0];
+      const light = paletteIndex >= 224
+        ? 1
+        : displayLightBrightness(faceLightmapBrightnessAt(grid, lighting, s, t));
+      const offset = (y * dimensions.width + x) * 4;
+      rgba[offset] = clampByte(r * light);
+      rgba[offset + 1] = clampByte(g * light);
+      rgba[offset + 2] = clampByte(b * light);
+      rgba[offset + 3] = 255;
+    }
+  }
+  return rgba;
+}
+
+function buildFaceLightmapOverlayRgba(
+  bounds: QuakeTextureCoordinateBounds,
+  grid: QuakeFaceLightmapGrid,
+  lighting: Uint8Array,
+  dimensions: { width: number; height: number },
+  baseDisplayBrightness: number,
+): Uint8Array {
+  const rgba = new Uint8Array(dimensions.width * dimensions.height * 4);
+  const spanS = bounds.maxS - bounds.minS;
+  const spanT = bounds.maxT - bounds.minT;
+  const base = Math.max(QUAKE_LIGHT_MIN, baseDisplayBrightness);
+  for (let y = 0; y < dimensions.height; y++) {
+    const t = bounds.maxT - ((y + 0.5) / dimensions.height) * spanT;
+    for (let x = 0; x < dimensions.width; x++) {
+      const s = bounds.minS + ((x + 0.5) / dimensions.width) * spanS;
+      const light = displayLightBrightness(faceLightmapBrightnessAt(grid, lighting, s, t));
+      const darken = Math.max(0, Math.min(QUAKE_LIGHTMAP_OVERLAY_MAX_OPACITY, 1 - light / base));
+      const offset = (y * dimensions.width + x) * 4;
+      rgba[offset] = 0;
+      rgba[offset + 1] = 0;
+      rgba[offset + 2] = 0;
+      rgba[offset + 3] = clampByte(darken * 255);
+    }
+  }
+  return rgba;
+}
+
+function quakeFaceArea(points: QuakeVertex[]): number {
+  if (points.length < 3) return 0;
+  const origin = points[0];
+  if (!origin) return 0;
+  let area = 0;
+  for (let i = 1; i < points.length - 1; i++) {
+    const b = points[i];
+    const c = points[i + 1];
+    if (!b || !c) continue;
+    const ab = quakeVertexSub(b, origin);
+    const ac = quakeVertexSub(c, origin);
+    area += quakeVertexLength(quakeVertexCross(ab, ac)) * 0.5;
+  }
+  return area;
+}
+
+function quakeVertexSub(a: QuakeVertex, b: QuakeVertex): QuakeVertex {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+}
+
+function quakeVertexCross(a: QuakeVertex, b: QuakeVertex): QuakeVertex {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
+function quakeVertexLength(value: QuakeVertex): number {
+  return Math.hypot(value.x, value.y, value.z);
+}
+
+function faceLightmapBrightnessAt(
+  grid: QuakeFaceLightmapGrid,
+  lighting: Uint8Array,
+  s: number,
+  t: number,
+): number {
+  const sampleS = s / QUAKE_LIGHT_SAMPLE_SIZE - grid.minS;
+  const sampleT = t / QUAKE_LIGHT_SAMPLE_SIZE - grid.minT;
+  const x0 = Math.max(0, Math.min(grid.width - 1, Math.floor(sampleS)));
+  const y0 = Math.max(0, Math.min(grid.height - 1, Math.floor(sampleT)));
+  const x1 = Math.min(grid.width - 1, x0 + 1);
+  const y1 = Math.min(grid.height - 1, y0 + 1);
+  const fx = Math.max(0, Math.min(1, sampleS - x0));
+  const fy = Math.max(0, Math.min(1, sampleT - y0));
+  const top = lerpNumber(
+    faceLightmapSampleBrightness(grid, lighting, x0, y0),
+    faceLightmapSampleBrightness(grid, lighting, x1, y0),
+    fx,
+  );
+  const bottom = lerpNumber(
+    faceLightmapSampleBrightness(grid, lighting, x0, y1),
+    faceLightmapSampleBrightness(grid, lighting, x1, y1),
+    fx,
+  );
+  return clampLightBrightness(lerpNumber(top, bottom, fy));
+}
+
+function faceLightmapSampleBrightness(
+  grid: QuakeFaceLightmapGrid,
+  lighting: Uint8Array,
+  x: number,
+  y: number,
+): number {
+  const sampleIndex = y * grid.width + x;
+  let brightness = 0;
+  for (let styleIndex = 0; styleIndex < grid.styles.length; styleIndex++) {
+    const offset = grid.lightOffset + styleIndex * grid.sampleCount + sampleIndex;
+    const style = grid.styles[styleIndex] ?? 0;
+    brightness += lightSampleToBrightness(lighting[offset] ?? 0) * lightScaleForStyle(style);
+  }
+  return clampLightBrightness(brightness);
+}
+
+function displayLightBrightness(brightness: number): number {
+  const clamped = clampLightBrightness(brightness);
+  return clamped < 1 ? Math.pow(clamped, QUAKE_LIGHT_DISPLAY_GAMMA) : clamped;
+}
+
+function undisplayLightBrightness(brightness: number): number {
+  const clamped = clampLightBrightness(brightness);
+  return clamped < 1 ? Math.pow(clamped, 1 / QUAKE_LIGHT_DISPLAY_GAMMA) : clamped;
+}
+
+function sampleWrappedTextureTexel(texture: QuakeMipTexture, s: number, t: number): number {
+  const x = wrappedTextureCoord(s, texture.width);
+  const y = wrappedTextureCoord(t, texture.height);
+  return texture.pixels[y * texture.width + x] ?? 0;
+}
+
+function lerpNumber(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
 function faceLightBrightness(
   face: QuakeFace,
   points: QuakeVertex[],
@@ -2887,6 +3615,7 @@ function browserTextureUrlEncoder({
   palette,
   brightness,
   alpha,
+  rgba,
 }: QuakeTextureEncodeInput): Promise<string> {
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -2894,15 +3623,19 @@ function browserTextureUrlEncoder({
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D is not available.");
   const image = ctx.createImageData(width, height);
-  for (let i = 0; i < pixels.length; i++) {
-    const paletteIndex = pixels[i] ?? 0;
-    const [r, g, b] = palette[paletteIndex] ?? [0, 0, 0];
-    const light = paletteIndex >= 224 ? 1 : brightness;
-    const index = i * 4;
-    image.data[index] = clampByte(r * light);
-    image.data[index + 1] = clampByte(g * light);
-    image.data[index + 2] = clampByte(b * light);
-    image.data[index + 3] = alpha?.[i] ?? 255;
+  if (rgba) {
+    image.data.set(rgba.subarray(0, image.data.length));
+  } else {
+    for (let i = 0; i < pixels.length; i++) {
+      const paletteIndex = pixels[i] ?? 0;
+      const [r, g, b] = palette[paletteIndex] ?? [0, 0, 0];
+      const light = paletteIndex >= 224 ? 1 : brightness;
+      const index = i * 4;
+      image.data[index] = clampByte(r * light);
+      image.data[index + 1] = clampByte(g * light);
+      image.data[index + 2] = clampByte(b * light);
+      image.data[index + 3] = alpha?.[i] ?? 255;
+    }
   }
   ctx.putImageData(image, 0, 0);
   return canvasToObjectUrl(canvas);
