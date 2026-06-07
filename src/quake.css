@@ -1229,9 +1229,23 @@ body.quake-menu-open #quake-debug-panel {
   --quake-debug-stat-name-color: rgba(216, 137, 63, 0.6);
   --quake-debug-stat-value-color: rgba(246, 241, 223, 0.62);
   --quake-debug-button-color: rgba(247, 216, 156, 0.68);
+  --quake-debug-button-border: rgba(191, 116, 44, 0.38);
+  --quake-debug-button-bg: rgba(78, 34, 18, 0.42);
+  --quake-debug-button-hover-border: rgba(240, 173, 92, 0.58);
+  --quake-debug-button-hover-bg: rgba(101, 45, 20, 0.56);
   --quake-debug-glyph-filter: brightness(0.72) saturate(0.88) contrast(0.92) drop-shadow(0 1px 0 #000000);
   --quake-debug-title-filter: brightness(0.78) saturate(0.9) contrast(0.96) drop-shadow(0 1px 0 #000000);
   --quake-debug-legend-filter: brightness(0.76) saturate(0.88) contrast(0.92) drop-shadow(0 1px 0 #000000);
+  --quake-debug-checkbox-border: rgba(191, 116, 44, 0.4);
+  --quake-debug-checkbox-bg: rgba(0, 0, 0, 0.64);
+  --quake-debug-checkbox-checked-border: rgba(240, 173, 92, 0.54);
+  --quake-debug-checkbox-checked-bg: rgba(78, 34, 18, 0.48);
+  --quake-debug-checkbox-check: rgba(240, 173, 92, 0.56);
+  --quake-debug-checkbox-focus: rgba(240, 173, 92, 0.34);
+  --quake-debug-swatch-world: #006000;
+  --quake-debug-swatch-special: #008080;
+  --quake-debug-swatch-movers: #8a7a00;
+  --quake-debug-swatch-enemies: #8a0000;
   position: relative;
   overflow: auto;
   max-height: inherit;
@@ -1252,9 +1266,23 @@ body.quake-debug-pointer-free #quake-debug-card {
   --quake-debug-stat-name-color: #d8893f;
   --quake-debug-stat-value-color: rgba(246, 241, 223, 0.84);
   --quake-debug-button-color: #f7d89c;
+  --quake-debug-button-border: rgba(191, 116, 44, 0.7);
+  --quake-debug-button-bg: rgba(78, 34, 18, 0.7);
+  --quake-debug-button-hover-border: rgba(240, 173, 92, 0.96);
+  --quake-debug-button-hover-bg: rgba(101, 45, 20, 0.86);
   --quake-debug-glyph-filter: brightness(1.08) contrast(1.05) drop-shadow(0 1px 0 #000000);
   --quake-debug-title-filter: brightness(1.12) contrast(1.08) drop-shadow(0 1px 0 #000000);
   --quake-debug-legend-filter: brightness(1.08) contrast(1.05) drop-shadow(0 1px 0 #000000);
+  --quake-debug-checkbox-border: rgba(191, 116, 44, 0.76);
+  --quake-debug-checkbox-bg: rgba(0, 0, 0, 0.64);
+  --quake-debug-checkbox-checked-border: rgba(240, 173, 92, 0.96);
+  --quake-debug-checkbox-checked-bg: rgba(78, 34, 18, 0.76);
+  --quake-debug-checkbox-check: #f0ad5c;
+  --quake-debug-checkbox-focus: rgba(240, 173, 92, 0.62);
+  --quake-debug-swatch-world: green;
+  --quake-debug-swatch-special: cyan;
+  --quake-debug-swatch-movers: yellow;
+  --quake-debug-swatch-enemies: red;
   border-color: rgba(132, 73, 38, 0.82);
 }
 #quake-debug-card::before {
@@ -1272,6 +1300,20 @@ body.quake-debug-pointer-free #quake-debug-card {
 #quake-debug-card .quake-bitmap-text {
   filter: var(--quake-debug-glyph-filter);
   transition: filter 120ms linear;
+}
+#quake-debug-card .quake-option-checkbox {
+  border-color: var(--quake-debug-checkbox-border);
+  background: var(--quake-debug-checkbox-bg);
+}
+#quake-debug-card .quake-option-checkbox::after {
+  background: var(--quake-debug-checkbox-check);
+}
+#quake-debug-card .quake-option-toggle input:checked + .quake-option-checkbox {
+  border-color: var(--quake-debug-checkbox-checked-border);
+  background: var(--quake-debug-checkbox-checked-bg);
+}
+#quake-debug-card .quake-option-toggle:focus-within .quake-option-checkbox {
+  outline-color: var(--quake-debug-checkbox-focus);
 }
 #quake-debug-header {
   display: flex;
@@ -1299,16 +1341,16 @@ body.quake-debug-pointer-free #quake-debug-card {
   place-items: center;
   min-height: 28px;
   padding: 0 10px;
-  border: 1px solid rgba(191, 116, 44, 0.7);
-  background: rgba(78, 34, 18, 0.7);
+  border: 1px solid var(--quake-debug-button-border);
+  background: var(--quake-debug-button-bg);
   color: var(--quake-debug-button-color);
   font: inherit;
   cursor: pointer;
 }
 #quake-debug-close:hover,
 #quake-debug-close:focus-visible {
-  border-color: rgba(240, 173, 92, 0.96);
-  background: rgba(101, 45, 20, 0.86);
+  border-color: var(--quake-debug-button-hover-border);
+  background: var(--quake-debug-button-hover-bg);
   outline: none;
 }
 #quake-debug-stats {
@@ -1393,16 +1435,16 @@ body.quake-debug-outlines #quake-debug-outline-legend {
   box-shadow: 0 1px 0 #000000;
 }
 .quake-debug-outline-swatch-world {
-  background: green;
+  background: var(--quake-debug-swatch-world, green);
 }
 .quake-debug-outline-swatch-special {
-  background: cyan;
+  background: var(--quake-debug-swatch-special, cyan);
 }
 .quake-debug-outline-swatch-movers {
-  background: yellow;
+  background: var(--quake-debug-swatch-movers, yellow);
 }
 .quake-debug-outline-swatch-enemies {
-  background: red;
+  background: var(--quake-debug-swatch-enemies, red);
 }
 .quake-menu-actions {
   display: flex;
