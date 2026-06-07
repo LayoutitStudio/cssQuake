@@ -1,11 +1,13 @@
-import type {
-  PolyFirstPersonControlsHandle,
-  PolyMeshHandle,
-  PolySceneHandle,
-  Vec3,
+import {
+  BASE_TILE,
+  type PolyFirstPersonControlsHandle,
+  type PolyMeshHandle,
+  type PolySceneHandle,
+  type Vec3,
 } from "@layoutit/polycss";
 
 import type { QuakePreparedRenderBundle } from "../prepare/scene";
+import { QUAKE_COLLISION_UNIT_SCALE } from "./constants";
 import { crossVec3, normalizeVec3 } from "./math";
 import { mountQuakeRenderBundleMesh, stripPolyMeshMetadata } from "./renderBundleMesh";
 
@@ -33,26 +35,37 @@ export interface QuakeViewmodelControllerOptions {
 }
 
 const QUAKE_WEAPON_FORWARD_OFFSET = 4.88;
-const QUAKE_WEAPON_RIGHT_OFFSET = 0.34;
+const QUAKE_WEAPON_RIGHT_OFFSET = 0;
 const QUAKE_WEAPON_UP_OFFSET = -0.3;
-const QUAKE_WEAPON_BASE_SCALE = 1.82;
-const QUAKE_WEAPON_MIN_SCALE = 1.62;
-const QUAKE_WEAPON_MAX_SCALE = 2.2;
-const QUAKE_WEAPON_SCALE_VIEWPORT_EXPONENT = 0.38;
-const QUAKE_WEAPON_REFERENCE_PLAYFIELD_WIDTH = 900;
-const QUAKE_WEAPON_MIN_WIDTH_RATIO = 0.78;
-const QUAKE_WEAPON_WIDTH_DAMPEN_EXPONENT = 0.65;
-const QUAKE_WEAPON_REFERENCE_PLAYFIELD_HEIGHT = 580;
-const QUAKE_WEAPON_SCREEN_OFFSET_SCALE = 0.095;
-const QUAKE_WEAPON_MIN_SCREEN_OFFSET = -32;
-const QUAKE_WEAPON_MAX_SCREEN_OFFSET = 96;
+const QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX = 1280;
+const QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX = 720;
+const QUAKE_WEAPON_REFERENCE_SCENE_PERSPECTIVE_PX = 745.1083333333332;
+const QUAKE_WEAPON_REFERENCE_STAGE_OFFSET_PX = 30.887;
+const QUAKE_WEAPON_REFERENCE_BASE_SCALE = 1.7046145833333335;
+const QUAKE_WEAPON_HORIZONTAL_SCALE = 1.612;
+const QUAKE_WEAPON_VERTICAL_SCALE = 0.96;
+const QUAKE_WEAPON_DEPTH_SCALE = 1.38;
+const QUAKE_WEAPON_LOCAL_Y_OFFSET_PX = -25;
+const QUAKE_WEAPON_LOCAL_PITCH_DEG = 13;
+const QUAKE_WEAPON_SCREEN_X_OFFSET_PX = -60;
+const QUAKE_WEAPON_PERSPECTIVE_SCALE = 1.08;
+const QUAKE_WEAPON_MIN_ROT_X = 10;
+const QUAKE_WEAPON_MAX_ROT_X = 170;
 const QUAKE_WEAPON_FIRE_ANIMATION_MS = 90;
+const QUAKE_WEAPON_BOB = 0.02;
+const QUAKE_WEAPON_BOB_CYCLE_SECONDS = 0.6;
+const QUAKE_WEAPON_BOB_UP = 0.5;
+const QUAKE_WEAPON_BOB_FORWARD_SCALE = 0.4;
+const QUAKE_WEAPON_BOB_MIN_DT = 1 / 120;
+const QUAKE_WEAPON_BOB_STOP_SPEED = 1 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_WEAPON_BOB_TELEPORT_DISTANCE = 128 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_WEAPON_BOB_MIN = -7 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_WEAPON_BOB_MAX = 4 * QUAKE_COLLISION_UNIT_SCALE;
 
 export function createQuakeViewmodelController({
   scene,
   controls,
   host,
-  hud,
   layer,
   onMount,
 }: QuakeViewmodelControllerOptions): QuakeViewmodelController {
@@ -63,9 +76,13 @@ export function createQuakeViewmodelController({
   let fireUpKick = 0;
   let fireAnimationTimer: number | null = null;
   let fireKickTimers: number[] = [];
+  let walkBob = 0;
+  let walkBobOrigin: Vec3 | null = null;
+  let walkBobAt = 0;
 
   function mount(model: QuakeViewmodelModel): void {
     clearFireAnimation();
+    resetWalkBob();
     handle?.remove();
     if (!stage) throw new Error("Quake viewmodel render bundle mount requires a viewmodel stage.");
     handle = mountQuakeRenderBundleMesh(stage, model.renderBundle);
@@ -79,6 +96,7 @@ export function createQuakeViewmodelController({
 
   function remove(): void {
     clearFireAnimation();
+    resetWalkBob();
     handle?.remove();
     handle = null;
   }
@@ -90,24 +108,26 @@ export function createQuakeViewmodelController({
   function syncTransform(): void {
     if (!handle) return;
     const origin = controls.getOrigin();
-    const rotX = scene.camera.state.rotX ?? 88;
+    const bob = updateWalkBob(origin);
+    const rotX = weaponViewRotX(scene.camera.state.rotX ?? 88);
     const rotY = scene.camera.state.rotY ?? 270;
     const weaponPitch = rotX - 90;
     const forward = forwardDirection(rotX, rotY);
     const right = rightDirection(rotY);
     const up = normalizeVec3(crossVec3(right, forward));
-    const weaponForwardOffset = QUAKE_WEAPON_FORWARD_OFFSET + fireForwardKick;
+    const weaponForwardOffset = QUAKE_WEAPON_FORWARD_OFFSET + fireForwardKick + bob * QUAKE_WEAPON_BOB_FORWARD_SCALE;
     const weaponUpOffset = QUAKE_WEAPON_UP_OFFSET + fireUpKick;
     const position: Vec3 = [
       origin[0] + forward[0] * weaponForwardOffset + right[0] * QUAKE_WEAPON_RIGHT_OFFSET + up[0] * weaponUpOffset,
       origin[1] + forward[1] * weaponForwardOffset + right[1] * QUAKE_WEAPON_RIGHT_OFFSET + up[1] * weaponUpOffset,
-      origin[2] + forward[2] * weaponForwardOffset + right[2] * QUAKE_WEAPON_RIGHT_OFFSET + up[2] * weaponUpOffset,
+      origin[2] + forward[2] * weaponForwardOffset + right[2] * QUAKE_WEAPON_RIGHT_OFFSET + up[2] * weaponUpOffset + bob,
     ];
     handle.setTransform({
       position,
       rotation: [weaponPitch, 0, (rotY + 180) % 360],
-      scale: weaponScale(),
+      scale: weaponScaleVec(),
     });
+    syncLocalWeaponTransform();
     syncLayer();
   }
 
@@ -189,19 +209,85 @@ export function createQuakeViewmodelController({
     handle.element.appendChild(nozzleGroup);
   }
 
+  function updateWalkBob(origin: Vec3): number {
+    const now = performance.now();
+    if (!walkBobOrigin || !Number.isFinite(now)) {
+      syncWalkBobOrigin(origin, now);
+      walkBob = 0;
+      return walkBob;
+    }
+
+    const elapsed = (now - walkBobAt) / 1000;
+    const horizontalDistance = Math.hypot(origin[0] - walkBobOrigin[0], origin[1] - walkBobOrigin[1]);
+    syncWalkBobOrigin(origin, now);
+    if (
+      !Number.isFinite(elapsed) ||
+      elapsed <= 0 ||
+      elapsed > 0.5 ||
+      horizontalDistance > QUAKE_WEAPON_BOB_TELEPORT_DISTANCE
+    ) {
+      walkBob = 0;
+      return walkBob;
+    }
+
+    const speed = horizontalDistance / Math.max(elapsed, QUAKE_WEAPON_BOB_MIN_DT);
+    if (speed <= QUAKE_WEAPON_BOB_STOP_SPEED) {
+      walkBob = 0;
+      return walkBob;
+    }
+
+    const cycle = bobCycle((now / 1000) % QUAKE_WEAPON_BOB_CYCLE_SECONDS);
+    const baseBob = speed * QUAKE_WEAPON_BOB;
+    walkBob = clampNumber(
+      baseBob * 0.3 + baseBob * 0.7 * Math.sin(cycle),
+      QUAKE_WEAPON_BOB_MIN,
+      QUAKE_WEAPON_BOB_MAX,
+    );
+    return walkBob;
+  }
+
+  function bobCycle(cycleTime: number): number {
+    const cycle = cycleTime / QUAKE_WEAPON_BOB_CYCLE_SECONDS;
+    return cycle < QUAKE_WEAPON_BOB_UP
+      ? Math.PI * cycle / QUAKE_WEAPON_BOB_UP
+      : Math.PI + Math.PI * (cycle - QUAKE_WEAPON_BOB_UP) / (1 - QUAKE_WEAPON_BOB_UP);
+  }
+
+  function syncWalkBobOrigin(origin: Vec3, now: number): void {
+    walkBobOrigin = [origin[0], origin[1], origin[2]];
+    walkBobAt = now;
+  }
+
+  function resetWalkBob(): void {
+    walkBob = 0;
+    walkBobOrigin = null;
+    walkBobAt = 0;
+  }
+
   function syncLayer(): void {
     if (!layer || !stage) return;
     const mainSceneElement = scene.cameraEl.querySelector<HTMLElement>(".polycss-scene");
-    const cameraStyle = getComputedStyle(scene.cameraEl);
-    const perspective = cameraStyle.perspective && cameraStyle.perspective !== "none"
-      ? cameraStyle.perspective
-      : scene.camera.perspectiveStyle === "none"
-        ? "1000000px"
-        : scene.camera.perspectiveStyle;
-    setStyleValue(layer, "perspective", perspective);
-    setStyleValue(layer, "perspective-origin", cameraStyle.perspectiveOrigin);
-    setStyleValue(stage, "top", `calc(50% + ${screenOffset().toFixed(3)}px)`);
-    setStyleValue(stage, "transform", mainSceneElement?.style.transform ?? "");
+    const layerScale = weaponLayerScale();
+    setStyleValue(
+      layer,
+      "left",
+      `calc(50% - ${QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX / 2}px + ${QUAKE_WEAPON_SCREEN_X_OFFSET_PX * layerScale}px)`,
+    );
+    setStyleValue(layer, "top", `calc(100% - ${QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX}px)`);
+    setStyleValue(layer, "right", "auto");
+    setStyleValue(layer, "bottom", "auto");
+    setStyleValue(layer, "width", `${QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX}px`);
+    setStyleValue(layer, "height", `${QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX}px`);
+    setStyleValue(layer, "transform-origin", "50% 100%");
+    setStyleValue(layer, "transform", weaponLayerTransform(layerScale));
+    setStyleValue(layer, "perspective", weaponPerspective());
+    setStyleValue(
+      layer,
+      "perspective-origin",
+      `${QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX / 2}px ${QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX / 2}px`,
+    );
+    setStyleValue(stage, "top", `calc(50% + ${QUAKE_WEAPON_REFERENCE_STAGE_OFFSET_PX}px)`);
+    setStyleValue(stage, "transform", weaponStageTransform(mainSceneElement?.style.transform ?? ""));
     const zoom = mainSceneElement?.style.getPropertyValue("zoom") ?? "";
     setStyleValue(stage, "zoom", zoom);
   }
@@ -215,34 +301,60 @@ export function createQuakeViewmodelController({
     }
   }
 
-  function playfieldHeight(): number {
-    const hostRect = host.getBoundingClientRect();
-    const hudHeight = hud?.getBoundingClientRect().height ?? 0;
-    return Math.max(1, hostRect.height - hudHeight);
+  function weaponScaleVec(): Vec3 {
+    return [
+      QUAKE_WEAPON_REFERENCE_BASE_SCALE * QUAKE_WEAPON_HORIZONTAL_SCALE,
+      QUAKE_WEAPON_REFERENCE_BASE_SCALE * QUAKE_WEAPON_VERTICAL_SCALE,
+      QUAKE_WEAPON_REFERENCE_BASE_SCALE * QUAKE_WEAPON_DEPTH_SCALE,
+    ];
   }
 
-  function screenOffset(): number {
-    return clampNumber(
-      (playfieldHeight() - QUAKE_WEAPON_REFERENCE_PLAYFIELD_HEIGHT) * QUAKE_WEAPON_SCREEN_OFFSET_SCALE,
-      QUAKE_WEAPON_MIN_SCREEN_OFFSET,
-      QUAKE_WEAPON_MAX_SCREEN_OFFSET,
-    );
+  function weaponPerspective(): string {
+    return `${QUAKE_WEAPON_REFERENCE_SCENE_PERSPECTIVE_PX * QUAKE_WEAPON_PERSPECTIVE_SCALE}px`;
   }
 
-  function weaponScale(): number {
-    const hostRect = host.getBoundingClientRect();
-    const playfieldRatio = playfieldHeight() / QUAKE_WEAPON_REFERENCE_PLAYFIELD_HEIGHT;
-    const widthRatio = clampNumber(
-      hostRect.width / QUAKE_WEAPON_REFERENCE_PLAYFIELD_WIDTH,
-      QUAKE_WEAPON_MIN_WIDTH_RATIO,
-      1,
-    );
-    const widthDampen = Math.pow(widthRatio, QUAKE_WEAPON_WIDTH_DAMPEN_EXPONENT);
-    return clampNumber(
-      QUAKE_WEAPON_BASE_SCALE * Math.pow(playfieldRatio, QUAKE_WEAPON_SCALE_VIEWPORT_EXPONENT) * widthDampen,
-      QUAKE_WEAPON_MIN_SCALE,
-      QUAKE_WEAPON_MAX_SCALE,
-    );
+  function weaponLayerScale(): number {
+    const viewportHeight = host.getBoundingClientRect().height || window.innerHeight;
+    return viewportHeight / QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX;
+  }
+
+  function weaponLayerTransform(scale: number): string {
+    return Number.isFinite(scale) && Math.abs(scale - 1) > 0.001 ? `scale(${scale})` : "";
+  }
+
+  function weaponStageTransform(transform: string): string {
+    const scale = readCameraScale(transform);
+    const translateZ = readCameraTranslateZ(transform);
+    const origin = controls.getOrigin();
+    const rotX = weaponViewRotX(scene.camera.state.rotX ?? 88);
+    const rotY = scene.camera.state.rotY ?? 270;
+    const forward = forwardDirection(rotX, rotY);
+    const lookOffset = QUAKE_WEAPON_REFERENCE_SCENE_PERSPECTIVE_PX / BASE_TILE;
+    const target: Vec3 = [
+      origin[0] + forward[0] * lookOffset,
+      origin[1] + forward[1] * lookOffset,
+      origin[2] + forward[2] * lookOffset,
+    ];
+    const parts = [
+      translateZ ? `translateZ(${translateZ}px)` : "",
+      `scale(${scale})`,
+      `rotateX(${rotX}deg)`,
+      `rotate(${rotY}deg)`,
+      `translate3d(${-target[1] * BASE_TILE}px, ${-target[0] * BASE_TILE}px, ${-target[2] * BASE_TILE}px)`,
+    ];
+    return parts.filter(Boolean).join(" ");
+  }
+
+  function syncLocalWeaponTransform(): void {
+    if (!handle) return;
+    const localTransform = weaponLocalTransform();
+    let baseTransform = handle.element.style.transform.trim();
+    while (baseTransform.endsWith(localTransform)) {
+      baseTransform = baseTransform.slice(0, -localTransform.length).trim();
+    }
+    const nextTransform = baseTransform ? `${baseTransform} ${localTransform}` : localTransform;
+    if (handle.element.style.transform === nextTransform) return;
+    handle.element.style.transform = nextTransform;
   }
 
   return {
@@ -254,6 +366,29 @@ export function createQuakeViewmodelController({
     playFireAnimation,
     clearFireAnimation,
   };
+}
+
+function weaponViewRotX(rotX: number): number {
+  return clampNumber(rotX, QUAKE_WEAPON_MIN_ROT_X, QUAKE_WEAPON_MAX_ROT_X);
+}
+
+function readCameraScale(transform: string): number {
+  const match = /\bscale\(([-+0-9.eE]+)\)/.exec(transform);
+  const scale = match ? Number.parseFloat(match[1]) : 1;
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+
+function readCameraTranslateZ(transform: string): number {
+  const match = /\btranslateZ\(([-+0-9.eE]+)px\)/.exec(transform);
+  const translateZ = match ? Number.parseFloat(match[1]) : 0;
+  return Number.isFinite(translateZ) ? translateZ : 0;
+}
+
+function weaponLocalTransform(): string {
+  return [
+    `translate3d(0px, ${QUAKE_WEAPON_LOCAL_Y_OFFSET_PX}px, 0px)`,
+    `rotateX(${QUAKE_WEAPON_LOCAL_PITCH_DEG}deg)`,
+  ].join(" ");
 }
 
 function createQuakeViewmodelStage(layer: HTMLElement): HTMLElement {
