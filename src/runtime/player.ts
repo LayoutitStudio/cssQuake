@@ -34,6 +34,7 @@ export interface QuakePlayerControllerOptions {
   gravity: number;
   jumpVelocity: number;
   onDamageFlash: (active: boolean) => void;
+  onDeath: () => void;
   onHazardState: (kind: QuakeHazardDamage["kind"] | null) => void;
   onInventoryChanged: () => void;
   onRespawn: (scene: QuakeScene, origin: [number, number, number]) => void;
@@ -61,9 +62,11 @@ export interface QuakePlayerController {
   eyeHeight: () => number;
   inventory: () => QuakePlayerInventory;
   isCrouching: () => boolean;
+  isDead: () => boolean;
   push: (velocity: Vec3) => boolean;
   resetInventory: () => void;
   resetForSceneDispose: () => void;
+  respawn: () => void;
   spawn: (spawn: QuakeScene["spawn"]) => void;
   setCrouching: (crouching: boolean) => void;
   setDebugOrigin: (origin: [number, number, number]) => void;
@@ -93,6 +96,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   let damageFlashSerial = 0;
   let damageFlashActive = false;
   let lastGroundEntityIndex: number | null = null;
+  let dead = false;
 
   const resetInventory = (): void => {
     inventory = createInitialInventory();
@@ -141,6 +145,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   };
 
   const resetForSceneDispose = (): void => {
+    dead = false;
     clearHazardTimer();
     clearDamageFlash();
     stopFalling();
@@ -158,6 +163,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   };
 
   const spawn = (spawn: QuakeScene["spawn"]): void => {
+    dead = false;
     const collisionWorld = options.getCollisionWorld();
     standingEyeHeight = spawn.eyeHeight;
     currentEyeHeight = standingEyeHeight;
@@ -178,6 +184,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   };
 
   const teleportTo = (destination: QuakeEntity): boolean => {
+    if (dead) return false;
     if (!destination.origin) return false;
     clearHazardTimer();
     clearDamageFlash();
@@ -210,6 +217,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   };
 
   const setCrouching = (crouching: boolean): void => {
+    if (dead && crouching) return;
     const nextEyeHeight = crouching
       ? Math.min(standingEyeHeight, QUAKE_CROUCH_EYE_HEIGHT)
       : standingEyeHeight;
@@ -245,21 +253,35 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   };
 
   const applyDamage = (amount: number): boolean => {
-    if (amount <= 0 || !options.canTakeDamage()) return false;
+    if (amount <= 0 || dead || !options.canTakeDamage()) return false;
     const damage = Math.round(amount);
     inventory.health = Math.max(0, inventory.health - damage);
     markQuakeTrace("player-damage", { amount: damage, health: inventory.health, died: inventory.health <= 0 });
     options.onInventoryChanged();
     flashDamage();
     if (inventory.health > 0) return false;
-    respawn();
+    enterDeath();
     return true;
+  };
+
+  const enterDeath = (): void => {
+    if (dead) return;
+    dead = true;
+    clearHazardTimer();
+    stopFalling();
+    stopPush();
+    options.onHazardState(null);
+    options.controls.update({ lookEnabled: false, moveEnabled: false, jumpEnabled: false });
+    markQuakeTrace("player-death", { health: inventory.health });
+    options.onDeath();
   };
 
   const respawn = (): void => {
     const scene = options.getCurrentScene();
     if (!scene) return;
+    dead = false;
     clearHazardTimer();
+    clearDamageFlash();
     nextDamageAt = performance.now() + QUAKE_DAMAGE_INTERVAL_MS;
     stopFalling();
     stopPush();
@@ -274,9 +296,11 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     options.syncViewmodel();
     options.syncWorldVisibility(true);
     options.syncCrosshairTarget();
+    markQuakeTrace("player-respawn", { x: origin[0], y: origin[1], z: origin[2] });
   };
 
   const syncCollision = (): void => {
+    if (dead) return;
     const collisionWorld = options.getCollisionWorld();
     if (syncingCollision || !collisionWorld) return;
     const origin = options.controls.getOrigin();
@@ -326,6 +350,11 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   };
 
   const syncHazard = (hazard: QuakeHazardDamage | null): boolean => {
+    if (dead) {
+      clearHazardTimer();
+      options.onHazardState(null);
+      return false;
+    }
     if (!hazard) {
       clearHazardTimer();
       nextDamageAt = 0;
@@ -360,6 +389,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   };
 
   const push = (velocity: Vec3): boolean => {
+    if (dead) return false;
     if (!options.getCollisionWorld()) return false;
     const speed = Math.hypot(velocity[0], velocity[1], velocity[2]);
     if (!Number.isFinite(speed) || speed <= COLLISION_EPSILON) return false;
@@ -564,6 +594,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   };
 
   const carryWithMover = (delta: Vec3, entityIndex: number): void => {
+    if (dead) return;
     const origin = options.controls.getOrigin();
     const nextOrigin: [number, number, number] = [
       origin[0] + delta[0],
@@ -591,9 +622,11 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     eyeHeight: () => currentEyeHeight,
     inventory: () => inventory,
     isCrouching: () => currentCrouching,
+    isDead: () => dead,
     push,
     resetInventory,
     resetForSceneDispose,
+    respawn,
     spawn,
     setCrouching,
     setDebugOrigin,

@@ -17,6 +17,7 @@ Parsed for all generated animated monster targets:
 - `$frame` declarations
 - `void() state = [ $frame, next_state ] { body; };` declarations
 - spawn-function `self.th_*` callback assignments when present
+- spawn-function `setmodel`, `setsize`, and `walkmonster_start` / `flymonster_start` / `swimmonster_start` metadata
 - dispatch functions that call state starts, such as `army_die`, `Wiz_Missile`, and `demon_die`
 - frame call names and sound references
 - currently supported executable event payloads such as `FireBullets`, frame-timed `T_Damage` melee calls, projectile spawns, easy-skill shambler lightning, and armed `self.touch` damage callbacks

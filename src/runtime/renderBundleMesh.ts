@@ -33,6 +33,7 @@ const renderBundleRootVarsCache = new WeakMap<QuakePreparedRenderBundle, Map<str
 const renderBundleElementRootVarNames = new WeakMap<HTMLElement, Set<string>>();
 const renderBundleStyleCache = new Map<string, HTMLStyleElement | HTMLLinkElement>();
 const renderBundleStyleLoadPromises = new Map<string, Promise<void>>();
+const renderBundleLoadedStyles = new WeakSet<HTMLLinkElement>();
 const renderBundleLeafFrameStylesLoadPromises = new Map<string, Promise<QuakeRenderBundleLeafFrameStylesFile>>();
 const renderBundleCompiledLeafFrameStylesCache = new WeakMap<
   QuakePreparedRenderBundle,
@@ -197,14 +198,12 @@ function ensureQuakeRenderBundleStyles(
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = renderBundle.styleUrl;
-    link.dataset.quakeRenderBundle = renderBundle.styleClassName ?? renderBundle.styleUrl;
     document.head.append(link);
     renderBundleStyleCache.set(key, link);
     return link;
   }
   if (!renderBundle.meshCss) return null;
   const style = document.createElement("style");
-  style.dataset.quakeRenderBundle = renderBundle.styleClassName ?? "inline";
   style.textContent = renderBundle.meshCss;
   document.head.append(style);
   renderBundleStyleCache.set(key, style);
@@ -246,12 +245,12 @@ function preloadQuakeRenderBundleStyle(renderBundle: QuakePreparedRenderBundle):
   const element = ensureQuakeRenderBundleStyles(renderBundle, document);
   if (!(element instanceof HTMLLinkElement)) return Promise.resolve();
   const promise = new Promise<void>((resolve) => {
-    if (element.dataset.loaded === "true" || element.sheet) {
+    if (renderBundleLoadedStyles.has(element) || element.sheet) {
       resolve();
       return;
     }
     const done = () => {
-      element.dataset.loaded = "true";
+      renderBundleLoadedStyles.add(element);
       element.removeEventListener("load", done);
       element.removeEventListener("error", done);
       resolve();
@@ -606,6 +605,10 @@ export function stripPolyMeshMetadata(element: HTMLElement): void {
   element.removeAttribute("data-poly-mesh-index");
   for (const leaf of element.querySelectorAll<HTMLElement>("[data-poly-index]")) {
     leaf.removeAttribute("data-poly-index");
+  }
+  for (const leaf of element.querySelectorAll<HTMLElement>("[data-two-sided]")) {
+    leaf.style.backfaceVisibility = "visible";
+    leaf.removeAttribute("data-two-sided");
   }
 }
 

@@ -184,20 +184,20 @@ export function createQuakeViewmodelController({
   function setNozzleVisible(visible: boolean): void {
     if (!handle) return;
     if (visible) {
-      if (handle.element.dataset.nozzleVisible === "true") return;
-      handle.element.dataset.nozzleVisible = "true";
+      if (handle.element.classList.contains("quake-nozzle-visible")) return;
+      handle.element.classList.add("quake-nozzle-visible");
     } else {
-      if (handle.element.dataset.nozzleVisible === undefined) return;
-      delete handle.element.dataset.nozzleVisible;
+      if (!handle.element.classList.contains("quake-nozzle-visible")) return;
+      handle.element.classList.remove("quake-nozzle-visible");
     }
   }
 
   function prepareNozzleLeaves(): void {
     if (!handle) return;
-    let nozzleGroup = handle.element.querySelector<HTMLElement>("[data-nozzle-group]");
+    let nozzleGroup = handle.element.querySelector<HTMLElement>(".quake-nozzle-group");
     if (!nozzleGroup) {
       nozzleGroup = handle.element.ownerDocument.createElement("span");
-      nozzleGroup.dataset.nozzleGroup = "true";
+      nozzleGroup.className = "quake-nozzle-group";
     }
     for (const leaf of handle.element.querySelectorAll<HTMLElement>("[data-weapon]")) {
       leaf.removeAttribute("data-weapon");

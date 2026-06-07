@@ -22,6 +22,8 @@ const QUAKE_LIGHTSTYLE_FPS = 6;
 const QUAKE_LIGHTSTYLE_STARTED_AT = performance.now();
 const QUAKE_TEXTURE_ANIMATION_FPS = 5;
 const QUAKE_TEXTURE_ANIMATION_STARTED_AT = performance.now();
+const quakeTextureAnimationActiveLeaves = new WeakSet<HTMLElement>();
+const quakeTextureAnimationMetadataByLeaf = new WeakMap<HTMLElement, QuakeTextureAnimationMetadata>();
 const quakeTextureAnimationPresentationObservers = new WeakMap<HTMLElement, MutationObserver>();
 const quakeMeshPresentationObservers = new WeakMap<HTMLElement, MutationObserver>();
 const quakeBackfaceVisibleLeaves = new WeakSet<HTMLElement>();
@@ -33,16 +35,26 @@ export interface QuakeFaceLeaf {
   meshKind: "world" | "lightstyle";
   tagName: string;
   textureName?: string;
+  buttonBaseTexture?: string;
+  buttonPressedTexture?: string;
   specialTexture: boolean;
   textureAnimated: boolean;
   lightstyleAnimated: boolean;
+  lightstyleStyleId?: number;
   element: HTMLElement;
-  anchor: Comment;
+  parent: HTMLElement;
+  previous?: QuakeFaceLeaf;
+  next?: QuakeFaceLeaf;
   mounted: boolean;
   baseTransform: string;
   baseBackgroundImage: string;
   baseBackgroundPosition: string;
   baseBackgroundSize: string;
+}
+
+interface QuakeTextureAnimationMetadata {
+  frameCount: number;
+  sprite: string;
 }
 
 export interface QuakeWorldControllerOptions {
@@ -258,9 +270,9 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       applyQuakeLeafPresentation(leaf.element);
       options.applyMoverLeafTransform(leaf);
       options.syncButtonLeafVisual(leaf);
-      syncQuakeLightstyleLeafAnimationClock(leaf.element, now);
+      syncQuakeLightstyleLeafAnimationClock(leaf.element, leaf.lightstyleStyleId, now);
       syncQuakeTextureAnimationLeafAnimationClock(leaf.element, now);
-      leaf.anchor.parentNode?.insertBefore(leaf.element, leaf.anchor);
+      insertQuakeLeafInOrder(leaf);
       leaf.element.hidden = false;
     } else {
       leaf.element.remove();
@@ -347,6 +359,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       quakeLeaves = [];
       modelLeaves = new Map();
     }
+    const previousByParent = new Map<HTMLElement, QuakeFaceLeaf>();
     const elements = [...handle.element.querySelectorAll<HTMLElement>("b,i,s,u")];
     if (elements.length !== renderBundle.leafMetadata.length) {
       throw new Error(
@@ -357,19 +370,29 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       const leaf = elements[index];
       const metadata = renderBundle.leafMetadata[index];
       if (!leaf || !metadata) continue;
+      const parent = leaf.parentElement;
+      if (!parent) continue;
       const faceIndex = metadata.f;
       if (!Number.isInteger(faceIndex)) continue;
       const modelIndex = metadata.m;
       const entityIndex = metadata.e;
       const textureName = metadata.t;
       const lightstyleValue = Number(metadata.l);
+      const lightstyleAnimation = Number(leaf.dataset.lsAnim);
+      const lightstyleStyleId = Number.isInteger(lightstyleAnimation) ? lightstyleAnimation : undefined;
+      const buttonBaseTexture = leaf.dataset.base;
+      const buttonPressedTexture = leaf.dataset.pressed;
+      const textureAnimationMetadata = registerQuakeTextureAnimationLeaf(leaf);
       const tagName = leaf.tagName.toLowerCase();
       const specialTexture = textureName?.startsWith("*") === true;
       if (specialTexture) quakeBackfaceVisibleLeaves.add(leaf);
       applyQuakeLeafPresentation(leaf);
       stripQuakeWorldLeafMetadata(leaf);
-      const anchor = leaf.ownerDocument.createComment(`quake-face:${faceIndex}`);
-      leaf.after(anchor);
+      if (meshKind === "world") {
+        leaf.removeAttribute("data-ls-anim");
+        leaf.removeAttribute("data-ls-pattern");
+      }
+      const previous = previousByParent.get(parent);
       const record: QuakeFaceLeaf = {
         faceIndex,
         ...(Number.isInteger(modelIndex) ? { modelIndex } : {}),
@@ -377,17 +400,23 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
         meshKind,
         tagName,
         ...(textureName ? { textureName } : {}),
+        ...(buttonBaseTexture ? { buttonBaseTexture } : {}),
+        ...(buttonPressedTexture ? { buttonPressedTexture } : {}),
         specialTexture,
-        textureAnimated: leaf.dataset.sprite !== undefined,
-        lightstyleAnimated: Number.isInteger(lightstyleValue),
+        textureAnimated: textureAnimationMetadata !== undefined,
+        lightstyleAnimated: lightstyleStyleId !== undefined || Number.isInteger(lightstyleValue),
+        ...(lightstyleStyleId !== undefined ? { lightstyleStyleId } : {}),
         element: leaf,
-        anchor,
+        parent,
+        ...(previous ? { previous } : {}),
         mounted: true,
         baseTransform: leaf.style.transform,
         baseBackgroundImage: leaf.style.backgroundImage,
         baseBackgroundPosition: leaf.style.backgroundPosition,
         baseBackgroundSize: leaf.style.backgroundSize,
       };
+      if (previous) previous.next = record;
+      previousByParent.set(parent, record);
       quakeLeaves.push(record);
       const bucket = leaves.get(faceIndex);
       if (bucket) {
@@ -410,12 +439,10 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
   const preloadQuakeButtonStateTextures = (): void => {
     const urls = new Set<string>();
     for (const leaf of quakeLeaves) {
-      const baseUrl = leaf.element.dataset.base;
-      const pressedUrl = leaf.element.dataset.pressed;
-      const animationUrl = leaf.element.dataset.sprite;
-      if (baseUrl) urls.add(baseUrl);
-      if (pressedUrl) urls.add(pressedUrl);
-      if (animationUrl) urls.add(animationUrl);
+      const animation = quakeTextureAnimationMetadataByLeaf.get(leaf.element);
+      if (leaf.buttonBaseTexture) urls.add(leaf.buttonBaseTexture);
+      if (leaf.buttonPressedTexture) urls.add(leaf.buttonPressedTexture);
+      if (animation) urls.add(animation.sprite);
     }
     preloadedButtonImages.clear();
     for (const url of urls) {
@@ -503,7 +530,35 @@ function stripQuakeLeafMetadata(leaf: HTMLElement): void {
   leaf.removeAttribute("data-lit");
   leaf.removeAttribute("data-ls");
   leaf.removeAttribute("data-tex");
+  leaf.removeAttribute("data-lm-bake");
+  leaf.removeAttribute("data-lm-range");
+  leaf.removeAttribute("data-lm-texels");
+  leaf.removeAttribute("data-base");
+  leaf.removeAttribute("data-pressed");
+  leaf.removeAttribute("data-sprite");
+  leaf.removeAttribute("data-frames");
+  if (leaf.hasAttribute("data-two-sided")) {
+    leaf.style.backfaceVisibility = "visible";
+    leaf.removeAttribute("data-two-sided");
+  }
   stripQuakeLeafStyleMetadata(leaf);
+}
+
+function insertQuakeLeafInOrder(leaf: QuakeFaceLeaf): void {
+  let previous = leaf.previous;
+  while (previous && (!previous.mounted || previous.element.parentNode !== leaf.parent)) {
+    previous = previous.previous;
+  }
+  if (previous) {
+    leaf.parent.insertBefore(leaf.element, previous.element.nextSibling);
+    return;
+  }
+
+  let next = leaf.next;
+  while (next && (!next.mounted || next.element.parentNode !== leaf.parent)) {
+    next = next.next;
+  }
+  leaf.parent.insertBefore(leaf.element, next?.element ?? null);
 }
 
 function stripQuakeLeafStyleMetadata(leaf: HTMLElement): void {
@@ -655,17 +710,30 @@ function compactQuakeBackgroundStyle(style: string): string {
     .join(";");
 }
 
-function applyQuakeTextureAnimationLeafPresentation(leaf: HTMLElement): void {
+function registerQuakeTextureAnimationLeaf(leaf: HTMLElement): QuakeTextureAnimationMetadata | undefined {
+  const existing = quakeTextureAnimationMetadataByLeaf.get(leaf);
+  if (existing) return existing;
   const sprite = leaf.dataset.sprite;
-  if (!sprite) return;
   const frameCount = Number(leaf.dataset.frames);
-  if (!Number.isInteger(frameCount) || frameCount <= 1) return;
+  if (!sprite || !Number.isInteger(frameCount) || frameCount <= 1) return undefined;
+  const metadata = { frameCount, sprite };
+  quakeTextureAnimationMetadataByLeaf.set(leaf, metadata);
+  return metadata;
+}
+
+function applyQuakeTextureAnimationLeafPresentation(leaf: HTMLElement): void {
+  const animation = quakeTextureAnimationMetadataByLeaf.get(leaf) ?? registerQuakeTextureAnimationLeaf(leaf);
+  if (!animation) return;
   observeQuakeTextureAnimationLeafPresentation(leaf);
-  if (leaf.dataset.active === "true") return;
-  leaf.style.backgroundImage = quakeCssUrl(sprite);
+  if (quakeTextureAnimationActiveLeaves.has(leaf)) return;
+  leaf.style.backgroundImage = quakeCssUrl(animation.sprite);
   leaf.style.backgroundPosition = "0px 0px";
   leaf.style.backgroundPositionY = "0px";
-  leaf.style.backgroundSize = `${frameCount * 100}% 100%`;
+  leaf.style.backgroundSize = `${animation.frameCount * 100}% 100%`;
+  leaf.style.animationName = quakeTextureAnimationName(animation.frameCount);
+  leaf.style.animationDuration = `${(animation.frameCount / QUAKE_TEXTURE_ANIMATION_FPS).toFixed(3)}s`;
+  leaf.style.animationTimingFunction = "linear";
+  leaf.style.animationIterationCount = "infinite";
   syncQuakeTextureAnimationLeafAnimationClock(leaf);
 }
 
@@ -679,18 +747,17 @@ function observeQuakeTextureAnimationLeafPresentation(leaf: HTMLElement): void {
       }
     });
   });
-  observer.observe(leaf, { attributes: true, attributeFilter: ["style", "data-active"] });
+  observer.observe(leaf, { attributes: true, attributeFilter: ["style"] });
   quakeTextureAnimationPresentationObservers.set(leaf, observer);
 }
 
 function quakeTextureAnimationLeafNeedsPresentation(leaf: HTMLElement): boolean {
-  const sprite = leaf.dataset.sprite;
-  if (!sprite || leaf.dataset.active === "true") return false;
-  const frameCount = Number(leaf.dataset.frames);
-  if (!Number.isInteger(frameCount) || frameCount <= 1) return false;
-  return !quakeLeafBackgroundImageReferences(leaf, sprite) ||
+  const animation = quakeTextureAnimationMetadataByLeaf.get(leaf);
+  if (!animation || quakeTextureAnimationActiveLeaves.has(leaf)) return false;
+  return !quakeLeafBackgroundImageReferences(leaf, animation.sprite) ||
     leaf.style.backgroundPositionY !== "0px" ||
-    leaf.style.backgroundSize !== `${frameCount * 100}% 100%`;
+    leaf.style.backgroundSize !== `${animation.frameCount * 100}% 100%` ||
+    leaf.style.animationName !== quakeTextureAnimationName(animation.frameCount);
 }
 
 function quakeLeafBackgroundImageReferences(leaf: HTMLElement, url: string): boolean {
@@ -707,12 +774,19 @@ function quakeLeafBackgroundImageReferences(leaf: HTMLElement, url: string): boo
 }
 
 export function syncQuakeTextureAnimationLeafAnimationClock(leaf: HTMLElement, now = performance.now()): void {
-  if (leaf.dataset.sprite === undefined) return;
-  const frameCount = Number(leaf.dataset.frames);
-  if (!Number.isInteger(frameCount) || frameCount <= 1) return;
-  const duration = frameCount / QUAKE_TEXTURE_ANIMATION_FPS;
+  const animation = quakeTextureAnimationMetadataByLeaf.get(leaf);
+  if (!animation) return;
+  const duration = animation.frameCount / QUAKE_TEXTURE_ANIMATION_FPS;
   const elapsed = (now - QUAKE_TEXTURE_ANIMATION_STARTED_AT) / 1000;
   leaf.style.animationDelay = `${(-(elapsed % duration)).toFixed(4)}s`;
+}
+
+export function setQuakeTextureAnimationLeafActive(leaf: HTMLElement, active: boolean): void {
+  if (active) {
+    quakeTextureAnimationActiveLeaves.add(leaf);
+  } else {
+    quakeTextureAnimationActiveLeaves.delete(leaf);
+  }
 }
 
 function syncQuakeLightstyleOverlayAnimations(handle: PolyMeshHandle): void {
@@ -720,17 +794,31 @@ function syncQuakeLightstyleOverlayAnimations(handle: PolyMeshHandle): void {
   for (const leaf of handle.element.querySelectorAll<HTMLElement>("[data-ls-pattern]")) {
     const pattern = leaf.dataset.lsPattern;
     if (!pattern) continue;
+    const styleId = Number(leaf.dataset.lsAnim);
     const opacities = parseLightstyleOverlayPattern(pattern);
     for (let i = 0; i < opacities.length; i++) {
       leaf.style.setProperty(`--quake-lightstyle-frame-${i}`, Math.max(0, Math.min(0.85, opacities[i] ?? 0)).toFixed(3));
     }
-    syncQuakeLightstyleLeafAnimationClock(leaf, now);
+    if (Number.isInteger(styleId)) {
+      leaf.style.opacity = "0";
+      leaf.style.pointerEvents = "none";
+      leaf.style.animationName = quakeLightstyleAnimationName(styleId);
+      leaf.style.animationDuration = `${(opacities.length / QUAKE_LIGHTSTYLE_FPS).toFixed(3)}s`;
+      leaf.style.animationTimingFunction = "linear";
+      leaf.style.animationIterationCount = "infinite";
+      syncQuakeLightstyleLeafAnimationClock(leaf, styleId, now);
+    }
+    leaf.removeAttribute("data-ls-overlay");
+    leaf.removeAttribute("data-ls-anim");
+    leaf.removeAttribute("data-ls-pattern");
   }
 }
 
-function syncQuakeLightstyleLeafAnimationClock(leaf: HTMLElement, now = performance.now()): void {
-  if (leaf.dataset.lsOverlay === undefined) return;
-  const styleId = Number(leaf.dataset.lsAnim);
+function syncQuakeLightstyleLeafAnimationClock(
+  leaf: HTMLElement,
+  styleId: number | undefined,
+  now = performance.now(),
+): void {
   if (!Number.isInteger(styleId)) return;
   const pattern = QUAKE_LIGHT_STYLE_PATTERNS.get(styleId);
   if (!pattern) return;
@@ -741,32 +829,32 @@ function syncQuakeLightstyleLeafAnimationClock(leaf: HTMLElement, now = performa
 }
 
 function quakeLightstyleBaseRules(): string[] {
-  const rules = [
-    '#quake-host [data-ls-overlay] { opacity: 0; pointer-events: none; }',
-  ];
+  const rules: string[] = [];
   for (const [styleId, pattern] of QUAKE_LIGHT_STYLE_PATTERNS) {
     if (styleId === 0) continue;
-    const name = `quake-lightstyle-${styleId}`;
-    rules.push(
-      `#quake-host [data-ls-overlay][data-ls-anim="${styleId}"] { animation: ${name} ${(pattern.length / QUAKE_LIGHTSTYLE_FPS).toFixed(3)}s linear infinite; }`,
-    );
+    const name = quakeLightstyleAnimationName(styleId);
     rules.push(`@keyframes ${name} { ${lightstyleKeyframes(pattern.length)} }`);
   }
   return rules;
 }
 
+function quakeLightstyleAnimationName(styleId: number): string {
+  return `quake-lightstyle-${styleId}`;
+}
+
 function quakeTextureAnimationBaseRules(): string[] {
-  const rules = [
-    '#quake-host [data-sprite] { background-repeat: no-repeat; animation-timing-function: linear; animation-iteration-count: infinite; }',
-  ];
+  const rules: string[] = [];
   for (let frameCount = 2; frameCount <= 10; frameCount++) {
-    const name = `quake-texture-animation-${frameCount}`;
+    const name = quakeTextureAnimationName(frameCount);
     rules.push(
-      `#quake-host [data-frames="${frameCount}"] { animation-name: ${name}; animation-duration: ${(frameCount / QUAKE_TEXTURE_ANIMATION_FPS).toFixed(3)}s; }`,
+      `@keyframes ${name} { ${textureAnimationKeyframes(frameCount)} }`,
     );
-    rules.push(`@keyframes ${name} { ${textureAnimationKeyframes(frameCount)} }`);
   }
   return rules;
+}
+
+function quakeTextureAnimationName(frameCount: number): string {
+  return `quake-texture-animation-${frameCount}`;
 }
 
 function textureAnimationKeyframes(frameCount: number): string {

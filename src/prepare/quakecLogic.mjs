@@ -15,6 +15,14 @@ const monsterLogicReportPath = path.join(projectRoot, "notes/quake-logic-monster
 const soldierReportPath = path.join(projectRoot, "notes/quake-logic-soldier-report.md");
 const generatedLogicPath = path.join(projectRoot, "src/generated/quakeMonsterLogic.ts");
 
+const quakeVectorConstants = new Map([
+  ["VEC_ORIGIN", [0, 0, 0]],
+  ["VEC_HULL_MIN", [-16, -16, -24]],
+  ["VEC_HULL_MAX", [16, 16, 32]],
+  ["VEC_HULL2_MIN", [-32, -32, -24]],
+  ["VEC_HULL2_MAX", [32, 32, 64]],
+]);
+
 const monsterTargets = [
   {
     checkAttackFunction: "SoldierCheckAttack",
@@ -153,6 +161,7 @@ async function extractMonsterLogic(target, shared) {
     ...parseMonsterCallbacks(source, target.spawnFunction),
     ...(target.callbackOverrides ?? {}),
   };
+  const spawnProfile = extractMonsterSpawnProfile(source, target);
   const eventSemantics = {
     fireBullets: extractFireBulletsSemantics(shared.weapons),
     sharedFightSource: shared.fight,
@@ -173,6 +182,7 @@ async function extractMonsterLogic(target, shared) {
       sourceSha256: sha256(source),
       sourceUrl,
     },
+    spawnProfile,
     states,
     target,
   };
@@ -228,6 +238,40 @@ function parseMonsterCallbacks(sourceText, functionName) {
     callbacks[match[1]] = match[2];
   }
   return callbacks;
+}
+
+function extractMonsterSpawnProfile(sourceText, target) {
+  const body = extractFunctionBody(sourceText, target.spawnFunction) ?? "";
+  const modelPath = /setmodel\s*\(\s*self\s*,\s*"([^"]+)"\s*\)/.exec(body)?.[1] ?? target.modelPath;
+  const setsize = /setsize\s*\(\s*self\s*,\s*([^,]+)\s*,\s*([^)]+)\)/.exec(body);
+  const bounds = setsize ? {
+    min: parseQuakeVectorExpression(setsize[1]),
+    max: parseQuakeVectorExpression(setsize[2]),
+  } : null;
+  const startKind = monsterStartKind(body);
+  return {
+    ...(bounds?.min && bounds?.max ? { bounds } : {}),
+    dropToFloor: startKind === "walk",
+    modelPath,
+    startKind,
+  };
+}
+
+function monsterStartKind(body) {
+  if (/\bwalkmonster_start\s*\(/.test(body)) return "walk";
+  if (/\bflymonster_start\s*\(/.test(body)) return "fly";
+  if (/\bswimmonster_start\s*\(/.test(body)) return "swim";
+  return "unknown";
+}
+
+function parseQuakeVectorExpression(expression) {
+  const text = expression.trim().replace(/;$/, "");
+  const constant = quakeVectorConstants.get(text);
+  if (constant) return constant;
+  const literal = /^'([^']+)'$/.exec(text);
+  if (!literal) return null;
+  const vector = parseVectorLiteral(literal[1]);
+  return vector.every(Number.isFinite) ? vector : null;
 }
 
 function buildMonsterChains({ callbacks, eventSemantics, source, states, target }) {
@@ -654,6 +698,7 @@ Parsed for all generated animated monster targets:
 - \`$frame\` declarations
 - \`void() state = [ $frame, next_state ] { body; };\` declarations
 - spawn-function \`self.th_*\` callback assignments when present
+- spawn-function \`setmodel\`, \`setsize\`, and \`walkmonster_start\` / \`flymonster_start\` / \`swimmonster_start\` metadata
 - dispatch functions that call state starts, such as \`army_die\`, \`Wiz_Missile\`, and \`demon_die\`
 - frame call names and sound references
 - currently supported executable event payloads such as \`FireBullets\`, frame-timed \`T_Damage\` melee calls, projectile spawns, easy-skill shambler lightning, and armed \`self.touch\` damage callbacks
@@ -746,13 +791,14 @@ function renderGeneratedLogic(extracted) {
       .map(({ combatPolicy, target }) => [target.classname, combatPolicy]),
   );
   const monsters = Object.fromEntries(
-    extracted.map(({ callbacks, chains, target }) => [
+    extracted.map(({ callbacks, chains, spawnProfile, target }) => [
       target.classname,
       {
         callbacks,
         chains,
         classname: target.classname,
         modelPath: target.modelPath,
+        spawnProfile,
       },
     ]),
   );
@@ -815,6 +861,20 @@ export interface QuakeMonsterAttackPolicy {
 
 export interface QuakeMonsterCombatPolicy {
   attack?: QuakeMonsterAttackPolicy;
+}
+
+export type QuakeMonsterStartKind = "fly" | "swim" | "unknown" | "walk";
+
+export interface QuakeMonsterBoundsUnits {
+  max: readonly [number, number, number];
+  min: readonly [number, number, number];
+}
+
+export interface QuakeMonsterSpawnProfile {
+  bounds?: QuakeMonsterBoundsUnits;
+  dropToFloor: boolean;
+  modelPath: string;
+  startKind: QuakeMonsterStartKind;
 }
 
 export interface QuakeMonsterFireBulletsFrameEvent {
@@ -906,6 +966,7 @@ export interface QuakeMonsterLogicDefinition {
   chains: Readonly<Record<string, QuakeMonsterStateChain>>;
   classname: string;
   modelPath: string;
+  spawnProfile: QuakeMonsterSpawnProfile;
 }
 
 export const QUAKE_MONSTER_LOGIC_SOURCES = ${json(sources)} as const satisfies Readonly<Record<string, QuakeMonsterLogicSourceMetadata>>;

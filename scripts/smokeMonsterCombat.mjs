@@ -235,6 +235,9 @@ async function waitForMapReady(page, mapName, timeoutMs) {
 
 async function runCombatCase(browser, baseUrl, testCase, viewport, timeoutMs) {
   const page = await browser.newPage({ viewport });
+  await page.addInitScript(() => {
+    window.__cssQuakeDebugDomMetadata = true;
+  });
   const pageErrors = [];
   page.on("pageerror", (error) => {
     pageErrors.push(String(error?.message ?? error));
@@ -261,8 +264,8 @@ async function runCombatCase(browser, baseUrl, testCase, viewport, timeoutMs) {
       const active = Boolean(
         element &&
         element.getAttribute("aria-hidden") !== "true" &&
-        element.dataset.prewarmed !== "true" &&
-        element.dataset.frameHidden !== "true",
+        !element.classList.contains("quake-shootable-prewarmed") &&
+        !element.classList.contains("quake-frame-hidden"),
       );
       const before = debug.stats();
       await new Promise((resolve) => setTimeout(resolve, testCase.waitMs));

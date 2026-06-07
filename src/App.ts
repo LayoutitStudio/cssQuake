@@ -31,7 +31,7 @@ import {
   type QuakeTouchedTrigger,
 } from "./runtime/collision";
 import { installQuakeDebugHooks, isQuakeDebugHooksEnabled } from "./runtime/debug/quakeDebug";
-import { markQuakeTrace } from "./runtime/debug/traceMarks";
+import { isQuakeDebugDomMetadataEnabled, markQuakeTrace } from "./runtime/debug/traceMarks";
 import { quakeDoorGroupKeyRequirement, quakePlayerHasDoorKey } from "./runtime/doors";
 import {
   quakeEntityNumber,
@@ -60,6 +60,7 @@ import {
   createQuakeWorldController,
   injectQuakeWorldAnimations,
   quakeCssUrl,
+  setQuakeTextureAnimationLeafActive,
   syncQuakeTextureAnimationLeafAnimationClock,
   type QuakeFaceLeaf,
 } from "./runtime/world";
@@ -100,6 +101,7 @@ const loadingOverlay = document.getElementById("quake-loading-overlay") as HTMLE
 const loadingStatus = document.getElementById("quake-loading-status") as HTMLElement | null;
 const loadingProgress = document.getElementById("quake-loading-progress") as HTMLElement | null;
 const loadingProgressFill = document.getElementById("quake-loading-progress-fill") as HTMLElement | null;
+const loadingAction = document.getElementById("quake-loading-action") as HTMLElement | null;
 const hudArmorValue = document.getElementById("quake-hud-armor-value") as HTMLElement | null;
 const hudHealthValue = document.getElementById("quake-hud-health-value") as HTMLElement | null;
 const hudHealthDamageValue = document.getElementById("quake-hud-health-damage-value") as HTMLElement | null;
@@ -108,6 +110,7 @@ const hudKeysValue = document.getElementById("quake-hud-keys-value") as HTMLElem
 const classicHud = document.getElementById("quake-classic-hud") as HTMLElement | null;
 const quakeHud = document.getElementById("quake-hud") as HTMLElement | null;
 const damageOverlay = document.getElementById("quake-damage-overlay") as HTMLElement | null;
+const quakeHudStatus = document.getElementById("quake-hud-status") as HTMLElement | null;
 const hudElements: QuakeHudElements = {
   root: classicHud,
   armor: hudArmorValue,
@@ -127,6 +130,7 @@ const QUAKE_LOADING_READY_MIN_PRESENTED_FRAMES = 6;
 const QUAKE_LOADING_READY_STABLE_PRESENTED_FRAMES = 3;
 const QUAKE_LOADING_READY_FRAME_BUDGET_MS = 45;
 const QUAKE_LOADING_READY_TIMEOUT_MS = 1500;
+const QUAKE_DEATH_UNLOCK_MENU_SUPPRESS_MS = 1000;
 const QUAKE_URL_VIEW_PART_COUNT = 5;
 const QUAKE_URL_NUMBER_SCALE = 1000;
 const QUAKE_URL_VIEW_ORIGIN_LIMIT = 100000;
@@ -168,22 +172,22 @@ function setQuakeHudDamageCue(active: boolean): void {
   markQuakeTrace("hud-damage-cue", { active });
   if (classicHud) {
     if (active) {
-      setElementDatasetValue(classicHud, "damage", "true");
+      classicHud.classList.add("quake-hud-damage");
     } else {
-      removeElementDatasetValue(classicHud, "damage");
+      classicHud.classList.remove("quake-hud-damage");
     }
   }
 }
 
 function setQuakeDamageOverlay(active: boolean): void {
   if (!damageOverlay) return;
-  const wasActive = damageOverlay.dataset.active !== undefined;
+  const wasActive = damageOverlay.classList.contains("quake-damage-overlay-active");
   if (wasActive === active) return;
   markQuakeTrace("hud-damage-overlay", { active });
   if (active) {
-    damageOverlay.dataset.active = "true";
+    damageOverlay.classList.add("quake-damage-overlay-active");
   } else {
-    delete damageOverlay.dataset.active;
+    damageOverlay.classList.remove("quake-damage-overlay-active");
   }
 }
 
@@ -391,17 +395,15 @@ function mountQuakeLevelSelector(renderBitmapText = false): void {
     const button = document.createElement("button");
     button.className = "quake-level-button";
     button.type = "button";
-    button.dataset.map = level.mapName;
+    button.value = level.mapName;
     button.setAttribute("aria-label", `${level.mapName.toUpperCase()} ${quakeMapTitle(level)}`);
 
     const code = document.createElement("span");
-    code.className = "quake-level-code";
-    code.dataset.bm = "label alt";
+    code.className = "quake-level-code quake-bm-label quake-bm-alt";
     code.textContent = level.mapName.toUpperCase();
 
     const title = document.createElement("span");
-    title.className = "quake-level-name";
-    title.dataset.bm = "label";
+    title.className = "quake-level-name quake-bm-label";
     title.textContent = quakeMapTitle(level);
 
     button.append(code, title);
@@ -562,6 +564,8 @@ const controls = createPolyFirstPersonControls(scene, {
   jumpVelocity: QUAKE_JUMP_VELOCITY,
   gravity: QUAKE_GRAVITY,
 });
+let quakePlayerDead = false;
+let quakeDeathUnlockMenuSuppressUntil = 0;
 
 type QuakePickupControllerHandle = ReturnType<typeof createQuakePickupController>;
 type QuakePlayerControllerHandle = ReturnType<typeof createQuakePlayerController>;
@@ -597,6 +601,7 @@ const menu = createQuakeMenuController({
   aboutPanel,
   optionsPanel,
   onSelectLevel: loadQuakeMap,
+  shouldOpenMainMenuOnControlsEnd: shouldOpenQuakeMainMenuOnControlsEnd,
   clearCrosshairTarget: clearQuakeCrosshairTarget,
   syncCrosshairTarget: syncQuakeCrosshairTarget,
 });
@@ -615,8 +620,8 @@ const shootables = createQuakeShootablesController({
   createMonsterStateRunner: (classname) => createQuakeMonsterStateRunner(classname, { enabled: true }),
   damagePlayer: (amount) => getPlayer().damage(amount),
   floorAt: (x, y, maxZ, minZ) =>
-    currentCollisionWorld?.staticFloorAt(x, y, maxZ, minZ) ??
     currentCollisionWorld?.floorAt(x, y, maxZ, minZ) ??
+    currentCollisionWorld?.staticFloorAt(x, y, maxZ, minZ) ??
     null,
   getPlayerEyeHeight: () => getPlayer().eyeHeight(),
   getPlayerForward: () => forwardDirection(scene.camera.state.rotX ?? 90, scene.camera.state.rotY ?? 270),
@@ -695,7 +700,7 @@ const weapons = createQuakeWeaponsController({
 });
 player = createQuakePlayerController({
   activateSolidTouch,
-  canTakeDamage: () => !quakeDamageDisabled,
+  canTakeDamage: () => !quakeDamageDisabled && !quakePlayerDead,
   controls,
   getCollisionWorld: () => currentCollisionWorld,
   getCurrentScene: () => currentResult,
@@ -703,8 +708,10 @@ player = createQuakePlayerController({
   jumpVelocity: QUAKE_JUMP_VELOCITY,
   onDamageFlash: (active) => {
     if (!active) {
-      setQuakeDamageOverlay(false);
-      if (quakeHudDamageTimer === null) setQuakeHudDamageCue(false);
+      if (!quakePlayerDead) {
+        setQuakeDamageOverlay(false);
+        if (quakeHudDamageTimer === null) setQuakeHudDamageCue(false);
+      }
       return;
     }
     setQuakeDamageOverlay(true);
@@ -719,9 +726,11 @@ player = createQuakePlayerController({
     }, QUAKE_HUD_DAMAGE_CUE_MS);
     audio.playEvent("pain", { volume: 0.58 });
   },
+  onDeath: showQuakePlayerDeath,
   onHazardState: () => undefined,
   onInventoryChanged: syncQuakeHud,
   onRespawn: (result, previousOrigin) => {
+    clearQuakePlayerDeath();
     triggerSystem.resetActive();
     const runtime = result.entityManifest.runtime;
     shootables.spawn(quakeEntitiesForIndexes(runtime.shootableEntityIndexes), currentPickupModelLibrary, currentProgramMetadata);
@@ -871,8 +880,8 @@ function clearQuakeLevelLoadTimer(): void {
 }
 
 function clearQuakeLevelComplete(): void {
-  delete document.body.dataset.complete;
-  delete quakeHud?.dataset.complete;
+  document.body.classList.remove("quake-level-complete");
+  if (!document.body.classList.contains("quake-hud-message")) clearQuakeHudStatus();
   controls.update({ moveEnabled: true, jumpEnabled: true, jumpVelocity: QUAKE_JUMP_VELOCITY, gravity: QUAKE_GRAVITY });
 }
 
@@ -881,7 +890,7 @@ function flashQuakeCrosshairHit(): void {
     window.clearTimeout(quakeCrosshairHitTimer);
     quakeCrosshairHitTimer = null;
   }
-  document.body.dataset.hit = "true";
+  document.body.classList.add("quake-crosshair-hit");
   quakeCrosshairHitTimer = window.setTimeout(clearQuakeCrosshairHit, 110);
 }
 
@@ -890,18 +899,18 @@ function clearQuakeCrosshairHit(): void {
     window.clearTimeout(quakeCrosshairHitTimer);
     quakeCrosshairHitTimer = null;
   }
-  delete document.body.dataset.hit;
+  document.body.classList.remove("quake-crosshair-hit");
 }
 
 function showQuakeHudMessage(message: string, duration = QUAKE_HUD_MESSAGE_MS): void {
   const text = message.trim();
-  if (!text || !quakeHud) return;
+  if (!text || !quakeHud || quakePlayerDead) return;
   if (quakeHudMessageTimer !== null) {
     window.clearTimeout(quakeHudMessageTimer);
     quakeHudMessageTimer = null;
   }
-  document.body.dataset.message = "true";
-  quakeHud.dataset.message = text;
+  document.body.classList.add("quake-hud-message");
+  setQuakeHudStatus(text);
   quakeHudMessageTimer = window.setTimeout(clearQuakeHudMessage, duration);
 }
 
@@ -910,12 +919,114 @@ function clearQuakeHudMessage(): void {
     window.clearTimeout(quakeHudMessageTimer);
     quakeHudMessageTimer = null;
   }
-  delete document.body.dataset.message;
-  delete quakeHud?.dataset.message;
+  document.body.classList.remove("quake-hud-message");
+  if (!document.body.classList.contains("quake-level-complete")) clearQuakeHudStatus();
+}
+
+function setQuakeHudStatus(text: string): void {
+  if (!quakeHudStatus) return;
+  if (quakeHudStatus.textContent !== text) quakeHudStatus.textContent = text;
+  quakeHudStatus.hidden = false;
+}
+
+function clearQuakeHudStatus(): void {
+  if (!quakeHudStatus) return;
+  if (quakeHudStatus.textContent) quakeHudStatus.textContent = "";
+  quakeHudStatus.hidden = true;
+}
+
+function suppressQuakeMainMenuOnNextControlsEnd(): void {
+  quakeDeathUnlockMenuSuppressUntil = performance.now() + QUAKE_DEATH_UNLOCK_MENU_SUPPRESS_MS;
+}
+
+function clearQuakeMainMenuControlsEndSuppression(): void {
+  quakeDeathUnlockMenuSuppressUntil = 0;
+}
+
+function shouldOpenQuakeMainMenuOnControlsEnd(): boolean {
+  if (quakeDeathUnlockMenuSuppressUntil > 0) {
+    const suppress = performance.now() <= quakeDeathUnlockMenuSuppressUntil;
+    quakeDeathUnlockMenuSuppressUntil = 0;
+    if (suppress) return false;
+  }
+  return !quakePlayerDead;
+}
+
+function showQuakePlayerDeath(): void {
+  if (quakePlayerDead) return;
+  quakePlayerDead = true;
+  markQuakeTrace("hud-death", { active: true });
+  clearQuakeHudMessage();
+  clearQuakeCrosshairHit();
+  clearQuakeCrosshairTarget();
+  viewmodel.clearFireAnimation();
+  if (quakeHudDamageTimer !== null) {
+    window.clearTimeout(quakeHudDamageTimer);
+    quakeHudDamageTimer = null;
+  }
+  quakeHudDamageSerial += 1;
+  document.body.classList.add("quake-dead");
+  showQuakeDeathOverlay();
+  setQuakeDamageOverlay(true);
+  setQuakeHudDamageCue(true);
+  controls.update({ lookEnabled: false, moveEnabled: false, jumpEnabled: false });
+  suppressQuakeMainMenuOnNextControlsEnd();
+  controls.unlock();
+}
+
+function clearQuakePlayerDeath(): void {
+  if (!quakePlayerDead && !document.body.classList.contains("quake-dead") && !loadingOverlay?.classList.contains("quake-loading-death")) return;
+  quakePlayerDead = false;
+  markQuakeTrace("hud-death", { active: false });
+  if (quakeHudDamageTimer !== null) {
+    window.clearTimeout(quakeHudDamageTimer);
+    quakeHudDamageTimer = null;
+  }
+  quakeHudDamageSerial += 1;
+  document.body.classList.remove("quake-dead");
+  clearQuakeDeathOverlay();
+  setQuakeHudDamageCue(false);
+  setQuakeDamageOverlay(false);
+  controls.update({ lookEnabled: true, moveEnabled: true, jumpEnabled: true, jumpVelocity: QUAKE_JUMP_VELOCITY, gravity: QUAKE_GRAVITY });
+}
+
+function showQuakeDeathOverlay(): void {
+  if (!loadingOverlay) return;
+  loadingOverlay.hidden = false;
+  loadingOverlay.classList.add("quake-loading-death");
+  loadingOverlay.setAttribute("aria-busy", "false");
+  if (loadingStatus) loadingStatus.textContent = "you died";
+  if (loadingProgress) loadingProgress.hidden = true;
+  if (loadingAction) {
+    loadingAction.textContent = "";
+    loadingAction.hidden = true;
+  }
+  mountQuakeBitmapText(loadingStatus?.parentElement ?? loadingOverlay);
+}
+
+function clearQuakeDeathOverlay(): void {
+  if (!loadingOverlay?.classList.contains("quake-loading-death")) return;
+  loadingOverlay.classList.remove("quake-loading-death");
+  if (loadingAction) loadingAction.hidden = true;
+  if (loadingProgress) loadingProgress.hidden = false;
+  if (!quakeAppLoading && !QUAKE_LOADING_PREVIEW_ENABLED) {
+    loadingOverlay.hidden = true;
+    loadingOverlay.removeAttribute("aria-busy");
+  }
+}
+
+function respawnQuakePlayerFromDeath(): boolean {
+  if (!quakePlayerDead || !currentResult) return false;
+  getPlayer().respawn();
+  if (!quakePlayerDead) {
+    host.focus({ preventScroll: true });
+    controls.lock();
+  }
+  return true;
 }
 
 function isQuakeLevelTransitionActive(): boolean {
-  return document.body.dataset.complete !== undefined;
+  return document.body.classList.contains("quake-level-complete");
 }
 
 function canUseQuakeGameplayInput(): boolean {
@@ -923,6 +1034,7 @@ function canUseQuakeGameplayInput(): boolean {
     !menu.isMainMenuOpen() &&
     !menu.isMenuPanelOpen() &&
     !isQuakeLevelTransitionActive() &&
+    !quakePlayerDead &&
     currentCollisionWorld !== null;
 }
 
@@ -997,7 +1109,7 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
   if (active) {
     clearQuakeCrouchInput();
     hideQuakeStatsOverlay();
-    document.body.dataset.loading = "true";
+    document.body.classList.add("quake-loading");
     updateQuakeLoadingDisplay(status, { completed: 0, total: 0 });
     if (loadingOverlay) {
       loadingOverlay.hidden = false;
@@ -1009,13 +1121,13 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
   }
 
   if (QUAKE_LOADING_PREVIEW_ENABLED) {
-    document.body.dataset.loading = "true";
+    document.body.classList.add("quake-loading");
     if (loadingOverlay) {
       loadingOverlay.hidden = false;
       loadingOverlay.setAttribute("aria-busy", "false");
     }
   } else {
-    delete document.body.dataset.loading;
+    document.body.classList.remove("quake-loading");
     if (loadingOverlay) {
       loadingOverlay.hidden = true;
       loadingOverlay.removeAttribute("aria-busy");
@@ -1031,7 +1143,7 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
 function setQuakeLoadingError(): void {
   quakeAppLoading = true;
   clearQuakeCrouchInput();
-  document.body.dataset.loading = "true";
+  document.body.classList.add("quake-loading");
   updateQuakeLoadingDisplay("Load failed", { completed: 0, total: 0 });
   if (loadingOverlay) {
     loadingOverlay.hidden = false;
@@ -1054,11 +1166,11 @@ function updateQuakeLoadingDisplay(status: string, progress: QuakeLoadingProgres
   if (loadingProgress) {
     loadingProgress.style.setProperty("--quake-loading-progress", String(percent / 100));
     if (total > 0) {
-      delete loadingProgress.dataset.indeterminate;
+      loadingProgress.classList.remove("quake-loading-progress-indeterminate");
       loadingProgress.setAttribute("aria-valuenow", String(percent));
       loadingProgress.setAttribute("aria-valuetext", `${completed} of ${total}`);
     } else {
-      loadingProgress.dataset.indeterminate = "true";
+      loadingProgress.classList.add("quake-loading-progress-indeterminate");
       loadingProgress.removeAttribute("aria-valuenow");
       loadingProgress.setAttribute("aria-valuetext", "Loading");
     }
@@ -1078,8 +1190,10 @@ function addQuakePickupMesh(entity: QuakeEntity, model?: QuakePickupModel, frame
   if (!handle) return null;
   handle.element.classList.add("pickup");
   stripPolyMeshMetadata(handle.element);
-  handle.element.dataset.entityIndex = String(entity.index);
-  handle.element.dataset.classname = entity.classname;
+  if (isQuakeDebugDomMetadataEnabled()) {
+    handle.element.dataset.entityIndex = String(entity.index);
+    handle.element.dataset.classname = entity.classname;
+  }
   const angle = entity.angle ?? quakeEntityNumber(entity, "angle", 0);
   handle.setTransform({
     position: quakePointToPoly(entity.origin),
@@ -1140,6 +1254,7 @@ function disposeCurrentScene(): void {
   getPickups().clear();
   shootables.clear();
   clearQuakeLevelComplete();
+  clearQuakePlayerDeath();
   clearQuakeHudMessage();
   clearQuakeCrosshairHit();
   clearQuakeLevelLoadTimer();
@@ -1324,17 +1439,17 @@ function completeQuakeLevel(entity: QuakeEntity): void {
   viewmodel.clearFireAnimation();
   getPlayer().clearLevelState();
   audio.playEvent("levelExit", { volume: 0.58 });
-  document.body.dataset.complete = "true";
+  document.body.classList.add("quake-level-complete");
   const nextMap = quakeChangelevelMap(entity);
   if (quakeHud) {
-    quakeHud.dataset.complete = nextMap ? `EXIT TO ${nextMap.toUpperCase()}` : "EXIT REACHED";
+    setQuakeHudStatus(nextMap ? `EXIT TO ${nextMap.toUpperCase()}` : "EXIT REACHED");
   }
   if (!nextMap || !quakeSceneUrl(nextMap)) return;
   quakeLevelLoadTimer = window.setTimeout(() => {
     quakeLevelLoadTimer = null;
     void loadQuakeMap(nextMap).catch((error) => {
       console.error(error);
-      if (quakeHud) quakeHud.dataset.complete = `COULD NOT LOAD ${nextMap.toUpperCase()}`;
+      if (quakeHud) setQuakeHudStatus(`COULD NOT LOAD ${nextMap.toUpperCase()}`);
     });
   }, QUAKE_CHANGELEVEL_DELAY_MS);
 }
@@ -1790,24 +1905,24 @@ function syncQuakeButtonLeafVisual(leaf: QuakeFaceLeaf): void {
 }
 
 function applyQuakeButtonLeafVisual(leaf: QuakeFaceLeaf, pressed: boolean): void {
-  const baseTexture = leaf.element.dataset.base;
-  const pressedTexture = leaf.element.dataset.pressed;
+  const baseTexture = leaf.buttonBaseTexture;
+  const pressedTexture = leaf.buttonPressedTexture;
   const texture = pressed ? pressedTexture : baseTexture;
   if (texture) {
-    leaf.element.dataset.active = "true";
+    setQuakeTextureAnimationLeafActive(leaf.element, true);
     leaf.element.style.backgroundImage = quakeCssUrl(texture);
     leaf.element.style.backgroundPosition = "center";
     leaf.element.style.backgroundSize = "100% 100%";
     if (pressed) {
       leaf.element.style.animationName = "none";
     } else {
-      delete leaf.element.dataset.active;
+      setQuakeTextureAnimationLeafActive(leaf.element, false);
       leaf.element.style.removeProperty("animation-name");
       syncQuakeTextureAnimationLeafAnimationClock(leaf.element);
     }
     return;
   }
-  delete leaf.element.dataset.active;
+  setQuakeTextureAnimationLeafActive(leaf.element, false);
   leaf.element.style.removeProperty("animation-name");
   leaf.element.style.backgroundImage = leaf.baseBackgroundImage;
   leaf.element.style.backgroundPosition = leaf.baseBackgroundPosition;
@@ -1816,7 +1931,15 @@ function applyQuakeButtonLeafVisual(leaf: QuakeFaceLeaf, pressed: boolean): void
 }
 
 function handleQuakeUsePointerDown(event: PointerEvent): void {
-  if (event.button !== 0 || !event.isPrimary || !canUseQuakeGameplayInput()) return;
+  if (event.button !== 0 || !event.isPrimary) return;
+  if (quakePlayerDead) {
+    event.preventDefault();
+    event.stopPropagation();
+    audio.unlock();
+    respawnQuakePlayerFromDeath();
+    return;
+  }
+  if (!canUseQuakeGameplayInput()) return;
   event.preventDefault();
   audio.unlock();
   host.focus({ preventScroll: true });
@@ -1842,29 +1965,19 @@ function syncQuakeCrosshairTarget(): void {
   }
   const trace = weapons.viewTraceAtCrosshair(QUAKE_BUTTON_USE_RANGE);
   if (weapons.traceIsActionable(trace)) {
-    setElementDatasetValue(document.body, "action", trace.classname ?? "action");
+    document.body.classList.add("quake-action");
     return;
   }
   const weaponTrace = weapons.weaponTraceAtCrosshair();
   if (weapons.traceIsShootable(weaponTrace)) {
-    setElementDatasetValue(document.body, "action", weaponTrace.classname ?? "action");
+    document.body.classList.add("quake-action");
     return;
   }
   clearQuakeCrosshairTarget();
 }
 
 function clearQuakeCrosshairTarget(): void {
-  removeElementDatasetValue(document.body, "action");
-}
-
-function setElementDatasetValue(element: HTMLElement, key: string, value: string): void {
-  if (element.dataset[key] === value) return;
-  element.dataset[key] = value;
-}
-
-function removeElementDatasetValue(element: HTMLElement, key: string): void {
-  if (element.dataset[key] === undefined) return;
-  delete element.dataset[key];
+  document.body.classList.remove("quake-action");
 }
 
 function handleQuakeDisableSoundOptionChange(event: Event): void {
@@ -1974,10 +2087,9 @@ function hideQuakeStatsOverlay(): void {
 }
 
 function mountStatsOverlay(): () => void {
-  document.querySelector(".dn-stats-overlay[data-stats]")?.remove();
+  document.querySelector(".dn-stats-overlay")?.remove();
   const statsContainer = document.createElement("div");
   statsContainer.className = "dn-stats-overlay";
-  statsContainer.dataset.stats = "true";
   statsContainer.setAttribute("aria-hidden", "true");
   statsContainer.style.position = "fixed";
   statsContainer.style.right = "4px";
@@ -2309,7 +2421,10 @@ function installQuakeAppDebugHooks(): void {
     fireWeapon: () => weapons.fire(),
     fireballEmittersCount: () => quakeFireballEmitters.length,
     fireballsCount: () => quakePointHazards.length,
-    floorAt: (x, y, maxZ, minZ) => currentCollisionWorld?.floorAt(x, y, maxZ, minZ) ?? null,
+    floorAt: (x, y, maxZ, minZ) =>
+      currentCollisionWorld?.floorAt(x, y, maxZ, minZ) ??
+      currentCollisionWorld?.staticFloorAt(x, y, maxZ, minZ) ??
+      null,
     forwardDirection,
     hasCurrentScene: () => currentResult !== null,
     hideMainMenu: () => menu.hideMainMenu(),
@@ -2628,6 +2743,7 @@ function disposeQuakeApp(): void {
   disableDamageOption?.removeEventListener("change", handleQuakeDisableDamageOptionChange);
   invertMouseOption?.removeEventListener("change", handleQuakeInvertMouseOptionChange);
   controls.removeEventListener("change", syncPlayerCollision);
+  controls.removeEventListener("start", clearQuakeMainMenuControlsEndSuppression);
   controls.removeEventListener("end", clearQuakeCrouchInput);
   menu.dispose();
   audio.dispose();
@@ -2648,6 +2764,7 @@ disableEnemiesOption?.addEventListener("change", handleQuakeDisableEnemiesOption
 disableDamageOption?.addEventListener("change", handleQuakeDisableDamageOptionChange);
 invertMouseOption?.addEventListener("change", handleQuakeInvertMouseOptionChange);
 controls.addEventListener("change", syncPlayerCollision);
+controls.addEventListener("start", clearQuakeMainMenuControlsEndSuppression);
 controls.addEventListener("end", clearQuakeCrouchInput);
 
 syncQuakeHud();

@@ -51,7 +51,6 @@ export function syncQuakeHud(elements: QuakeHudElements, inventory: QuakePlayerI
   setHudValue(elements.healthDamage, health);
   setHudValue(elements.ammo, ammo);
   if (elements.root) {
-    setHudDatasetValue(elements.root, "state", inventory.health <= 25 ? "critical" : inventory.health <= 50 ? "hurt" : "ok");
     setHudFlag(elements.root, "silver", inventory.keys.has("silver"));
     setHudFlag(elements.root, "gold", inventory.keys.has("gold"));
     const label = `Quake status: armor ${Math.max(0, Math.round(inventory.armor))}, health ${Math.max(0, Math.round(inventory.health))}, shells ${Math.max(0, Math.round(inventory.shells))}`;
@@ -83,27 +82,20 @@ function setHudValue(element: HTMLElement | null, value: string): void {
   for (let i = 0; i < digits.length; i++) {
     const digit = value[i] ?? " ";
     if (digit >= "0" && digit <= "9") {
-      setHudDatasetValue(digits[i], "digit", digit);
+      digits[i]?.style.setProperty("--quake-hud-digit-index", digit);
+      if (digits[i]) digits[i].style.opacity = "1";
     } else {
-      removeHudDatasetValue(digits[i], "digit");
+      digits[i]?.style.removeProperty("--quake-hud-digit-index");
+      if (digits[i]) digits[i].style.opacity = "0";
     }
   }
 }
 
 function setHudFlag(element: HTMLElement, flag: string, enabled: boolean): void {
+  const className = `quake-hud-key-${flag}-active`;
   if (enabled) {
-    setHudDatasetValue(element, flag, "true");
+    element.classList.add(className);
   } else {
-    removeHudDatasetValue(element, flag);
+    element.classList.remove(className);
   }
-}
-
-function setHudDatasetValue(element: HTMLElement, key: string, value: string): void {
-  if (element.dataset[key] === value) return;
-  element.dataset[key] = value;
-}
-
-function removeHudDatasetValue(element: HTMLElement, key: string): void {
-  if (element.dataset[key] === undefined) return;
-  delete element.dataset[key];
 }

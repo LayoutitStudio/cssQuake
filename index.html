@@ -41,9 +41,10 @@
       property="og:description"
       content="Play Quake shareware maps rendered as real DOM geometry with HTML, CSS transforms, and PolyCSS."
     />
-    <meta property="og:image" content="https://cssquake.wtf/assets/cssquake-social.png" />
-    <meta property="og:image:width" content="1664" />
-    <meta property="og:image:height" content="803" />
+    <meta property="og:image" content="https://cssquake.wtf/assets/cssquake-social.webp" />
+    <meta property="og:image:type" content="image/webp" />
+    <meta property="og:image:width" content="2075" />
+    <meta property="og:image:height" content="1000" />
     <meta property="og:image:alt" content="cssQuake gameplay and inspectable DOM mesh markup." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="cssQuake - Quake rendered with HTML and CSS" />
@@ -51,7 +52,7 @@
       name="twitter:description"
       content="Play Quake shareware maps rendered as real DOM geometry with HTML, CSS transforms, and PolyCSS."
     />
-    <meta name="twitter:image" content="https://cssquake.wtf/assets/cssquake-social.png" />
+    <meta name="twitter:image" content="https://cssquake.wtf/assets/cssquake-social.webp" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -61,7 +62,7 @@
         "description": "Play Quake shareware maps rendered as real DOM geometry with HTML, CSS transforms, and PolyCSS.",
         "applicationCategory": "GameApplication",
         "operatingSystem": "Any",
-        "image": "https://cssquake.wtf/assets/cssquake-social.png",
+        "image": "https://cssquake.wtf/assets/cssquake-social.webp",
         "codeRepository": "https://github.com/LayoutitStudio/cssQuake"
       }
     </script>
@@ -112,25 +113,26 @@
         z-index: 40;
         display: block;
         width: auto;
-        height: min(45px, calc((100vw - 92px) * 0.1605));
+        height: min(45px, calc((100vw - 92px) * 0.1902));
         opacity: 1;
+        filter: drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.62));
         image-rendering: pixelated;
         pointer-events: none;
         user-select: none;
       }
 
-      body[data-loading] .cssquake-logo {
+      body.quake-loading .cssquake-logo {
         display: block;
       }
 
-      body[data-loading] .cssquake-version {
+      body.quake-loading .cssquake-version {
         display: block;
       }
 
       .cssquake-version {
         position: absolute;
-        top: calc(14px + min(16px, calc((100vw - 92px) * 0.0578)));
-        left: calc(22px + min(281px, calc((100vw - 92px) * 0.9)));
+        top: calc(14px + min(16px, calc((100vw - 92px) * 0.0676)));
+        left: calc(22px + min(237px, calc((100vw - 92px) * 0.9)));
         z-index: 40;
         color: #ffffff;
         font: 400 12px/1 ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
@@ -165,7 +167,7 @@
 	        opacity: 0.4;
 	      }
 
-	      body[data-menu] .btn-github {
+	      body.quake-menu-open .btn-github {
 	        display: grid;
 	      }
 
@@ -325,7 +327,7 @@
         transition: transform 120ms steps(8, end);
       }
 
-      #quake-loading-progress[data-indeterminate="true"] #quake-loading-progress-fill {
+      #quake-loading-progress.quake-loading-progress-indeterminate #quake-loading-progress-fill {
         width: 36%;
         transform: translateX(-100%);
         animation: quake-loading-progress-indeterminate 900ms steps(12, end) infinite;
@@ -338,18 +340,19 @@
       }
     </style>
   </head>
-  <body data-loading>
+  <body class="quake-loading">
     <main id="quake-app">
       <div id="quake-host" tabindex="0"></div>
       <div id="quake-viewmodel-layer" aria-hidden="true"></div>
-      <img class="cssquake-logo" src="/src/assets/cssquake-logo.png" width="1383" height="222" alt="cssQuake" />
+      <img class="cssquake-logo" src="/src/assets/cssquake-logo.png" width="1409" height="268" alt="cssQuake" />
       <span id="cssquake-version" class="cssquake-version" aria-hidden="true"></span>
       <div id="quake-hud">
         <div id="quake-damage-overlay" aria-hidden="true"></div>
+        <div id="quake-hud-status" role="status" aria-live="polite" hidden></div>
         <div id="quake-main-menu" role="button" tabindex="-1" aria-label="cssQuake menu" hidden>
           <span id="quake-main-menu-art">
             <span id="quake-main-menu-brand">
-              <img id="quake-main-menu-logo" src="/src/assets/cssquake-logo.png" width="1383" height="222" alt="" />
+              <img id="quake-main-menu-logo" src="/src/assets/cssquake-logo.png" width="1409" height="268" alt="" />
               <span id="quake-main-menu-logo-shimmer"></span>
               <span id="quake-main-menu-brand-meta">
                 <span>
@@ -362,22 +365,22 @@
               </span>
             </span>
             <span id="quake-main-menu-list" aria-hidden="true">
-              <span class="quake-main-menu-item" data-menu-row="0">
+              <span class="quake-main-menu-item quake-main-menu-item-selectable">
                 <span class="quake-main-menu-item-cursor"></span>
                 <span class="quake-main-menu-label quake-main-menu-label-single-player"></span>
               </span>
-              <span class="quake-main-menu-item" data-menu-disabled="true">
+              <span class="quake-main-menu-item quake-main-menu-item-disabled">
                 <span class="quake-main-menu-label quake-main-menu-label-multiplayer"></span>
               </span>
-              <span class="quake-main-menu-item" data-menu-row="1">
+              <span class="quake-main-menu-item quake-main-menu-item-selectable">
                 <span class="quake-main-menu-item-cursor"></span>
                 <span class="quake-main-menu-label quake-main-menu-label-level-select"></span>
               </span>
-              <span class="quake-main-menu-item" data-menu-row="2">
+              <span class="quake-main-menu-item quake-main-menu-item-selectable">
                 <span class="quake-main-menu-item-cursor"></span>
                 <span class="quake-main-menu-label quake-main-menu-label-options"></span>
               </span>
-              <span class="quake-main-menu-item" data-menu-row="3">
+              <span class="quake-main-menu-item quake-main-menu-item-selectable">
                 <span class="quake-main-menu-item-cursor"></span>
                 <span class="quake-main-menu-label quake-main-menu-label-help"></span>
               </span>
@@ -393,7 +396,7 @@
             </header>
             <div id="quake-level-list" class="quake-level-list" aria-label="Available levels"></div>
             <nav id="quake-level-actions" class="quake-menu-actions" aria-label="Level actions">
-              <button id="quake-level-back" type="button" data-bm="label alt">Back</button>
+              <button id="quake-level-back" class="quake-bm-label quake-bm-alt" type="button">Back</button>
             </nav>
           </div>
         </section>
@@ -403,25 +406,25 @@
               <h1 id="quake-about-title" class="quake-menu-panel-title">
                 <img src="/q/menu-title-help.png" width="75" height="20" alt="Help" />
               </h1>
-              <p data-bm>
+              <p class="quake-bm">
                 cssQuake turns BSP maps into real DOM geometry through PolyCSS.
               </p>
-              <p data-bm>
+              <p class="quake-bm">
                 Textures, baked light, and camera movement are handled with CSS transforms.
               </p>
-              <p data-bm>
+              <p class="quake-bm">
                 Gameplay stays Quake-like: collision, triggers, doors, pickups, HUD, and weapons.
               </p>
             </header>
             <nav id="quake-about-source-links" class="quake-menu-links" aria-label="Project source links">
               <ul>
-                <li><a href="https://github.com/LayoutitStudio/polycss" target="_blank" rel="noopener noreferrer" data-bm="label alt">3D engine: PolyCSS</a></li>
-                <li><a href="https://github.com/id-Software/Quake" target="_blank" rel="noopener noreferrer" data-bm="label alt">Source: Quake</a></li>
-                <li><a href="mailto:minotopo@gmail.com" data-bm="label alt email">Contact: minotopo@gmail.com</a></li>
+                <li><a href="https://github.com/LayoutitStudio/polycss" class="quake-bm-label quake-bm-alt" target="_blank" rel="noopener noreferrer">3D engine: PolyCSS</a></li>
+                <li><a href="https://github.com/id-Software/Quake" class="quake-bm-label quake-bm-alt" target="_blank" rel="noopener noreferrer">Source: Quake</a></li>
+                <li><a href="mailto:minotopo@gmail.com" class="quake-bm-label quake-bm-alt quake-bm-email">Contact: minotopo@gmail.com</a></li>
               </ul>
             </nav>
             <nav id="quake-about-actions" class="quake-menu-actions" aria-label="Help actions">
-              <button id="quake-about-back" type="button" data-bm="label alt">Back</button>
+              <button id="quake-about-back" class="quake-bm-label quake-bm-alt" type="button">Back</button>
             </nav>
           </div>
         </section>
@@ -431,72 +434,72 @@
               <h1 id="quake-options-title" class="quake-menu-panel-title">
                 <img src="/q/menu-title-options.png" width="124" height="20" alt="Options" />
               </h1>
-              <p data-bm>
+              <p class="quake-bm">
                 Move with the keyboard. Aim and fire with the mouse.
               </p>
             </header>
             <div id="quake-options-sections" class="quake-menu-panel-sections">
               <section aria-labelledby="quake-options-controls-title">
-                <h2 id="quake-options-controls-title" data-bm="label alt">Controls</h2>
+                <h2 id="quake-options-controls-title" class="quake-bm-label quake-bm-alt">Controls</h2>
                 <ul class="quake-help-list">
                   <li>
-                    <span class="quake-help-keys"><kbd data-bm="key alt">W</kbd><kbd data-bm="key alt">A</kbd><kbd data-bm="key alt">S</kbd><kbd data-bm="key alt">D</kbd></span>
-                    <span data-bm="label">Move</span>
+                    <span class="quake-help-keys"><kbd class="quake-bm-key quake-bm-alt">W</kbd><kbd class="quake-bm-key quake-bm-alt">A</kbd><kbd class="quake-bm-key quake-bm-alt">S</kbd><kbd class="quake-bm-key quake-bm-alt">D</kbd></span>
+                    <span class="quake-bm-label">Move</span>
                   </li>
                   <li>
-                    <span class="quake-help-keys"><kbd data-bm="key alt">Mouse</kbd></span>
-                    <span data-bm="label">Look</span>
+                    <span class="quake-help-keys"><kbd class="quake-bm-key quake-bm-alt">Mouse</kbd></span>
+                    <span class="quake-bm-label">Look</span>
                   </li>
                   <li>
-                    <span class="quake-help-keys"><kbd data-bm="key alt">Click</kbd></span>
-                    <span data-bm="label">Fire and use</span>
+                    <span class="quake-help-keys"><kbd class="quake-bm-key quake-bm-alt">Click</kbd></span>
+                    <span class="quake-bm-label">Fire and use</span>
                   </li>
                   <li>
-                    <span class="quake-help-keys"><kbd data-bm="key alt">Space</kbd></span>
-                    <span data-bm="label">Jump</span>
+                    <span class="quake-help-keys"><kbd class="quake-bm-key quake-bm-alt">Space</kbd></span>
+                    <span class="quake-bm-label">Jump</span>
                   </li>
                   <li>
-                    <span class="quake-help-keys"><kbd data-bm="key alt">Ctrl</kbd></span>
-                    <span data-bm="label">Crouch</span>
+                    <span class="quake-help-keys"><kbd class="quake-bm-key quake-bm-alt">Ctrl</kbd></span>
+                    <span class="quake-bm-label">Crouch</span>
                   </li>
                   <li>
-                    <span class="quake-help-keys"><kbd data-bm="key alt">Esc</kbd></span>
-                    <span data-bm="label">Open menu</span>
+                    <span class="quake-help-keys"><kbd class="quake-bm-key quake-bm-alt">Esc</kbd></span>
+                    <span class="quake-bm-label">Open menu</span>
                   </li>
                   <li>
-                    <span class="quake-help-keys"><kbd data-bm="key alt">M</kbd></span>
-                    <span data-bm="label">Mute audio</span>
+                    <span class="quake-help-keys"><kbd class="quake-bm-key quake-bm-alt">M</kbd></span>
+                    <span class="quake-bm-label">Mute audio</span>
                   </li>
                 </ul>
               </section>
               <section aria-labelledby="quake-options-game-title">
-                <h2 id="quake-options-game-title" data-bm="label alt">Game</h2>
+                <h2 id="quake-options-game-title" class="quake-bm-label quake-bm-alt">Game</h2>
                 <div class="quake-options-list">
                   <label class="quake-option-toggle">
                     <input id="quake-option-disable-sound" type="checkbox" checked />
                     <span class="quake-option-checkbox" aria-hidden="true"></span>
-                    <span class="quake-option-text" data-bm="label">Disable sound</span>
+                    <span class="quake-option-text quake-bm-label">Disable sound</span>
                   </label>
                   <label class="quake-option-toggle">
                     <input id="quake-option-disable-enemies" type="checkbox" />
                     <span class="quake-option-checkbox" aria-hidden="true"></span>
-                    <span class="quake-option-text" data-bm="label">Disable enemies</span>
+                    <span class="quake-option-text quake-bm-label">Disable enemies</span>
                   </label>
                   <label class="quake-option-toggle">
                     <input id="quake-option-disable-damage" type="checkbox" />
                     <span class="quake-option-checkbox" aria-hidden="true"></span>
-                    <span class="quake-option-text" data-bm="label">Disable damage</span>
+                    <span class="quake-option-text quake-bm-label">Disable damage</span>
                   </label>
                   <label class="quake-option-toggle">
                     <input id="quake-option-invert-mouse" type="checkbox" />
                     <span class="quake-option-checkbox" aria-hidden="true"></span>
-                    <span class="quake-option-text" data-bm="label">Invert mouse</span>
+                    <span class="quake-option-text quake-bm-label">Invert mouse</span>
                   </label>
                 </div>
               </section>
             </div>
             <nav id="quake-options-actions" class="quake-menu-actions" aria-label="Options actions">
-              <button id="quake-options-back" type="button" data-bm="label alt">Back</button>
+              <button id="quake-options-back" class="quake-bm-label quake-bm-alt" type="button">Back</button>
             </nav>
           </div>
         </section>
@@ -510,29 +513,29 @@
             <span id="quake-hud-armor-value" class="quake-hud-readout quake-hud-readout-armor">
               <span class="quake-hud-digit"></span>
               <span class="quake-hud-digit"></span>
-              <span class="quake-hud-digit" data-digit="0"></span>
+              <span class="quake-hud-digit"></span>
             </span>
             <span id="quake-hud-health-value" class="quake-hud-readout quake-hud-readout-health">
-              <span class="quake-hud-digit" data-digit="1"></span>
-              <span class="quake-hud-digit" data-digit="0"></span>
-              <span class="quake-hud-digit" data-digit="0"></span>
+              <span class="quake-hud-digit"></span>
+              <span class="quake-hud-digit"></span>
+              <span class="quake-hud-digit"></span>
             </span>
             <span
               id="quake-hud-health-damage-value"
               class="quake-hud-readout quake-hud-readout-health quake-hud-readout-health-damage"
             >
-              <span class="quake-hud-digit" data-digit="1"></span>
-              <span class="quake-hud-digit" data-digit="0"></span>
-              <span class="quake-hud-digit" data-digit="0"></span>
+              <span class="quake-hud-digit"></span>
+              <span class="quake-hud-digit"></span>
+              <span class="quake-hud-digit"></span>
             </span>
             <span id="quake-hud-ammo-value" class="quake-hud-readout quake-hud-readout-ammo">
               <span class="quake-hud-digit"></span>
-              <span class="quake-hud-digit" data-digit="2"></span>
-              <span class="quake-hud-digit" data-digit="5"></span>
+              <span class="quake-hud-digit"></span>
+              <span class="quake-hud-digit"></span>
             </span>
             <span id="quake-hud-keys-value" class="quake-hud-keys">
-              <span class="quake-hud-key quake-hud-key-silver" data-label="S"></span>
-              <span class="quake-hud-key quake-hud-key-gold" data-label="G"></span>
+              <span class="quake-hud-key quake-hud-key-silver">S</span>
+              <span class="quake-hud-key quake-hud-key-gold">G</span>
             </span>
           </div>
         </div>
@@ -546,7 +549,6 @@
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          data-component="Octicon"
           aria-hidden="true"
           focusable="false"
           class="octicon octicon-mark-github"
@@ -569,7 +571,7 @@
       <div id="quake-loading-overlay" role="status" aria-live="polite" aria-busy="true">
         <div class="quake-loading-mark">
           <div class="quake-loading-readout">
-            <span id="quake-loading-status" class="quake-bitmap-host" data-bm="title alt">
+            <span id="quake-loading-status" class="quake-bitmap-host quake-bm-title quake-bm-alt">
               <span class="quake-bitmap-source">Loading</span>
               <span class="quake-bitmap-text quake-bitmap-text--title quake-bitmap-text--word" aria-hidden="true">
                 <span class="quake-bitmap-word">
@@ -583,9 +585,10 @@
                 </span>
               </span>
             </span>
-            <div id="quake-loading-progress" role="progressbar" aria-label="Loading progress" aria-valuemin="0" aria-valuemax="100" data-indeterminate="true">
+            <div id="quake-loading-progress" class="quake-loading-progress-indeterminate" role="progressbar" aria-label="Loading progress" aria-valuemin="0" aria-valuemax="100">
               <span id="quake-loading-progress-fill"></span>
             </div>
+            <span id="quake-loading-action" class="quake-bm-label quake-bm-alt" hidden></span>
           </div>
         </div>
       </div>

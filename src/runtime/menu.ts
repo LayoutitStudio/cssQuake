@@ -26,6 +26,7 @@ export interface QuakeMenuControllerOptions {
   aboutPanel: HTMLElement | null;
   optionsPanel: HTMLElement | null;
   onSelectLevel?(mapName: string): void | Promise<void>;
+  shouldOpenMainMenuOnControlsEnd?(): boolean;
   clearCrosshairTarget(): void;
   syncCrosshairTarget(): void;
 }
@@ -42,6 +43,7 @@ export function createQuakeMenuController({
   aboutPanel,
   optionsPanel,
   onSelectLevel,
+  shouldOpenMainMenuOnControlsEnd,
   clearCrosshairTarget,
   syncCrosshairTarget,
 }: QuakeMenuControllerOptions): QuakeMenuController {
@@ -60,7 +62,7 @@ export function createQuakeMenuController({
     aboutPanel?.setAttribute("hidden", "");
     optionsPanel?.setAttribute("hidden", "");
     mainMenu.hidden = false;
-    document.body.dataset.menu = "true";
+    document.body.classList.add("quake-menu-open");
     clearCrosshairTarget();
     mainMenu.focus({ preventScroll: true });
   }
@@ -72,7 +74,7 @@ export function createQuakeMenuController({
     levelPanel?.setAttribute("hidden", "");
     aboutPanel?.setAttribute("hidden", "");
     optionsPanel?.setAttribute("hidden", "");
-    delete document.body.dataset.menu;
+    document.body.classList.remove("quake-menu-open");
     host.focus({ preventScroll: true });
     syncCrosshairTarget();
   }
@@ -114,7 +116,7 @@ export function createQuakeMenuController({
     aboutPanel?.setAttribute("hidden", "");
     optionsPanel?.setAttribute("hidden", "");
     panel.hidden = false;
-    document.body.dataset.menu = "true";
+    document.body.classList.add("quake-menu-open");
     panel.focus({ preventScroll: true });
   }
 
@@ -164,22 +166,19 @@ export function createQuakeMenuController({
 
   function levelButtonFor(target: EventTarget | null): HTMLButtonElement | null {
     const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
-    return element?.closest(".quake-level-button[data-map]") as HTMLButtonElement | null;
+    return element?.closest(".quake-level-button") as HTMLButtonElement | null;
   }
 
   function mainMenuItems(): HTMLElement[] {
     if (!mainMenuArt) return [];
-    return Array.from(mainMenuArt.querySelectorAll<HTMLElement>(".quake-main-menu-item[data-menu-row]"));
+    return Array.from(mainMenuArt.querySelectorAll<HTMLElement>(".quake-main-menu-item-selectable"));
   }
 
   function updateMainMenuCursor(): void {
     const row = QUAKE_MAIN_MENU_ROWS[mainMenuSelectionIndex] ?? 0;
-    for (const item of mainMenuItems()) {
-      if (Number(item.dataset.menuRow) === row) {
-        item.dataset.active = "true";
-      } else {
-        delete item.dataset.active;
-      }
+    const items = mainMenuItems();
+    for (let index = 0; index < items.length; index++) {
+      items[index]?.classList.toggle("quake-main-menu-item-active", index === row);
     }
   }
 
@@ -210,7 +209,7 @@ export function createQuakeMenuController({
 
   function levelButtons(): HTMLButtonElement[] {
     if (!levelPanel) return [];
-    return Array.from(levelPanel.querySelectorAll<HTMLButtonElement>(".quake-level-button[data-map]"));
+    return Array.from(levelPanel.querySelectorAll<HTMLButtonElement>(".quake-level-button"));
   }
 
   function firstLevelButton(): HTMLButtonElement | null {
@@ -218,17 +217,15 @@ export function createQuakeMenuController({
   }
 
   function currentLevelButton(): HTMLButtonElement | null {
-    return levelButtons().find((button) => button.dataset.current === "true") ?? null;
+    return levelButtons().find((button) => button.getAttribute("aria-current") === "page") ?? null;
   }
 
   function setCurrentLevel(mapName: string): void {
     for (const button of levelButtons()) {
-      const current = button.dataset.map === mapName;
+      const current = button.value === mapName;
       if (current) {
-        button.dataset.current = "true";
         button.setAttribute("aria-current", "page");
       } else {
-        delete button.dataset.current;
         button.removeAttribute("aria-current");
       }
     }
@@ -243,16 +240,11 @@ export function createQuakeMenuController({
     }
     for (const button of levelButtons()) {
       button.disabled = Boolean(mapName);
-      if (mapName && button.dataset.map === mapName) {
-        button.dataset.loading = "true";
-      } else {
-        delete button.dataset.loading;
-      }
     }
   }
 
   function selectLevel(button: HTMLButtonElement): void {
-    const mapName = button.dataset.map;
+    const mapName = button.value;
     if (!mapName || !onSelectLevel || loadingLevelMap) return;
     setLoadingLevel(mapName);
     Promise.resolve(onSelectLevel(mapName))
@@ -447,14 +439,14 @@ export function createQuakeMenuController({
   function handleMainMenuPointerMove(event: PointerEvent): void {
     const row = mainMenuPointerRow(event);
     if (row !== null && selectMainMenuRow(row)) {
-      if (mainMenu) mainMenu.dataset.hover = "true";
+      mainMenu?.classList.add("quake-main-menu-hover");
     } else {
-      delete mainMenu?.dataset.hover;
+      mainMenu?.classList.remove("quake-main-menu-hover");
     }
   }
 
   function handleMainMenuPointerLeave(): void {
-    delete mainMenu?.dataset.hover;
+    mainMenu?.classList.remove("quake-main-menu-hover");
   }
 
   function mainMenuPointerRow(event: MouseEvent): number | null {
@@ -475,8 +467,8 @@ export function createQuakeMenuController({
         event.clientY >= top &&
         event.clientY <= bottom
       ) {
-        const row = Number(item.dataset.menuRow);
-        return Number.isFinite(row) ? row : null;
+        const row = mainMenuItems().indexOf(item);
+        return row >= 0 ? row : null;
       }
     }
     return null;
@@ -501,6 +493,7 @@ export function createQuakeMenuController({
   }
 
   function handleControlsEnd(): void {
+    if (shouldOpenMainMenuOnControlsEnd && !shouldOpenMainMenuOnControlsEnd()) return;
     showMainMenu();
   }
 

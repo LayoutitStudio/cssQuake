@@ -3,6 +3,7 @@ import type { Polygon, PolyMeshHandle, Vec3 } from "@layoutit/polycss";
 import type { QuakeEntity } from "../prepare/scene";
 import {
   QUAKE_MONSTER_COMBAT_POLICIES,
+  QUAKE_MONSTER_LOGIC,
   type QuakeMonsterAttackBranchPolicy,
   type QuakeMonsterAttackPolicy,
   type QuakeMonsterCombatPolicy,
@@ -12,6 +13,7 @@ import {
   type QuakeMonsterMeleeDamageFrameEvent,
   type QuakeMonsterProjectileFrameEvent,
   type QuakeMonsterProjectileOffsetUnits,
+  type QuakeMonsterSpawnProfile,
   type QuakeMonsterTouchDamageFrameEvent,
 } from "../generated/quakeMonsterLogic";
 import {
@@ -93,6 +95,13 @@ interface QuakeShootableSoundOptions {
   volume?: number;
 }
 
+const QUAKE_SHOOTABLE_PREWARMED_CLASS = "quake-shootable-prewarmed";
+const QUAKE_SHOOTABLE_FRAME_HIDDEN_CLASS = "quake-frame-hidden";
+const QUAKE_SHOOTABLE_DYING_CLASS = "quake-shootable-dying";
+const QUAKE_SHOOTABLE_CORPSE_CLASS = "quake-shootable-corpse";
+const QUAKE_SHOOTABLE_DEAD_CLASS = "quake-shootable-dead";
+const QUAKE_SHOOTABLE_HURT_CLASS = "quake-shootable-hurt";
+
 export interface QuakeShootablesDebugStats {
   totalShootables: number;
   liveShootables: number;
@@ -119,6 +128,10 @@ interface QuakeShootableState {
   origin: Vec3;
   leafIndex: number | undefined;
   model: QuakePickupModel | undefined;
+  collisionBounds: {
+    min: Vec3;
+    max: Vec3;
+  };
   bounds: {
     min: Vec3;
     max: Vec3;
@@ -304,6 +317,7 @@ const QUAKE_MONSTER_PROJECTILE_AIM_ERROR = 24 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MONSTER_PROJECTILE_GRAVITY = 800 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MONSTER_PROJECTILE_VERTICAL_AIM_ERROR = 8 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MONSTER_PROJECTILE_RADIUS = 28 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_MONSTER_DROP_TO_FLOOR_DISTANCE = 256 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_ZOMBIE_GIB_DAMAGE = 60;
 const QUAKE_ZOMBIE_IGNORE_DAMAGE = 9;
 const QUAKE_ZOMBIE_DROP_DAMAGE = 25;
@@ -403,13 +417,16 @@ export function createQuakeShootablesController({
       const model = modelLibrary?.models[modelPath];
       if (!model && !canUseShootableFallback(entity)) continue;
       const bounds = shootableLocalBounds(entity, model);
-      const origin = groundedShootableOrigin(entity, pointToPoly(entity.origin), bounds);
+      const spawnProfile = quakeMonsterSpawnProfile(entity.classname);
+      const collisionBounds = shootableCollisionBounds(entity, bounds, spawnProfile);
+      const origin = groundedShootableOrigin(entity, pointToPoly(entity.origin), collisionBounds, "spawn", spawnProfile);
       const yaw = entity.angle ?? quakeEntityNumber(entity, "angle", 0);
       shootables.set(entity.index, {
         entity,
         origin,
         leafIndex: leafIndexAt(origin),
         model,
+        collisionBounds,
         bounds,
         handle: null,
         frameHandles: new Map(),
@@ -442,17 +459,51 @@ export function createQuakeShootablesController({
     enemyProjectileTimers = [];
   }
 
-  function groundedShootableOrigin(entity: QuakeEntity, origin: Vec3, bounds: { min: Vec3; max: Vec3 }): Vec3 {
+  function groundedShootableOrigin(
+    entity: QuakeEntity,
+    origin: Vec3,
+    bounds: { min: Vec3; max: Vec3 },
+    mode: "move" | "spawn",
+    spawnProfile = quakeMonsterSpawnProfile(entity.classname),
+  ): Vec3 {
     if (!entity.classname.startsWith("monster_")) return origin;
+    if (spawnProfile && !spawnProfile.dropToFloor) return origin;
     const footZ = origin[2] + bounds.min[2];
+    const lowerZ = mode === "spawn"
+      ? footZ - QUAKE_MONSTER_DROP_TO_FLOOR_DISTANCE
+      : footZ - STEP_HEIGHT - GROUND_SNAP;
     const floorZ = floorAt(
       origin[0],
       origin[1],
       footZ + STEP_HEIGHT + GROUND_SNAP,
-      footZ - STEP_HEIGHT - GROUND_SNAP,
+      lowerZ,
     );
-    if (floorZ === null) return origin;
-    return [origin[0], origin[1], origin[2] + floorZ - footZ];
+    if (floorZ === null) {
+      if (mode === "spawn") {
+        markQuakeTrace("enemy-drop-to-floor", {
+          class: entity.classname,
+          entity: entity.index,
+          floor: "none",
+          footZ,
+          minZ: bounds.min[2],
+          startKind: spawnProfile?.startKind ?? "fallback",
+        });
+      }
+      return origin;
+    }
+    const grounded: Vec3 = [origin[0], origin[1], origin[2] + floorZ - footZ];
+    if (mode === "spawn") {
+      markQuakeTrace("enemy-drop-to-floor", {
+        class: entity.classname,
+        distance: origin[2] - grounded[2],
+        entity: entity.index,
+        floor: "exact",
+        floorZ,
+        minZ: bounds.min[2],
+        startKind: spawnProfile?.startKind ?? "fallback",
+      });
+    }
+    return grounded;
   }
 
   function has(entityIndex: number): boolean {
@@ -525,7 +576,7 @@ export function createQuakeShootablesController({
     clearEnemyAttackState(shootable);
     const deathAnimationMs = playEnemyDeathAnimation(shootable, performance.now());
     markShootableTrace("shootable-destroy", shootable);
-    syncShootableLifecycleDatasets(shootable);
+    syncShootableLifecycleClassesForShootable(shootable);
     if (isPersistentShootableCorpse(shootable)) {
       if (deathAnimationMs === null) {
         finalizeShootableCorpse(shootable);
@@ -578,7 +629,7 @@ export function createQuakeShootablesController({
       yield {
         entity: shootable.entity,
         dead: shootable.dead,
-        bounds: shootableBounds(shootable),
+        bounds: shootableCollisionWorldBounds(shootable),
       };
     }
   }
@@ -1035,20 +1086,20 @@ export function createQuakeShootablesController({
 
   function syncShootableHandleVisibility(shootable: QuakeShootableState): void {
     forEachShootableHandle(shootable, (handle) => {
-      syncShootableLifecycleDataset(shootable, handle);
+      syncShootableLifecycleClasses(shootable, handle);
       const active = handle === shootable.handle;
       if (!shootable.visible) {
-        handle.element.dataset.prewarmed = "true";
-        if (active) handle.element.removeAttribute("data-frame-hidden");
+        handle.element.classList.add(QUAKE_SHOOTABLE_PREWARMED_CLASS);
+        if (active) handle.element.classList.remove(QUAKE_SHOOTABLE_FRAME_HIDDEN_CLASS);
         handle.element.setAttribute("aria-hidden", "true");
         return;
       }
-      handle.element.removeAttribute("data-prewarmed");
+      handle.element.classList.remove(QUAKE_SHOOTABLE_PREWARMED_CLASS);
       if (active) {
-        handle.element.removeAttribute("data-frame-hidden");
+        handle.element.classList.remove(QUAKE_SHOOTABLE_FRAME_HIDDEN_CLASS);
         handle.element.removeAttribute("aria-hidden");
       } else {
-        handle.element.dataset.frameHidden = "true";
+        handle.element.classList.add(QUAKE_SHOOTABLE_FRAME_HIDDEN_CLASS);
         handle.element.setAttribute("aria-hidden", "true");
       }
     });
@@ -1099,8 +1150,10 @@ export function createQuakeShootablesController({
     handle.element.classList.add("shootable");
     if (entity.classname.startsWith("monster_")) handle.element.classList.add("enemy");
     stripPolyMeshMetadata(handle.element);
-    handle.element.dataset.entityIndex = String(entity.index);
-    handle.element.dataset.classname = entity.classname;
+    if (isQuakeDebugDomMetadataEnabled()) {
+      handle.element.dataset.entityIndex = String(entity.index);
+      handle.element.dataset.classname = entity.classname;
+    }
     markQuakeTrace("shootable-mesh-create", {
       entity: entity.index,
       class: entity.classname,
@@ -1308,8 +1361,8 @@ export function createQuakeShootablesController({
     shootable: QuakeShootableState,
     playerOrigin: [number, number, number],
   ): boolean {
-    const shootableMinZ = shootable.origin[2] + shootable.bounds.min[2];
-    const shootableMaxZ = shootable.origin[2] + shootable.bounds.max[2];
+    const shootableMinZ = shootable.origin[2] + shootable.collisionBounds.min[2];
+    const shootableMaxZ = shootable.origin[2] + shootable.collisionBounds.max[2];
     const playerBounds = quakecPlayerDamageBounds(playerOrigin);
     const playerMinZ = playerBounds.min[2];
     const playerMaxZ = playerBounds.max[2];
@@ -1457,7 +1510,7 @@ export function createQuakeShootablesController({
 
   function finalizeShootableCorpse(shootable: QuakeShootableState): void {
     syncEnemyCorpseAnimationFrame(shootable);
-    syncShootableLifecycleDatasets(shootable);
+    syncShootableLifecycleClassesForShootable(shootable);
     markShootableTrace("shootable-corpse", shootable, {
       handles: countShootableHandles(shootable),
     });
@@ -2140,6 +2193,7 @@ export function createQuakeShootablesController({
 
   function shouldThrottleShootableAnimationFrame(shootable: QuakeShootableState): boolean {
     if (!shootable.enemy || !shootable.handle || !shootable.visible) return false;
+    if (shootable.dead || shootable.enemy.animationMode === "death") return false;
     const depth = shootableCameraDepth(shootable, getPlayerOrigin());
     return depth > 0 && depth < shootableFrameSwapSafeDepth(shootable);
   }
@@ -2408,32 +2462,33 @@ export function createQuakeShootablesController({
     return shootable.dead && Boolean(shootable.enemy?.deathAnimationUntil && shootable.enemy.deathAnimationUntil > now);
   }
 
-  function syncShootableLifecycleDatasets(shootable: QuakeShootableState): void {
-    forEachShootableHandle(shootable, (handle) => syncShootableLifecycleDataset(shootable, handle));
+  function syncShootableLifecycleClassesForShootable(shootable: QuakeShootableState): void {
+    forEachShootableHandle(shootable, (handle) => syncShootableLifecycleClasses(shootable, handle));
   }
 
-  function syncShootableLifecycleDataset(shootable: QuakeShootableState, handle: PolyMeshHandle): void {
+  function syncShootableLifecycleClasses(shootable: QuakeShootableState, handle: PolyMeshHandle): void {
     if (!shootable.dead) {
-      handle.element.removeAttribute("data-corpse");
-      handle.element.removeAttribute("data-dead");
-      handle.element.removeAttribute("data-dying");
+      handle.element.classList.remove(
+        QUAKE_SHOOTABLE_CORPSE_CLASS,
+        QUAKE_SHOOTABLE_DEAD_CLASS,
+        QUAKE_SHOOTABLE_DYING_CLASS,
+      );
       return;
     }
-    handle.element.removeAttribute("data-hurt");
+    handle.element.classList.remove(QUAKE_SHOOTABLE_HURT_CLASS);
     if (isShootableDeathAnimating(shootable)) {
-      handle.element.dataset.dying = "true";
-      handle.element.removeAttribute("data-corpse");
-      handle.element.removeAttribute("data-dead");
+      handle.element.classList.add(QUAKE_SHOOTABLE_DYING_CLASS);
+      handle.element.classList.remove(QUAKE_SHOOTABLE_CORPSE_CLASS, QUAKE_SHOOTABLE_DEAD_CLASS);
       return;
     }
-    handle.element.removeAttribute("data-dying");
+    handle.element.classList.remove(QUAKE_SHOOTABLE_DYING_CLASS);
     if (isPersistentShootableCorpse(shootable)) {
-      handle.element.dataset.corpse = "true";
-      handle.element.removeAttribute("data-dead");
+      handle.element.classList.add(QUAKE_SHOOTABLE_CORPSE_CLASS);
+      handle.element.classList.remove(QUAKE_SHOOTABLE_DEAD_CLASS);
       return;
     }
-    handle.element.dataset.dead = "true";
-    handle.element.removeAttribute("data-corpse");
+    handle.element.classList.add(QUAKE_SHOOTABLE_DEAD_CLASS);
+    handle.element.classList.remove(QUAKE_SHOOTABLE_CORPSE_CLASS);
   }
 
   function enemyWakeDelayMs(profile: QuakeMonsterCombatProfile, enemy: QuakeEnemyState): number {
@@ -2534,7 +2589,7 @@ export function createQuakeShootablesController({
       shootable.origin[1] + (dy / distance) * step,
       shootable.origin[2],
     ];
-    const nextOrigin = groundedShootableOrigin(shootable.entity, horizontalNextOrigin, shootable.bounds);
+    const nextOrigin = groundedShootableOrigin(shootable.entity, horizontalNextOrigin, shootable.collisionBounds, "move");
     if (distanceSq3(nextOrigin, shootable.origin) <= QUAKE_SHOOTABLE_COLLISION_EPSILON * QUAKE_SHOOTABLE_COLLISION_EPSILON) {
       return false;
     }
@@ -2759,10 +2814,6 @@ export function createQuakeShootablesController({
     const handle = addMesh(entity, model);
     if (!handle) return null;
     handle.element.classList.add("enemy-projectile");
-    handle.element.dataset.projectile = classname;
-    if (model && projectile.profile.projectileModelPath) {
-      handle.element.dataset.projectileModel = projectile.profile.projectileModelPath;
-    }
     syncEnemyProjectileMesh(projectile, handle);
     if (!model) {
       pixelate(handle);
@@ -2895,11 +2946,11 @@ export function createQuakeShootablesController({
   function flashShootable(shootable: QuakeShootableState): void {
     const element = shootable.handle?.element;
     if (!element) return;
-    delete element.dataset.hurt;
+    element.classList.remove(QUAKE_SHOOTABLE_HURT_CLASS);
     void element.offsetWidth;
-    element.dataset.hurt = "true";
+    element.classList.add(QUAKE_SHOOTABLE_HURT_CLASS);
     window.setTimeout(() => {
-      if (element.isConnected) element.removeAttribute("data-hurt");
+      if (element.isConnected) element.classList.remove(QUAKE_SHOOTABLE_HURT_CLASS);
     }, 120);
   }
 
@@ -2908,7 +2959,7 @@ export function createQuakeShootablesController({
     eyeHeight: number,
     shootable: QuakeShootableState,
   ): boolean {
-    const bounds = shootableBounds(shootable);
+    const bounds = shootableCollisionWorldBounds(shootable);
     const playerMinZ = origin[2] - eyeHeight;
     const playerMaxZ = playerMinZ + PLAYER_HEIGHT;
     if (playerMaxZ <= bounds.min[2] || playerMinZ >= bounds.max[2]) return false;
@@ -2923,7 +2974,7 @@ export function createQuakeShootablesController({
     previous: [number, number, number],
     shootable: QuakeShootableState,
   ): [number, number, number] {
-    const bounds = shootableBounds(shootable);
+    const bounds = shootableCollisionWorldBounds(shootable);
     const minX = bounds.min[0] - PLAYER_RADIUS - QUAKE_SHOOTABLE_COLLISION_EPSILON;
     const maxX = bounds.max[0] + PLAYER_RADIUS + QUAKE_SHOOTABLE_COLLISION_EPSILON;
     const minY = bounds.min[1] - PLAYER_RADIUS - QUAKE_SHOOTABLE_COLLISION_EPSILON;
@@ -2958,8 +3009,23 @@ export function createQuakeShootablesController({
     };
   }
 
+  function shootableCollisionWorldBounds(shootable: QuakeShootableState): { min: Vec3; max: Vec3 } {
+    return {
+      min: [
+        shootable.origin[0] + shootable.collisionBounds.min[0],
+        shootable.origin[1] + shootable.collisionBounds.min[1],
+        shootable.origin[2] + shootable.collisionBounds.min[2],
+      ],
+      max: [
+        shootable.origin[0] + shootable.collisionBounds.max[0],
+        shootable.origin[1] + shootable.collisionBounds.max[1],
+        shootable.origin[2] + shootable.collisionBounds.max[2],
+      ],
+    };
+  }
+
   function shootableBoundsForDamage(shootable: QuakeShootableState): QuakeBounds {
-    return shootableBounds(shootable);
+    return shootableCollisionWorldBounds(shootable);
   }
 
   function inflateBounds(bounds: QuakeBounds, amount: number): QuakeBounds {
@@ -3091,6 +3157,37 @@ function shootableLocalBounds(entity: QuakeEntity, model: QuakePickupModel | und
     return { min: [-0.42, -0.42, 0], max: [0.42, 0.42, 0.72] };
   }
   return { min: [-0.34, -0.34, 0], max: [0.34, 0.34, 1.18] };
+}
+
+function shootableCollisionBounds(
+  entity: QuakeEntity,
+  fallback: { min: Vec3; max: Vec3 },
+  spawnProfile = quakeMonsterSpawnProfile(entity.classname),
+): { min: Vec3; max: Vec3 } {
+  if (!entity.classname.startsWith("monster_")) return fallback;
+  return quakeMonsterScaledBounds(spawnProfile) ?? fallback;
+}
+
+function quakeMonsterSpawnProfile(classname: string): QuakeMonsterSpawnProfile | undefined {
+  const logicByClassname = QUAKE_MONSTER_LOGIC as Readonly<Record<string, { spawnProfile?: QuakeMonsterSpawnProfile }>>;
+  return logicByClassname[classname]?.spawnProfile;
+}
+
+function quakeMonsterScaledBounds(spawnProfile: QuakeMonsterSpawnProfile | undefined): { min: Vec3; max: Vec3 } | null {
+  const bounds = spawnProfile?.bounds;
+  if (!bounds) return null;
+  return {
+    min: quakeMonsterScaleVector(bounds.min),
+    max: quakeMonsterScaleVector(bounds.max),
+  };
+}
+
+function quakeMonsterScaleVector(vector: readonly [number, number, number]): Vec3 {
+  return [
+    vector[0] * QUAKE_COLLISION_UNIT_SCALE,
+    vector[1] * QUAKE_COLLISION_UNIT_SCALE,
+    vector[2] * QUAKE_COLLISION_UNIT_SCALE,
+  ];
 }
 
 function preferredMonsterModelPath(entity: QuakeEntity, programMetadata: QuakeProgramMetadata | null): string | null {

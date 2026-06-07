@@ -5,27 +5,61 @@ const QUAKE_BITMAP_TEXT_SIZES = {
   title: 40,
 } as const;
 
+const QUAKE_BITMAP_TEXT_SELECTOR = [
+  ".quake-bm",
+  ".quake-bm-copy",
+  ".quake-bm-label",
+  ".quake-bm-key",
+  ".quake-bm-title",
+  ".quake-bitmap-host",
+].join(", ");
+
+const QUAKE_BITMAP_TEXT_CONFIG_CLASSES = [
+  "quake-bm",
+  "quake-bm-copy",
+  "quake-bm-label",
+  "quake-bm-key",
+  "quake-bm-title",
+  "quake-bm-alt",
+  "quake-bm-anywhere",
+  "quake-bm-email",
+];
+
 type QuakeBitmapTextSize = keyof typeof QUAKE_BITMAP_TEXT_SIZES;
 type QuakeBitmapTextWrap = "word" | "anywhere" | "email";
 
+interface QuakeBitmapTextOptions {
+  alt: boolean;
+  size: QuakeBitmapTextSize;
+  wrap: QuakeBitmapTextWrap;
+}
+
+const quakeBitmapTextOptionsByElement = new WeakMap<HTMLElement, QuakeBitmapTextOptions>();
+
 export function mountQuakeBitmapText(root: ParentNode = document): void {
-  for (const element of root.querySelectorAll<HTMLElement>("[data-bm]")) {
+  if (root instanceof HTMLElement && shouldRenderQuakeBitmapTextElement(root)) {
+    renderQuakeBitmapTextElement(root);
+  }
+  for (const element of root.querySelectorAll<HTMLElement>(QUAKE_BITMAP_TEXT_SELECTOR)) {
     renderQuakeBitmapTextElement(element);
   }
 }
 
 function renderQuakeBitmapTextElement(element: HTMLElement): void {
   const text = normalizeBitmapText(element.textContent ?? "");
+  const options = quakeBitmapTextOptionsByElement.get(element) ?? parseBitmapTextOptions(element);
+  quakeBitmapTextOptionsByElement.set(element, options);
+  stripBitmapTextMetadata(element);
+  element.classList.add("quake-bitmap-host");
   if (!text) return;
 
   const source = document.createElement("span");
   source.className = "quake-bitmap-source";
   source.textContent = text;
 
-  const bitmap = createQuakeBitmapText(text, parseBitmapTextOptions(element));
+  const bitmap = createQuakeBitmapText(text, options);
 
   element.textContent = "";
-  element.classList.add("quake-bitmap-host");
   element.append(source, bitmap);
 }
 
@@ -82,21 +116,40 @@ function parseBitmapTextWrap(value: string | undefined): QuakeBitmapTextWrap {
   return "word";
 }
 
-function parseBitmapTextOptions(element: HTMLElement): { alt: boolean; size: QuakeBitmapTextSize; wrap: QuakeBitmapTextWrap } {
-  const tokens = (element.dataset.bm ?? "").split(/\s+/).filter(Boolean);
+function parseBitmapTextOptions(element: HTMLElement): QuakeBitmapTextOptions {
   return {
-    alt: tokens.includes("alt") || element.dataset.bmAlt === "true",
-    size: parseBitmapTextSize(tokens.find(isBitmapTextSize) ?? element.dataset.bmSize),
-    wrap: parseBitmapTextWrap(tokens.find(isBitmapTextWrap) ?? element.dataset.bmWrap),
+    alt: element.classList.contains("quake-bm-alt"),
+    size: parseBitmapTextSize(bitmapTextClassSize(element)),
+    wrap: parseBitmapTextWrap(bitmapTextClassWrap(element)),
   };
 }
 
-function isBitmapTextSize(value: string): value is QuakeBitmapTextSize {
-  return value === "copy" || value === "label" || value === "key" || value === "title";
+function shouldRenderQuakeBitmapTextElement(element: HTMLElement): boolean {
+  return hasBitmapTextConfigClass(element) ||
+    quakeBitmapTextOptionsByElement.has(element) ||
+    element.classList.contains("quake-bitmap-host");
 }
 
-function isBitmapTextWrap(value: string): value is QuakeBitmapTextWrap {
-  return value === "word" || value === "anywhere" || value === "email";
+function stripBitmapTextMetadata(element: HTMLElement): void {
+  element.classList.remove(...QUAKE_BITMAP_TEXT_CONFIG_CLASSES);
+}
+
+function hasBitmapTextConfigClass(element: HTMLElement): boolean {
+  return QUAKE_BITMAP_TEXT_CONFIG_CLASSES.some((className) => element.classList.contains(className));
+}
+
+function bitmapTextClassSize(element: HTMLElement): string | undefined {
+  if (element.classList.contains("quake-bm-title")) return "title";
+  if (element.classList.contains("quake-bm-label")) return "label";
+  if (element.classList.contains("quake-bm-key")) return "key";
+  if (element.classList.contains("quake-bm-copy")) return "copy";
+  return undefined;
+}
+
+function bitmapTextClassWrap(element: HTMLElement): string | undefined {
+  if (element.classList.contains("quake-bm-anywhere")) return "anywhere";
+  if (element.classList.contains("quake-bm-email")) return "email";
+  return undefined;
 }
 
 function splitEmailBitmapText(text: string): string[] {

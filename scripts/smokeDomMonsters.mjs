@@ -176,8 +176,8 @@ async function validateMonster(page, monster) {
         const active = Boolean(
           element &&
           element.getAttribute("aria-hidden") !== "true" &&
-          element.dataset.prewarmed !== "true" &&
-          element.dataset.frameHidden !== "true",
+          !element.classList.contains("quake-shootable-prewarmed") &&
+          !element.classList.contains("quake-frame-hidden"),
         );
         const stats = debug.stats();
         const projection = stats.enemyProjection?.meshes?.find?.((mesh) => mesh.entityIndex === entity) ?? null;
@@ -239,6 +239,9 @@ async function main() {
   const server = await startServer();
   const browser = await chromium.launch({ headless: !flag("headed") });
   const page = await browser.newPage({ viewport });
+  await page.addInitScript(() => {
+    window.__cssQuakeDebugDomMetadata = true;
+  });
   const consoleMessages = [];
   page.on("console", (message) => {
     const text = message.text();

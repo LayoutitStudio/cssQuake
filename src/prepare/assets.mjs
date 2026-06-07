@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { spawn } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -14,12 +14,15 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "../..");
 const generatedPublicDir = path.join(projectRoot, "build/generated/public");
 const quakePublicPath = "/q";
-const quakeTexturePublicPath = `${quakePublicPath}/t`;
-const quakeRenderBundlePublicPath = `${quakePublicPath}/b`;
 const quakeOutputDir = path.join(generatedPublicDir, quakePublicPath.slice(1));
+const quakeAssetVersion = cssQuakeAssetVersion();
+const quakeAssetPublicPath = `${quakePublicPath}/${quakeAssetVersion}`;
+const quakeTexturePublicPath = `${quakeAssetPublicPath}/t`;
+const quakeRenderBundlePublicPath = `${quakeAssetPublicPath}/b`;
+const quakeAssetOutputDir = path.join(quakeOutputDir, quakeAssetVersion);
 const legacyQuakeOutputDir = path.join(generatedPublicDir, "local/quake");
-const socialImageSourcePath = path.join(projectRoot, "src/assets/cssquake-social.png");
-const socialImageOutputPath = path.join(generatedPublicDir, "assets/cssquake-social.png");
+const socialImageSourcePath = path.join(projectRoot, "src/assets/cssquake-social.webp");
+const socialImageOutputPath = path.join(generatedPublicDir, "assets/cssquake-social.webp");
 const menuTitleLevelSelectSourcePath = path.join(projectRoot, "src/assets/menu-title-level-select-source.png");
 const quakeMapNames = ["start", "e1m1", "e1m2", "e1m3", "e1m4", "e1m5", "e1m6", "e1m7", "e1m8"];
 const quakeRenderBundleDefaultMapNames = quakeMapNames;
@@ -66,10 +69,10 @@ const pickupOutputPath = path.join(quakeOutputDir, "pickups.json");
 const progsOutputPath = path.join(quakeOutputDir, "progs.json");
 const soundManifestOutputPath = path.join(quakeOutputDir, "sounds.json");
 const sourcePath = path.join(projectRoot, "src/prepare/scene.ts");
-const textureOutputDir = path.join(quakeOutputDir, "t");
+const textureOutputDir = path.join(quakeAssetOutputDir, "t");
 const soundOutputDir = path.join(quakeOutputDir, "s");
 const renderBundleScriptPath = path.join(scriptDir, "bundle.mjs");
-const renderBundleOutputDir = path.join(quakeOutputDir, "b");
+const renderBundleOutputDir = path.join(quakeAssetOutputDir, "b");
 const quakeRenderBundleAvifQuality = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_AVIF_QUALITY ?? "80", 10);
 const quakeRenderBundleAvifEffort = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_AVIF_EFFORT ?? "4", 10);
 const quakeRenderBundleConcurrency = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_CONCURRENCY ?? "", 10);
@@ -205,8 +208,23 @@ const sharewareExtractDir = path.join(tempDir, "quake-shareware");
 const resourcePath = path.join(tempDir, "resource.1");
 const extractedPakPath = path.join(tempDir, "ID1/PAK0.PAK");
 let renderBundleBuilder = null;
+let nextTextureFileIndex = 0;
 const textureFileUrlByHash = new Map();
 const texturePngByPublicPath = new Map();
+
+function cssQuakeAssetVersion() {
+  try {
+    const commitCount = execSync("git rev-list --count HEAD", {
+      cwd: projectRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (/^\d+$/.test(commitCount)) return commitCount;
+  } catch {
+    // Netlify invalidates each deploy, so a fixed local fallback is still cache-safe there.
+  }
+  return "0";
+}
 
 try {
   if (process.env.QUAKE_PAK_PATH?.trim()) {
@@ -218,9 +236,12 @@ try {
   }
   await rm(legacyQuakeOutputDir, { recursive: true, force: true });
   await removeLegacyQuakeJsonFiles();
+  await removeGeneratedQuakeAssetVersionDirs();
   await rm(textureOutputDir, { recursive: true, force: true });
   await rm(soundOutputDir, { recursive: true, force: true });
   await rm(renderBundleOutputDir, { recursive: true, force: true });
+  await rm(path.join(quakeOutputDir, "t"), { recursive: true, force: true });
+  await rm(path.join(quakeOutputDir, "b"), { recursive: true, force: true });
   await rm(path.join(quakeOutputDir, "p"), { recursive: true, force: true });
   await copyStaticPublicAssets();
 
@@ -292,7 +313,7 @@ try {
         });
         if (lightstyleOverlayPolygons.length) {
           prepared.lightstyleRenderBundle = await renderBundleBuilder.build({
-            bundleName: `${mapName}-lightstyle`,
+            bundleName: `${mapName}l`,
             polygons: lightstyleOverlayPolygons,
           });
         } else {
@@ -455,15 +476,14 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
     for (let index = 0; index < result.assets.length; index++) {
       const asset = result.assets[index];
       const buffer = Buffer.from(asset.base64, "base64");
-      const hash = createHash("sha256").update(buffer).digest("hex").slice(0, 12);
+      const hash = createHash("sha256").update(buffer).digest("hex");
       const assetKey = `${asset.mime}:${hash}`;
       let sharedAsset = sharedAssets?.get(assetKey);
 
       if (!sharedAsset) {
         const primaryAsset = await encodeQuakeRenderBundlePrimaryAsset(buffer, asset.mime);
-        const primaryHash = createHash("sha256").update(primaryAsset.buffer).digest("hex").slice(0, 12);
         const extension = mimeExtension(primaryAsset.mime);
-        const filename = `atlas-${String(index).padStart(2, "0")}-${primaryHash}.${extension}`;
+        const filename = `${index}.${extension}`;
         const outputPath = path.join(assetDir, filename);
         await writeFile(outputPath, primaryAsset.buffer);
         const assetUrl = `${quakeRenderBundlePublicPath}/${name}/${filename}`;
@@ -496,8 +516,7 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
     let styleUrl = "";
     if (meshCss && writeStyle) {
       const cssBuffer = Buffer.from(meshCss);
-      const hash = createHash("sha256").update(cssBuffer).digest("hex").slice(0, 12);
-      const filename = `mesh-${hash}.css`;
+      const filename = "0.css";
       await writeFile(path.join(assetDir, filename), cssBuffer);
       styleUrl = `${quakeRenderBundlePublicPath}/${name}/${filename}`;
     }
@@ -569,7 +588,7 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
         throw new Error(`Animated render bundle build for ${bundleName} requires multiple frames.`);
       }
       const frameInputs = frames.map((frame, index) => {
-        const name = frame.bundleName ?? `${bundleName}/frame-${String(index).padStart(3, "0")}`;
+        const name = frame.bundleName ?? `${bundleName}/f${index}`;
         return {
           name,
           styleClassName: extractLeafStyles ? quakeRenderBundleStyleClassName(name) : "",
@@ -652,12 +671,8 @@ async function createQuakeRenderBundlePage(browser, bundlePath) {
 }
 
 function quakeRenderBundleStyleClassName(name) {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "bundle";
   const hash = createHash("sha256").update(name).digest("hex").slice(0, 8);
-  return `qrb-${slug}-${hash}`;
+  return `r${hash}`;
 }
 
 function replaceQuakeRenderBundleLeafFrameStylePlaceholder(leafFrameStylesByClass, placeholder, replacement) {
@@ -1010,9 +1025,25 @@ async function removeLegacyQuakeJsonFiles() {
   ]);
 }
 
+async function removeGeneratedQuakeAssetVersionDirs() {
+  let entries;
+  try {
+    entries = await readdir(quakeOutputDir, { withFileTypes: true });
+  } catch {
+    entries = [];
+  }
+  await Promise.all(entries
+    .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
+    .map((entry) => rm(path.join(quakeOutputDir, entry.name), { recursive: true, force: true })));
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 async function pruneUnreferencedTextureFiles(jsonPaths) {
   const referenced = new Set();
-  const textureUrlPattern = /\/q\/t\/([^"'\\)\s]+)/g;
+  const textureUrlPattern = new RegExp(`${escapeRegExp(quakeTexturePublicPath)}/([^"'\\\\)\\s]+)`, "g");
   for (const jsonPath of jsonPaths) {
     const text = await readFile(jsonPath, "utf8");
     for (const match of text.matchAll(textureUrlPattern)) {
@@ -1646,7 +1677,7 @@ async function buildQuakeWeaponModel(assets, renderBundleBuilder) {
   return {
     source: modelPath,
     renderBundle: await renderBundleBuilder.build({
-      bundleName: "weapon-shotgun",
+      bundleName: "w",
       polygons: anchorQuakeWeaponPolygons(polygons),
       extractLeafStyles: true,
     }),
@@ -1798,7 +1829,7 @@ async function addQuakePickupModelRenderBundles(model, renderBundleBuilder, text
     const frameBundles = await renderBundleBuilder.buildAnimatedFrameSet({
       bundleName: baseName,
       frames: model.animationFrames.map((_frame, index) => ({
-        bundleName: `${baseName}/frame-${String(index).padStart(3, "0")}`,
+        bundleName: `${baseName}/f${index}`,
         polygons: quakePickupModelRenderBundlePolygons(model, index),
       })),
       textureQuality,
@@ -1950,10 +1981,9 @@ async function writeQuakeAnimationFrameStyles(bundleName, model) {
     version: 3,
     frames: compactQuakeAnimationFrameStyles(frameStyles),
   });
-  const hash = createHash("sha256").update(body).digest("hex").slice(0, 12);
   const styleDir = path.join(renderBundleOutputDir, bundleName);
   await mkdir(styleDir, { recursive: true });
-  const filename = `frame-styles-${hash}.json`;
+  const filename = "0.json";
   await writeFile(path.join(styleDir, filename), body);
   const styleUrl = `${quakeRenderBundlePublicPath}/${bundleName}/${filename}`;
   for (let index = 0; index < frames.length; index++) {
@@ -2013,11 +2043,10 @@ function quakePickupModelRenderBundlePolygons(model, frameIndex) {
 }
 
 function quakeModelBundleName(source) {
-  const slug = source
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "model";
-  return slug;
+  let basename = path.basename(source, path.extname(source)).toLowerCase();
+  basename = basename.replace(/^b[_-]/, "");
+  return basename
+    .replace(/[^a-z0-9]+/g, "") || "m";
 }
 
 function quakeProgramPickupModelPaths(programMetadata) {
@@ -3109,12 +3138,12 @@ function readNullTerminatedString(buffer, offset) {
 
 async function encodeTextureFileUrl(input) {
   const png = await encodeTexturePng(input);
-  const hash = createHash("sha256").update(png).digest("hex").slice(0, 16);
-  const filename = `tex-${hash}.png`;
-  const url = `${quakeTexturePublicPath}/${filename}`;
-  texturePngByPublicPath.set(url, png);
+  const hash = createHash("sha256").update(png).digest("hex");
   const cached = textureFileUrlByHash.get(hash);
   if (cached) return cached;
+  const filename = `${nextTextureFileIndex++}.png`;
+  const url = `${quakeTexturePublicPath}/${filename}`;
+  texturePngByPublicPath.set(url, png);
   textureFileUrlByHash.set(hash, url);
   return url;
 }

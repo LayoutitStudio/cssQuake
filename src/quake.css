@@ -73,14 +73,22 @@ body {
   contain: strict;
   transition: opacity 90ms linear;
 }
-#quake-damage-overlay[data-active] {
+#quake-damage-overlay.quake-damage-overlay-active {
   opacity: 1;
   transition-duration: 0ms;
 }
-body[data-loading] #quake-damage-overlay,
-body[data-menu] #quake-damage-overlay {
+body.quake-loading #quake-damage-overlay,
+body.quake-menu-open #quake-damage-overlay {
   opacity: 0;
   transition: none;
+}
+body.quake-dead #quake-damage-overlay {
+  opacity: 1;
+  background: rgba(164, 0, 0, 0.56);
+  transition: none;
+}
+body.quake-menu-open.quake-dead #quake-damage-overlay {
+  opacity: 0;
 }
 .cssquake-logo {
   position: absolute;
@@ -89,27 +97,28 @@ body[data-menu] #quake-damage-overlay {
   z-index: 40;
   display: block;
   width: auto;
-  height: min(45px, calc((100vw - 92px) * 0.1605));
+  height: min(45px, calc((100vw - 92px) * 0.1902));
   opacity: 1;
+  filter: drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.62));
   image-rendering: pixelated;
   user-select: none;
 }
-body[data-menu] .cssquake-logo {
+body.quake-menu-open .cssquake-logo {
   display: none;
 }
-body[data-loading] .cssquake-logo {
+body.quake-loading .cssquake-logo {
   display: block;
 }
-body[data-menu] .cssquake-version {
+body.quake-menu-open .cssquake-version {
   display: none;
 }
-body[data-loading] .cssquake-version {
+body.quake-loading .cssquake-version {
   display: block;
 }
 .cssquake-version {
   position: absolute;
-  top: calc(14px + min(16px, calc((100vw - 92px) * 0.0578)));
-  left: calc(22px + min(281px, calc((100vw - 92px) * 0.9)));
+  top: calc(14px + min(16px, calc((100vw - 92px) * 0.0676)));
+  left: calc(22px + min(237px, calc((100vw - 92px) * 0.9)));
   z-index: 40;
   color: #ffffff;
   font: 400 12px/1 ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
@@ -138,7 +147,7 @@ body[data-loading] .cssquake-version {
   cursor: pointer;
   transition: opacity 120ms ease-out;
 }
-body[data-menu] .btn-github {
+body.quake-menu-open .btn-github {
   display: grid;
 }
 .btn-github svg {
@@ -175,7 +184,7 @@ body[data-menu] .btn-github {
   pointer-events: none;
   user-select: none;
 }
-body[data-menu] .quake-copyright-notice {
+body.quake-menu-open .quake-copyright-notice {
   display: block;
 }
 .quake-copyright-notice span {
@@ -202,10 +211,18 @@ body[data-menu] .quake-copyright-notice {
   user-select: none;
   cursor: progress;
 }
-body[data-loading] .dn-stats-overlay[data-stats] {
+body.quake-loading .dn-stats-overlay {
   display: none !important;
 }
 #quake-loading-overlay[hidden] {
+  display: none;
+}
+#quake-loading-overlay.quake-loading-death {
+  background: transparent;
+  pointer-events: none;
+  cursor: crosshair;
+}
+body.quake-menu-open #quake-loading-overlay.quake-loading-death {
   display: none;
 }
 .quake-loading-mark {
@@ -258,6 +275,23 @@ body[data-loading] .dn-stats-overlay[data-stats] {
 #quake-loading-status .quake-bitmap-text {
   justify-content: center;
 }
+#quake-loading-action {
+  display: block;
+  color: #d7422f;
+  text-shadow: 0 2px 0 #000000;
+}
+#quake-loading-action[hidden] {
+  display: none;
+}
+#quake-loading-overlay.quake-loading-death #quake-loading-status {
+  color: #d7422f;
+}
+#quake-loading-overlay.quake-loading-death #quake-loading-progress {
+  display: none;
+}
+#quake-loading-overlay.quake-loading-death .quake-loading-readout {
+  gap: 22px;
+}
 #quake-loading-progress {
   --quake-loading-progress: 0;
   position: relative;
@@ -283,7 +317,7 @@ body[data-loading] .dn-stats-overlay[data-stats] {
   image-rendering: pixelated;
   transition: transform 120ms steps(8, end);
 }
-#quake-loading-progress[data-indeterminate="true"] #quake-loading-progress-fill {
+#quake-loading-progress.quake-loading-progress-indeterminate #quake-loading-progress-fill {
   width: 36%;
   transform: translateX(-100%);
   animation: quake-loading-progress-indeterminate 900ms steps(12, end) infinite;
@@ -298,8 +332,7 @@ body[data-loading] .dn-stats-overlay[data-stats] {
     bottom: calc(8vw + 10px);
   }
 }
-#quake-hud::after {
-  content: attr(data-complete);
+#quake-hud-status {
   position: absolute;
   left: 50%;
   top: 42%;
@@ -317,20 +350,15 @@ body[data-loading] .dn-stats-overlay[data-stats] {
   transform: translate(-50%, -50%);
   white-space: nowrap;
 }
-body[data-complete] #quake-hud::after {
-  content: attr(data-complete);
+body.quake-hud-message #quake-hud-status:not([hidden]),
+body.quake-level-complete #quake-hud-status:not([hidden]) {
   display: block;
 }
-body[data-message] #quake-hud::after {
-  content: attr(data-message);
-  display: block;
+body.quake-hud-message #quake-hud-status {
   max-width: min(720px, calc(100vw - 32px));
   line-height: 1.15;
   text-align: center;
   white-space: pre-line;
-}
-body[data-complete] #quake-hud::after {
-  content: attr(data-complete);
 }
 #quake-main-menu {
   position: absolute;
@@ -350,7 +378,7 @@ body[data-complete] #quake-hud::after {
   pointer-events: auto;
   -webkit-tap-highlight-color: transparent;
 }
-#quake-main-menu[data-hover="true"] {
+#quake-main-menu.quake-main-menu-hover {
   cursor: pointer;
 }
 #quake-main-menu:focus,
@@ -380,12 +408,13 @@ body[data-complete] #quake-hud::after {
 }
 #quake-main-menu-brand {
   position: absolute;
-  top: -30%;
+  top: -35%;
   left: 0;
   right: 0;
   z-index: 3;
   display: block;
   width: 100%;
+  min-height: calc((100cqw - 20px) * 268 / 1409 + 4px);
   margin: 0 auto;
   padding: 0 10px;
   contain: paint;
@@ -398,6 +427,7 @@ body[data-complete] #quake-hud::after {
   display: block;
   width: 100%;
   height: auto;
+  filter: drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.62));
   image-rendering: pixelated;
   user-select: none;
 }
@@ -408,7 +438,7 @@ body[data-complete] #quake-hud::after {
   right: 10px;
   z-index: 2;
   display: block;
-  aspect-ratio: 1383 / 222;
+  aspect-ratio: 1409 / 268;
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
@@ -423,10 +453,10 @@ body[data-complete] #quake-hud::after {
   -webkit-mask-size: 100% 100%;
   mask-size: 100% 100%;
 }
-body[data-menu] #quake-main-menu-logo-shimmer {
+body.quake-menu-open #quake-main-menu-logo-shimmer {
   opacity: 1;
 }
-body[data-menu] #quake-main-menu-logo-shimmer::before {
+body.quake-menu-open #quake-main-menu-logo-shimmer::before {
   content: "";
   position: absolute;
   top: 2px;
@@ -453,7 +483,7 @@ body[data-menu] #quake-main-menu-logo-shimmer::before {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-top: -30px;
+  margin-top: -35px;
   color: rgba(255, 255, 255, 0.3);
   font: 400 15px / 1 ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
   letter-spacing: 0;
@@ -487,7 +517,7 @@ body[data-menu] #quake-main-menu-logo-shimmer::before {
   #quake-damage-overlay {
     transition: none;
   }
-  body[data-menu] #quake-main-menu-logo-shimmer::before {
+  body.quake-menu-open #quake-main-menu-logo-shimmer::before {
     animation: none;
   }
 }
@@ -525,14 +555,14 @@ body[data-menu] #quake-main-menu-logo-shimmer::before {
   image-rendering: pixelated;
   pointer-events: none;
 }
-.quake-main-menu-item[data-active="true"] .quake-main-menu-label {
+.quake-main-menu-item-active .quake-main-menu-label {
   filter: brightness(1.42) saturate(1.18);
 }
-.quake-main-menu-item[data-menu-disabled="true"] {
+.quake-main-menu-item-disabled {
   opacity: 0.46;
   cursor: default;
 }
-.quake-main-menu-item[data-menu-disabled="true"] .quake-main-menu-label {
+.quake-main-menu-item-disabled .quake-main-menu-label {
   filter: grayscale(1) saturate(0.35) brightness(0.85);
 }
 .quake-main-menu-label-single-player {
@@ -575,7 +605,7 @@ body[data-menu] #quake-main-menu-logo-shimmer::before {
   animation: quake-main-menu-cursor-frame 600ms steps(1, end) infinite;
   pointer-events: none;
 }
-.quake-main-menu-item[data-active="true"] .quake-main-menu-item-cursor {
+.quake-main-menu-item-active .quake-main-menu-item-cursor {
   display: block;
 }
 .quake-menu-panel {
@@ -924,11 +954,11 @@ body[data-menu] #quake-main-menu-logo-shimmer::before {
 .quake-level-button:focus-visible .quake-bitmap-text {
   filter: brightness(1.2) saturate(1.08) drop-shadow(0 1px 0 #000000);
 }
-.quake-level-button[data-current="true"] {
+.quake-level-button[aria-current="page"] {
   border-color: rgba(240, 173, 92, 0.88);
   background: rgba(73, 30, 16, 0.82);
 }
-.quake-level-button[data-current="true"]::after {
+.quake-level-button[aria-current="page"]::after {
   opacity: 1;
 }
 .quake-level-button:disabled {
@@ -1181,13 +1211,13 @@ body[data-menu] #quake-main-menu-logo-shimmer::before {
 #quake-viewmodel-layer .polycss-mesh.viewmodel > i,
 #quake-viewmodel-layer .polycss-mesh.viewmodel > s,
 #quake-viewmodel-layer .polycss-mesh.viewmodel > u,
-#quake-viewmodel-layer .polycss-mesh.viewmodel > [data-nozzle-group] > b,
-#quake-viewmodel-layer .polycss-mesh.viewmodel > [data-nozzle-group] > i,
-#quake-viewmodel-layer .polycss-mesh.viewmodel > [data-nozzle-group] > s,
-#quake-viewmodel-layer .polycss-mesh.viewmodel > [data-nozzle-group] > u {
+#quake-viewmodel-layer .polycss-mesh.viewmodel > .quake-nozzle-group > b,
+#quake-viewmodel-layer .polycss-mesh.viewmodel > .quake-nozzle-group > i,
+#quake-viewmodel-layer .polycss-mesh.viewmodel > .quake-nozzle-group > s,
+#quake-viewmodel-layer .polycss-mesh.viewmodel > .quake-nozzle-group > u {
   backface-visibility: visible;
 }
-#quake-viewmodel-layer .polycss-mesh.viewmodel > [data-nozzle-group] {
+#quake-viewmodel-layer .polycss-mesh.viewmodel > .quake-nozzle-group {
   position: absolute;
   display: block;
   top: 0;
@@ -1199,35 +1229,37 @@ body[data-menu] #quake-main-menu-logo-shimmer::before {
   transform-origin: 0 0;
   visibility: hidden;
 }
-#quake-viewmodel-layer .polycss-mesh.viewmodel[data-nozzle-visible] > [data-nozzle-group] {
+#quake-viewmodel-layer .polycss-mesh.viewmodel.quake-nozzle-visible > .quake-nozzle-group {
   visibility: visible;
 }
-.polycss-mesh.pickup > [data-two-sided],
-#quake-app .polycss-mesh.shootable > [data-two-sided] {
-  backface-visibility: visible;
-}
-.polycss-mesh.shootable[data-prewarmed] {
+.polycss-mesh.shootable.quake-shootable-prewarmed {
   visibility: hidden;
   pointer-events: none;
   transition: none;
 }
-.polycss-mesh.shootable[data-frame-hidden] {
+.polycss-mesh.shootable.quake-frame-hidden {
   visibility: hidden;
   pointer-events: none;
   transition: none;
 }
-.polycss-mesh[data-dead] {
+.polycss-mesh.quake-shootable-dead {
   visibility: hidden;
   pointer-events: none;
 }
-.polycss-mesh.shootable[data-corpse] {
+.polycss-mesh.shootable.quake-shootable-corpse {
   pointer-events: none;
 }
-body[data-menu] #quake-crosshair,
-body[data-menu] #quake-classic-hud {
+body.quake-menu-open #quake-crosshair,
+body.quake-menu-open #quake-classic-hud {
   display: none;
 }
-body[data-menu] #quake-viewmodel-layer {
+body.quake-dead #quake-crosshair {
+  display: none;
+}
+body.quake-dead #quake-viewmodel-layer {
+  opacity: 0;
+}
+body.quake-menu-open #quake-viewmodel-layer {
   display: none;
 }
 #quake-crosshair {
@@ -1258,12 +1290,12 @@ body[data-menu] #quake-viewmodel-layer {
   width: 2px;
   height: 24px;
 }
-body[data-action] #quake-crosshair::before,
-body[data-action] #quake-crosshair::after {
+body.quake-action #quake-crosshair::before,
+body.quake-action #quake-crosshair::after {
   background: #6aff4a;
 }
-body[data-hit] #quake-crosshair::before,
-body[data-hit] #quake-crosshair::after {
+body.quake-crosshair-hit #quake-crosshair::before,
+body.quake-crosshair-hit #quake-crosshair::after {
   background: #ff2d22;
 }
 #quake-classic-hud {
@@ -1350,46 +1382,6 @@ body[data-hit] #quake-crosshair::after {
   image-rendering: pixelated;
   opacity: 0;
 }
-.quake-hud-digit[data-digit="0"] {
-  --quake-hud-digit-index: 0;
-  opacity: 1;
-}
-.quake-hud-digit[data-digit="1"] {
-  --quake-hud-digit-index: 1;
-  opacity: 1;
-}
-.quake-hud-digit[data-digit="2"] {
-  --quake-hud-digit-index: 2;
-  opacity: 1;
-}
-.quake-hud-digit[data-digit="3"] {
-  --quake-hud-digit-index: 3;
-  opacity: 1;
-}
-.quake-hud-digit[data-digit="4"] {
-  --quake-hud-digit-index: 4;
-  opacity: 1;
-}
-.quake-hud-digit[data-digit="5"] {
-  --quake-hud-digit-index: 5;
-  opacity: 1;
-}
-.quake-hud-digit[data-digit="6"] {
-  --quake-hud-digit-index: 6;
-  opacity: 1;
-}
-.quake-hud-digit[data-digit="7"] {
-  --quake-hud-digit-index: 7;
-  opacity: 1;
-}
-.quake-hud-digit[data-digit="8"] {
-  --quake-hud-digit-index: 8;
-  opacity: 1;
-}
-.quake-hud-digit[data-digit="9"] {
-  --quake-hud-digit-index: 9;
-  opacity: 1;
-}
 .quake-hud-readout-armor {
   left: var(--quake-hud-armor-x);
 }
@@ -1399,10 +1391,10 @@ body[data-hit] #quake-crosshair::after {
 .quake-hud-readout-health-damage {
   visibility: hidden;
 }
-#quake-classic-hud[data-damage] .quake-hud-readout-health:not(.quake-hud-readout-health-damage) {
+#quake-classic-hud.quake-hud-damage .quake-hud-readout-health:not(.quake-hud-readout-health-damage) {
   visibility: hidden;
 }
-#quake-classic-hud[data-damage] .quake-hud-readout-health-damage {
+#quake-classic-hud.quake-hud-damage .quake-hud-readout-health-damage {
   visibility: visible;
 }
 .quake-hud-readout-health-damage .quake-hud-digit {
@@ -1427,14 +1419,11 @@ body[data-hit] #quake-crosshair::after {
   display: block;
   opacity: 1;
 }
-.quake-hud-key::before {
-  content: attr(data-label);
-}
-#quake-classic-hud:not([data-silver]) .quake-hud-key-silver,
-#quake-classic-hud:not([data-gold]) .quake-hud-key-gold {
+#quake-classic-hud:not(.quake-hud-key-silver-active) .quake-hud-key-silver,
+#quake-classic-hud:not(.quake-hud-key-gold-active) .quake-hud-key-gold {
   opacity: 0;
 }
-body[data-menu] .dn-stats-overlay[data-stats] {
+body.quake-menu-open .dn-stats-overlay {
   display: none !important;
 }
 @keyframes quake-main-menu-cursor-frame {

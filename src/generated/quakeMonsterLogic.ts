@@ -58,6 +58,20 @@ export interface QuakeMonsterCombatPolicy {
   attack?: QuakeMonsterAttackPolicy;
 }
 
+export type QuakeMonsterStartKind = "fly" | "swim" | "unknown" | "walk";
+
+export interface QuakeMonsterBoundsUnits {
+  max: readonly [number, number, number];
+  min: readonly [number, number, number];
+}
+
+export interface QuakeMonsterSpawnProfile {
+  bounds?: QuakeMonsterBoundsUnits;
+  dropToFloor: boolean;
+  modelPath: string;
+  startKind: QuakeMonsterStartKind;
+}
+
 export interface QuakeMonsterFireBulletsFrameEvent {
   call: string;
   pelletDamage: number;
@@ -147,6 +161,7 @@ export interface QuakeMonsterLogicDefinition {
   chains: Readonly<Record<string, QuakeMonsterStateChain>>;
   classname: string;
   modelPath: string;
+  spawnProfile: QuakeMonsterSpawnProfile;
 }
 
 export const QUAKE_MONSTER_LOGIC_SOURCES = {
@@ -1649,7 +1664,24 @@ export const QUAKE_MONSTER_LOGIC = {
       }
     },
     "classname": "monster_army",
-    "modelPath": "progs/soldier.mdl"
+    "modelPath": "progs/soldier.mdl",
+    "spawnProfile": {
+      "bounds": {
+        "min": [
+          -16,
+          -16,
+          -24
+        ],
+        "max": [
+          16,
+          16,
+          40
+        ]
+      },
+      "dropToFloor": true,
+      "modelPath": "progs/soldier.mdl",
+      "startKind": "walk"
+    }
   },
   "monster_dog": {
     "callbacks": {
@@ -2400,7 +2432,24 @@ export const QUAKE_MONSTER_LOGIC = {
       }
     },
     "classname": "monster_dog",
-    "modelPath": "progs/dog.mdl"
+    "modelPath": "progs/dog.mdl",
+    "spawnProfile": {
+      "bounds": {
+        "min": [
+          -32,
+          -32,
+          -24
+        ],
+        "max": [
+          32,
+          32,
+          40
+        ]
+      },
+      "dropToFloor": true,
+      "modelPath": "progs/dog.mdl",
+      "startKind": "walk"
+    }
   },
   "monster_knight": {
     "callbacks": {
@@ -3173,7 +3222,24 @@ export const QUAKE_MONSTER_LOGIC = {
       }
     },
     "classname": "monster_knight",
-    "modelPath": "progs/knight.mdl"
+    "modelPath": "progs/knight.mdl",
+    "spawnProfile": {
+      "bounds": {
+        "min": [
+          -16,
+          -16,
+          -24
+        ],
+        "max": [
+          16,
+          16,
+          40
+        ]
+      },
+      "dropToFloor": true,
+      "modelPath": "progs/knight.mdl",
+      "startKind": "walk"
+    }
   },
   "monster_ogre": {
     "callbacks": {
@@ -4132,7 +4198,24 @@ export const QUAKE_MONSTER_LOGIC = {
       }
     },
     "classname": "monster_ogre",
-    "modelPath": "progs/ogre.mdl"
+    "modelPath": "progs/ogre.mdl",
+    "spawnProfile": {
+      "bounds": {
+        "min": [
+          -32,
+          -32,
+          -24
+        ],
+        "max": [
+          32,
+          32,
+          64
+        ]
+      },
+      "dropToFloor": true,
+      "modelPath": "progs/ogre.mdl",
+      "startKind": "walk"
+    }
   },
   "monster_demon1": {
     "callbacks": {
@@ -4970,7 +5053,24 @@ export const QUAKE_MONSTER_LOGIC = {
       }
     },
     "classname": "monster_demon1",
-    "modelPath": "progs/demon.mdl"
+    "modelPath": "progs/demon.mdl",
+    "spawnProfile": {
+      "bounds": {
+        "min": [
+          -32,
+          -32,
+          -24
+        ],
+        "max": [
+          32,
+          32,
+          64
+        ]
+      },
+      "dropToFloor": true,
+      "modelPath": "progs/demon.mdl",
+      "startKind": "walk"
+    }
   },
   "monster_wizard": {
     "callbacks": {
@@ -5711,7 +5811,24 @@ export const QUAKE_MONSTER_LOGIC = {
       }
     },
     "classname": "monster_wizard",
-    "modelPath": "progs/wizard.mdl"
+    "modelPath": "progs/wizard.mdl",
+    "spawnProfile": {
+      "bounds": {
+        "min": [
+          -16,
+          -16,
+          -24
+        ],
+        "max": [
+          16,
+          16,
+          40
+        ]
+      },
+      "dropToFloor": false,
+      "modelPath": "progs/wizard.mdl",
+      "startKind": "fly"
+    }
   },
   "monster_shambler": {
     "callbacks": {
@@ -7079,7 +7196,24 @@ export const QUAKE_MONSTER_LOGIC = {
       }
     },
     "classname": "monster_shambler",
-    "modelPath": "progs/shambler.mdl"
+    "modelPath": "progs/shambler.mdl",
+    "spawnProfile": {
+      "bounds": {
+        "min": [
+          -32,
+          -32,
+          -24
+        ],
+        "max": [
+          32,
+          32,
+          64
+        ]
+      },
+      "dropToFloor": true,
+      "modelPath": "progs/shambler.mdl",
+      "startKind": "walk"
+    }
   },
   "monster_zombie": {
     "callbacks": {
@@ -9147,7 +9281,24 @@ export const QUAKE_MONSTER_LOGIC = {
       }
     },
     "classname": "monster_zombie",
-    "modelPath": "progs/zombie.mdl"
+    "modelPath": "progs/zombie.mdl",
+    "spawnProfile": {
+      "bounds": {
+        "min": [
+          -16,
+          -16,
+          -24
+        ],
+        "max": [
+          16,
+          16,
+          40
+        ]
+      },
+      "dropToFloor": true,
+      "modelPath": "progs/zombie.mdl",
+      "startKind": "walk"
+    }
   },
   "monster_boss": {
     "callbacks": {
@@ -11145,6 +11296,11 @@ export const QUAKE_MONSTER_LOGIC = {
       }
     },
     "classname": "monster_boss",
-    "modelPath": "progs/boss.mdl"
+    "modelPath": "progs/boss.mdl",
+    "spawnProfile": {
+      "dropToFloor": false,
+      "modelPath": "progs/boss.mdl",
+      "startKind": "unknown"
+    }
   }
 } as const satisfies Readonly<Record<string, QuakeMonsterLogicDefinition>>;

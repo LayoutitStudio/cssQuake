@@ -18,6 +18,7 @@ export interface QuakeDebugHooks {
   damage(amount?: number): boolean;
   debugMountEntity(entityIndex: number): boolean;
   fire(): boolean;
+  floorAt(x: number, y: number, maxZ?: number, minZ?: number): number | null;
   focusEntity(entityIndex: number, distance?: number, rotX?: number, rotY?: number): boolean;
   loadMap(mapName: string): Promise<boolean>;
   setPose(origin: Vec3, rotX?: number, rotY?: number, options?: QuakeDebugPoseOptions): boolean;
@@ -100,6 +101,7 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
     damage: (amount) => damageQuakeDebugPlayer(runtime, amount),
     debugMountEntity: (entityIndex) => debugMountQuakeEntity(runtime, entityIndex),
     fire: () => fireQuakeDebugWeapon(runtime),
+    floorAt: (x, y, maxZ, minZ) => runtime.floorAt(x, y, maxZ, minZ),
     focusEntity: (entityIndex, distance, rotX, rotY) =>
       focusQuakeDebugEntity(runtime, entityIndex, distance, rotX, rotY),
     loadMap: (mapName) => loadQuakeDebugMap(runtime, mapName),
@@ -284,12 +286,13 @@ function buildQuakeDebugStats(runtime: QuakeDebugRuntime): Record<string, unknow
   const cameraForward = runtime.forwardDirection(cameraRotation.rotX, cameraRotation.rotY);
   const enemyMeshes = Array.from(document.querySelectorAll<HTMLElement>(".polycss-mesh.shootable.enemy"));
   const activeEnemyMeshes = enemyMeshes.filter(
-    (element) => element.dataset.prewarmed !== "true" && element.dataset.frameHidden !== "true",
+    (element) => !element.classList.contains("quake-shootable-prewarmed") &&
+      !element.classList.contains("quake-frame-hidden"),
   );
   const pickupMeshes = Array.from(document.querySelectorAll<HTMLElement>(".polycss-mesh.pickup"));
   const activePickupMeshes = pickupMeshes.filter((element) => !element.hidden);
-  const hiddenEnemyFrameMeshes = enemyMeshes.filter((element) => element.dataset.frameHidden === "true");
-  const prewarmedEnemyMeshes = enemyMeshes.filter((element) => element.dataset.prewarmed === "true");
+  const hiddenEnemyFrameMeshes = enemyMeshes.filter((element) => element.classList.contains("quake-frame-hidden"));
+  const prewarmedEnemyMeshes = enemyMeshes.filter((element) => element.classList.contains("quake-shootable-prewarmed"));
   const mountedEnemyLeaves = enemyMeshes.reduce(
     (total, element) => total + element.querySelectorAll("b,i,s,u").length,
     0,
@@ -433,8 +436,8 @@ function buildQuakeProjectionMeshStats(
     p95LeafArea: Math.round(percentileSorted(visibleLeafAreas, 0.95)),
     leavesOverBudget,
     overBudget: clippedArea > meshAreaBudget || leavesOverBudget > 0,
-    prewarmed: element.dataset.prewarmed === "true",
-    frameHidden: element.dataset.frameHidden === "true",
+    prewarmed: element.classList.contains("quake-shootable-prewarmed"),
+    frameHidden: element.classList.contains("quake-frame-hidden"),
     animationFrame: numericDatasetValue(element.dataset.animationFrame),
     animationMode: element.dataset.animationMode ?? null,
     paintBackend: element.dataset.paintBackend ?? null,
