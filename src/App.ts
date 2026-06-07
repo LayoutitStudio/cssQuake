@@ -107,6 +107,7 @@ const hudAmmoValue = document.getElementById("quake-hud-ammo-value") as HTMLElem
 const hudKeysValue = document.getElementById("quake-hud-keys-value") as HTMLElement | null;
 const classicHud = document.getElementById("quake-classic-hud") as HTMLElement | null;
 const quakeHud = document.getElementById("quake-hud") as HTMLElement | null;
+const damageOverlay = document.getElementById("quake-damage-overlay") as HTMLElement | null;
 const hudElements: QuakeHudElements = {
   root: classicHud,
   armor: hudArmorValue,
@@ -165,8 +166,25 @@ function setQuakeHudDamageCue(active: boolean): void {
   if (quakeHudDamageCueActive === active) return;
   quakeHudDamageCueActive = active;
   markQuakeTrace("hud-damage-cue", { active });
-  setInlineStyleValue(hudHealthValue, "visibility", active ? "hidden" : "");
-  setInlineStyleValue(hudHealthDamageValue, "visibility", active ? "visible" : "");
+  if (classicHud) {
+    if (active) {
+      setElementDatasetValue(classicHud, "damage", "true");
+    } else {
+      removeElementDatasetValue(classicHud, "damage");
+    }
+  }
+}
+
+function setQuakeDamageOverlay(active: boolean): void {
+  if (!damageOverlay) return;
+  const wasActive = damageOverlay.dataset.active !== undefined;
+  if (wasActive === active) return;
+  markQuakeTrace("hud-damage-overlay", { active });
+  if (active) {
+    damageOverlay.dataset.active = "true";
+  } else {
+    delete damageOverlay.dataset.active;
+  }
 }
 
 const cssQuakeVersionLabel = `v${__CSSQUAKE_VERSION__}`;
@@ -685,9 +703,11 @@ player = createQuakePlayerController({
   jumpVelocity: QUAKE_JUMP_VELOCITY,
   onDamageFlash: (active) => {
     if (!active) {
+      setQuakeDamageOverlay(false);
       if (quakeHudDamageTimer === null) setQuakeHudDamageCue(false);
       return;
     }
+    setQuakeDamageOverlay(true);
     const damageCueActive = quakeHudDamageTimer !== null;
     if (quakeHudDamageTimer !== null) window.clearTimeout(quakeHudDamageTimer);
     const serial = ++quakeHudDamageSerial;
@@ -1837,16 +1857,6 @@ function clearQuakeCrosshairTarget(): void {
   removeElementDatasetValue(document.body, "action");
 }
 
-function setInlineStyleValue(element: HTMLElement | null, property: string, value: string): void {
-  if (!element) return;
-  if (element.style.getPropertyValue(property) === value) return;
-  if (value) {
-    element.style.setProperty(property, value);
-  } else {
-    element.style.removeProperty(property);
-  }
-}
-
 function setElementDatasetValue(element: HTMLElement, key: string, value: string): void {
   if (element.dataset[key] === value) return;
   element.dataset[key] = value;
@@ -2293,6 +2303,7 @@ function installQuakeAppDebugHooks(): void {
       setOrigin: (origin) => getPlayer().setDebugOrigin(origin),
     },
     currentMapName: () => currentMapName,
+    damagePlayer: (amount) => getPlayer().damage(amount),
     debugMountEntity: (entityIndex) => shootables.debugMountEntity(entityIndex),
     entities: () => entityByIndex,
     fireWeapon: () => weapons.fire(),

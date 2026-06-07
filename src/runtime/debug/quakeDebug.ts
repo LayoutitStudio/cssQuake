@@ -15,6 +15,7 @@ const QUAKE_DEBUG_POSE_EPSILON = 0.0001;
 
 export interface QuakeDebugHooks {
   copyViewUrl(): Promise<string>;
+  damage(amount?: number): boolean;
   debugMountEntity(entityIndex: number): boolean;
   fire(): boolean;
   focusEntity(entityIndex: number, distance?: number, rotX?: number, rotY?: number): boolean;
@@ -63,6 +64,7 @@ export interface QuakeDebugRuntime {
     setOrigin(origin: [number, number, number]): void;
   };
   currentMapName(): string;
+  damagePlayer(amount: number): boolean;
   debugMountEntity(entityIndex: number): boolean;
   entities(): ReadonlyMap<number, QuakeEntity>;
   fireWeapon(): void;
@@ -95,6 +97,7 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
   if (!enabled) return;
   (window as QuakeDebugWindow).__cssQuakeDebug = {
     copyViewUrl: () => runtime.copyViewUrl(),
+    damage: (amount) => damageQuakeDebugPlayer(runtime, amount),
     debugMountEntity: (entityIndex) => debugMountQuakeEntity(runtime, entityIndex),
     fire: () => fireQuakeDebugWeapon(runtime),
     focusEntity: (entityIndex, distance, rotX, rotY) =>
@@ -108,6 +111,13 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
     stats: () => buildQuakeDebugStats(runtime),
     viewUrl: () => runtime.viewUrl(),
   };
+}
+
+function damageQuakeDebugPlayer(runtime: QuakeDebugRuntime, amount = 10): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  const previousHealth = runtime.inventory().health;
+  runtime.hideMainMenu();
+  return runtime.damagePlayer(amount) || runtime.inventory().health < previousHealth;
 }
 
 function debugMountQuakeEntity(runtime: QuakeDebugRuntime, entityIndex: number): boolean {

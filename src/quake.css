@@ -59,6 +59,29 @@ body {
   z-index: 3;
   pointer-events: none;
 }
+#quake-damage-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at center, rgba(196, 10, 6, 0.06) 0%, rgba(176, 8, 6, 0.14) 48%, rgba(128, 0, 0, 0.36) 100%),
+    rgba(164, 0, 0, 0.1);
+  opacity: 0;
+  transform: translateZ(0);
+  will-change: opacity;
+  contain: strict;
+  transition: opacity 90ms linear;
+}
+#quake-damage-overlay[data-active] {
+  opacity: 1;
+  transition-duration: 0ms;
+}
+body[data-loading] #quake-damage-overlay,
+body[data-menu] #quake-damage-overlay {
+  opacity: 0;
+  transition: none;
+}
 .cssquake-logo {
   position: absolute;
   top: 14px;
@@ -461,6 +484,9 @@ body[data-menu] #quake-main-menu-logo-shimmer::before {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  #quake-damage-overlay {
+    transition: none;
+  }
   body[data-menu] #quake-main-menu-logo-shimmer::before {
     animation: none;
   }
@@ -1372,6 +1398,12 @@ body[data-hit] #quake-crosshair::after {
 }
 .quake-hud-readout-health-damage {
   visibility: hidden;
+}
+#quake-classic-hud[data-damage] .quake-hud-readout-health:not(.quake-hud-readout-health-damage) {
+  visibility: hidden;
+}
+#quake-classic-hud[data-damage] .quake-hud-readout-health-damage {
+  visibility: visible;
 }
 .quake-hud-readout-health-damage .quake-hud-digit {
   background-image: url("/q/hud-numbers-damage.png");
