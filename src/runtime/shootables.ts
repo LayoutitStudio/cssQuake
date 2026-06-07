@@ -683,7 +683,10 @@ export function createQuakeShootablesController({
     const corpseCandidates: Array<{ index: number; distanceSq: number }> = [];
     const prewarmCandidates: Array<{ index: number; distanceSq: number }> = [];
     for (const shootable of shootables.values()) {
-      const visibleLeaf = !visibleLeaves || shootable.leafIndex === undefined || visibleLeaves.has(shootable.leafIndex);
+      const visibleLeaf = !visibleLeaves ||
+        shootable.leafIndex === undefined ||
+        visibleLeaves.has(shootable.leafIndex) ||
+        isOversizedShootableRenderVolume(shootable);
       const distanceSq = distanceSq3(origin, shootable.origin);
       const maxDistanceSq = shootable.visible ? QUAKE_SHOOTABLE_UNMOUNT_DISTANCE_SQ : QUAKE_SHOOTABLE_MOUNT_DISTANCE_SQ;
       if (isPersistentShootableCorpse(shootable)) {
