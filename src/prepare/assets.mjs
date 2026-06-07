@@ -8,6 +8,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import sharp from "sharp";
 
+import { QUAKE_UNIT_SCALE } from "../quakeScale.js";
+
 const require = createRequire(import.meta.url);
 const { path7z } = require("7z-bin");
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -135,7 +137,7 @@ const QUAKE_MAIN_MENU_ACTIVE_ROW_WIDTH = 240;
 const QUAKE_MAIN_MENU_ROW_TOPS = [28, 52, 76, 100, 126];
 const QUAKE_MAIN_MENU_LEVEL_LABEL = "LEVEL SELECT";
 const QUAKE_MAIN_MENU_LEVEL_LABEL_SCALE = 2;
-const QUAKE_PICKUP_MODEL_SCALE = 1 / 48;
+const QUAKE_PICKUP_MODEL_SCALE = QUAKE_UNIT_SCALE;
 const QUAKE_WEAPON_MODEL_PIVOT = [1.0, 0, 0];
 const QUAKE_ENEMY_ALIAS_MODEL_RENDER_SCALE = 4;
 const QUAKE_ANIMATION_FRAME_SET_MIN_COMMON_LEAF_RATIO = 0.95;

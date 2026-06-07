@@ -1,5 +1,6 @@
 import type { Vec3 } from "@layoutit/polycss";
 
+import { QUAKE_UNIT_SCALE } from "../quakeScale.js";
 import type {
   QuakeBrushModel,
   QuakeLeaf,
@@ -279,5 +280,3 @@ function polyToQuake(point: Vec3, pivot: QuakeVertex): QuakeVertex {
     z: point[2] / QUAKE_UNIT_SCALE + pivot.z,
   };
 }
-
-const QUAKE_UNIT_SCALE = 1 / 48;

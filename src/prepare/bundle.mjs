@@ -4,7 +4,8 @@ import {
   createPolyScene,
 } from "@layoutit/polycss";
 
-const QUAKE_RENDER_SUPERSAMPLE = 1;
+import { QUAKE_RENDER_SUPERSAMPLE } from "../quakeScale.js";
+
 const QUAKE_CAMERA_ZOOM = (BASE_TILE * 0.65) / QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_RENDER_BUNDLE_TIMEOUT_MS = 30000;
 const QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_MIN = 1;

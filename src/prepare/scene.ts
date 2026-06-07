@@ -8,10 +8,12 @@ import {
   type Vec3,
 } from "@layoutit/polycss";
 
+import { QUAKE_RENDER_SUPERSAMPLE, QUAKE_UNIT_SCALE } from "../quakeScale.js";
 import { buildEntityManifest, cloneEntityManifest } from "./entities";
 import { parseQuakePakDirectory, quakePakEntryBytes, readFixedAscii, type QuakePakEntry } from "./pak";
 import { buildSourceFaceVisibilityKeys, buildVisibility } from "./visibility";
 export { parseQuakePakDirectory, quakePakEntryBytes, type QuakePakEntry } from "./pak";
+export { QUAKE_RENDER_SUPERSAMPLE } from "../quakeScale.js";
 
 export type RGB = [number, number, number];
 
@@ -695,8 +697,6 @@ const BSP_FIXED_LUMP_RECORD_SIZES = new Map<number, number>([
   [BSP_LUMP_SURFEDGES, 4],
   [BSP_LUMP_MODELS, 64],
 ]);
-export const QUAKE_RENDER_SUPERSAMPLE = 1;
-const QUAKE_UNIT_SCALE = 1 / 48;
 const QUAKE_PLAYER_MINS_Z = -24;
 const QUAKE_PLAYER_VIEW_Z = 22;
 const QUAKE_EYE_HEIGHT = (QUAKE_PLAYER_VIEW_Z - QUAKE_PLAYER_MINS_Z) * QUAKE_UNIT_SCALE;
