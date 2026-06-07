@@ -73,12 +73,35 @@ const textureOutputDir = path.join(quakeAssetOutputDir, "t");
 const soundOutputDir = path.join(quakeOutputDir, "s");
 const renderBundleScriptPath = path.join(scriptDir, "bundle.mjs");
 const renderBundleOutputDir = path.join(quakeAssetOutputDir, "b");
-const quakeRenderBundleAvifQuality = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_AVIF_QUALITY ?? "80", 10);
+const quakeRenderBundleAvifQuality = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_AVIF_QUALITY ?? "70", 10);
 const quakeRenderBundleAvifEffort = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_AVIF_EFFORT ?? "4", 10);
 const quakeRenderBundleConcurrency = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_CONCURRENCY ?? "", 10);
+const quakePrepareMapOnly = process.env.QUAKE_PREPARE_MAP_ONLY === "1";
+const quakeRenderBundleAdaptiveAtlasLeafSize = process.env.QUAKE_RENDER_BUNDLE_ADAPTIVE_ATLAS_LEAF_SIZE === "1";
 const quakeLightmapBake = process.env.QUAKE_LIGHTMAP_BAKE !== "0";
+const quakeLightmapBakeDetailTarget = Number.parseFloat(process.env.QUAKE_LIGHTMAP_BAKE_DETAIL_TARGET ?? "");
+const quakeLightmapBakeLightSupersample = Number.parseInt(process.env.QUAKE_LIGHTMAP_BAKE_LIGHT_SUPERSAMPLE ?? "", 10);
 const quakeLightmapBakeMaxSide = Number.parseInt(process.env.QUAKE_LIGHTMAP_BAKE_MAX_SIDE ?? "", 10);
 const quakeLightmapBakeMaxTotalTexels = Number.parseInt(process.env.QUAKE_LIGHTMAP_BAKE_MAX_TOTAL_TEXELS ?? "", 10);
+const quakeLightmapBakeMinDisplaySide = Number.parseFloat(process.env.QUAKE_LIGHTMAP_BAKE_MIN_DISPLAY_SIDE ?? "");
+const quakeLightmapBakeMinTextureScale = Number.parseFloat(process.env.QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SCALE ?? "");
+const quakeLightmapBakeMinTextureSide = Number.parseInt(process.env.QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SIDE ?? "", 10);
+const quakeLightmapBakeTextureFallbackOverlay = process.env.QUAKE_LIGHTMAP_BAKE_TEXTURE_FALLBACK_OVERLAY === "1";
+const quakeLightmapBakeTextureFallbackOverlayMaxExtraRatio = Number.parseFloat(
+  process.env.QUAKE_LIGHTMAP_BAKE_TEXTURE_FALLBACK_OVERLAY_RATIO ?? "",
+);
+const quakeLightmapBakeTextureFallbackOverlayMaxSide = Number.parseInt(
+  process.env.QUAKE_LIGHTMAP_BAKE_TEXTURE_FALLBACK_OVERLAY_MAX_SIDE ?? "",
+  10,
+);
+const quakeLightmapBakeMergedOverlay = process.env.QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY === "1";
+const quakeLightmapBakeMergedOverlayMaxExtraRatio = Number.parseFloat(
+  process.env.QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_RATIO ?? "",
+);
+const quakeLightmapBakeMergedOverlayMaxSide = Number.parseInt(
+  process.env.QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_SIDE ?? "",
+  10,
+);
 const quakeLightmapBakeMinRange = Number.parseFloat(process.env.QUAKE_LIGHTMAP_BAKE_MIN_RANGE ?? "");
 const quakeLightmapOverlay = process.env.QUAKE_LIGHTMAP_OVERLAY === "1";
 const quakeLightmapOverlayMaxExtraRatio = Number.parseFloat(process.env.QUAKE_LIGHTMAP_OVERLAY_MAX_EXTRA_RATIO ?? "");
@@ -226,7 +249,68 @@ function cssQuakeAssetVersion() {
   return "0";
 }
 
+function selectedQuakeMapEntries() {
+  const entries = quakePrepareMapOnly
+    ? [...mapOutputPaths].filter(([mapPath]) => shouldBuildRenderBundleForMap(mapNameFromPakPath(mapPath)))
+    : [...mapOutputPaths];
+  if (entries.length > 0) return entries;
+  throw new Error(
+    "QUAKE_PREPARE_MAP_ONLY=1 needs at least one map in QUAKE_RENDER_BUNDLE_MAPS, " +
+    "for example QUAKE_RENDER_BUNDLE_MAPS=e1m1.",
+  );
+}
+
+function shouldBuildRenderBundleForMap(mapName) {
+  return renderBundleMapNames.has(mapName) ||
+    renderBundleMapNames.has("*") ||
+    renderBundleMapNames.has("all");
+}
+
+async function readStableQuakeAssetManifestForMapOnly() {
+  let text = "";
+  try {
+    text = await readFile(manifestOutputPath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new Error("QUAKE_PREPARE_MAP_ONLY=1 requires an existing full Quake manifest. Run pnpm prepare:quake once first.");
+    }
+    throw error;
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(text);
+  } catch {
+    throw new Error("QUAKE_PREPARE_MAP_ONLY=1 found an invalid existing Quake manifest. Run a full pnpm prepare:quake first.");
+  }
+  if (manifest?.status === "regenerating") {
+    throw new Error("QUAKE_PREPARE_MAP_ONLY=1 found a regenerating manifest. Let the current prepare finish or run a full prepare.");
+  }
+  if (!Array.isArray(manifest?.maps) || !manifest?.assets) {
+    throw new Error("QUAKE_PREPARE_MAP_ONLY=1 found an incomplete manifest. Run a full pnpm prepare:quake first.");
+  }
+  return text;
+}
+
+async function removeSelectedQuakeMapOutputs(mapEntries) {
+  await Promise.all(mapEntries.flatMap(([mapPath]) => {
+    const mapName = mapNameFromPakPath(mapPath);
+    return [
+      rm(mapOutputPaths.get(mapPath), { force: true }),
+      rm(path.join(renderBundleOutputDir, mapName), { recursive: true, force: true }),
+      rm(path.join(renderBundleOutputDir, `${mapName}l`), { recursive: true, force: true }),
+    ];
+  }));
+}
+
 try {
+  const stableManifestJson = quakePrepareMapOnly
+    ? await readStableQuakeAssetManifestForMapOnly()
+    : "";
+  const mapEntriesToPrepare = selectedQuakeMapEntries();
+  await writeQuakeAssetRegenerationManifest({
+    mode: quakePrepareMapOnly ? "map-only" : "full",
+    mapNames: mapEntriesToPrepare.map(([mapPath]) => mapNameFromPakPath(mapPath)),
+  });
   if (process.env.QUAKE_PAK_PATH?.trim()) {
     await copyQuakePakFromPath(process.env.QUAKE_PAK_PATH.trim());
   } else {
@@ -234,16 +318,24 @@ try {
     await verifyQuakeResource();
     await extractQuakePak();
   }
-  await rm(legacyQuakeOutputDir, { recursive: true, force: true });
-  await removeLegacyQuakeJsonFiles();
-  await removeGeneratedQuakeAssetVersionDirs();
-  await rm(textureOutputDir, { recursive: true, force: true });
-  await rm(soundOutputDir, { recursive: true, force: true });
-  await rm(renderBundleOutputDir, { recursive: true, force: true });
-  await rm(path.join(quakeOutputDir, "t"), { recursive: true, force: true });
-  await rm(path.join(quakeOutputDir, "b"), { recursive: true, force: true });
-  await rm(path.join(quakeOutputDir, "p"), { recursive: true, force: true });
-  await copyStaticPublicAssets();
+  if (quakePrepareMapOnly) {
+    await removeSelectedQuakeMapOutputs(mapEntriesToPrepare);
+    await rm(textureOutputDir, { recursive: true, force: true });
+    console.log(
+      `Preparing map-only Quake assets for ${mapEntriesToPrepare.map(([mapPath]) => mapNameFromPakPath(mapPath)).join(", ")}`,
+    );
+  } else {
+    await rm(legacyQuakeOutputDir, { recursive: true, force: true });
+    await removeLegacyQuakeJsonFiles();
+    await removeGeneratedQuakeAssetVersionDirs();
+    await rm(textureOutputDir, { recursive: true, force: true });
+    await rm(soundOutputDir, { recursive: true, force: true });
+    await rm(renderBundleOutputDir, { recursive: true, force: true });
+    await rm(path.join(quakeOutputDir, "t"), { recursive: true, force: true });
+    await rm(path.join(quakeOutputDir, "b"), { recursive: true, force: true });
+    await rm(path.join(quakeOutputDir, "p"), { recursive: true, force: true });
+    await copyStaticPublicAssets();
+  }
 
   await build({
     entryPoints: [sourcePath],
@@ -277,15 +369,44 @@ try {
   const buffer = pak.buffer.slice(pak.byteOffset, pak.byteOffset + pak.byteLength);
 
   const preparedMaps = await mapConcurrently(
-    [...mapOutputPaths],
+    mapEntriesToPrepare,
     normalizedQuakeRenderBundleConcurrency(),
     async ([mapPath, outputPath]) => {
       const prepared = await createQuakePreparedSceneFromPakBuffer(buffer, {
         encodeTextureUrl: encodeTextureFileUrl,
         lightmapBake: quakeLightmapBake,
+        ...(Number.isFinite(quakeLightmapBakeDetailTarget)
+          ? { lightmapBakeDetailTarget: quakeLightmapBakeDetailTarget }
+          : {}),
+        ...(Number.isFinite(quakeLightmapBakeLightSupersample)
+          ? { lightmapBakeLightSupersample: quakeLightmapBakeLightSupersample }
+          : {}),
         ...(Number.isFinite(quakeLightmapBakeMaxSide) ? { lightmapBakeMaxSide: quakeLightmapBakeMaxSide } : {}),
         ...(Number.isFinite(quakeLightmapBakeMaxTotalTexels)
           ? { lightmapBakeMaxTotalTexels: quakeLightmapBakeMaxTotalTexels }
+          : {}),
+        ...(Number.isFinite(quakeLightmapBakeMinDisplaySide)
+          ? { lightmapBakeMinDisplaySide: quakeLightmapBakeMinDisplaySide }
+          : {}),
+        ...(Number.isFinite(quakeLightmapBakeMinTextureScale)
+          ? { lightmapBakeMinTextureScale: quakeLightmapBakeMinTextureScale }
+          : {}),
+        ...(Number.isFinite(quakeLightmapBakeMinTextureSide)
+          ? { lightmapBakeMinTextureSide: quakeLightmapBakeMinTextureSide }
+          : {}),
+        lightmapBakeTextureFallbackOverlay: quakeLightmapBakeTextureFallbackOverlay,
+        ...(Number.isFinite(quakeLightmapBakeTextureFallbackOverlayMaxExtraRatio)
+          ? { lightmapBakeTextureFallbackOverlayMaxExtraRatio: quakeLightmapBakeTextureFallbackOverlayMaxExtraRatio }
+          : {}),
+        ...(Number.isFinite(quakeLightmapBakeTextureFallbackOverlayMaxSide)
+          ? { lightmapBakeTextureFallbackOverlayMaxSide: quakeLightmapBakeTextureFallbackOverlayMaxSide }
+          : {}),
+        lightmapBakeMergedOverlay: quakeLightmapBakeMergedOverlay,
+        ...(Number.isFinite(quakeLightmapBakeMergedOverlayMaxExtraRatio)
+          ? { lightmapBakeMergedOverlayMaxExtraRatio: quakeLightmapBakeMergedOverlayMaxExtraRatio }
+          : {}),
+        ...(Number.isFinite(quakeLightmapBakeMergedOverlayMaxSide)
+          ? { lightmapBakeMergedOverlayMaxSide: quakeLightmapBakeMergedOverlayMaxSide }
           : {}),
         ...(Number.isFinite(quakeLightmapBakeMinRange) ? { lightmapBakeMinRange: quakeLightmapBakeMinRange } : {}),
         lightmapOverlay: quakeLightmapOverlay,
@@ -304,7 +425,7 @@ try {
         },
       };
       const mapName = mapNameFromPakPath(mapPath);
-      if (renderBundleMapNames.has(mapName)) {
+      if (shouldBuildRenderBundleForMap(mapName)) {
         const scene = createQuakeSceneFromPreparedScene(prepared);
         const lightstyleOverlayPolygons = buildQuakeLightstyleOverlayPolygons(scene.polygons);
         prepared.renderBundle = await renderBundleBuilder.build({
@@ -334,83 +455,96 @@ try {
     item.size = Buffer.byteLength(preparedJson);
   }
 
-  const uiAssets = loadQuakeHudAssets(pak, parseQuakePakDirectory);
-  await writeFile(hudBaseOutputPath, await buildQuakeHudBasePng(uiAssets));
-  await writeFile(hudNumbersOutputPath, await buildQuakeHudNumbersPng(uiAssets));
-  await writeFile(hudDamageNumbersOutputPath, await buildQuakeHudNumbersPng(uiAssets, { damageTint: true }));
-  await writeFile(hudOutputPath, await buildQuakeHudPng(uiAssets));
-  await writeFile(mainMenuOutputPath, await buildQuakeMainMenuPng(uiAssets));
-  await writeFile(mainMenuMultiplayerOutputPath, await buildQuakeMainMenuMultiplayerPng(uiAssets));
-  const menuTitlePaletteColors = buildQuakeMenuTitlePaletteColors(uiAssets);
-  const mainMenuActivePngs = await buildQuakeMainMenuActivePngs(uiAssets);
-  mainMenuActivePngs[1] = await buildCustomMenuTitlePng(menuTitleLevelSelectSourcePath, {
-    height: 20,
-    paletteColors: menuTitlePaletteColors,
-  });
-  for (let index = 0; index < mainMenuActivePngs.length; index++) {
-    await writeFile(mainMenuActiveOutputPaths[index], mainMenuActivePngs[index]);
+  if (quakePrepareMapOnly) {
+    await pruneUnreferencedTextureFiles(
+      preparedMaps.map((item) => item.outputPath),
+      { removeUnreferenced: false },
+    );
+    await writeFile(manifestOutputPath, stableManifestJson);
+    for (const { outputPath, prepared, size } of preparedMaps) {
+      console.log(`Wrote ${path.relative(projectRoot, outputPath)} (${formatBytes(size)})`);
+      console.log(`${prepared.label}: ${prepared.faceCount}/${prepared.sourceFaceCount} faces, ${prepared.textureCount} textures`);
+    }
+    console.log(`Restored ${path.relative(projectRoot, manifestOutputPath)} after map-only prepare`);
+  } else {
+    const uiAssets = loadQuakeHudAssets(pak, parseQuakePakDirectory);
+    await writeFile(hudBaseOutputPath, await buildQuakeHudBasePng(uiAssets));
+    await writeFile(hudNumbersOutputPath, await buildQuakeHudNumbersPng(uiAssets));
+    await writeFile(hudDamageNumbersOutputPath, await buildQuakeHudNumbersPng(uiAssets, { damageTint: true }));
+    await writeFile(hudOutputPath, await buildQuakeHudPng(uiAssets));
+    await writeFile(mainMenuOutputPath, await buildQuakeMainMenuPng(uiAssets));
+    await writeFile(mainMenuMultiplayerOutputPath, await buildQuakeMainMenuMultiplayerPng(uiAssets));
+    const menuTitlePaletteColors = buildQuakeMenuTitlePaletteColors(uiAssets);
+    const mainMenuActivePngs = await buildQuakeMainMenuActivePngs(uiAssets);
+    mainMenuActivePngs[1] = await buildCustomMenuTitlePng(menuTitleLevelSelectSourcePath, {
+      height: 20,
+      paletteColors: menuTitlePaletteColors,
+    });
+    for (let index = 0; index < mainMenuActivePngs.length; index++) {
+      await writeFile(mainMenuActiveOutputPaths[index], mainMenuActivePngs[index]);
+    }
+    await writeFile(mainMenuCursorOutputPath, await buildQuakeMainMenuCursorPng(uiAssets));
+    await writeFile(aboutOutputPath, await buildQuakeAboutPng(uiAssets));
+    await writeFile(menuPanelTextureOutputPath, await buildQuakeMenuPanelTexturePng(menuPanelTextureMaps));
+    await writeFile(menuTitleLevelSelectOutputPath, await buildCustomMenuTitlePng(menuTitleLevelSelectSourcePath, {
+      height: 20,
+      paletteColors: menuTitlePaletteColors,
+    }));
+    await writeFile(menuTitleOptionsOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 0, 40, 124, 20));
+    await writeFile(menuTitleHelpOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 1, 60, 75, 20));
+    await writeFile(concharsOutputPath, await buildQuakeConcharsPng(uiAssets));
+    const programMetadata = buildQuakeProgramMetadata(uiAssets);
+    await writeFile(weaponOutputPath, JSON.stringify(await buildQuakeWeaponModel(uiAssets, renderBundleBuilder)));
+    await writeFile(progsOutputPath, JSON.stringify(programMetadata));
+    const pickupModels = await buildQuakePickupModels(
+      uiAssets,
+      async (mapPath) => createQuakeSceneFromPreparedScene(await createQuakePreparedSceneFromPakBuffer(buffer, {
+        encodeTextureUrl: encodeTextureFileUrl,
+        mapPath,
+      })),
+      programMetadata,
+      renderBundleBuilder,
+    );
+    await writeFile(pickupOutputPath, JSON.stringify(pickupModels));
+    const soundManifest = await exportQuakeSounds(pak, parseQuakePakDirectory);
+    await writeFile(soundManifestOutputPath, JSON.stringify(soundManifest));
+    await writeFile(manifestOutputPath, JSON.stringify(buildQuakeAssetManifest(
+      preparedMaps,
+      programMetadata,
+      pickupModels,
+    )));
+    await pruneUnreferencedTextureFiles([
+      ...preparedMaps.map((item) => item.outputPath),
+      weaponOutputPath,
+      pickupOutputPath,
+    ]);
+    for (const { outputPath, prepared, size } of preparedMaps) {
+      console.log(`Wrote ${path.relative(projectRoot, outputPath)} (${formatBytes(size)})`);
+      console.log(`${prepared.label}: ${prepared.faceCount}/${prepared.sourceFaceCount} faces, ${prepared.textureCount} textures`);
+    }
+    console.log(`Wrote ${path.relative(projectRoot, hudBaseOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, hudNumbersOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, hudDamageNumbersOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, hudOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, socialImageOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, mainMenuOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, mainMenuMultiplayerOutputPath)}`);
+    for (const outputPath of mainMenuActiveOutputPaths) {
+      console.log(`Wrote ${path.relative(projectRoot, outputPath)}`);
+    }
+    console.log(`Wrote ${path.relative(projectRoot, mainMenuCursorOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, aboutOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, menuPanelTextureOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, menuTitleLevelSelectOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, menuTitleOptionsOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, menuTitleHelpOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, concharsOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, weaponOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, progsOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, pickupOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, soundManifestOutputPath)} (${Object.keys(soundManifest.sounds).length} sounds)`);
+    console.log(`Wrote ${path.relative(projectRoot, manifestOutputPath)}`);
   }
-  await writeFile(mainMenuCursorOutputPath, await buildQuakeMainMenuCursorPng(uiAssets));
-  await writeFile(aboutOutputPath, await buildQuakeAboutPng(uiAssets));
-  await writeFile(menuPanelTextureOutputPath, await buildQuakeMenuPanelTexturePng(menuPanelTextureMaps));
-  await writeFile(menuTitleLevelSelectOutputPath, await buildCustomMenuTitlePng(menuTitleLevelSelectSourcePath, {
-    height: 20,
-    paletteColors: menuTitlePaletteColors,
-  }));
-  await writeFile(menuTitleOptionsOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 0, 40, 124, 20));
-  await writeFile(menuTitleHelpOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 1, 60, 75, 20));
-  await writeFile(concharsOutputPath, await buildQuakeConcharsPng(uiAssets));
-  const programMetadata = buildQuakeProgramMetadata(uiAssets);
-  await writeFile(weaponOutputPath, JSON.stringify(await buildQuakeWeaponModel(uiAssets, renderBundleBuilder)));
-  await writeFile(progsOutputPath, JSON.stringify(programMetadata));
-  const pickupModels = await buildQuakePickupModels(
-    uiAssets,
-    async (mapPath) => createQuakeSceneFromPreparedScene(await createQuakePreparedSceneFromPakBuffer(buffer, {
-      encodeTextureUrl: encodeTextureFileUrl,
-      mapPath,
-    })),
-    programMetadata,
-    renderBundleBuilder,
-  );
-  await writeFile(pickupOutputPath, JSON.stringify(pickupModels));
-  const soundManifest = await exportQuakeSounds(pak, parseQuakePakDirectory);
-  await writeFile(soundManifestOutputPath, JSON.stringify(soundManifest));
-  await writeFile(manifestOutputPath, JSON.stringify(buildQuakeAssetManifest(
-    preparedMaps,
-    programMetadata,
-    pickupModels,
-  )));
-  await pruneUnreferencedTextureFiles([
-    ...preparedMaps.map((item) => item.outputPath),
-    weaponOutputPath,
-    pickupOutputPath,
-  ]);
-  for (const { outputPath, prepared, size } of preparedMaps) {
-    console.log(`Wrote ${path.relative(projectRoot, outputPath)} (${formatBytes(size)})`);
-    console.log(`${prepared.label}: ${prepared.faceCount}/${prepared.sourceFaceCount} faces, ${prepared.textureCount} textures`);
-  }
-  console.log(`Wrote ${path.relative(projectRoot, hudBaseOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, hudNumbersOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, hudDamageNumbersOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, hudOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, socialImageOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, mainMenuOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, mainMenuMultiplayerOutputPath)}`);
-  for (const outputPath of mainMenuActiveOutputPaths) {
-    console.log(`Wrote ${path.relative(projectRoot, outputPath)}`);
-  }
-  console.log(`Wrote ${path.relative(projectRoot, mainMenuCursorOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, aboutOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, menuPanelTextureOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, menuTitleLevelSelectOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, menuTitleOptionsOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, menuTitleHelpOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, concharsOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, weaponOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, progsOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, pickupOutputPath)}`);
-  console.log(`Wrote ${path.relative(projectRoot, soundManifestOutputPath)} (${Object.keys(soundManifest.sounds).length} sounds)`);
-  console.log(`Wrote ${path.relative(projectRoot, manifestOutputPath)}`);
 } finally {
   await renderBundleBuilder?.close?.();
   await rm(tempDir, { recursive: true, force: true });
@@ -557,11 +691,19 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
       const name = bundleName ?? mapName;
       if (!name) throw new Error("Render bundle build requires a bundleName or mapName.");
       const styleClassName = extractLeafStyles ? quakeRenderBundleStyleClassName(name) : "";
+      const adaptiveAtlasLeafSize = quakeRenderBundleAdaptiveAtlasLeafSize && Boolean(mapName);
       const startedAt = Date.now();
       const result = await withRenderBundlePage((page) =>
         page.evaluate(
           async (input) => window.__buildQuakeRenderBundle(input),
-          { polygons, textureQuality, extractLeafStyles, styleClassName, tightenAtlasLeaves },
+          {
+            polygons,
+            textureQuality,
+            extractLeafStyles,
+            styleClassName,
+            tightenAtlasLeaves,
+            adaptiveAtlasLeafSize,
+          },
         ),
       );
       const written = await writeRenderBundleResult({
@@ -572,7 +714,8 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
       });
       console.log(
         `Built render bundle for ${name}: ${result.leafCount} leaves, ` +
-        `${written.writtenAssetCount} atlas assets in ${written.elapsed}ms`,
+        `${written.writtenAssetCount} atlas assets${renderBundleAdaptiveAtlasLeafSizeLog(result)} in ` +
+        `${written.elapsed}ms`,
       );
       return written.renderBundle;
     },
@@ -599,7 +742,13 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
       const result = await withRenderBundlePage((page) =>
         page.evaluate(
           async (input) => window.__buildQuakeAnimatedRenderBundle(input),
-          { frames: frameInputs, textureQuality, extractLeafStyles, tightenAtlasLeaves },
+          {
+            frames: frameInputs,
+            textureQuality,
+            extractLeafStyles,
+            tightenAtlasLeaves,
+            adaptiveAtlasLeafSize: false,
+          },
         ),
       );
       const sharedAssets = new Map();
@@ -629,12 +778,20 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
       console.log(
         `Built animated render bundle for ${bundleName}: ${result.frames.length} frames, ` +
         `${firstFrame?.leafCount ?? 0} leaves, ${writtenAssetCount} atlas assets ` +
+        `${renderBundleAdaptiveAtlasLeafSizeLog(firstFrame)} ` +
         `(${reusedAssetCount} frame references reused) in ${elapsed}ms`,
       );
       return frameBundles;
     },
     close: () => browser.close(),
   };
+}
+
+function renderBundleAdaptiveAtlasLeafSizeLog(result) {
+  const stats = result?.adaptiveAtlasLeafSizeStats;
+  if (!stats?.resizedLeaves) return "";
+  return `, adaptive ${stats.resizedLeaves}/${stats.totalLeaves} leaves ` +
+    `${stats.beforeArea}->${stats.afterArea} local px`;
 }
 
 async function createQuakeRenderBundlePage(browser, bundlePath) {
@@ -842,6 +999,21 @@ function buildQuakeAssetManifest(preparedMaps, programMetadata, pickupModels) {
   };
 }
 
+async function writeQuakeAssetRegenerationManifest({ mode = "full", mapNames = [] } = {}) {
+  await mkdir(quakeOutputDir, { recursive: true });
+  await writeFile(manifestOutputPath, JSON.stringify({
+    version: 1,
+    status: "regenerating",
+    mode,
+    ...(mapNames.length ? { maps: mapNames } : {}),
+    assetRoot: quakePublicPath,
+    message: mode === "map-only"
+      ? `Quake map assets are regenerating (${mapNames.join(", ")}). Wait for pnpm prepare:quake to finish, then reload.`
+      : "Quake assets are regenerating. Wait for pnpm prepare:quake to finish, then reload.",
+    startedAt: new Date().toISOString(),
+  }));
+}
+
 function quakeMapModelPaths(outputPath, preparedMaps, programMetadata) {
   const prepared = preparedMaps.find((item) => item.outputPath === outputPath)?.prepared;
   const modelPaths = new Set();
@@ -1041,7 +1213,8 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function pruneUnreferencedTextureFiles(jsonPaths) {
+async function pruneUnreferencedTextureFiles(jsonPaths, options = {}) {
+  const removeUnreferenced = options.removeUnreferenced !== false;
   const referenced = new Set();
   const textureUrlPattern = new RegExp(`${escapeRegExp(quakeTexturePublicPath)}/([^"'\\\\)\\s]+)`, "g");
   for (const jsonPath of jsonPaths) {
@@ -1061,18 +1234,19 @@ async function pruneUnreferencedTextureFiles(jsonPaths) {
     written++;
   }
 
-  let files;
-  try {
-    files = await readdir(textureOutputDir);
-  } catch {
-    files = [];
-  }
-
   let removed = 0;
-  for (const file of files) {
-    if (referenced.has(file)) continue;
-    await rm(path.join(textureOutputDir, file), { force: true });
-    removed++;
+  if (removeUnreferenced) {
+    let files;
+    try {
+      files = await readdir(textureOutputDir);
+    } catch {
+      files = [];
+    }
+    for (const file of files) {
+      if (referenced.has(file)) continue;
+      await rm(path.join(textureOutputDir, file), { force: true });
+      removed++;
+    }
   }
   if (written > 0) {
     console.log(`Wrote ${written} referenced generated texture files`);

@@ -36,6 +36,59 @@ body {
 #quake-app .polycss-mesh s {
   background-repeat: no-repeat !important;
 }
+body.quake-debug-no-textures #quake-app .polycss-mesh s {
+  background: none !important;
+}
+body.quake-debug-static-lighting #quake-app .quake-lightstyle-mesh {
+  display: none;
+}
+body.quake-debug-outlines #quake-app .polycss-mesh s {
+  --quake-debug-outline-color: green;
+  outline: 0.5px solid var(--quake-debug-outline-color);
+  outline-offset: -0.5px;
+}
+body.quake-debug-outlines #quake-app .polycss-mesh s[data-quake-debug-outline="sky"] {
+  --quake-debug-outline-color: cyan;
+}
+body.quake-debug-outlines #quake-app .polycss-mesh s[data-quake-debug-outline="special"] {
+  --quake-debug-outline-color: cyan;
+}
+body.quake-debug-outlines #quake-app .polycss-mesh s[data-quake-debug-outline="animated"] {
+  --quake-debug-outline-color: cyan;
+}
+body.quake-debug-outlines #quake-app .polycss-mesh s[data-quake-debug-outline="brush"] {
+  --quake-debug-outline-color: yellow;
+}
+body.quake-debug-outlines #quake-app .polycss-mesh s[data-quake-debug-outline="entity"] {
+  --quake-debug-outline-color: yellow;
+}
+body.quake-debug-outlines #quake-app .polycss-mesh s[data-quake-debug-outline="lightstyle"] {
+  --quake-debug-outline-color: cyan;
+}
+body.quake-debug-outlines #quake-app .polycss-mesh.pickup s {
+  --quake-debug-outline-color: yellow;
+}
+body.quake-debug-outlines #quake-app .polycss-mesh.shootable:not(.enemy) s {
+  --quake-debug-outline-color: yellow;
+}
+body.quake-debug-outlines #quake-viewmodel-layer .polycss-mesh.viewmodel s {
+  --quake-debug-outline-color: yellow;
+}
+body.quake-debug-outlines #quake-app .polycss-mesh.shootable.enemy s {
+  --quake-debug-outline-color: red;
+}
+body.quake-debug-labels #quake-app .polycss-mesh s[data-quake-poly-id]::after {
+  content: attr(data-quake-poly-id);
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  z-index: 1;
+  color: var(--quake-debug-outline-color, green);
+  font: 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-decoration: none;
+  text-shadow: none;
+  pointer-events: none;
+}
 #quake-viewmodel-layer {
   position: absolute;
   inset: 0;
@@ -59,6 +112,10 @@ body {
   z-index: 3;
   pointer-events: none;
 }
+body.quake-menu-open #quake-hud {
+  pointer-events: auto;
+  cursor: crosshair;
+}
 #quake-damage-overlay {
   position: absolute;
   inset: 0;
@@ -73,12 +130,33 @@ body {
   contain: strict;
   transition: opacity 90ms linear;
 }
+#quake-bonus-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at center, rgba(215, 186, 69, 0.09) 0%, rgba(215, 160, 48, 0.13) 52%, rgba(145, 92, 18, 0.24) 100%),
+    rgba(215, 186, 69, 0.08);
+  opacity: 0;
+  transform: translateZ(0);
+  will-change: opacity;
+  contain: strict;
+  mix-blend-mode: screen;
+  transition: opacity 420ms linear;
+}
 #quake-damage-overlay.quake-damage-overlay-active {
   opacity: 1;
   transition-duration: 0ms;
 }
+#quake-bonus-overlay.quake-bonus-overlay-active {
+  opacity: 1;
+  transition-duration: 0ms;
+}
 body.quake-loading #quake-damage-overlay,
-body.quake-menu-open #quake-damage-overlay {
+body.quake-loading #quake-bonus-overlay,
+body.quake-menu-open #quake-damage-overlay,
+body.quake-menu-open #quake-bonus-overlay {
   opacity: 0;
   transition: none;
 }
@@ -375,7 +453,7 @@ body.quake-hud-message #quake-hud-status {
   background: rgba(0, 0, 0, 0.75);
   cursor: crosshair;
   outline: none;
-  pointer-events: auto;
+  pointer-events: none;
   -webkit-tap-highlight-color: transparent;
 }
 #quake-main-menu.quake-main-menu-hover {
@@ -514,7 +592,8 @@ body.quake-menu-open #quake-main-menu-logo-shimmer::before {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #quake-damage-overlay {
+  #quake-damage-overlay,
+  #quake-bonus-overlay {
     transition: none;
   }
   body.quake-menu-open #quake-main-menu-logo-shimmer::before {
@@ -544,6 +623,9 @@ body.quake-menu-open #quake-main-menu-logo-shimmer::before {
   justify-content: center;
   width: fit-content;
   min-height: var(--quake-main-menu-row-height);
+}
+.quake-main-menu-item-selectable {
+  pointer-events: auto;
 }
 .quake-main-menu-label {
   display: block;
@@ -827,13 +909,17 @@ body.quake-menu-open #quake-main-menu-logo-shimmer::before {
   background-position-y: calc(var(--quake-bitmap-glyph-size) * -15);
 }
 #quake-options-card {
-  width: min(760px, calc(100vw - 32px));
+  width: min(540px, calc(100vw - 32px));
 }
 #quake-level-card {
   width: min(760px, calc(100vw - 32px));
 }
 #quake-about-card {
   width: min(760px, calc(100vw - 32px));
+}
+#quake-help-sections,
+#quake-options-sections {
+  grid-template-columns: minmax(0, 1fr);
 }
 .quake-menu-panel-header {
   display: grid;
@@ -872,9 +958,6 @@ body.quake-menu-open #quake-main-menu-logo-shimmer::before {
   padding: clamp(18px, 3vw, 24px) 0;
   border-top: 1px solid rgba(136, 84, 49, 0.58);
   border-bottom: 1px solid rgba(136, 84, 49, 0.58);
-}
-#quake-options-sections {
-  grid-template-columns: minmax(230px, 0.9fr) minmax(240px, 1.1fr);
 }
 .quake-menu-panel-sections section {
   min-width: 0;
@@ -1026,6 +1109,11 @@ body.quake-menu-open #quake-main-menu-logo-shimmer::before {
   cursor: pointer;
   user-select: none;
 }
+#quake-options-panel .quake-option-toggle {
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 14px;
+  min-height: 38px;
+}
 .quake-option-toggle input {
   position: absolute;
   width: 1px;
@@ -1057,6 +1145,13 @@ body.quake-menu-open #quake-main-menu-logo-shimmer::before {
   box-shadow: 0 1px 0 #000000;
   opacity: 0;
 }
+#quake-options-panel .quake-option-text .quake-bitmap-text {
+  --quake-bitmap-glyph-size: 20px;
+  --quake-bitmap-sheet-size: 320px;
+  --quake-bitmap-space-size: 14px;
+  gap: 5px var(--quake-bitmap-space-size);
+  filter: brightness(1.12) contrast(1.08) drop-shadow(0 1px 0 #000000);
+}
 .quake-option-toggle input:checked + .quake-option-checkbox {
   border-color: rgba(240, 173, 92, 0.96);
   background: rgba(78, 34, 18, 0.76);
@@ -1071,6 +1166,243 @@ body.quake-menu-open #quake-main-menu-logo-shimmer::before {
 .quake-option-toggle:focus-within .quake-option-checkbox {
   outline: 2px solid rgba(240, 173, 92, 0.62);
   outline-offset: 3px;
+}
+.quake-option-debug-toggle {
+  align-items: start;
+  min-height: 0;
+  padding-top: 0;
+}
+#quake-options-panel .quake-option-debug-toggle .quake-option-checkbox {
+  margin-top: 1px;
+}
+.quake-option-debug-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 0;
+}
+.quake-option-debug-copy .quake-option-text .quake-bitmap-text {
+  --quake-bitmap-glyph-size: 20px;
+  --quake-bitmap-sheet-size: 320px;
+  --quake-bitmap-space-size: 14px;
+  gap: 5px var(--quake-bitmap-space-size);
+  filter: brightness(1.12) contrast(1.08) drop-shadow(0 1px 0 #000000);
+}
+.quake-options-list .quake-option-note {
+  display: block;
+  max-width: 100%;
+  line-height: 1;
+}
+.quake-option-note .quake-bitmap-text {
+  --quake-bitmap-glyph-size: 16px;
+  --quake-bitmap-sheet-size: 256px;
+  --quake-bitmap-space-size: 11px;
+  gap: 5px var(--quake-bitmap-space-size);
+  opacity: 0.9;
+  filter: brightness(1.08) contrast(1.05) drop-shadow(0 1px 0 #000000);
+}
+.quake-option-separator {
+  height: 1px;
+  margin: 7px 0 9px;
+  background: rgba(136, 84, 49, 0.58);
+}
+#quake-debug-panel {
+  position: fixed;
+  top: max(18px, env(safe-area-inset-top));
+  right: max(18px, env(safe-area-inset-right));
+  z-index: 6;
+  width: min(340px, calc(100vw - 36px));
+  max-height: calc(100dvh - 36px);
+  color: #f6f1df;
+  font-family: ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+#quake-debug-panel[hidden] {
+  display: none;
+}
+body.quake-menu-open #quake-debug-panel {
+  display: none;
+}
+#quake-debug-card {
+  --quake-debug-title-color: rgba(240, 173, 92, 0.62);
+  --quake-debug-stat-name-color: rgba(216, 137, 63, 0.6);
+  --quake-debug-stat-value-color: rgba(246, 241, 223, 0.62);
+  --quake-debug-button-color: rgba(247, 216, 156, 0.68);
+  --quake-debug-glyph-filter: brightness(0.72) saturate(0.88) contrast(0.92) drop-shadow(0 1px 0 #000000);
+  --quake-debug-title-filter: brightness(0.78) saturate(0.9) contrast(0.96) drop-shadow(0 1px 0 #000000);
+  --quake-debug-legend-filter: brightness(0.76) saturate(0.88) contrast(0.92) drop-shadow(0 1px 0 #000000);
+  position: relative;
+  overflow: auto;
+  max-height: inherit;
+  padding: 16px;
+  border: 1px solid rgba(132, 73, 38, 0.4);
+  border-radius: 2px;
+  background-color: #070403;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.72),
+    inset 0 0 28px rgba(0, 0, 0, 0.78),
+    0 18px 44px rgba(0, 0, 0, 0.72);
+  pointer-events: auto;
+  color: var(--quake-debug-stat-value-color);
+  transition: border-color 120ms linear, color 120ms linear;
+}
+body.quake-debug-pointer-free #quake-debug-card {
+  --quake-debug-title-color: #f0ad5c;
+  --quake-debug-stat-name-color: #d8893f;
+  --quake-debug-stat-value-color: rgba(246, 241, 223, 0.84);
+  --quake-debug-button-color: #f7d89c;
+  --quake-debug-glyph-filter: brightness(1.08) contrast(1.05) drop-shadow(0 1px 0 #000000);
+  --quake-debug-title-filter: brightness(1.12) contrast(1.08) drop-shadow(0 1px 0 #000000);
+  --quake-debug-legend-filter: brightness(1.08) contrast(1.05) drop-shadow(0 1px 0 #000000);
+  border-color: rgba(132, 73, 38, 0.82);
+}
+#quake-debug-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: rgba(5, 3, 2, 0.46);
+  pointer-events: none;
+}
+#quake-debug-card > * {
+  position: relative;
+  z-index: 1;
+}
+#quake-debug-card .quake-bitmap-text {
+  filter: var(--quake-debug-glyph-filter);
+  transition: filter 120ms linear;
+}
+#quake-debug-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(136, 84, 49, 0.58);
+}
+#quake-debug-title,
+#quake-debug-render-title {
+  margin: 0;
+  color: var(--quake-debug-title-color);
+  font-size: 14px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  text-shadow: 0 1px 0 #000000;
+}
+#quake-debug-title .quake-bitmap-text,
+#quake-debug-render-title .quake-bitmap-text {
+  filter: var(--quake-debug-title-filter);
+}
+#quake-debug-close {
+  display: inline-grid;
+  place-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(191, 116, 44, 0.7);
+  background: rgba(78, 34, 18, 0.7);
+  color: var(--quake-debug-button-color);
+  font: inherit;
+  cursor: pointer;
+}
+#quake-debug-close:hover,
+#quake-debug-close:focus-visible {
+  border-color: rgba(240, 173, 92, 0.96);
+  background: rgba(101, 45, 20, 0.86);
+  outline: none;
+}
+#quake-debug-stats {
+  display: grid;
+  gap: 7px;
+  margin: 14px 0;
+  padding: 0 0 14px;
+  border-bottom: 1px solid rgba(136, 84, 49, 0.58);
+  font-size: 12px;
+  line-height: 1.25;
+}
+#quake-debug-stats div {
+  display: grid;
+  grid-template-columns: minmax(84px, auto) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+#quake-debug-stats dt {
+  min-width: 0;
+  color: var(--quake-debug-stat-name-color);
+}
+#quake-debug-stats dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--quake-debug-stat-value-color);
+  overflow-wrap: anywhere;
+  text-align: right;
+  text-shadow: 0 1px 0 #000000;
+}
+#quake-debug-render-options {
+  display: grid;
+  gap: 12px;
+}
+#quake-debug-render-options .quake-options-list {
+  gap: 8px;
+}
+#quake-debug-render-options .quake-option-toggle {
+  min-height: 30px;
+  grid-template-columns: 22px minmax(0, 1fr);
+}
+#quake-debug-render-options .quake-option-checkbox {
+  width: 18px;
+  height: 18px;
+}
+#quake-debug-render-options .quake-option-checkbox::after {
+  left: 3px;
+  top: 3px;
+}
+#quake-debug-outline-legend {
+  display: none;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
+  padding-top: 4px;
+  color: var(--quake-debug-stat-value-color);
+  line-height: 1.2;
+  text-shadow: 0 1px 0 #000000;
+}
+body.quake-debug-outlines #quake-debug-outline-legend {
+  display: grid;
+}
+#quake-debug-outline-legend > span {
+  display: inline-grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  white-space: nowrap;
+}
+#quake-debug-outline-legend .quake-bitmap-text {
+  --quake-bitmap-glyph-size: 12px;
+  --quake-bitmap-sheet-size: 192px;
+  --quake-bitmap-space-size: 8px;
+  gap: 3px var(--quake-bitmap-space-size);
+  opacity: 0.86;
+  filter: var(--quake-debug-legend-filter);
+}
+.quake-debug-outline-swatch {
+  display: block;
+  width: 9px;
+  height: 9px;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  box-shadow: 0 1px 0 #000000;
+}
+.quake-debug-outline-swatch-world {
+  background: green;
+}
+.quake-debug-outline-swatch-special {
+  background: cyan;
+}
+.quake-debug-outline-swatch-movers {
+  background: yellow;
+}
+.quake-debug-outline-swatch-enemies {
+  background: red;
 }
 .quake-menu-actions {
   display: flex;
@@ -1261,6 +1593,74 @@ body.quake-dead #quake-viewmodel-layer {
 }
 body.quake-menu-open #quake-viewmodel-layer {
   display: none;
+}
+#quake-mobile-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: none;
+  pointer-events: none;
+  user-select: none;
+  touch-action: none;
+  --quake-mobile-control-center-bottom: max(142px, calc(env(safe-area-inset-bottom) + 142px));
+}
+#quake-mobile-move-zone {
+  position: absolute;
+  left: max(18px, env(safe-area-inset-left));
+  bottom: calc(var(--quake-mobile-control-center-bottom) - 72px);
+  width: 144px;
+  height: 144px;
+  pointer-events: auto;
+  touch-action: none;
+}
+#quake-mobile-move-zone .joystick .back {
+  box-sizing: border-box;
+  border: 2px solid rgba(245, 232, 200, 0.42);
+}
+#quake-mobile-move-zone .joystick .front {
+  box-sizing: border-box;
+  border: 2px solid rgba(245, 232, 200, 0.48);
+}
+#quake-mobile-fire {
+  position: absolute;
+  right: max(24px, env(safe-area-inset-right));
+  bottom: calc(var(--quake-mobile-control-center-bottom) - 43px);
+  width: 86px;
+  height: 86px;
+  padding: 0;
+  border: 2px solid rgba(214, 135, 58, 0.72);
+  border-radius: 50%;
+  background: rgba(46, 22, 12, 0.44);
+  pointer-events: auto;
+  touch-action: none;
+  appearance: none;
+}
+#quake-mobile-fire::before {
+  content: "";
+  position: absolute;
+  inset: 23px;
+  border: 2px solid rgba(245, 232, 200, 0.56);
+  border-radius: 50%;
+}
+#quake-mobile-fire::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(245, 232, 200, 0.7);
+  transform: translate(-50%, -50%);
+}
+#quake-mobile-fire:active {
+  background: rgba(74, 30, 14, 0.56);
+  border-color: rgba(232, 154, 72, 0.86);
+}
+@media (any-pointer: coarse), (max-width: 960px) and (orientation: landscape) {
+  body:not(.quake-loading):not(.quake-menu-open):not(.quake-dead):not(.quake-level-complete) #quake-mobile-controls {
+    display: block;
+  }
 }
 #quake-crosshair {
   position: absolute;

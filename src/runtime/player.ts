@@ -33,7 +33,7 @@ export interface QuakePlayerControllerOptions {
   getCurrentScene: () => QuakeScene | null;
   gravity: number;
   jumpVelocity: number;
-  onDamageFlash: (active: boolean) => void;
+  onDamageFlash: (active: boolean, feedback?: QuakePlayerDamageFeedback) => void;
   onDeath: () => void;
   onHazardState: (kind: QuakeHazardDamage["kind"] | null) => void;
   onInventoryChanged: () => void;
@@ -73,6 +73,10 @@ export interface QuakePlayerController {
   syncCollision: () => void;
   syncHazard: (hazard: QuakeHazardDamage | null) => boolean;
   teleportTo: (destination: QuakeEntity) => boolean;
+}
+
+export interface QuakePlayerDamageFeedback {
+  amount: number;
 }
 
 export function createQuakePlayerController(options: QuakePlayerControllerOptions): QuakePlayerController {
@@ -131,7 +135,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     options.onDamageFlash(false);
   };
 
-  const flashDamage = (): void => {
+  const flashDamage = (feedback: QuakePlayerDamageFeedback): void => {
     damageFlashSerial += 1;
     if (damageFlashTimer !== null) {
       window.clearTimeout(damageFlashTimer);
@@ -140,7 +144,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     const serial = damageFlashSerial;
     damageFlashActive = true;
     markQuakeTrace("damage-flash", { active: true, durationMs: QUAKE_DAMAGE_FLASH_MS });
-    options.onDamageFlash(true);
+    options.onDamageFlash(true, feedback);
     damageFlashTimer = window.setTimeout(() => finishDamageFlash(serial), QUAKE_DAMAGE_FLASH_MS);
   };
 
@@ -258,7 +262,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     inventory.health = Math.max(0, inventory.health - damage);
     markQuakeTrace("player-damage", { amount: damage, health: inventory.health, died: inventory.health <= 0 });
     options.onInventoryChanged();
-    flashDamage();
+    flashDamage({ amount: damage });
     if (inventory.health > 0) return false;
     enterDeath();
     return true;

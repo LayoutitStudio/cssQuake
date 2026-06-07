@@ -1,6 +1,7 @@
 node_modules/
 pnpm-lock.yaml
 .agents/
+.local/
 .DS_Store
 **/.DS_Store
 build/generated/

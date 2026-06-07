@@ -47,11 +47,13 @@ const QUAKE_WEAPON_VERTICAL_SCALE = 0.96;
 const QUAKE_WEAPON_DEPTH_SCALE = 1.38;
 const QUAKE_WEAPON_LOCAL_Y_OFFSET_PX = -25;
 const QUAKE_WEAPON_LOCAL_PITCH_DEG = 13;
-const QUAKE_WEAPON_SCREEN_X_OFFSET_PX = -60;
+const QUAKE_WEAPON_SCREEN_X_OFFSET_PX = 0;
 const QUAKE_WEAPON_PERSPECTIVE_SCALE = 1.08;
 const QUAKE_WEAPON_MIN_ROT_X = 10;
 const QUAKE_WEAPON_MAX_ROT_X = 170;
-const QUAKE_WEAPON_FIRE_ANIMATION_MS = 90;
+const QUAKE_WEAPON_MUZZLE_FLASH_MS = 45;
+const QUAKE_WEAPON_KICK_SETTLE_MS = 160;
+const QUAKE_WEAPON_KICK_RECOVER_MS = 280;
 const QUAKE_WEAPON_BOB = 0.02;
 const QUAKE_WEAPON_BOB_CYCLE_SECONDS = 0.6;
 const QUAKE_WEAPON_BOB_UP = 0.5;
@@ -61,6 +63,7 @@ const QUAKE_WEAPON_BOB_STOP_SPEED = 1 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_WEAPON_BOB_TELEPORT_DISTANCE = 128 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_WEAPON_BOB_MIN = -7 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_WEAPON_BOB_MAX = 4 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_WEAPON_SHORT_LANDSCAPE_MAX_HEIGHT_PX = 560;
 
 export function createQuakeViewmodelController({
   scene,
@@ -145,13 +148,13 @@ export function createQuakeViewmodelController({
     fireAnimationTimer = window.setTimeout(() => {
       setNozzleVisible(false);
       fireAnimationTimer = null;
-    }, QUAKE_WEAPON_FIRE_ANIMATION_MS);
+    }, QUAKE_WEAPON_MUZZLE_FLASH_MS);
 
     clearKickTimers();
-    setKick(-0.46, -0.08);
+    setKick(-0.52, -0.1);
     fireKickTimers.push(
-      window.setTimeout(() => setKick(-0.16, -0.03), 80),
-      window.setTimeout(() => setKick(0, 0), 170),
+      window.setTimeout(() => setKick(-0.22, -0.04), QUAKE_WEAPON_KICK_SETTLE_MS),
+      window.setTimeout(() => setKick(0, 0), QUAKE_WEAPON_KICK_RECOVER_MS),
     );
   }
 
@@ -314,8 +317,14 @@ export function createQuakeViewmodelController({
   }
 
   function weaponLayerScale(): number {
-    const viewportHeight = host.getBoundingClientRect().height || window.innerHeight;
-    return viewportHeight / QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX;
+    const hostRect = host.getBoundingClientRect();
+    const viewportWidth = hostRect.width || window.innerWidth;
+    const viewportHeight = hostRect.height || window.innerHeight;
+    const heightScale = viewportHeight / QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX;
+    if (viewportWidth <= viewportHeight || viewportHeight > QUAKE_WEAPON_SHORT_LANDSCAPE_MAX_HEIGHT_PX) {
+      return heightScale;
+    }
+    return Math.max(heightScale, viewportWidth / QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX);
   }
 
   function weaponLayerTransform(scale: number): string {
@@ -353,8 +362,9 @@ export function createQuakeViewmodelController({
       baseTransform = baseTransform.slice(0, -localTransform.length).trim();
     }
     const nextTransform = baseTransform ? `${baseTransform} ${localTransform}` : localTransform;
-    if (handle.element.style.transform === nextTransform) return;
-    handle.element.style.transform = nextTransform;
+    if (handle.element.style.transform !== nextTransform) {
+      handle.element.style.transform = nextTransform;
+    }
   }
 
   return {

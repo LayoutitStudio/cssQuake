@@ -7,6 +7,7 @@
   "license": "GPL-2.0-only",
   "scripts": {
     "dev": "vite",
+    "dev:trace": "vite --host 127.0.0.1 --port 5177",
     "prebuild": "pnpm exec playwright install chromium --only-shell",
     "prepare:quake": "node src/prepare/assets.mjs",
     "prepare:quake-logic": "node src/prepare/quakecLogic.mjs",
@@ -16,7 +17,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@layoutit/polycss": "^0.2.2"
+    "@layoutit/polycss": "^0.2.2",
+    "nipplejs": "^1.0.4"
   },
   "devDependencies": {
     "7z-bin": "^0.0.8",

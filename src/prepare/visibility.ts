@@ -8,6 +8,7 @@ import type {
   QuakeVertex,
   QuakeVisibility,
   QuakeVisibilityCandidate,
+  QuakeVisibleFaceGroup,
 } from "./scene";
 
 interface QuakeBrushVisibility {
@@ -71,6 +72,16 @@ export function buildVisibility(
   const worldFaceByLeaf = buildWorldFaceByLeaf(leaves, markSurfaces, sourceFaces);
   const brushVisibility = buildBrushVisibility(brushModels, sourceFaces, planes, nodes);
   const allFaces = new Set(candidates.map((candidate) => candidate.faceIndex));
+  const allFacesGroup: QuakeVisibleFaceGroup = { key: `all:${faceSetKey(allFaces)}`, faces: allFaces };
+  const visibleFaceGroupsByLeaf = buildVisibleFaceGroupsByLeaf(
+    leaves,
+    worldFaceByLeaf,
+    visData,
+    brushVisibility,
+    sourceFaces,
+    renderFacesBySource,
+    allFacesGroup,
+  );
 
   function leafIndexAt(point: Vec3): number {
     return leafForPoint(polyToQuake(point, pivot), planes, nodes);
@@ -91,25 +102,18 @@ export function buildVisibility(
 
   function visibleFacesAt(point: Vec3): Set<number> | null {
     const leafIndex = leafIndexAt(point);
-    const sourceVisibleFaces = visibleSourceFacesForLeaf(
-      leafIndex,
-      leaves,
-      worldFaceByLeaf,
-      visData,
-      brushVisibility,
-      sourceFaces,
-    );
-    if (!sourceVisibleFaces) return allFaces;
-    const faces = new Set<number>();
-    for (const sourceFaceIndex of sourceVisibleFaces) {
-      for (const renderFaceIndex of renderFacesBySource.get(sourceFaceIndex) ?? []) {
-        faces.add(renderFaceIndex);
-      }
-    }
-    return faces;
+    return visibleFaceGroupForLeaf(leafIndex).faces;
   }
 
-  return { faceForPolygon, leafIndexAt, visibleLeavesAt, visibleFacesAt };
+  function visibleFaceGroupAt(point: Vec3): QuakeVisibleFaceGroup {
+    return visibleFaceGroupForLeaf(leafIndexAt(point));
+  }
+
+  function visibleFaceGroupForLeaf(leafIndex: number): QuakeVisibleFaceGroup {
+    return visibleFaceGroupsByLeaf[leafIndex] ?? allFacesGroup;
+  }
+
+  return { faceForPolygon, leafIndexAt, visibleLeavesAt, visibleFacesAt, visibleFaceGroupAt };
 }
 
 function sourceFaceSetFor(candidates: QuakeVisibilityCandidate[]): Set<number> {
@@ -149,6 +153,49 @@ function buildWorldFaceByLeaf(
     }
     return faces;
   });
+}
+
+function buildVisibleFaceGroupsByLeaf(
+  leaves: QuakeLeaf[],
+  worldFaceByLeaf: Array<Set<number>>,
+  visData: Uint8Array,
+  brushVisibility: QuakeBrushVisibility[],
+  sourceFaces: Set<number>,
+  renderFacesBySource: Map<number, number[]>,
+  allFacesGroup: QuakeVisibleFaceGroup,
+): QuakeVisibleFaceGroup[] {
+  const groupsByKey = new Map<string, QuakeVisibleFaceGroup>([[allFacesGroup.key, allFacesGroup]]);
+  return leaves.map((_leaf, leafIndex) => {
+    const sourceVisibleFaces = visibleSourceFacesForLeaf(
+      leafIndex,
+      leaves,
+      worldFaceByLeaf,
+      visData,
+      brushVisibility,
+      sourceFaces,
+    );
+    if (!sourceVisibleFaces) return allFacesGroup;
+    const faces = renderFaceSetForSourceFaces(sourceVisibleFaces, renderFacesBySource);
+    const key = faceSetKey(faces);
+    const existing = groupsByKey.get(key);
+    if (existing) return existing;
+    const group = { key, faces };
+    groupsByKey.set(key, group);
+    return group;
+  });
+}
+
+function renderFaceSetForSourceFaces(
+  sourceVisibleFaces: Set<number>,
+  renderFacesBySource: Map<number, number[]>,
+): Set<number> {
+  const faces = new Set<number>();
+  for (const sourceFaceIndex of sourceVisibleFaces) {
+    for (const renderFaceIndex of renderFacesBySource.get(sourceFaceIndex) ?? []) {
+      faces.add(renderFaceIndex);
+    }
+  }
+  return faces;
 }
 
 function buildBrushVisibility(
@@ -219,6 +266,10 @@ function decompressVisibleLeaves(visData: Uint8Array, offset: number, leafCount:
     leaf += skip * 8;
   }
   return visible;
+}
+
+function faceSetKey(faces: Set<number>): string {
+  return [...faces].sort((a, b) => a - b).join(",");
 }
 
 function polyToQuake(point: Vec3, pivot: QuakeVertex): QuakeVertex {

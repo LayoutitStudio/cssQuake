@@ -1,10 +1,16 @@
 import type { PolyFirstPersonControlsHandle, PolySceneHandle, Vec3 } from "@layoutit/polycss";
 
 import type { QuakeEntity } from "../prepare/scene";
-import { COLLISION_EPSILON, QUAKE_COLLISION_UNIT_SCALE } from "./constants";
+import {
+  COLLISION_EPSILON,
+  PLAYER_HEIGHT,
+  QUAKE_COLLISION_UNIT_SCALE,
+  QUAKE_PLAYER_MINS_Z,
+  QUAKE_PLAYER_VIEW_Z,
+} from "./constants";
 import type { QuakeCollisionWorld, QuakeUseTrace } from "./collision";
 import { quakeEntityNumber } from "./entities";
-import { dotVec3, normalizeVec3 } from "./math";
+import { crossVec3, dotVec3, normalizeVec3 } from "./math";
 
 export interface QuakeWeaponShootableTarget {
   entity: QuakeEntity;
@@ -17,7 +23,8 @@ export interface QuakeWeaponShootableTarget {
 
 export interface QuakeWeaponsController {
   reset(): void;
-  fire(): void;
+  canFire(now?: number): boolean;
+  fire(now?: number): boolean;
   viewTraceAtCrosshair(range: number): QuakeUseTrace | null;
   weaponTraceAtCrosshair(): QuakeUseTrace | null;
   traceIsActionable(trace: QuakeUseTrace | null): trace is QuakeUseTrace;
@@ -52,8 +59,13 @@ interface QuakeViewRay {
 
 const QUAKE_WEAPON_FIRE_COOLDOWN_MS = 420;
 const QUAKE_WEAPON_TRACE_RANGE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_SHOTGUN_DAMAGE = 24;
-const QUAKE_WEAPON_AIM_DOT = 0.97;
+const QUAKE_WEAPON_SOURCE_FORWARD_OFFSET = 10 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_WEAPON_SOURCE_Z_OFFSET = QUAKE_PLAYER_MINS_Z + PLAYER_HEIGHT * 0.7 - QUAKE_PLAYER_VIEW_Z;
+const QUAKE_SHOTGUN_PELLET_COUNT = 6;
+const QUAKE_SHOTGUN_PELLET_DAMAGE = 4;
+const QUAKE_SHOTGUN_SPREAD_RIGHT = 0.04;
+const QUAKE_SHOTGUN_SPREAD_UP = 0.04;
+const QUAKE_WEAPON_AIM_DOT = 0.93;
 const QUAKE_WEAPON_AIM_POINT_Z = 0.6;
 
 export function createQuakeWeaponsController({
@@ -80,18 +92,23 @@ export function createQuakeWeaponsController({
     lastFireAt = -Infinity;
   }
 
-  function fire(): void {
-    if (!canUseGameplayInput() || !hasViewmodel()) return;
-    const now = performance.now();
-    if (now - lastFireAt < QUAKE_WEAPON_FIRE_COOLDOWN_MS) return;
-    if (getShells() <= 0) return;
+  function canFire(now = performance.now()): boolean {
+    if (!canUseGameplayInput() || !hasViewmodel()) return false;
+    if (now - lastFireAt < QUAKE_WEAPON_FIRE_COOLDOWN_MS) return false;
+    return getShells() > 0;
+  }
+
+  function fire(now = performance.now()): boolean {
+    if (!canFire(now)) return false;
     lastFireAt = now;
     consumeShell();
     syncHud();
     playFireSound();
+    const hit = fireShotgunPellets();
     playFireAnimation();
-    if (handleWeaponHit(weaponTraceForFire())) onHit();
+    if (hit) onHit();
     syncCrosshairTarget();
+    return true;
   }
 
   function viewTraceAtCrosshair(range: number): QuakeUseTrace | null {
@@ -102,18 +119,34 @@ export function createQuakeWeaponsController({
   }
 
   function weaponTraceAtCrosshair(): QuakeUseTrace | null {
-    const ray = viewRayAtCrosshair(QUAKE_WEAPON_TRACE_RANGE);
-    const worldTrace = getCollisionWorld()?.traceUse?.(ray.origin, ray.end) ?? null;
-    const shootableTrace = traceShootables(ray, worldTrace?.fraction ?? 1);
-    return shootableTrace ?? worldTrace;
+    return weaponTraceForFire();
   }
 
   function weaponTraceForFire(): QuakeUseTrace | null {
-    const ray = viewRayAtCrosshair(QUAKE_WEAPON_TRACE_RANGE);
-    const worldTrace = getCollisionWorld()?.traceUse?.(ray.origin, ray.end) ?? null;
-    const directTrace = traceShootables(ray, worldTrace?.fraction ?? 1) ?? worldTrace;
-    if (traceIsShootable(directTrace)) return directTrace;
-    return quakeAimTrace(ray) ?? directTrace;
+    return weaponAimForFire().trace;
+  }
+
+  function weaponAimForFire(): { ray: QuakeViewRay; direction: Vec3; trace: QuakeUseTrace | null } {
+    const ray = weaponRayAtCrosshair(QUAKE_WEAPON_TRACE_RANGE);
+    const directTrace = traceWeaponRay(ray);
+    if (traceIsShootable(directTrace)) {
+      return { ray, direction: ray.direction, trace: directTrace };
+    }
+
+    const aimTrace = quakeAimTrace(ray);
+    if (aimTrace) {
+      return {
+        ray,
+        direction: normalizeVec3([
+          aimTrace.end[0] - ray.origin[0],
+          aimTrace.end[1] - ray.origin[1],
+          aimTrace.end[2] - ray.origin[2],
+        ]),
+        trace: aimTrace,
+      };
+    }
+
+    return { ray, direction: ray.direction, trace: directTrace };
   }
 
   function traceIsActionable(trace: QuakeUseTrace | null): trace is QuakeUseTrace {
@@ -146,6 +179,27 @@ export function createQuakeWeaponsController({
       ],
       range,
     };
+  }
+
+  function weaponRayAtCrosshair(range: number): QuakeViewRay {
+    const origin = controls.getOrigin();
+    const rotX = scene.camera.state.rotX ?? 88;
+    const rotY = scene.camera.state.rotY ?? 270;
+    const direction = normalizeVec3(forwardDirection(rotX, rotY));
+    return viewRayFromDirection(weaponSourceOrigin(origin, direction), direction, range);
+  }
+
+  function weaponSpreadAxes(): { right: Vec3; up: Vec3 } {
+    const rotX = scene.camera.state.rotX ?? 88;
+    const rotY = scene.camera.state.rotY ?? 270;
+    const forward = normalizeVec3(forwardDirection(rotX, rotY));
+    const right = normalizeVec3(rightDirection(rotY));
+    return { right, up: normalizeVec3(crossVec3(right, forward)) };
+  }
+
+  function traceWeaponRay(ray: QuakeViewRay): QuakeUseTrace | null {
+    const worldTrace = getCollisionWorld()?.traceUse?.(ray.origin, ray.end) ?? null;
+    return traceShootables(ray, worldTrace?.fraction ?? 1) ?? worldTrace;
   }
 
   function traceShootables(ray: QuakeViewRay, maxFraction: number): QuakeUseTrace | null {
@@ -184,22 +238,41 @@ export function createQuakeWeaponsController({
     return best?.trace ?? null;
   }
 
-  function handleWeaponHit(trace: QuakeUseTrace | null): boolean {
-    if (trace?.entityIndex === undefined) return false;
-    for (const shootable of getShootables()) {
-      if (shootable.entity.index !== trace.entityIndex) continue;
-      return damageShootable(trace.entityIndex, QUAKE_SHOTGUN_DAMAGE);
+  function fireShotgunPellets(): boolean {
+    const aim = weaponAimForFire();
+    const damageByEntity = new Map<number, number>();
+    const { right, up } = weaponSpreadAxes();
+
+    for (let pellet = 0; pellet < QUAKE_SHOTGUN_PELLET_COUNT; pellet++) {
+      const direction = spreadWeaponDirection(aim.direction, right, up);
+      const trace = traceWeaponRay(viewRayFromDirection(aim.ray.origin, direction, QUAKE_WEAPON_TRACE_RANGE));
+      if (!traceIsShootable(trace) || trace.entityIndex === undefined) continue;
+      damageByEntity.set(trace.entityIndex, (damageByEntity.get(trace.entityIndex) ?? 0) + QUAKE_SHOTGUN_PELLET_DAMAGE);
     }
-    const entity = getEntities().get(trace.entityIndex);
+
+    let hit = false;
+    for (const [entityIndex, damage] of damageByEntity) {
+      if (damageWeaponEntity(entityIndex, damage)) hit = true;
+    }
+    return hit;
+  }
+
+  function damageWeaponEntity(entityIndex: number, amount: number): boolean {
+    for (const shootable of getShootables()) {
+      if (shootable.dead || shootable.entity.index !== entityIndex) continue;
+      return damageShootable(entityIndex, amount);
+    }
+    const entity = getEntities().get(entityIndex);
     if (!entity) return false;
     if (isShootableBrushEntity(entity)) {
-      return damageBrushEntity(entity.index, QUAKE_SHOTGUN_DAMAGE);
+      return damageBrushEntity(entity.index, amount);
     }
     return false;
   }
 
   return {
     reset,
+    canFire,
     fire,
     viewTraceAtCrosshair,
     weaponTraceAtCrosshair,
@@ -302,6 +375,28 @@ function verticalAimDirection(ray: QuakeViewRay, target: Vec3): Vec3 {
   ]);
 }
 
+function weaponSourceOrigin(viewOrigin: Vec3, viewDirection: Vec3): Vec3 {
+  return [
+    viewOrigin[0] + viewDirection[0] * QUAKE_WEAPON_SOURCE_FORWARD_OFFSET,
+    viewOrigin[1] + viewDirection[1] * QUAKE_WEAPON_SOURCE_FORWARD_OFFSET,
+    viewOrigin[2] + QUAKE_WEAPON_SOURCE_Z_OFFSET,
+  ];
+}
+
+function spreadWeaponDirection(aimDirection: Vec3, right: Vec3, up: Vec3): Vec3 {
+  const rightSpread = crandom() * QUAKE_SHOTGUN_SPREAD_RIGHT;
+  const upSpread = crandom() * QUAKE_SHOTGUN_SPREAD_UP;
+  return normalizeVec3([
+    aimDirection[0] + rightSpread * right[0] + upSpread * up[0],
+    aimDirection[1] + rightSpread * right[1] + upSpread * up[1],
+    aimDirection[2] + rightSpread * right[2] + upSpread * up[2],
+  ]);
+}
+
+function crandom(): number {
+  return Math.random() * 2 - 1;
+}
+
 function isShootableBrushEntity(entity: QuakeEntity): boolean {
   if (quakeEntityNumber(entity, "health", 0) <= 0) return false;
   return entity.classname === "func_button" ||
@@ -319,4 +414,9 @@ function forwardDirection(rotX: number, rotY: number): Vec3 {
     -Math.sin(rx) * Math.sin(ry),
     -Math.cos(rx),
   ];
+}
+
+function rightDirection(rotY: number): Vec3 {
+  const ry = (rotY * Math.PI) / 180;
+  return [-Math.sin(ry), Math.cos(ry), 0];
 }

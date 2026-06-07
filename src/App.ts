@@ -8,6 +8,7 @@ import {
   type PolyMeshHandle,
   type Vec3,
 } from "@layoutit/polycss";
+import nipplejs from "nipplejs";
 import {
   QUAKE_RENDER_SUPERSAMPLE,
   createQuakeSceneFromPreparedScene,
@@ -29,6 +30,7 @@ import {
   buildQuakeClipCollisionWorld,
   type QuakeCollisionWorld,
   type QuakeTouchedTrigger,
+  type QuakeUseTrace,
 } from "./runtime/collision";
 import { installQuakeDebugHooks, isQuakeDebugHooksEnabled } from "./runtime/debug/quakeDebug";
 import { isQuakeDebugDomMetadataEnabled, markQuakeTrace } from "./runtime/debug/traceMarks";
@@ -51,7 +53,11 @@ import {
   type QuakeMoverState,
 } from "./runtime/movers";
 import { createQuakeMonsterStateRunner } from "./runtime/quakeMonsterStateRunner";
-import { createQuakeShootablesController, quakeShootableFallbackPolygons } from "./runtime/shootables";
+import {
+  createQuakeShootablesController,
+  quakeShootableFallbackPolygons,
+  type QuakeShootablesDebugStats,
+} from "./runtime/shootables";
 import { createQuakeTargetsController } from "./runtime/targets";
 import { createQuakeTriggersController } from "./runtime/triggers";
 import { createQuakeViewmodelController, type QuakeViewmodelModel } from "./runtime/viewmodel";
@@ -63,6 +69,7 @@ import {
   setQuakeTextureAnimationLeafActive,
   syncQuakeTextureAnimationLeafAnimationClock,
   type QuakeFaceLeaf,
+  type QuakeWorldDebugStats,
 } from "./runtime/world";
 import {
   createQuakePickupController,
@@ -73,7 +80,7 @@ import {
   type QuakePickupModelLibrary,
   type QuakeProgramMetadata,
 } from "./runtime/pickups";
-import { createQuakePlayerController } from "./runtime/player";
+import { createQuakePlayerController, type QuakePlayerDamageFeedback } from "./runtime/player";
 import {
   mountQuakeRenderBundleFrameSetMesh,
   mountQuakeRenderBundleMesh,
@@ -83,6 +90,7 @@ import {
 
 declare const __CSSQUAKE_VERSION__: string;
 
+const quakeApp = document.getElementById("quake-app") as HTMLElement;
 const host = document.getElementById("quake-host") as HTMLElement;
 const viewmodelLayer = document.getElementById("quake-viewmodel-layer") as HTMLElement | null;
 const mainMenu = document.getElementById("quake-main-menu") as HTMLElement | null;
@@ -96,7 +104,19 @@ const optionsPanel = document.getElementById("quake-options-panel") as HTMLEleme
 const disableSoundOption = document.getElementById("quake-option-disable-sound") as HTMLInputElement | null;
 const disableEnemiesOption = document.getElementById("quake-option-disable-enemies") as HTMLInputElement | null;
 const disableDamageOption = document.getElementById("quake-option-disable-damage") as HTMLInputElement | null;
+const debugModeOption = document.getElementById("quake-option-debug-mode") as HTMLInputElement | null;
 const invertMouseOption = document.getElementById("quake-option-invert-mouse") as HTMLInputElement | null;
+const debugPanel = document.getElementById("quake-debug-panel") as HTMLElement | null;
+const debugPanelClose = document.getElementById("quake-debug-close") as HTMLButtonElement | null;
+const debugHideTexturesOption = document.getElementById("quake-debug-hide-textures") as HTMLInputElement | null;
+const debugStaticLightingOption = document.getElementById("quake-debug-static-lighting") as HTMLInputElement | null;
+const debugShowOutlinesOption = document.getElementById("quake-debug-show-outlines") as HTMLInputElement | null;
+const debugShowLabelsOption = document.getElementById("quake-debug-show-labels") as HTMLInputElement | null;
+const debugStatElements = new Map(
+  Array.from(document.querySelectorAll<HTMLElement>("[data-quake-debug-stat]"))
+    .map((element) => [element.dataset.quakeDebugStat ?? "", element] as const)
+    .filter(([key]) => key.length > 0),
+);
 const loadingOverlay = document.getElementById("quake-loading-overlay") as HTMLElement | null;
 const loadingStatus = document.getElementById("quake-loading-status") as HTMLElement | null;
 const loadingProgress = document.getElementById("quake-loading-progress") as HTMLElement | null;
@@ -109,6 +129,7 @@ const hudAmmoValue = document.getElementById("quake-hud-ammo-value") as HTMLElem
 const hudKeysValue = document.getElementById("quake-hud-keys-value") as HTMLElement | null;
 const classicHud = document.getElementById("quake-classic-hud") as HTMLElement | null;
 const quakeHud = document.getElementById("quake-hud") as HTMLElement | null;
+const bonusOverlay = document.getElementById("quake-bonus-overlay") as HTMLElement | null;
 const damageOverlay = document.getElementById("quake-damage-overlay") as HTMLElement | null;
 const quakeHudStatus = document.getElementById("quake-hud-status") as HTMLElement | null;
 const hudElements: QuakeHudElements = {
@@ -125,12 +146,67 @@ let quakeHudDamageSerial = 0;
 let quakeHudDamageCueActive = false;
 const QUAKE_ASSET_ROOT = "/q";
 const QUAKE_MANIFEST_URL = `${QUAKE_ASSET_ROOT}/manifest.json`;
+const QUAKE_ASSETS_REGENERATING_STATUS = "Assets regenerating";
+const QUAKE_ASSETS_REGENERATING_ACTION =
+  "Wait for pnpm prepare:quake to finish, then reload.";
 const QUAKE_LOADING_PREVIEW_ENABLED = import.meta.env.DEV && new URLSearchParams(window.location.search).has("loading");
 const QUAKE_LOADING_READY_MIN_PRESENTED_FRAMES = 6;
 const QUAKE_LOADING_READY_STABLE_PRESENTED_FRAMES = 3;
+
+interface QuakeCrosshairTargetCache {
+  actionTrace: QuakeUseTrace | null;
+  shootableTrace: QuakeUseTrace | null;
+  origin: Vec3 | null;
+  rotX: number;
+  rotY: number;
+  mapName: string;
+  valid: boolean;
+}
+
+const quakeCrosshairTargetCache: QuakeCrosshairTargetCache = {
+  actionTrace: null,
+  shootableTrace: null,
+  origin: null,
+  rotX: 0,
+  rotY: 0,
+  mapName: "",
+  valid: false,
+};
+let quakeCrosshairTargetSyncFrame = 0;
+let quakeAttackInputDown = false;
+let quakeAttackPointerId: number | null = null;
+let quakeAttackFrame = 0;
+let quakePointerLockRetryAt = -Infinity;
+let quakeMobileControlsRoot: HTMLElement | null = null;
+let quakeMobileMoveZone: HTMLElement | null = null;
+let quakeMobileFireButton: HTMLButtonElement | null = null;
+let quakeMobileMoveStick: ReturnType<typeof nipplejs.create> | null = null;
+let quakeMobileMoveFrame = 0;
+let quakeMobileMoveTime = 0;
+let quakeMobileMoveX = 0;
+let quakeMobileMoveY = 0;
+let quakeWeaponViewPunchFrame = 0;
+let quakeWeaponViewPunchOffset = 0;
+let quakeWeaponViewPunchAt = 0;
+let quakeWeaponViewPunchBaseRotX: number | null = null;
+let quakeBonusFlashTimer: number | null = null;
+let quakeBonusFlashSerial = 0;
 const QUAKE_LOADING_READY_FRAME_BUDGET_MS = 45;
 const QUAKE_LOADING_READY_TIMEOUT_MS = 1500;
 const QUAKE_DEATH_UNLOCK_MENU_SUPPRESS_MS = 1000;
+const QUAKE_POINTER_LOCK_RETRY_MS = 500;
+const QUAKE_MOBILE_CONTROLS_QUERY = "(any-pointer: coarse), (max-width: 960px) and (orientation: landscape)";
+const quakeMobileControlsMedia = window.matchMedia(QUAKE_MOBILE_CONTROLS_QUERY);
+const QUAKE_WEAPON_VIEW_PUNCH_DEG = 2;
+const QUAKE_WEAPON_VIEW_PUNCH_MAX_DEG = 4;
+const QUAKE_WEAPON_VIEW_PUNCH_DECAY_MS = 55;
+const QUAKE_WEAPON_VIEW_PUNCH_EPSILON_DEG = 0.001;
+const QUAKE_WEAPON_VIEW_PUNCH_EXTERNAL_EPSILON_DEG = 0.05;
+const QUAKE_CAMERA_ROT_X_MIN = 5;
+const QUAKE_CAMERA_ROT_X_MAX = 175;
+const QUAKE_DAMAGE_VIEW_PITCH_SCALE = 0.035;
+const QUAKE_DAMAGE_VIEW_PITCH_MAX_DEG = 2;
+const QUAKE_BONUS_FLASH_HOLD_MS = 80;
 const QUAKE_URL_VIEW_PART_COUNT = 5;
 const QUAKE_URL_NUMBER_SCALE = 1000;
 const QUAKE_URL_VIEW_ORIGIN_LIMIT = 100000;
@@ -191,6 +267,35 @@ function setQuakeDamageOverlay(active: boolean): void {
   }
 }
 
+function flashQuakeBonusOverlay(): void {
+  if (!bonusOverlay) return;
+  quakeBonusFlashSerial += 1;
+  if (quakeBonusFlashTimer !== null) {
+    window.clearTimeout(quakeBonusFlashTimer);
+    quakeBonusFlashTimer = null;
+  }
+  bonusOverlay.classList.add("quake-bonus-overlay-active");
+  markQuakeTrace("hud-bonus-overlay", { active: true });
+  const serial = quakeBonusFlashSerial;
+  quakeBonusFlashTimer = window.setTimeout(() => {
+    if (serial !== quakeBonusFlashSerial) return;
+    quakeBonusFlashTimer = null;
+    bonusOverlay.classList.remove("quake-bonus-overlay-active");
+    markQuakeTrace("hud-bonus-overlay", { active: false });
+  }, QUAKE_BONUS_FLASH_HOLD_MS);
+}
+
+function clearQuakeBonusOverlay(): void {
+  quakeBonusFlashSerial += 1;
+  if (quakeBonusFlashTimer !== null) {
+    window.clearTimeout(quakeBonusFlashTimer);
+    quakeBonusFlashTimer = null;
+  }
+  if (!bonusOverlay?.classList.contains("quake-bonus-overlay-active")) return;
+  bonusOverlay.classList.remove("quake-bonus-overlay-active");
+  markQuakeTrace("hud-bonus-overlay", { active: false });
+}
+
 const cssQuakeVersionLabel = `v${__CSSQUAKE_VERSION__}`;
 
 if (versionLabel) versionLabel.textContent = cssQuakeVersionLabel;
@@ -216,6 +321,13 @@ interface QuakeAssetManifest {
     programMetadataUrl: string;
     soundManifestUrl?: string;
   };
+}
+
+class QuakeAssetsRegeneratingError extends Error {
+  constructor(message = QUAKE_ASSETS_REGENERATING_ACTION) {
+    super(message);
+    this.name = "QuakeAssetsRegeneratingError";
+  }
 }
 
 interface QuakeLoadingProgressSnapshot {
@@ -369,6 +481,9 @@ const QUAKE_MOVE_KEY_CODES = new Set(["ArrowDown", "ArrowLeft", "ArrowRight", "A
 const QUAKE_CROUCH_KEY_CODES = new Set(["ControlLeft", "ControlRight"]);
 const QUAKE_JUMP_VELOCITY = (270 / 48) * QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_GRAVITY = (800 / 48) * QUAKE_RENDER_SUPERSAMPLE;
+const QUAKE_MOBILE_MOVE_SPEED = 5.4 * QUAKE_RENDER_SUPERSAMPLE;
+const QUAKE_MOBILE_MOVE_DEADZONE = 0.08;
+const QUAKE_MOBILE_MOVE_DT_CLAMP = 0.035;
 const QUAKE_DEFAULT_CAMERA_ZOOM = (BASE_TILE * 0.65) / QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_CAMERA_ZOOM = quakeCameraZoomFromUrl() ?? QUAKE_DEFAULT_CAMERA_ZOOM;
 const QUAKE_REFERENCE_FOV = 90;
@@ -385,6 +500,12 @@ let quakeAssetManifest = FALLBACK_QUAKE_ASSET_MANIFEST;
 let quakeMapUrls = quakeSceneUrlMap(quakeAssetManifest);
 let quakeEnemiesDisabled = quakeUrlBoolean("disableEnemies") || (disableEnemiesOption?.checked ?? false);
 let quakeDamageDisabled = disableDamageOption?.checked ?? false;
+let quakeDebugMode = quakeUrlBoolean("debugPolys") || (debugModeOption?.checked ?? false);
+let quakeDebugHideTextures = debugHideTexturesOption?.checked ?? false;
+let quakeDebugStaticLighting = debugStaticLightingOption?.checked ?? false;
+let quakeDebugShowOutlines = debugShowOutlinesOption?.checked ?? true;
+let quakeDebugShowLabels = debugShowLabelsOption?.checked ?? false;
+let quakeDebugPanelStatsTimer: number | null = null;
 let quakeInvertMouse = invertMouseOption?.checked ?? false;
 let quakeCrouchKeyCodesDown = new Set<string>();
 
@@ -556,7 +677,7 @@ sceneElement.removeAttribute("data-polycss-lighting");
 const controls = createPolyFirstPersonControls(scene, {
   eyeHeight: 1.72,
   groundZ: 0,
-  moveSpeed: 5.4 * QUAKE_RENDER_SUPERSAMPLE,
+  moveSpeed: QUAKE_MOBILE_MOVE_SPEED,
   lookSensitivity: 0.12,
   invertY: quakeInvertMouse,
   jumpEnabled: true,
@@ -667,6 +788,7 @@ pickups = createQuakePickupController({
   applyEffect: (effect, entity) => {
     applyQuakeInventoryDelta(getPlayer().inventory(), effect);
     syncQuakeHud();
+    flashQuakeBonusOverlay();
     audio.playPickup(entity);
   },
   leafIndexAt: world.leafIndexAt,
@@ -692,11 +814,11 @@ const weapons = createQuakeWeaponsController({
   },
   syncHud: syncQuakeHud,
   playFireSound: () => audio.playEvent("weaponShotgun", { volume: 0.74 }),
-  playFireAnimation: viewmodel.playFireAnimation,
+  playFireAnimation: playQuakeWeaponFireFeedback,
   damageShootable: shootables.damage,
   damageBrushEntity: damageQuakeBrushEntity,
   onHit: flashQuakeCrosshairHit,
-  syncCrosshairTarget: syncQuakeCrosshairTarget,
+  syncCrosshairTarget: queueQuakeCrosshairTargetSync,
 });
 player = createQuakePlayerController({
   activateSolidTouch,
@@ -706,7 +828,7 @@ player = createQuakePlayerController({
   getCurrentScene: () => currentResult,
   gravity: QUAKE_GRAVITY,
   jumpVelocity: QUAKE_JUMP_VELOCITY,
-  onDamageFlash: (active) => {
+  onDamageFlash: (active, feedback) => {
     if (!active) {
       if (!quakePlayerDead) {
         setQuakeDamageOverlay(false);
@@ -715,6 +837,7 @@ player = createQuakePlayerController({
       return;
     }
     setQuakeDamageOverlay(true);
+    playQuakeDamageViewFeedback(feedback);
     const damageCueActive = quakeHudDamageTimer !== null;
     if (quakeHudDamageTimer !== null) window.clearTimeout(quakeHudDamageTimer);
     const serial = ++quakeHudDamageSerial;
@@ -788,6 +911,7 @@ interface QuakeStatsPanel {
 
 const FPS_SAMPLE_MS = 1000;
 const MS_SAMPLE_MS = 500;
+const QUAKE_DEBUG_PANEL_STATS_MS = 250;
 const STATS_GRAPH_COLUMNS = 40;
 const STATS_GRAPH_COLUMN_WIDTH = 2;
 const STATS_GRAPH_WIDTH = STATS_GRAPH_COLUMNS * STATS_GRAPH_COLUMN_WIDTH;
@@ -859,6 +983,134 @@ function setQuakeDamageDisabled(disabled: boolean): void {
   if (disableDamageOption) disableDamageOption.checked = disabled;
 }
 
+function setQuakeDebugMode(enabled: boolean): void {
+  quakeDebugMode = enabled;
+  if (debugModeOption) debugModeOption.checked = enabled;
+  syncQuakeDebugRenderOptions();
+  syncQuakeDebugPanelVisibility();
+  syncQuakeDebugPointerLockState();
+}
+
+function setQuakeDebugHideTextures(enabled: boolean): void {
+  quakeDebugHideTextures = enabled;
+  if (enabled) quakeDebugShowOutlines = true;
+  if (debugHideTexturesOption) debugHideTexturesOption.checked = enabled;
+  syncQuakeDebugRenderOptions();
+}
+
+function setQuakeDebugStaticLighting(enabled: boolean): void {
+  quakeDebugStaticLighting = enabled;
+  if (debugStaticLightingOption) debugStaticLightingOption.checked = enabled;
+  syncQuakeDebugRenderOptions();
+}
+
+function setQuakeDebugShowOutlines(enabled: boolean): void {
+  quakeDebugShowOutlines = enabled;
+  if (debugShowOutlinesOption) debugShowOutlinesOption.checked = enabled;
+  syncQuakeDebugRenderOptions();
+}
+
+function setQuakeDebugShowLabels(enabled: boolean): void {
+  quakeDebugShowLabels = enabled;
+  if (debugShowLabelsOption) debugShowLabelsOption.checked = enabled;
+  syncQuakeDebugRenderOptions();
+}
+
+function syncQuakeDebugRenderOptions(): void {
+  if (quakeDebugHideTextures) quakeDebugShowOutlines = true;
+  if (debugHideTexturesOption) debugHideTexturesOption.checked = quakeDebugHideTextures;
+  if (debugStaticLightingOption) debugStaticLightingOption.checked = quakeDebugStaticLighting;
+  if (debugShowOutlinesOption) debugShowOutlinesOption.checked = quakeDebugShowOutlines;
+  if (debugShowLabelsOption) debugShowLabelsOption.checked = quakeDebugShowLabels;
+  document.body.classList.remove("quake-poly-debug");
+  document.body.classList.toggle("quake-debug-no-textures", quakeDebugMode && quakeDebugHideTextures);
+  document.body.classList.toggle("quake-debug-static-lighting", quakeDebugMode && quakeDebugStaticLighting);
+  document.body.classList.toggle("quake-debug-outlines", quakeDebugMode && quakeDebugShowOutlines);
+  document.body.classList.toggle("quake-debug-labels", quakeDebugMode && quakeDebugShowLabels);
+}
+
+function syncQuakeDebugPointerLockState(): void {
+  document.body.classList.toggle("quake-debug-pointer-free", quakeDebugMode && document.pointerLockElement !== host);
+}
+
+function syncQuakeDebugPanelVisibility(): void {
+  if (!debugPanel) return;
+  debugPanel.hidden = !quakeDebugMode;
+  if (quakeDebugMode) {
+    menu.hideMainMenu();
+    syncQuakeDebugPanelStats();
+    startQuakeDebugPanelStats();
+    return;
+  }
+  stopQuakeDebugPanelStats();
+}
+
+function startQuakeDebugPanelStats(): void {
+  if (quakeDebugPanelStatsTimer !== null) return;
+  quakeDebugPanelStatsTimer = window.setInterval(syncQuakeDebugPanelStats, QUAKE_DEBUG_PANEL_STATS_MS);
+}
+
+function stopQuakeDebugPanelStats(): void {
+  if (quakeDebugPanelStatsTimer === null) return;
+  window.clearInterval(quakeDebugPanelStatsTimer);
+  quakeDebugPanelStatsTimer = null;
+}
+
+function syncQuakeDebugPanelStats(): void {
+  if (!quakeDebugMode || !debugPanel || debugPanel.hidden) return;
+  const worldStats = world.debugStats();
+  const shootableStats = shootables.debugStats();
+  const origin = controls.getOrigin();
+  const rotX = scene.camera.state.rotX ?? 90;
+  const rotY = scene.camera.state.rotY ?? 270;
+  const pickupMeshes = Array.from(document.querySelectorAll<HTMLElement>(".polycss-mesh.pickup"));
+  const activePickupMeshes = pickupMeshes.filter((element) => !element.hidden);
+
+  setQuakeDebugStat("map", `${currentMapName.toUpperCase()} leaf ${debugStatValue(worldStats.currentLeafIndex)}`);
+  setQuakeDebugStat("pose", `${quakeDebugVec3(origin)} | ${rotX.toFixed(1)}/${rotY.toFixed(1)}`);
+  setQuakeDebugStat(
+    "visible",
+    `${debugStatValue(worldStats.visibleLeafCount)} leaves, ${debugStatValue(worldStats.pvsFaceCount)} faces`,
+  );
+  setQuakeDebugStat("dom", quakeDebugDomLabel(worldStats));
+  setQuakeDebugStat("enemies", quakeDebugEnemiesLabel(shootableStats));
+  setQuakeDebugStat("pickups", `${activePickupMeshes.length}/${pickupMeshes.length} visible`);
+}
+
+function quakeDebugDomLabel(stats: QuakeWorldDebugStats): string {
+  return `${stats.mountedLeaves}/${stats.totalLeaves} leaves`;
+}
+
+function quakeDebugEnemiesLabel(stats: QuakeShootablesDebugStats): string {
+  const parts = [
+    `${stats.liveEnemyShootables}/${stats.enemyShootables} live`,
+    `${stats.visibleEnemyShootables} vis`,
+  ];
+  const queue = stats.prewarmQueue + stats.animationFramePrewarmQueue;
+  if (queue > 0) {
+    parts.push(`${queue} queued`);
+  } else if (stats.prewarmedEnemyShootables > 0) {
+    parts.push(`${stats.prewarmedEnemyShootables} warm`);
+  }
+  const churn = stats.visibilityChurn;
+  const visibleChange = churn.lastVisibleShootablesAdded + churn.lastVisibleShootablesRemoved;
+  if (visibleChange > 0) parts.push(`last +${churn.lastVisibleShootablesAdded}/-${churn.lastVisibleShootablesRemoved}`);
+  return parts.join(", ");
+}
+
+function quakeDebugVec3(value: Vec3): string {
+  return value.map((component) => component.toFixed(1)).join(", ");
+}
+
+function setQuakeDebugStat(name: string, value: string): void {
+  const element = debugStatElements.get(name);
+  if (element) element.textContent = value;
+}
+
+function debugStatValue(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "-";
+}
+
 function setQuakeInvertMouse(invert: boolean): void {
   quakeInvertMouse = invert;
   if (invertMouseOption) invertMouseOption.checked = invert;
@@ -869,6 +1121,8 @@ function syncQuakeOptionControls(): void {
   syncQuakeAudioToggle();
   if (disableEnemiesOption) disableEnemiesOption.checked = quakeEnemiesDisabled;
   if (disableDamageOption) disableDamageOption.checked = quakeDamageDisabled;
+  setQuakeDebugMode(quakeDebugMode);
+  syncQuakeDebugRenderOptions();
   if (invertMouseOption) invertMouseOption.checked = quakeInvertMouse;
 }
 
@@ -880,6 +1134,8 @@ function clearQuakeLevelLoadTimer(): void {
 }
 
 function clearQuakeLevelComplete(): void {
+  clearQuakeAttackInput();
+  clearQuakeWeaponViewPunch();
   document.body.classList.remove("quake-level-complete");
   if (!document.body.classList.contains("quake-hud-message")) clearQuakeHudStatus();
   controls.update({ moveEnabled: true, jumpEnabled: true, jumpVelocity: QUAKE_JUMP_VELOCITY, gravity: QUAKE_GRAVITY });
@@ -944,6 +1200,7 @@ function clearQuakeMainMenuControlsEndSuppression(): void {
 }
 
 function shouldOpenQuakeMainMenuOnControlsEnd(): boolean {
+  if (quakeDebugMode) return false;
   if (quakeDeathUnlockMenuSuppressUntil > 0) {
     const suppress = performance.now() <= quakeDeathUnlockMenuSuppressUntil;
     quakeDeathUnlockMenuSuppressUntil = 0;
@@ -955,6 +1212,10 @@ function shouldOpenQuakeMainMenuOnControlsEnd(): boolean {
 function showQuakePlayerDeath(): void {
   if (quakePlayerDead) return;
   quakePlayerDead = true;
+  clearQuakeAttackInput();
+  clearQuakeMobileMoveInput();
+  clearQuakeWeaponViewPunch();
+  clearQuakeBonusOverlay();
   markQuakeTrace("hud-death", { active: true });
   clearQuakeHudMessage();
   clearQuakeCrosshairHit();
@@ -1050,6 +1311,12 @@ function shouldPreventQuakeGameplayKeyDefault(event: KeyboardEvent): boolean {
     !isEditableKeyboardTarget(event.target);
 }
 
+function isQuakeDebugPanelTarget(target: EventTarget | null): boolean {
+  return debugPanel !== null &&
+    target instanceof Node &&
+    debugPanel.contains(target);
+}
+
 function syncQuakeCrouchInput(): void {
   if (!player) return;
   player.setCrouching(canUseQuakeGameplayInput() && quakeCrouchKeyCodesDown.size > 0);
@@ -1107,10 +1374,18 @@ function createQuakeLoadingProgressTracker(status = "Loading"): QuakeLoadingProg
 function setQuakeLoading(active: boolean, status = "Loading"): void {
   quakeAppLoading = active;
   if (active) {
+    clearQuakeAttackInput();
+    clearQuakeMobileMoveInput();
     clearQuakeCrouchInput();
+    clearQuakeWeaponViewPunch();
+    clearQuakeBonusOverlay();
     hideQuakeStatsOverlay();
     document.body.classList.add("quake-loading");
     updateQuakeLoadingDisplay(status, { completed: 0, total: 0 });
+    if (loadingAction) {
+      loadingAction.textContent = "";
+      loadingAction.hidden = true;
+    }
     if (loadingOverlay) {
       loadingOverlay.hidden = false;
       loadingOverlay.setAttribute("aria-busy", "true");
@@ -1133,6 +1408,10 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
       loadingOverlay.removeAttribute("aria-busy");
     }
   }
+  if (loadingAction) {
+    loadingAction.textContent = "";
+    loadingAction.hidden = true;
+  }
   if (!menu.isMainMenuOpen() && !menu.isMenuPanelOpen() && !isQuakeLevelTransitionActive()) {
     controls.update({ moveEnabled: true });
   }
@@ -1142,12 +1421,41 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
 
 function setQuakeLoadingError(): void {
   quakeAppLoading = true;
+  clearQuakeAttackInput();
+  clearQuakeMobileMoveInput();
   clearQuakeCrouchInput();
+  clearQuakeWeaponViewPunch();
+  clearQuakeBonusOverlay();
   document.body.classList.add("quake-loading");
   updateQuakeLoadingDisplay("Load failed", { completed: 0, total: 0 });
+  if (loadingAction) {
+    loadingAction.textContent = "";
+    loadingAction.hidden = true;
+  }
   if (loadingOverlay) {
     loadingOverlay.hidden = false;
     loadingOverlay.setAttribute("aria-busy", "false");
+  }
+  controls.update({ moveEnabled: false });
+  clearQuakeCrosshairTarget();
+}
+
+function setQuakeAssetsRegenerating(message = QUAKE_ASSETS_REGENERATING_ACTION): void {
+  quakeAppLoading = true;
+  clearQuakeAttackInput();
+  clearQuakeMobileMoveInput();
+  clearQuakeCrouchInput();
+  clearQuakeWeaponViewPunch();
+  clearQuakeBonusOverlay();
+  document.body.classList.add("quake-loading");
+  updateQuakeLoadingDisplay(QUAKE_ASSETS_REGENERATING_STATUS, { completed: 0, total: 0 });
+  if (loadingAction) {
+    loadingAction.textContent = message;
+    loadingAction.hidden = false;
+  }
+  if (loadingOverlay) {
+    loadingOverlay.hidden = false;
+    loadingOverlay.setAttribute("aria-busy", "true");
   }
   controls.update({ moveEnabled: false });
   clearQuakeCrosshairTarget();
@@ -1160,7 +1468,9 @@ function updateQuakeLoadingDisplay(status: string, progress: QuakeLoadingProgres
   const visualProgress = Math.max(0, Math.min(1, progress.visualProgress ?? actualProgress));
   const percent = Math.round(visualProgress * 100);
   const root = loadingStatus?.parentElement ?? document;
-  const displayStatus = status === "Load failed" ? status : "Loading";
+  const displayStatus = status === "Load failed" || status === QUAKE_ASSETS_REGENERATING_STATUS
+    ? status
+    : "Loading";
 
   if (loadingStatus) loadingStatus.textContent = displayStatus;
   if (loadingProgress) {
@@ -1248,6 +1558,9 @@ function quakePointToPoly(point: { x: number; y: number; z: number }): Vec3 {
 }
 
 function disposeCurrentScene(): void {
+  clearQuakeAttackInput();
+  clearQuakeWeaponViewPunch();
+  clearQuakeBonusOverlay();
   viewmodel.remove();
   world.clear();
   movers.clear();
@@ -1276,6 +1589,7 @@ function disposeCurrentScene(): void {
 }
 
 function setCamera(spawn: QuakeScene["spawn"]): void {
+  clearQuakeWeaponViewPunch(false);
   getPlayer().spawn(spawn);
   syncSceneCamera(spawn.rotX, spawn.rotY);
   syncQuakeCrosshairTarget();
@@ -1301,6 +1615,79 @@ function syncSceneCameraAt(origin: Vec3, rotX: number, rotY: number): void {
   scene.applyCamera();
 }
 
+function playQuakeWeaponFireFeedback(): void {
+  viewmodel.playFireAnimation();
+  punchQuakeWeaponView();
+}
+
+function punchQuakeWeaponView(amount = QUAKE_WEAPON_VIEW_PUNCH_DEG, now = performance.now()): void {
+  const nextOffset = Math.min(QUAKE_WEAPON_VIEW_PUNCH_MAX_DEG, quakeWeaponViewPunchOffset + Math.max(0, amount));
+  syncQuakeWeaponViewPunchOffset(nextOffset);
+  quakeWeaponViewPunchAt = now;
+  scheduleQuakeWeaponViewPunchFrame();
+}
+
+function scheduleQuakeWeaponViewPunchFrame(): void {
+  if (quakeAppDisposed || quakeWeaponViewPunchFrame || quakeWeaponViewPunchOffset <= 0) return;
+  quakeWeaponViewPunchFrame = window.requestAnimationFrame(runQuakeWeaponViewPunchFrame);
+}
+
+function runQuakeWeaponViewPunchFrame(now: number): void {
+  quakeWeaponViewPunchFrame = 0;
+  if (quakeWeaponViewPunchOffset <= 0) return;
+  if (!canUseQuakeGameplayInput()) {
+    clearQuakeWeaponViewPunch();
+    return;
+  }
+
+  const dt = Math.min(100, Math.max(0, now - quakeWeaponViewPunchAt || 16.7));
+  quakeWeaponViewPunchAt = now;
+  const nextOffset = quakeWeaponViewPunchOffset * Math.exp(-dt / QUAKE_WEAPON_VIEW_PUNCH_DECAY_MS);
+  const snappedOffset = nextOffset <= QUAKE_WEAPON_VIEW_PUNCH_EPSILON_DEG ? 0 : nextOffset;
+  syncQuakeWeaponViewPunchOffset(snappedOffset);
+  if (quakeWeaponViewPunchOffset > 0) {
+    scheduleQuakeWeaponViewPunchFrame();
+  } else {
+    queueQuakeCrosshairTargetSync();
+  }
+}
+
+function clearQuakeWeaponViewPunch(syncCamera = true): void {
+  if (quakeWeaponViewPunchFrame) {
+    window.cancelAnimationFrame(quakeWeaponViewPunchFrame);
+    quakeWeaponViewPunchFrame = 0;
+  }
+  if (syncCamera && Math.abs(quakeWeaponViewPunchOffset) > QUAKE_WEAPON_VIEW_PUNCH_EPSILON_DEG && currentResult) {
+    syncQuakeWeaponViewPunchOffset(0);
+  }
+  quakeWeaponViewPunchOffset = 0;
+  quakeWeaponViewPunchAt = 0;
+  quakeWeaponViewPunchBaseRotX = null;
+}
+
+function syncQuakeWeaponViewPunchOffset(nextOffset: number): void {
+  const origin = controls.getOrigin();
+  const currentRotX = clampNumber(scene.camera.state.rotX ?? 88, QUAKE_CAMERA_ROT_X_MIN, QUAKE_CAMERA_ROT_X_MAX);
+  const rotY = scene.camera.state.rotY ?? 270;
+  let baseRotX = quakeWeaponViewPunchBaseRotX;
+  if (baseRotX === null) {
+    baseRotX = currentRotX - quakeWeaponViewPunchOffset;
+  } else if (Math.abs(currentRotX - (baseRotX + quakeWeaponViewPunchOffset)) > QUAKE_WEAPON_VIEW_PUNCH_EXTERNAL_EPSILON_DEG) {
+    baseRotX = currentRotX;
+  }
+
+  baseRotX = clampNumber(baseRotX, QUAKE_CAMERA_ROT_X_MIN, QUAKE_CAMERA_ROT_X_MAX);
+  quakeWeaponViewPunchOffset = nextOffset;
+  quakeWeaponViewPunchBaseRotX = nextOffset > 0 ? baseRotX : null;
+  syncSceneCameraAt(origin, clampNumber(baseRotX + nextOffset, QUAKE_CAMERA_ROT_X_MIN, QUAKE_CAMERA_ROT_X_MAX), rotY);
+  viewmodel.syncTransform();
+}
+
+function playQuakeDamageViewFeedback(feedback: QuakePlayerDamageFeedback | undefined): void {
+  const amount = Math.max(10, feedback?.amount ?? 10);
+  punchQuakeWeaponView(Math.min(QUAKE_DAMAGE_VIEW_PITCH_MAX_DEG, amount * QUAKE_DAMAGE_VIEW_PITCH_SCALE));
+}
+
 function lookOffset(): number {
   const value = Number.parseFloat(scene.camera.perspectiveStyle);
   return (Number.isFinite(value) && value > 0 ? value : 900) / BASE_TILE;
@@ -1314,6 +1701,10 @@ function forwardDirection(rotX: number, rotY: number): Vec3 {
     -Math.sin(rx) * Math.sin(ry),
     -Math.cos(rx),
   ];
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function quakeLineOfSight(start: Vec3, end: Vec3): boolean {
@@ -1435,6 +1826,7 @@ function teleportQuakePlayer(destination: QuakeEntity): void {
 
 function completeQuakeLevel(entity: QuakeEntity): void {
   quakeTransitionSerial++;
+  clearQuakeAttackInput();
   clearQuakeLevelLoadTimer();
   viewmodel.clearFireAnimation();
   getPlayer().clearLevelState();
@@ -1935,49 +2327,293 @@ function handleQuakeUsePointerDown(event: PointerEvent): void {
   if (quakePlayerDead) {
     event.preventDefault();
     event.stopPropagation();
+    clearQuakeAttackInput();
     audio.unlock();
     respawnQuakePlayerFromDeath();
     return;
   }
   if (!canUseQuakeGameplayInput()) return;
   event.preventDefault();
-  audio.unlock();
-  host.focus({ preventScroll: true });
-  controls.lock();
-  if (activateQuakeButtonAtCrosshair()) {
-    syncQuakeCrosshairTarget();
+  if (quakeAttackInputDown) {
+    scheduleQuakeAttackFrame();
     return;
   }
-  weapons.fire();
+  const now = performance.now();
+  const actionTrace = quakePointerActionTrace();
+  if (activateQuakeButtonAtCrosshair(actionTrace)) {
+    clearQuakeAttackInput();
+    engageQuakePointerControls(now);
+    queueQuakeCrosshairTargetSync();
+    return;
+  }
+  engageQuakePointerControls(now);
+  startQuakeAttackInput(event.pointerId, now);
 }
 
-function activateQuakeButtonAtCrosshair(): boolean {
-  const trace = weapons.viewTraceAtCrosshair(QUAKE_BUTTON_USE_RANGE);
+function engageQuakePointerControls(now = performance.now()): void {
+  audio.unlock();
+  if (document.activeElement !== host) host.focus({ preventScroll: true });
+  if (document.pointerLockElement !== host && now >= quakePointerLockRetryAt) {
+    quakePointerLockRetryAt = now + QUAKE_POINTER_LOCK_RETRY_MS;
+    controls.lock();
+  }
+}
+
+function startQuakeAttackInput(pointerId: number, now = performance.now()): void {
+  quakeAttackPointerId = pointerId;
+  quakeAttackInputDown = true;
+  runQuakeAttackFrame(now);
+}
+
+function handleQuakeAttackPointerEnd(event: PointerEvent): void {
+  if (quakeAttackPointerId !== null && event.pointerId !== quakeAttackPointerId) return;
+  clearQuakeAttackInput();
+}
+
+function clearQuakeAttackInput(): void {
+  quakeAttackInputDown = false;
+  quakeAttackPointerId = null;
+  if (!quakeAttackFrame) return;
+  window.cancelAnimationFrame(quakeAttackFrame);
+  quakeAttackFrame = 0;
+}
+
+function scheduleQuakeAttackFrame(): void {
+  if (quakeAppDisposed || !quakeAttackInputDown || quakeAttackFrame) return;
+  quakeAttackFrame = window.requestAnimationFrame(runQuakeAttackFrame);
+}
+
+function runQuakeAttackFrame(now: number): void {
+  quakeAttackFrame = 0;
+  if (!quakeAttackInputDown) return;
+  if (!canUseQuakeGameplayInput()) {
+    clearQuakeAttackInput();
+    return;
+  }
+  weapons.fire(now);
+  if (canUseQuakeGameplayInput()) scheduleQuakeAttackFrame();
+}
+
+function setupQuakeMobileControls(): void {
+  if (quakeMobileControlsRoot) return;
+  const root = document.createElement("div");
+  root.id = "quake-mobile-controls";
+  root.setAttribute("aria-hidden", "true");
+
+  const moveZone = document.createElement("div");
+  moveZone.id = "quake-mobile-move-zone";
+
+  const fireButton = document.createElement("button");
+  fireButton.id = "quake-mobile-fire";
+  fireButton.type = "button";
+  fireButton.setAttribute("aria-label", "Fire");
+
+  root.append(moveZone, fireButton);
+  quakeApp.append(root);
+
+  quakeMobileControlsRoot = root;
+  quakeMobileMoveZone = moveZone;
+  quakeMobileFireButton = fireButton;
+  quakeMobileMoveStick = nipplejs.create({
+    zone: moveZone,
+    mode: "static",
+    position: { left: "72px", top: "72px" },
+    size: 108,
+    threshold: QUAKE_MOBILE_MOVE_DEADZONE,
+    restOpacity: 0.58,
+    fadeTime: 80,
+    color: {
+      front: "rgba(245, 232, 200, 0.18)",
+      back: "rgba(10, 9, 7, 0.34)",
+    },
+  });
+  quakeMobileMoveStick.on("move", (event) => {
+    setQuakeMobileMoveInput(event.data.vector.x, event.data.vector.y);
+  });
+  quakeMobileMoveStick.on("end", clearQuakeMobileMoveInput);
+  fireButton.addEventListener("pointerdown", handleQuakeMobileFirePointerDown);
+}
+
+function destroyQuakeMobileControls(): void {
+  clearQuakeMobileMoveInput();
+  quakeMobileMoveStick?.destroy();
+  quakeMobileMoveStick = null;
+  quakeMobileFireButton?.removeEventListener("pointerdown", handleQuakeMobileFirePointerDown);
+  quakeMobileControlsRoot?.remove();
+  quakeMobileControlsRoot = null;
+  quakeMobileMoveZone = null;
+  quakeMobileFireButton = null;
+}
+
+function syncQuakeMobileControlsAvailability(): void {
+  if (quakeMobileControlsMedia.matches) {
+    setupQuakeMobileControls();
+  } else {
+    destroyQuakeMobileControls();
+  }
+}
+
+function setQuakeMobileMoveInput(x: number, y: number): void {
+  const length = Math.hypot(x, y);
+  if (length < QUAKE_MOBILE_MOVE_DEADZONE) {
+    clearQuakeMobileMoveInput();
+    return;
+  }
+  const scale = length > 1 ? 1 / length : 1;
+  quakeMobileMoveX = x * scale;
+  quakeMobileMoveY = y * scale;
+  scheduleQuakeMobileMoveFrame();
+}
+
+function clearQuakeMobileMoveInput(): void {
+  quakeMobileMoveX = 0;
+  quakeMobileMoveY = 0;
+  quakeMobileMoveTime = 0;
+  if (!quakeMobileMoveFrame) return;
+  window.cancelAnimationFrame(quakeMobileMoveFrame);
+  quakeMobileMoveFrame = 0;
+}
+
+function scheduleQuakeMobileMoveFrame(): void {
+  if (quakeAppDisposed || quakeMobileMoveFrame) return;
+  if (Math.hypot(quakeMobileMoveX, quakeMobileMoveY) < QUAKE_MOBILE_MOVE_DEADZONE) return;
+  quakeMobileMoveFrame = window.requestAnimationFrame(runQuakeMobileMoveFrame);
+}
+
+function runQuakeMobileMoveFrame(now: number): void {
+  quakeMobileMoveFrame = 0;
+  if (Math.hypot(quakeMobileMoveX, quakeMobileMoveY) < QUAKE_MOBILE_MOVE_DEADZONE) {
+    quakeMobileMoveTime = 0;
+    return;
+  }
+  if (canUseQuakeGameplayInput()) {
+    const dt = Math.min(QUAKE_MOBILE_MOVE_DT_CLAMP, quakeMobileMoveTime ? (now - quakeMobileMoveTime) / 1000 : 0.0167);
+    moveQuakePlayerFromMobileStick(dt);
+  }
+  quakeMobileMoveTime = now;
+  scheduleQuakeMobileMoveFrame();
+}
+
+function moveQuakePlayerFromMobileStick(dt: number): void {
+  const origin = controls.getOrigin();
+  const rotY = scene.camera.state.rotY ?? 270;
+  const forward = forwardDirection(90, rotY);
+  const right: Vec3 = [forward[1], -forward[0], 0];
+  const step = QUAKE_MOBILE_MOVE_SPEED * dt;
+  const nextOrigin: [number, number, number] = [
+    origin[0] + (forward[0] * quakeMobileMoveY + right[0] * quakeMobileMoveX) * step,
+    origin[1] + (forward[1] * quakeMobileMoveY + right[1] * quakeMobileMoveX) * step,
+    origin[2],
+  ];
+  controls.setOrigin(nextOrigin);
+  getPlayer().syncCollision();
+}
+
+function handleQuakeMobileFirePointerDown(event: PointerEvent): void {
+  event.preventDefault();
+  event.stopPropagation();
+  audio.unlock();
+  if (quakePlayerDead) {
+    clearQuakeAttackInput();
+    respawnQuakePlayerFromDeath();
+    return;
+  }
+  if (!canUseQuakeGameplayInput()) return;
+  if (document.activeElement !== host) host.focus({ preventScroll: true });
+  if (quakeAttackInputDown) {
+    scheduleQuakeAttackFrame();
+    return;
+  }
+  startQuakeAttackInput(event.pointerId, performance.now());
+}
+
+function activateQuakeButtonAtCrosshair(trace: QuakeUseTrace | null): boolean {
   if (!weapons.traceIsActionable(trace) || trace.entityIndex === undefined) return false;
   activateQuakeEntity(trace.entityIndex);
   return true;
 }
 
+function quakePointerActionTrace(): QuakeUseTrace | null {
+  if (isQuakeCrosshairTargetCacheFresh()) return quakeCrosshairTargetCache.actionTrace;
+  const trace = weapons.viewTraceAtCrosshair(QUAKE_BUTTON_USE_RANGE);
+  cacheQuakeCrosshairActionProbe(trace);
+  return quakeCrosshairTargetCache.actionTrace;
+}
+
 function syncQuakeCrosshairTarget(): void {
+  if (quakeCrosshairTargetSyncFrame) {
+    window.cancelAnimationFrame(quakeCrosshairTargetSyncFrame);
+    quakeCrosshairTargetSyncFrame = 0;
+  }
   if (!canUseQuakeGameplayInput()) {
-    clearQuakeCrosshairTarget();
+    invalidateQuakeCrosshairTarget();
     return;
   }
   const trace = weapons.viewTraceAtCrosshair(QUAKE_BUTTON_USE_RANGE);
   if (weapons.traceIsActionable(trace)) {
+    cacheQuakeCrosshairTarget(trace, null);
     document.body.classList.add("quake-action");
     return;
   }
   const weaponTrace = weapons.weaponTraceAtCrosshair();
   if (weapons.traceIsShootable(weaponTrace)) {
+    cacheQuakeCrosshairTarget(null, weaponTrace);
     document.body.classList.add("quake-action");
     return;
   }
-  clearQuakeCrosshairTarget();
+  cacheQuakeCrosshairTarget(null, null);
+  document.body.classList.remove("quake-action");
+}
+
+function queueQuakeCrosshairTargetSync(): void {
+  if (quakeAppDisposed || quakeCrosshairTargetSyncFrame) return;
+  quakeCrosshairTargetSyncFrame = window.requestAnimationFrame(() => {
+    quakeCrosshairTargetSyncFrame = 0;
+    syncQuakeCrosshairTarget();
+  });
 }
 
 function clearQuakeCrosshairTarget(): void {
+  invalidateQuakeCrosshairTarget();
+}
+
+function invalidateQuakeCrosshairTarget(): void {
+  quakeCrosshairTargetCache.actionTrace = null;
+  quakeCrosshairTargetCache.shootableTrace = null;
+  quakeCrosshairTargetCache.origin = null;
+  quakeCrosshairTargetCache.valid = false;
   document.body.classList.remove("quake-action");
+}
+
+function cacheQuakeCrosshairActionProbe(trace: QuakeUseTrace | null): void {
+  const actionTrace = weapons.traceIsActionable(trace) ? trace : null;
+  cacheQuakeCrosshairTarget(actionTrace, null);
+  if (actionTrace) {
+    document.body.classList.add("quake-action");
+  } else {
+    document.body.classList.remove("quake-action");
+    queueQuakeCrosshairTargetSync();
+  }
+}
+
+function cacheQuakeCrosshairTarget(actionTrace: QuakeUseTrace | null, shootableTrace: QuakeUseTrace | null): void {
+  const origin = controls.getOrigin();
+  quakeCrosshairTargetCache.actionTrace = actionTrace;
+  quakeCrosshairTargetCache.shootableTrace = shootableTrace;
+  quakeCrosshairTargetCache.origin = [origin[0], origin[1], origin[2]];
+  quakeCrosshairTargetCache.rotX = scene.camera.state.rotX ?? 88;
+  quakeCrosshairTargetCache.rotY = scene.camera.state.rotY ?? 270;
+  quakeCrosshairTargetCache.mapName = currentMapName;
+  quakeCrosshairTargetCache.valid = true;
+}
+
+function isQuakeCrosshairTargetCacheFresh(): boolean {
+  if (!quakeCrosshairTargetCache.valid || !quakeCrosshairTargetCache.origin) return false;
+  if (quakeCrosshairTargetCache.mapName !== currentMapName) return false;
+  const origin = controls.getOrigin();
+  if (distanceSq3(origin, quakeCrosshairTargetCache.origin) > COLLISION_EPSILON * COLLISION_EPSILON) return false;
+  return Math.abs((scene.camera.state.rotX ?? 88) - quakeCrosshairTargetCache.rotX) <= COLLISION_EPSILON &&
+    Math.abs((scene.camera.state.rotY ?? 270) - quakeCrosshairTargetCache.rotY) <= COLLISION_EPSILON;
 }
 
 function handleQuakeDisableSoundOptionChange(event: Event): void {
@@ -1991,6 +2627,43 @@ function handleQuakeDisableEnemiesOptionChange(event: Event): void {
 
 function handleQuakeDisableDamageOptionChange(event: Event): void {
   setQuakeDamageDisabled((event.currentTarget as HTMLInputElement).checked);
+}
+
+function handleQuakeDebugModeOptionChange(event: Event): void {
+  setQuakeDebugMode((event.currentTarget as HTMLInputElement).checked);
+}
+
+function exitQuakeDebugToMainMenu(): void {
+  setQuakeDebugMode(false);
+  menu.showMainMenu();
+}
+
+function handleQuakeDebugCloseClick(): void {
+  exitQuakeDebugToMainMenu();
+}
+
+function handleQuakeDebugEscape(event: KeyboardEvent): boolean {
+  if (event.code !== "Escape" || !quakeDebugMode || document.pointerLockElement === host) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  exitQuakeDebugToMainMenu();
+  return true;
+}
+
+function handleQuakeDebugHideTexturesOptionChange(event: Event): void {
+  setQuakeDebugHideTextures((event.currentTarget as HTMLInputElement).checked);
+}
+
+function handleQuakeDebugStaticLightingOptionChange(event: Event): void {
+  setQuakeDebugStaticLighting((event.currentTarget as HTMLInputElement).checked);
+}
+
+function handleQuakeDebugShowOutlinesOptionChange(event: Event): void {
+  setQuakeDebugShowOutlines((event.currentTarget as HTMLInputElement).checked);
+}
+
+function handleQuakeDebugShowLabelsOptionChange(event: Event): void {
+  setQuakeDebugShowLabels((event.currentTarget as HTMLInputElement).checked);
 }
 
 function handleQuakeInvertMouseOptionChange(event: Event): void {
@@ -2067,6 +2740,7 @@ function syncQuakeDebugGameplay(origin: [number, number, number]): void {
 }
 
 function applyQuakeUrlView(view: QuakeUrlView): void {
+  clearQuakeWeaponViewPunch(false);
   getPlayer().setDebugOrigin(view.origin);
   syncSceneCameraAt(view.origin, view.rotX, view.rotY);
   shootables.syncVisibility(view.origin, true);
@@ -2533,10 +3207,23 @@ function ensureQuakeSoundManifestLoaded(): Promise<void> {
 }
 
 async function fetchQuakeAssetManifest(): Promise<QuakeAssetManifest> {
-  const response = await fetch(QUAKE_MANIFEST_URL);
+  const response = await fetch(QUAKE_MANIFEST_URL, { cache: "no-store" });
   if (response.status === 404) return FALLBACK_QUAKE_ASSET_MANIFEST;
   if (!response.ok) throw new Error(`Could not load ${QUAKE_MANIFEST_URL}.`);
-  return normalizeQuakeAssetManifest(await response.json());
+  let rawManifest: unknown;
+  try {
+    rawManifest = await response.json();
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new QuakeAssetsRegeneratingError();
+    throw error;
+  }
+  if (isQuakeAssetManifestRegenerating(rawManifest)) {
+    const message = typeof rawManifest.message === "string"
+      ? rawManifest.message
+      : QUAKE_ASSETS_REGENERATING_ACTION;
+    throw new QuakeAssetsRegeneratingError(message);
+  }
+  return normalizeQuakeAssetManifest(rawManifest);
 }
 
 function normalizeQuakeAssetManifest(value: unknown): QuakeAssetManifest {
@@ -2558,6 +3245,12 @@ function normalizeQuakeAssetManifest(value: unknown): QuakeAssetManifest {
     maps,
     assets: normalizeQuakeAssetManifestAssets(value.assets),
   };
+}
+
+function isQuakeAssetManifestRegenerating(value: unknown): value is { message?: unknown; status: string } {
+  if (!isRecord(value) || typeof value.status !== "string") return false;
+  const status = value.status.trim().toLowerCase();
+  return status === "regenerating" || status === "generating";
 }
 
 function normalizeQuakeAssetManifestMap(value: unknown): QuakeAssetManifestMap | null {
@@ -2675,7 +3368,13 @@ function navigateToQuakeRoute(route: QuakeUrlRoute): void {
     })
     .catch((error) => {
       console.error(error);
-      if (!quakeAppDisposed) setQuakeLoadingError();
+      if (!quakeAppDisposed) {
+        if (error instanceof QuakeAssetsRegeneratingError) {
+          setQuakeAssetsRegenerating(error.message);
+        } else {
+          setQuakeLoadingError();
+        }
+      }
     });
 }
 
@@ -2687,6 +3386,9 @@ function handleWindowKeyDown(event: KeyboardEvent): void {
     toggleQuakeAudioMuted();
     return;
   }
+  if (handleQuakeDebugEscape(event)) {
+    return;
+  }
   if (quakeAppLoading) {
     event.preventDefault();
     event.stopPropagation();
@@ -2694,6 +3396,7 @@ function handleWindowKeyDown(event: KeyboardEvent): void {
   }
   if (menu.handleKeyDown(event)) {
     clearQuakeCrouchInput();
+    clearQuakeAttackInput();
     return;
   }
   if (shouldPreventQuakeGameplayKeyDefault(event)) {
@@ -2717,6 +3420,9 @@ function handleWindowKeyUp(event: KeyboardEvent): void {
 }
 
 function handleWindowBlur(): void {
+  clearQuakeAttackInput();
+  clearQuakeMobileMoveInput();
+  clearQuakeWeaponViewPunch();
   clearQuakeCrouchInput();
 }
 
@@ -2734,17 +3440,38 @@ function disposeQuakeApp(): void {
   window.removeEventListener("keydown", handleWindowKeyDown, { capture: true });
   window.removeEventListener("keyup", handleWindowKeyUp, { capture: true });
   window.removeEventListener("blur", handleWindowBlur);
+  window.removeEventListener("pointerup", handleQuakeAttackPointerEnd, { capture: true });
+  window.removeEventListener("pointercancel", handleQuakeAttackPointerEnd, { capture: true });
   window.removeEventListener("popstate", handleQuakePopState);
   window.removeEventListener("resize", handleViewportResize);
   window.visualViewport?.removeEventListener("resize", handleViewportResize);
+  quakeMobileControlsMedia.removeEventListener("change", syncQuakeMobileControlsAvailability);
   host.removeEventListener("pointerdown", handleQuakeUsePointerDown, { capture: true });
+  clearQuakeAttackInput();
+  clearQuakeWeaponViewPunch(false);
+  clearQuakeBonusOverlay();
+  destroyQuakeMobileControls();
+  if (quakeCrosshairTargetSyncFrame) {
+    window.cancelAnimationFrame(quakeCrosshairTargetSyncFrame);
+    quakeCrosshairTargetSyncFrame = 0;
+  }
+  invalidateQuakeCrosshairTarget();
   disableSoundOption?.removeEventListener("change", handleQuakeDisableSoundOptionChange);
   disableEnemiesOption?.removeEventListener("change", handleQuakeDisableEnemiesOptionChange);
   disableDamageOption?.removeEventListener("change", handleQuakeDisableDamageOptionChange);
+  debugModeOption?.removeEventListener("change", handleQuakeDebugModeOptionChange);
+  debugPanelClose?.removeEventListener("click", handleQuakeDebugCloseClick);
+  debugHideTexturesOption?.removeEventListener("change", handleQuakeDebugHideTexturesOptionChange);
+  debugStaticLightingOption?.removeEventListener("change", handleQuakeDebugStaticLightingOptionChange);
+  debugShowOutlinesOption?.removeEventListener("change", handleQuakeDebugShowOutlinesOptionChange);
+  debugShowLabelsOption?.removeEventListener("change", handleQuakeDebugShowLabelsOptionChange);
   invertMouseOption?.removeEventListener("change", handleQuakeInvertMouseOptionChange);
+  stopQuakeDebugPanelStats();
+  document.removeEventListener("pointerlockchange", syncQuakeDebugPointerLockState);
   controls.removeEventListener("change", syncPlayerCollision);
   controls.removeEventListener("start", clearQuakeMainMenuControlsEndSuppression);
   controls.removeEventListener("end", clearQuakeCrouchInput);
+  controls.removeEventListener("end", clearQuakeAttackInput);
   menu.dispose();
   audio.dispose();
   hideQuakeStatsOverlay();
@@ -2754,26 +3481,44 @@ function disposeQuakeApp(): void {
 window.addEventListener("keydown", handleWindowKeyDown, { capture: true });
 window.addEventListener("keyup", handleWindowKeyUp, { capture: true });
 window.addEventListener("blur", handleWindowBlur);
+window.addEventListener("pointerup", handleQuakeAttackPointerEnd, { capture: true });
+window.addEventListener("pointercancel", handleQuakeAttackPointerEnd, { capture: true });
 window.addEventListener("popstate", handleQuakePopState);
 window.addEventListener("resize", handleViewportResize);
 window.visualViewport?.addEventListener("resize", handleViewportResize);
+quakeMobileControlsMedia.addEventListener("change", syncQuakeMobileControlsAvailability);
+document.addEventListener("pointerlockchange", syncQuakeDebugPointerLockState);
 
 host.addEventListener("pointerdown", handleQuakeUsePointerDown, { capture: true });
 disableSoundOption?.addEventListener("change", handleQuakeDisableSoundOptionChange);
 disableEnemiesOption?.addEventListener("change", handleQuakeDisableEnemiesOptionChange);
 disableDamageOption?.addEventListener("change", handleQuakeDisableDamageOptionChange);
+debugModeOption?.addEventListener("change", handleQuakeDebugModeOptionChange);
+debugPanelClose?.addEventListener("click", handleQuakeDebugCloseClick);
+debugHideTexturesOption?.addEventListener("change", handleQuakeDebugHideTexturesOptionChange);
+debugStaticLightingOption?.addEventListener("change", handleQuakeDebugStaticLightingOptionChange);
+debugShowOutlinesOption?.addEventListener("change", handleQuakeDebugShowOutlinesOptionChange);
+debugShowLabelsOption?.addEventListener("change", handleQuakeDebugShowLabelsOptionChange);
 invertMouseOption?.addEventListener("change", handleQuakeInvertMouseOptionChange);
 controls.addEventListener("change", syncPlayerCollision);
 controls.addEventListener("start", clearQuakeMainMenuControlsEndSuppression);
 controls.addEventListener("end", clearQuakeCrouchInput);
+controls.addEventListener("end", clearQuakeAttackInput);
 
 syncQuakeHud();
 syncQuakeOptionControls();
+syncQuakeMobileControlsAvailability();
 installQuakeAppDebugHooks();
 
 void loadQuake().catch((error) => {
   console.error(error);
-  if (!quakeAppDisposed) setQuakeLoadingError();
+  if (!quakeAppDisposed) {
+    if (error instanceof QuakeAssetsRegeneratingError) {
+      setQuakeAssetsRegenerating(error.message);
+    } else {
+      setQuakeLoadingError();
+    }
+  }
 });
 
 const hot = import.meta as ImportMeta & { hot?: { dispose(callback: () => void): void } };

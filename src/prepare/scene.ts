@@ -1,4 +1,12 @@
-import { computeTextureAtlasPlanPublic, mergePolygons, type Polygon, type TextureTriangle, type Vec2, type Vec3 } from "@layoutit/polycss";
+import {
+  BASE_TILE,
+  computeTextureAtlasPlanPublic,
+  mergePolygons,
+  type Polygon,
+  type TextureTriangle,
+  type Vec2,
+  type Vec3,
+} from "@layoutit/polycss";
 
 import { buildEntityManifest, cloneEntityManifest } from "./entities";
 import { parseQuakePakDirectory, quakePakEntryBytes, readFixedAscii, type QuakePakEntry } from "./pak";
@@ -22,8 +30,19 @@ export type QuakeTextureUrlEncoder = (input: QuakeTextureEncodeInput) => Promise
 export interface QuakePreparedSceneCreateOptions {
   encodeTextureUrl?: QuakeTextureUrlEncoder;
   lightmapBake?: boolean;
+  lightmapBakeDetailTarget?: number;
+  lightmapBakeLightSupersample?: number;
   lightmapBakeMaxSide?: number;
   lightmapBakeMaxTotalTexels?: number;
+  lightmapBakeMinDisplaySide?: number;
+  lightmapBakeMinTextureScale?: number;
+  lightmapBakeMinTextureSide?: number;
+  lightmapBakeTextureFallbackOverlay?: boolean;
+  lightmapBakeTextureFallbackOverlayMaxExtraRatio?: number;
+  lightmapBakeTextureFallbackOverlayMaxSide?: number;
+  lightmapBakeMergedOverlay?: boolean;
+  lightmapBakeMergedOverlayMaxExtraRatio?: number;
+  lightmapBakeMergedOverlayMaxSide?: number;
   lightmapBakeMinRange?: number;
   lightmapOverlay?: boolean;
   lightmapOverlayMaxExtraRatio?: number;
@@ -39,9 +58,45 @@ interface QuakeBspPrepareOptions {
 
 interface QuakeLightmapBakeOptions {
   enabled: boolean;
+  detailTargetRatio: number;
+  lightSupersample: number;
   maxTextureSide: number;
   maxTotalTexels: number;
   minDisplayRange: number;
+  minDisplaySide: number;
+  minTextureScale: number;
+  minTextureSide: number;
+  textureFallbackOverlay: boolean;
+  textureFallbackOverlayMaxExtraRatio: number;
+  textureFallbackOverlayMaxTextureSide: number;
+  mergedOverlay: boolean;
+  mergedOverlayMaxExtraRatio: number;
+  mergedOverlayMaxTextureSide: number;
+}
+
+interface QuakeLightmapBakeStats {
+  candidateDetailWeight: number;
+  candidateTexels: number;
+  detailTargetRatio: number;
+  fallbackOverlayCappedByLeaves: boolean;
+  fallbackOverlayCount: number;
+  fallbackOverlayDetailWeight: number;
+  fallbackOverlayMaxExtraLeaves: number;
+  fallbackOverlayTexels: number;
+  mergedFallbackOverlayCandidateCount: number;
+  mergedFallbackOverlayCount: number;
+  mergedFallbackOverlayDetailWeight: number;
+  mergedFallbackOverlaySourceFaceCount: number;
+  mergedFallbackOverlayTexels: number;
+  maxTotalTexels: number;
+  selectedDetailWeight: number;
+  selectedTexels: number;
+  selectedCount: number;
+  totalCount: number;
+  cappedByTexels: boolean;
+  textureFidelityRejectedCount: number;
+  textureFidelityRejectedDetailWeight: number;
+  textureFidelityRejectedTexels: number;
 }
 
 interface QuakeLightmapOverlayOptions {
@@ -74,6 +129,8 @@ interface QuakeFaceLightmapOverlaySelection {
 interface QuakeFaceLightmapBakeSelection {
   baseBrightness: number;
   bounds: QuakeTextureCoordinateBounds;
+  detailDensity: number;
+  detailWeight: number;
   dimensions: { width: number; height: number };
   displayRange: number;
   grid: QuakeFaceLightmapGrid;
@@ -82,6 +139,69 @@ interface QuakeFaceLightmapBakeSelection {
   sourceCandidate: QuakeFaceBuildCandidate;
   texelCount: number;
   uvs: Vec2[];
+}
+
+interface QuakeLightmapBakeTextureFidelityRejectedSelectionCollector {
+  selections: QuakeFaceLightmapBakeSelection[];
+  textureFidelityCount: number;
+  textureFidelityDetailWeight: number;
+  textureFidelityTexels: number;
+}
+
+interface QuakeLightmapBakeFallbackOverlayStats {
+  cappedByLeaves: boolean;
+  detailWeight: number;
+  maxExtraLeaves: number;
+  selectedCount: number;
+  texels: number;
+}
+
+interface QuakeMergedLightmapOverlayStats {
+  cappedByLeaves: boolean;
+  candidateCount: number;
+  detailWeight: number;
+  maxExtraLeaves: number;
+  selectedSourceFaceIndices: Set<number>;
+  selectedCount: number;
+  sourceFaceCount: number;
+  texels: number;
+}
+
+interface QuakeMergedLightmapOverlaySelection {
+  baseBrightness: number;
+  baseDisplayBrightness: number;
+  basis: QuakeWallBleedBasis;
+  bounds: QuakeLocalBounds;
+  detailWeight: number;
+  dimensions: { width: number; height: number };
+  displayRange: number;
+  baseRenderCandidates: QuakeFaceCandidate[];
+  faceIndex: number;
+  fillRatio?: number;
+  localPoints: Vec2[];
+  minSideQuake?: number;
+  solidSampleRatio?: number;
+  sourceFaces: QuakeMergedLightmapOverlaySourceFace[];
+  texelCount: number;
+  vertices: Vec3[];
+  uvs: Vec2[];
+}
+
+interface QuakeMergedLightmapOverlaySourceFace {
+  bounds: QuakeLocalBounds;
+  detailWeight: number;
+  displayRange: number;
+  grid: QuakeFaceLightmapGrid;
+  localPoints: Vec2[];
+  sourceCandidate: QuakeFaceBuildCandidate;
+  textureBounds: QuakeTextureCoordinateBounds;
+}
+
+interface QuakeLocalBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
 }
 
 interface QuakeMipTexture {
@@ -335,6 +455,12 @@ export interface QuakeVisibility {
   leafIndexAt(point: Vec3): number;
   visibleLeavesAt(point: Vec3): Set<number> | null;
   visibleFacesAt(point: Vec3): Set<number> | null;
+  visibleFaceGroupAt(point: Vec3): QuakeVisibleFaceGroup;
+}
+
+export interface QuakeVisibleFaceGroup {
+  key: string;
+  faces: Set<number> | null;
 }
 
 export type QuakeSerializedPolygon = Omit<Polygon, "texture"> & {
@@ -369,6 +495,7 @@ export type QuakeRenderBundleLeafFrameStyle = [
 
 export interface QuakeRenderBundleLeafMetadata {
   f: number;
+  p?: number;
   m?: number;
   e?: number;
   t?: string;
@@ -580,7 +707,7 @@ const QUAKE_COLLISION_HULL_DEFS: Array<{ mins: QuakeVertex; maxs: QuakeVertex }>
   { mins: { x: -16, y: -16, z: -24 }, maxs: { x: 16, y: 16, z: -8 } },
 ];
 const QUAKE_MAP_SPAWN_OVERRIDES = new Map<string, QuakeSpawn>([
-  ["maps/e1m1.bsp", { origin: { x: 480, y: -40, z: 30 }, angle: 90 }],
+  ["maps/e1m1.bsp", { origin: { x: 480, y: -104, z: 30 }, angle: 90 }],
 ]);
 const QUAKE_GROUND_GRID_CELL_SIZE = 0.5;
 const QUAKE_GROUND_GRID_Z_SCALE = 1 / 256;
@@ -601,8 +728,32 @@ const QUAKE_RENDER_COLLINEAR_EPS = 1e-6;
 const QUAKE_LIGHTMAP_BAKE_DEFAULT_MAX_TEXTURE_SIDE = 384;
 const QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SIDE = 4;
 const QUAKE_LIGHTMAP_BAKE_MAX_TEXTURE_SIDE = 512;
-const QUAKE_LIGHTMAP_BAKE_DEFAULT_MAX_TOTAL_TEXELS = 8_000_000;
+const QUAKE_LIGHTMAP_BAKE_DEFAULT_DETAIL_TARGET_RATIO = 0.9;
+const QUAKE_LIGHTMAP_BAKE_DEFAULT_LIGHT_SUPERSAMPLE = 2;
+const QUAKE_LIGHTMAP_BAKE_MAX_LIGHT_SUPERSAMPLE = 4;
+const QUAKE_LIGHTMAP_BAKE_DEFAULT_MAX_TOTAL_TEXELS = 24_000_000;
 const QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_DISPLAY_RANGE = 0.02;
+const QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_DISPLAY_SIDE = 0;
+const QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_TEXTURE_SCALE = 0.99;
+const QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_TEXTURE_SIDE = 48;
+const QUAKE_LIGHTMAP_BAKE_REPEAT_EPS = 0.05;
+const QUAKE_LIGHTMAP_BAKE_REPEATED_TILE_MIN_BAKE_SIDE = 48;
+const QUAKE_LIGHTMAP_BAKE_REPEATED_STRIP_MIN_REPEAT = 1.25;
+const QUAKE_LIGHTMAP_BAKE_REPEATED_STRIP_MIN_TILE_COVERAGE = 0.75;
+const QUAKE_LIGHTMAP_BAKE_TEXTURE_FALLBACK_OVERLAY_DEFAULT_MAX_EXTRA_RATIO = 0.35;
+const QUAKE_LIGHTMAP_BAKE_TEXTURE_FALLBACK_OVERLAY_MAX_EXTRA_RATIO = 0.5;
+const QUAKE_LIGHTMAP_BAKE_TEXTURE_FALLBACK_OVERLAY_DEFAULT_MAX_TEXTURE_SIDE = 128;
+const QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_DEFAULT_MAX_EXTRA_RATIO = 0.08;
+const QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_EXTRA_RATIO = 0.35;
+const QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_DEFAULT_MAX_TEXTURE_SIDE = 192;
+const QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_VERTICES = 16;
+const QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_SOURCE_FACES = 16;
+const QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_ASPECT_RATIO = 12;
+const QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MIN_FILL_RATIO = 0.86;
+const QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MIN_SOLID_SIDE = 24;
+const QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MIN_SAMPLE_FILL_RATIO = 0.9;
+const QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_SOLID_SAMPLE_UNIT = 32;
+const QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_SOLID_SAMPLES = 14;
 const QUAKE_LIGHTMAP_OVERLAY_DEFAULT_MAX_TEXTURE_SIDE = 128;
 const QUAKE_LIGHTMAP_OVERLAY_DEFAULT_MAX_EXTRA_RATIO = 0.05;
 const QUAKE_LIGHTMAP_OVERLAY_DEFAULT_MIN_DISPLAY_RANGE = 0.14;
@@ -613,6 +764,20 @@ const QUAKE_LIGHTSTYLE_OVERLAY_GAMMA = 1.35;
 const QUAKE_LIGHTSTYLE_OVERLAY_MAX_OPACITY = 0.52;
 const QUAKE_LIGHTSTYLE_OVERLAY_OFFSET = 0.001;
 const QUAKE_SKY_TRANSPARENT_INDEX = 0;
+const QUAKE_WALL_RENDER_BLEED_PX = 1;
+const QUAKE_WALL_RENDER_BLEED = QUAKE_WALL_RENDER_BLEED_PX / BASE_TILE;
+const QUAKE_WALL_RENDER_L_JUNCTION_BLEED = QUAKE_WALL_RENDER_BLEED * 0.5;
+const QUAKE_WALL_RENDER_MAX_VERTEX_BLEED = QUAKE_WALL_RENDER_BLEED * 2.5;
+const QUAKE_WALL_RENDER_MAX_ABS_NORMAL_Z = 0.25;
+const QUAKE_WALL_RENDER_EDGE_KEY_EPS = 1e-5;
+const QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_EDGE_TOUCH_EPS = QUAKE_WALL_RENDER_EDGE_KEY_EPS * 64;
+const QUAKE_WALL_RENDER_PARALLEL_NORMAL_DOT = 0.9999;
+const QUAKE_WALL_RENDER_L_JUNCTION_NORMAL_DOT = 0.1;
+const QUAKE_WALL_RENDER_ATLAS_EDGE_EPS = 1e-4;
+const QUAKE_WALL_RENDER_ATLAS_EDGE_FRACTION_EPS = 0.01;
+const QUAKE_WALL_RENDER_MIN_VISIBLE_EDGE_LUMA = 40;
+const QUAKE_WALL_RENDER_MIN_VISIBLE_EDGE_COLOR_DELTA = 24;
+const QUAKE_WALL_RENDER_UV_AFFINE_EPS = 1e-4;
 const QUAKE_PREPARED_SCENE_VERSION = 2;
 export const QUAKE_LIGHT_STYLE_PATTERNS = new Map<number, string>([
   [0, "m"],
@@ -986,7 +1151,7 @@ async function createQuakePreparedSceneFromBsp(
     encodeTextureUrl,
     options.lightmapOverlay,
   );
-  await applyFaceLightmapBakeToRenderCandidates(
+  const mergedLightmapOverlayStats = await applyMergedLightmapOverlayPrototypeToRenderCandidates(
     renderCandidates,
     buildCandidateByFaceIndex,
     lighting,
@@ -996,8 +1161,26 @@ async function createQuakePreparedSceneFromBsp(
     litTextureCache,
     encodeTextureUrl,
     options.lightmapBake,
+    pivot,
     lightmapOverlaySourceFaceIndices,
   );
+  for (const sourceFaceIndex of mergedLightmapOverlayStats.selectedSourceFaceIndices) {
+    lightmapOverlaySourceFaceIndices.add(sourceFaceIndex);
+  }
+  const lightmapBakeStats = await applyFaceLightmapBakeToRenderCandidates(
+    renderCandidates,
+    buildCandidateByFaceIndex,
+    lighting,
+    textures,
+    palette,
+    textureUrls,
+    litTextureCache,
+    encodeTextureUrl,
+    options.lightmapBake,
+    pivot,
+    lightmapOverlaySourceFaceIndices,
+  );
+  applyQuakeWallRenderBleedToCandidates(renderCandidates);
   await addTextureAnimationSpritesToRenderCandidates(
     renderCandidates,
     textures,
@@ -1011,6 +1194,10 @@ async function createQuakePreparedSceneFromBsp(
   const warnings: string[] = [];
   if (polygons.length > 2500) {
     warnings.push(`Mounted ${polygons.length} merged BSP faces from ${sourceFaceCount} source faces; trigger brush volumes are excluded.`);
+  }
+  if (lightmapBakeStats) warnings.push(formatLightmapBakeStats(lightmapBakeStats));
+  if (mergedLightmapOverlayStats.selectedCount > 0) {
+    warnings.push(formatMergedLightmapOverlayStats(mergedLightmapOverlayStats));
   }
 
   const angle = spawn?.angle ?? 90;
@@ -2188,6 +2375,501 @@ function simplifyQuakeRenderPolygon(polygon: Polygon): Polygon {
     : polygon;
 }
 
+interface QuakeWallBleedBasis {
+  origin: Vec3;
+  xAxis: Vec3;
+  yAxis: Vec3;
+  localPoints: Vec2[];
+}
+
+interface QuakeWallBleedPlan {
+  basis: QuakeWallBleedBasis;
+  candidate: QuakeFaceCandidate;
+  edgeAmounts: number[];
+  edgeKeys: string[];
+  edgeRenderRisks: number[];
+  fallbackRgb: RGB;
+  fallbackLuma: number;
+  normal: Vec3;
+  textureName: string;
+  uvAffine: QuakeUvAffine;
+}
+
+interface QuakeWallBleedEdgeOwner {
+  edgeIndex: number;
+  plan: QuakeWallBleedPlan;
+}
+
+interface QuakeUvAffine {
+  ux: number;
+  uy: number;
+  u0: number;
+  vx: number;
+  vy: number;
+  v0: number;
+}
+
+function applyQuakeWallRenderBleedToCandidates(candidates: QuakeFaceCandidate[]): void {
+  const plans = candidates
+    .map((candidate) => quakeWallRenderBleedPlan(candidate))
+    .filter((plan): plan is QuakeWallBleedPlan => plan !== null);
+  if (!plans.length) return;
+
+  const edges = new Map<string, QuakeWallBleedEdgeOwner[]>();
+  for (const plan of plans) {
+    for (let edgeIndex = 0; edgeIndex < plan.edgeKeys.length; edgeIndex++) {
+      const edgeKey = plan.edgeKeys[edgeIndex];
+      if (!edgeKey) continue;
+      const owners = edges.get(edgeKey);
+      if (owners) {
+        owners.push({ plan, edgeIndex });
+      } else {
+        edges.set(edgeKey, [{ plan, edgeIndex }]);
+      }
+    }
+  }
+
+  for (const owners of edges.values()) {
+    if (owners.length < 2) continue;
+    if (quakeWallBleedSharedEdgeUsesSplitLJunctionBleed(owners)) {
+      for (const owner of owners) {
+        owner.plan.edgeAmounts[owner.edgeIndex] = Math.max(
+          owner.plan.edgeAmounts[owner.edgeIndex] ?? 0,
+          QUAKE_WALL_RENDER_L_JUNCTION_BLEED,
+        );
+      }
+      continue;
+    }
+    const owner = quakeWallBleedOwnerForSharedEdge(owners);
+    if (owner) owner.plan.edgeAmounts[owner.edgeIndex] = QUAKE_WALL_RENDER_BLEED;
+  }
+
+  for (const plan of plans) {
+    if (!plan.edgeAmounts.some((amount) => amount > 0)) continue;
+    const polygon = quakeWallRenderBleedPolygon(plan);
+    if (polygon) plan.candidate.polygon = polygon;
+  }
+}
+
+function quakeWallRenderBleedPlan(candidate: QuakeFaceCandidate): QuakeWallBleedPlan | null {
+  const polygon = candidate.polygon;
+  const uvs = polygon.uvs;
+  if (!uvs || uvs.length !== polygon.vertices.length || polygon.vertices.length < 3) return null;
+
+  const textureName = String(polygon.data?.["tex"] ?? "").toLowerCase();
+  if (textureName.startsWith("sky") || textureName.startsWith("*")) return null;
+
+  const normal = quakePolygonNormal(polygon.vertices);
+  if (Math.abs(normal[2]) > QUAKE_WALL_RENDER_MAX_ABS_NORMAL_Z) return null;
+
+  const basis = quakeWallBleedBasis(polygon.vertices, normal);
+  if (!basis) return null;
+
+  const uvAffine = quakeUvAffineForLocalPoints(basis.localPoints, uvs);
+  if (!uvAffine) return null;
+  const fallbackRgb = quakeWallBleedFallbackRgb(polygon.color);
+
+  return {
+    basis,
+    candidate,
+    edgeAmounts: Array.from({ length: polygon.vertices.length }, () => 0),
+    edgeKeys: polygon.vertices.map((_, index) => quakeWallBleedEdgeKey(polygon.vertices, index)),
+    edgeRenderRisks: quakeWallBleedRenderRiskScores(polygon, candidate.faceIndex),
+    fallbackRgb,
+    fallbackLuma: quakeWallBleedRgbLuma(fallbackRgb),
+    normal,
+    textureName,
+    uvAffine,
+  };
+}
+
+function quakeWallBleedOwnerForSharedEdge(owners: QuakeWallBleedEdgeOwner[]): QuakeWallBleedEdgeOwner | null {
+  const riskyOwners = owners.filter((owner) => (owner.plan.edgeRenderRisks[owner.edgeIndex] ?? 0) > 0);
+  if (!riskyOwners.length) return null;
+  if (!quakeWallBleedSharedEdgeIsCorner(owners)) return null;
+  if (!quakeWallBleedSharedEdgeIsVisible(owners)) return null;
+  if (quakeWallBleedSharedEdgeIsSimpleLJunction(owners)) return null;
+
+  return riskyOwners.reduce((best, next) => {
+    const bestScore = quakeWallBleedEdgeOwnerScore(best);
+    const nextScore = quakeWallBleedEdgeOwnerScore(next);
+    return nextScore > bestScore ||
+      (nextScore === bestScore && next.plan.candidate.faceIndex < best.plan.candidate.faceIndex)
+      ? next
+      : best;
+  });
+}
+
+function quakeWallBleedEdgeOwnerScore(owner: QuakeWallBleedEdgeOwner): number {
+  return (owner.plan.edgeRenderRisks[owner.edgeIndex] ?? 0) * 1000 +
+    owner.plan.fallbackLuma;
+}
+
+function quakeWallBleedSharedEdgeUsesSplitLJunctionBleed(owners: QuakeWallBleedEdgeOwner[]): boolean {
+  if (!owners.some((owner) => (owner.plan.edgeRenderRisks[owner.edgeIndex] ?? 0) > 0)) return false;
+  if (!quakeWallBleedSharedEdgeIsCorner(owners)) return false;
+  if (!quakeWallBleedSharedEdgeIsSimpleLJunction(owners)) return false;
+  return quakeWallBleedSharedEdgeIsVisible(owners);
+}
+
+function quakeWallBleedSharedEdgeIsCorner(owners: QuakeWallBleedEdgeOwner[]): boolean {
+  for (let first = 0; first < owners.length - 1; first++) {
+    for (let second = first + 1; second < owners.length; second++) {
+      const dot = Math.abs(quakeVecDot3(owners[first].plan.normal, owners[second].plan.normal));
+      if (dot < QUAKE_WALL_RENDER_PARALLEL_NORMAL_DOT) return true;
+    }
+  }
+  return false;
+}
+
+function quakeWallBleedSharedEdgeIsSimpleLJunction(owners: QuakeWallBleedEdgeOwner[]): boolean {
+  if (owners.length !== 2) return false;
+  const dot = Math.abs(quakeVecDot3(owners[0].plan.normal, owners[1].plan.normal));
+  return dot <= QUAKE_WALL_RENDER_L_JUNCTION_NORMAL_DOT;
+}
+
+function quakeWallBleedSharedEdgeIsVisible(owners: QuakeWallBleedEdgeOwner[]): boolean {
+  if (owners.some((owner) => owner.plan.fallbackLuma >= QUAKE_WALL_RENDER_MIN_VISIBLE_EDGE_LUMA)) {
+    return true;
+  }
+
+  for (let first = 0; first < owners.length - 1; first++) {
+    for (let second = first + 1; second < owners.length; second++) {
+      const a = owners[first].plan;
+      const b = owners[second].plan;
+      if (a.textureName === b.textureName) continue;
+      if (quakeWallBleedRgbDistance(a.fallbackRgb, b.fallbackRgb) >= QUAKE_WALL_RENDER_MIN_VISIBLE_EDGE_COLOR_DELTA) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function quakeWallBleedRenderRiskScores(polygon: Polygon, faceIndex: number): number[] {
+  const empty = Array.from({ length: polygon.vertices.length }, () => 0);
+  const plan = computeTextureAtlasPlanPublic(polygon, faceIndex, {
+    tileSize: BASE_TILE,
+    layerElevation: BASE_TILE,
+  });
+  if (!plan || plan.screenPts.length !== polygon.vertices.length * 2) return empty;
+  return polygon.vertices.map((_, edgeIndex) => quakeWallBleedRenderRiskScore(plan, edgeIndex));
+}
+
+function quakeWallBleedRenderRiskScore(
+  plan: { canvasH: number; canvasW: number; screenPts: number[] },
+  edgeIndex: number,
+): number {
+  const vertexCount = plan.screenPts.length / 2;
+  const nextIndex = (edgeIndex + 1) % vertexCount;
+  const ax = plan.screenPts[edgeIndex * 2];
+  const ay = plan.screenPts[edgeIndex * 2 + 1];
+  const bx = plan.screenPts[nextIndex * 2];
+  const by = plan.screenPts[nextIndex * 2 + 1];
+  if (![ax, ay, bx, by].every(Number.isFinite)) return 0;
+
+  const dx = bx - ax;
+  const dy = by - ay;
+  if (Math.hypot(dx, dy) <= QUAKE_WALL_RENDER_ATLAS_EDGE_EPS) return 0;
+
+  const horizontal = Math.abs(dy) <= QUAKE_WALL_RENDER_ATLAS_EDGE_EPS;
+  const vertical = Math.abs(dx) <= QUAKE_WALL_RENDER_ATLAS_EDGE_EPS;
+  let score = 0;
+  if (!horizontal && !vertical) score += 3;
+  if (
+    Math.max(
+      quakeWallBleedPixelFraction(ax),
+      quakeWallBleedPixelFraction(ay),
+      quakeWallBleedPixelFraction(bx),
+      quakeWallBleedPixelFraction(by),
+    ) > QUAKE_WALL_RENDER_ATLAS_EDGE_FRACTION_EPS
+  ) {
+    score += 2;
+  }
+
+  const onOuterLine = (horizontal && (quakeWallBleedClose(ay, 0) || quakeWallBleedClose(ay, plan.canvasH))) ||
+    (vertical && (quakeWallBleedClose(ax, 0) || quakeWallBleedClose(ax, plan.canvasW)));
+  if (!onOuterLine) {
+    score += 1;
+  } else if (!quakeWallBleedSpansAtlasSide(plan, ax, ay, bx, by, horizontal, vertical)) {
+    score += 1;
+  }
+
+  return score;
+}
+
+function quakeWallBleedSpansAtlasSide(
+  plan: { canvasH: number; canvasW: number },
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  horizontal: boolean,
+  vertical: boolean,
+): boolean {
+  if (horizontal) {
+    return quakeWallBleedClose(Math.min(ax, bx), 0) &&
+      quakeWallBleedClose(Math.max(ax, bx), plan.canvasW);
+  }
+  if (vertical) {
+    return quakeWallBleedClose(Math.min(ay, by), 0) &&
+      quakeWallBleedClose(Math.max(ay, by), plan.canvasH);
+  }
+  return false;
+}
+
+function quakeWallBleedClose(a: number, b: number): boolean {
+  return Math.abs(a - b) <= QUAKE_WALL_RENDER_ATLAS_EDGE_EPS * Math.max(1, Math.abs(a), Math.abs(b));
+}
+
+function quakeWallBleedPixelFraction(value: number): number {
+  return Math.abs(value - Math.round(value));
+}
+
+function quakeWallBleedFallbackRgb(color: string | undefined): RGB {
+  if (!color) return [204, 204, 204];
+  const hex = /^#([0-9a-f]{6})$/i.exec(color);
+  if (hex) {
+    const value = hex[1];
+    return [
+      parseInt(value.slice(0, 2), 16),
+      parseInt(value.slice(2, 4), 16),
+      parseInt(value.slice(4, 6), 16),
+    ];
+  }
+  const shortHex = /^#([0-9a-f]{3})$/i.exec(color);
+  if (shortHex) {
+    return shortHex[1].split("").map((part) => parseInt(`${part}${part}`, 16)) as RGB;
+  }
+  const rgba = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(color);
+  if (rgba) {
+    return [
+      quakeClampColorChannel(Number(rgba[1])),
+      quakeClampColorChannel(Number(rgba[2])),
+      quakeClampColorChannel(Number(rgba[3])),
+    ];
+  }
+  return [204, 204, 204];
+}
+
+function quakeWallBleedRgbLuma([r, g, b]: RGB): number {
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function quakeWallBleedRgbDistance(a: RGB, b: RGB): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
+function quakeClampColorChannel(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.min(255, value)) : 204;
+}
+
+function quakeWallRenderBleedPolygon(plan: QuakeWallBleedPlan): Polygon | null {
+  const polygon = plan.candidate.polygon;
+  const expandedPoints = quakeWallBleedLocalPoints(plan.basis.localPoints, plan.edgeAmounts);
+
+  const vertices: Vec3[] = [];
+  const expandedUvs: Vec2[] = [];
+  for (let index = 0; index < expandedPoints.length; index++) {
+    const point = expandedPoints[index];
+    if (!point) return null;
+    vertices.push(quakeWallBleedLocalToWorld(point, plan.basis));
+    expandedUvs.push(quakeUvAffineAt(point, plan.uvAffine));
+  }
+
+  const { textureTriangles: _textureTriangles, ...rest } = polygon;
+  return {
+    ...rest,
+    vertices,
+    uvs: expandedUvs,
+  };
+}
+
+function quakeWallBleedLocalPoints(points: Vec2[], edgeAmounts: number[]): Vec2[] {
+  const area = quakeSignedArea2(points);
+  if (Math.abs(area) <= QUAKE_RENDER_COLLINEAR_EPS) return points;
+  const winding = area >= 0 ? 1 : -1;
+  const offsets = points.map(() => [0, 0] as Vec2);
+
+  for (let index = 0; index < points.length; index++) {
+    const amount = edgeAmounts[index] ?? 0;
+    if (amount <= 0) continue;
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    if (!current || !next) continue;
+    const dx = next[0] - current[0];
+    const dy = next[1] - current[1];
+    const length = Math.hypot(dx, dy);
+    if (length <= QUAKE_RENDER_COLLINEAR_EPS) continue;
+    const offset: Vec2 = [
+      winding * (dy / length) * amount,
+      winding * (-dx / length) * amount,
+    ];
+    offsets[index][0] += offset[0];
+    offsets[index][1] += offset[1];
+    const nextIndex = (index + 1) % points.length;
+    offsets[nextIndex][0] += offset[0];
+    offsets[nextIndex][1] += offset[1];
+  }
+
+  return points.map((point, index) =>
+    quakeClampWallBleedPoint(point, [
+      point[0] + offsets[index][0],
+      point[1] + offsets[index][1],
+    ]),
+  );
+}
+
+function quakeClampWallBleedPoint(original: Vec2, expanded: Vec2): Vec2 {
+  const dx = expanded[0] - original[0];
+  const dy = expanded[1] - original[1];
+  const distance = Math.hypot(dx, dy);
+  if (distance <= QUAKE_WALL_RENDER_MAX_VERTEX_BLEED) return expanded;
+  const scale = QUAKE_WALL_RENDER_MAX_VERTEX_BLEED / distance;
+  return [
+    original[0] + dx * scale,
+    original[1] + dy * scale,
+  ];
+}
+
+function quakeSignedArea2(points: Vec2[]): number {
+  let area = 0;
+  for (let index = 0; index < points.length; index++) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    if (!current || !next) continue;
+    area += current[0] * next[1] - next[0] * current[1];
+  }
+  return area * 0.5;
+}
+
+function quakeWallBleedEdgeKey(vertices: Vec3[], index: number): string {
+  const current = vertices[index];
+  const next = vertices[(index + 1) % vertices.length];
+  if (!current || !next) return "";
+  const a = quakeWallBleedVertexKey(current);
+  const b = quakeWallBleedVertexKey(next);
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+function quakeWallBleedVertexKey(vertex: Vec3): string {
+  return vertex.map((value) => String(Math.round(value / QUAKE_WALL_RENDER_EDGE_KEY_EPS))).join(",");
+}
+
+function quakeWallBleedBasis(vertices: Vec3[], normal: Vec3): QuakeWallBleedBasis | null {
+  const origin = vertices[0];
+  if (!origin) return null;
+  let xAxis: Vec3 | null = null;
+  for (let index = 0; index < vertices.length; index++) {
+    const next = vertices[(index + 1) % vertices.length];
+    const current = vertices[index];
+    if (!current || !next) continue;
+    const edge = quakeVecSub3(next, current);
+    const length = quakeVecLength3(edge);
+    if (length <= QUAKE_RENDER_COLLINEAR_EPS) continue;
+    xAxis = [edge[0] / length, edge[1] / length, edge[2] / length];
+    break;
+  }
+  if (!xAxis) return null;
+  const yAxisRaw = quakeVecCross3(normal, xAxis);
+  const yLength = quakeVecLength3(yAxisRaw);
+  if (yLength <= QUAKE_RENDER_COLLINEAR_EPS) return null;
+  const yAxis: Vec3 = [yAxisRaw[0] / yLength, yAxisRaw[1] / yLength, yAxisRaw[2] / yLength];
+  const localPoints = vertices.map((vertex) => {
+    const delta = quakeVecSub3(vertex, origin);
+    return [quakeVecDot3(delta, xAxis), quakeVecDot3(delta, yAxis)] as Vec2;
+  });
+  return { origin, xAxis, yAxis, localPoints };
+}
+
+function quakeWallBleedLocalToWorld(point: Vec2, basis: QuakeWallBleedBasis): Vec3 {
+  return [
+    basis.origin[0] + basis.xAxis[0] * point[0] + basis.yAxis[0] * point[1],
+    basis.origin[1] + basis.xAxis[1] * point[0] + basis.yAxis[1] * point[1],
+    basis.origin[2] + basis.xAxis[2] * point[0] + basis.yAxis[2] * point[1],
+  ];
+}
+
+function quakeUvAffineForLocalPoints(points: Vec2[], uvs: Vec2[]): QuakeUvAffine | null {
+  for (let first = 0; first < points.length - 2; first++) {
+    for (let second = first + 1; second < points.length - 1; second++) {
+      for (let third = second + 1; third < points.length; third++) {
+        const affine = quakeUvAffineFromTriple(
+          points[first],
+          points[second],
+          points[third],
+          uvs[first],
+          uvs[second],
+          uvs[third],
+        );
+        if (affine && quakeUvAffineMatches(points, uvs, affine)) return affine;
+      }
+    }
+  }
+  return null;
+}
+
+function quakeUvAffineFromTriple(
+  p0: Vec2 | undefined,
+  p1: Vec2 | undefined,
+  p2: Vec2 | undefined,
+  uv0: Vec2 | undefined,
+  uv1: Vec2 | undefined,
+  uv2: Vec2 | undefined,
+): QuakeUvAffine | null {
+  if (!p0 || !p1 || !p2 || !uv0 || !uv1 || !uv2) return null;
+  const x1 = p1[0] - p0[0];
+  const y1 = p1[1] - p0[1];
+  const x2 = p2[0] - p0[0];
+  const y2 = p2[1] - p0[1];
+  const det = x1 * y2 - y1 * x2;
+  if (Math.abs(det) <= QUAKE_RENDER_COLLINEAR_EPS) return null;
+  const du1 = uv1[0] - uv0[0];
+  const du2 = uv2[0] - uv0[0];
+  const dv1 = uv1[1] - uv0[1];
+  const dv2 = uv2[1] - uv0[1];
+  const ux = (du1 * y2 - du2 * y1) / det;
+  const uy = (x1 * du2 - x2 * du1) / det;
+  const vx = (dv1 * y2 - dv2 * y1) / det;
+  const vy = (x1 * dv2 - x2 * dv1) / det;
+  return {
+    ux,
+    uy,
+    u0: uv0[0] - ux * p0[0] - uy * p0[1],
+    vx,
+    vy,
+    v0: uv0[1] - vx * p0[0] - vy * p0[1],
+  };
+}
+
+function quakeUvAffineMatches(points: Vec2[], uvs: Vec2[], affine: QuakeUvAffine): boolean {
+  for (let index = 0; index < points.length; index++) {
+    const point = points[index];
+    const uv = uvs[index];
+    if (!point || !uv) return false;
+    const actual = quakeUvAffineAt(point, affine);
+    if (
+      !quakeUvClose(actual[0], uv[0]) ||
+      !quakeUvClose(actual[1], uv[1])
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function quakeUvAffineAt(point: Vec2, affine: QuakeUvAffine): Vec2 {
+  return [
+    affine.ux * point[0] + affine.uy * point[1] + affine.u0,
+    affine.vx * point[0] + affine.vy * point[1] + affine.v0,
+  ];
+}
+
+function quakeUvClose(a: number, b: number): boolean {
+  return Math.abs(a - b) <= QUAKE_WALL_RENDER_UV_AFFINE_EPS * Math.max(1, Math.abs(a), Math.abs(b));
+}
+
 function quakeCollinear3(a: Vec3, b: Vec3, c: Vec3): boolean {
   const ab = quakeVecSub3(b, a);
   const bc = quakeVecSub3(c, b);
@@ -2570,6 +3252,133 @@ async function applyFaceLightmapOverlayBudgetToRenderCandidates(
   return selectedSourceFaceIndices;
 }
 
+async function applyMergedLightmapOverlayPrototypeToRenderCandidates(
+  renderCandidates: QuakeFaceCandidate[],
+  buildCandidateByFaceIndex: Map<number, QuakeFaceBuildCandidate>,
+  lighting: Uint8Array,
+  textures: Array<QuakeMipTexture | null>,
+  palette: RGB[],
+  urls: string[],
+  cache: Map<string, Promise<string> | string>,
+  encodeTextureUrl: QuakeTextureUrlEncoder,
+  options: QuakeLightmapBakeOptions,
+  pivot: QuakeVertex,
+  skipSourceFaceIndices = new Set<number>(),
+): Promise<QuakeMergedLightmapOverlayStats> {
+  const selectedSourceFaceIndices = new Set<number>();
+  if (!options.enabled || !options.mergedOverlay || options.mergedOverlayMaxExtraRatio <= 0) {
+    return {
+      cappedByLeaves: false,
+      candidateCount: 0,
+      detailWeight: 0,
+      maxExtraLeaves: 0,
+      selectedCount: 0,
+      selectedSourceFaceIndices,
+      sourceFaceCount: 0,
+      texels: 0,
+    };
+  }
+
+  const maxExtraLeaves = Math.floor(renderCandidates.length * options.mergedOverlayMaxExtraRatio);
+  if (maxExtraLeaves <= 0) {
+    return {
+      cappedByLeaves: false,
+      candidateCount: 0,
+      detailWeight: 0,
+      maxExtraLeaves,
+      selectedCount: 0,
+      selectedSourceFaceIndices,
+      sourceFaceCount: 0,
+      texels: 0,
+    };
+  }
+
+  const selections: QuakeMergedLightmapOverlaySelection[] = [];
+  for (const renderCandidate of renderCandidates) {
+    const selection = mergedLightmapOverlaySelectionFor(
+      renderCandidate,
+      buildCandidateByFaceIndex,
+      lighting,
+      textures,
+      options,
+      pivot,
+      skipSourceFaceIndices,
+    );
+    if (selection) selections.push(selection);
+  }
+
+  selections.sort((a, b) =>
+    b.detailWeight / Math.max(1, b.texelCount) - a.detailWeight / Math.max(1, a.texelCount) ||
+    b.detailWeight - a.detailWeight ||
+    a.faceIndex - b.faceIndex
+  );
+
+  let detailWeight = 0;
+  let texels = 0;
+  let selectedCount = 0;
+  let cappedByLeaves = false;
+  const overlays: QuakeFaceCandidate[] = [];
+  for (const selection of selections) {
+    if (selectedCount >= maxExtraLeaves) {
+      cappedByLeaves = true;
+      break;
+    }
+    const overlay = await encodeMergedLightmapOverlaySelection(
+      selection,
+      lighting,
+      palette,
+      urls,
+      cache,
+      encodeTextureUrl,
+      pivot,
+    );
+    if (!overlay) continue;
+    const sourceTexture = selection.sourceFaces[0]?.sourceCandidate.texture;
+    if (!sourceTexture) continue;
+    const baseTexture = await litTextureUrlFor(
+      sourceTexture,
+      selection.baseBrightness,
+      palette,
+      urls,
+      cache,
+      encodeTextureUrl,
+    );
+    for (const baseRenderCandidate of selection.baseRenderCandidates) {
+      baseRenderCandidate.polygon = {
+        ...baseRenderCandidate.polygon,
+        texture: baseTexture,
+        textureWrap: REPEAT_WRAP,
+        textureAlphaMode: "opaque",
+        color: litTextureFallbackColor(sourceTexture, selection.baseBrightness, palette, new Map()),
+        data: {
+          ...baseRenderCandidate.polygon.data,
+          "lit": formatQuakeBrightness(selection.baseBrightness),
+          "lm-merged-overlay-base": true,
+        },
+      };
+    }
+    overlays.push(overlay);
+    detailWeight += selection.detailWeight;
+    texels += selection.texelCount;
+    selectedCount++;
+    for (const sourceFace of selection.sourceFaces) {
+      selectedSourceFaceIndices.add(sourceFace.sourceCandidate.faceIndex);
+    }
+  }
+
+  renderCandidates.push(...overlays);
+  return {
+    cappedByLeaves,
+    candidateCount: selections.length,
+    detailWeight,
+    maxExtraLeaves,
+    selectedCount,
+    selectedSourceFaceIndices,
+    sourceFaceCount: selectedSourceFaceIndices.size,
+    texels,
+  };
+}
+
 async function applyFaceLightmapBakeToRenderCandidates(
   renderCandidates: QuakeFaceCandidate[],
   buildCandidateByFaceIndex: Map<number, QuakeFaceBuildCandidate>,
@@ -2580,10 +3389,17 @@ async function applyFaceLightmapBakeToRenderCandidates(
   cache: Map<string, Promise<string> | string>,
   encodeTextureUrl: QuakeTextureUrlEncoder,
   options: QuakeLightmapBakeOptions,
+  pivot: QuakeVertex,
   skipSourceFaceIndices = new Set<number>(),
-): Promise<void> {
-  if (!options.enabled) return;
+): Promise<QuakeLightmapBakeStats | undefined> {
+  if (!options.enabled) return undefined;
   const selections: QuakeFaceLightmapBakeSelection[] = [];
+  const rejected: QuakeLightmapBakeTextureFidelityRejectedSelectionCollector = {
+    selections: [],
+    textureFidelityCount: 0,
+    textureFidelityDetailWeight: 0,
+    textureFidelityTexels: 0,
+  };
   for (const renderCandidate of renderCandidates) {
     if (renderCandidate.sourceFaceIndices.length !== 1) continue;
     const sourceFaceIndex = renderCandidate.sourceFaceIndices[0];
@@ -2598,14 +3414,31 @@ async function applyFaceLightmapBakeToRenderCandidates(
       lighting,
       textures,
       options,
+      rejected,
     );
     if (selection) selections.push(selection);
   }
 
   let texelsUsed = 0;
-  selections.sort((a, b) => b.score - a.score || a.sourceCandidate.faceIndex - b.sourceCandidate.faceIndex);
+  let detailWeightUsed = 0;
+  let selectedCount = 0;
+  let cappedByTexels = false;
+  const bakeEligibleTexels = selections.reduce((total, selection) => total + selection.texelCount, 0);
+  const bakeEligibleDetailWeight = selections.reduce((total, selection) => total + selection.detailWeight, 0);
+  const totalTexels = bakeEligibleTexels + rejected.textureFidelityTexels;
+  const totalDetailWeight = bakeEligibleDetailWeight + rejected.textureFidelityDetailWeight;
+  const targetDetailWeight = totalDetailWeight * options.detailTargetRatio;
+  selections.sort((a, b) =>
+    b.detailDensity - a.detailDensity ||
+    b.detailWeight - a.detailWeight ||
+    a.sourceCandidate.faceIndex - b.sourceCandidate.faceIndex
+  );
   for (const selection of selections) {
-    if (texelsUsed + selection.texelCount > options.maxTotalTexels) continue;
+    if (totalDetailWeight > 0 && detailWeightUsed >= targetDetailWeight) break;
+    if (texelsUsed + selection.texelCount > options.maxTotalTexels) {
+      cappedByTexels = true;
+      continue;
+    }
     const baked = await encodeFaceLightmapBakeSelection(
       selection,
       lighting,
@@ -2631,21 +3464,990 @@ async function applyFaceLightmapBakeToRenderCandidates(
       },
     };
     texelsUsed += selection.texelCount;
+    detailWeightUsed += selection.detailWeight;
+    selectedCount++;
   }
+  const mergedFallbackOverlayStats = await applyLightmapBakeMergedFallbackOverlayIslandsToRenderCandidates(
+    renderCandidates,
+    rejected.selections,
+    lighting,
+    palette,
+    urls,
+    cache,
+    encodeTextureUrl,
+    options,
+    pivot,
+    Math.max(0, targetDetailWeight - detailWeightUsed),
+  );
+  const fallbackSelections = mergedFallbackOverlayStats.selectedSourceFaceIndices.size > 0
+    ? rejected.selections.filter((selection) =>
+        !mergedFallbackOverlayStats.selectedSourceFaceIndices.has(selection.sourceCandidate.faceIndex)
+      )
+    : rejected.selections;
+  const fallbackOverlayStats = await applyFaceLightmapBakeTextureFallbackOverlaysToRenderCandidates(
+    renderCandidates,
+    fallbackSelections,
+    lighting,
+    palette,
+    urls,
+    cache,
+    encodeTextureUrl,
+    options,
+    Math.max(0, targetDetailWeight - detailWeightUsed - mergedFallbackOverlayStats.detailWeight),
+  );
+  return {
+    candidateDetailWeight: totalDetailWeight,
+    candidateTexels: totalTexels,
+    detailTargetRatio: options.detailTargetRatio,
+    fallbackOverlayCappedByLeaves: fallbackOverlayStats.cappedByLeaves,
+    fallbackOverlayCount: fallbackOverlayStats.selectedCount,
+    fallbackOverlayDetailWeight: fallbackOverlayStats.detailWeight,
+    fallbackOverlayMaxExtraLeaves: fallbackOverlayStats.maxExtraLeaves,
+    fallbackOverlayTexels: fallbackOverlayStats.texels,
+    mergedFallbackOverlayCandidateCount: mergedFallbackOverlayStats.candidateCount,
+    mergedFallbackOverlayCount: mergedFallbackOverlayStats.selectedCount,
+    mergedFallbackOverlayDetailWeight: mergedFallbackOverlayStats.detailWeight,
+    mergedFallbackOverlaySourceFaceCount: mergedFallbackOverlayStats.sourceFaceCount,
+    mergedFallbackOverlayTexels: mergedFallbackOverlayStats.texels,
+    maxTotalTexels: options.maxTotalTexels,
+    selectedDetailWeight: detailWeightUsed + mergedFallbackOverlayStats.detailWeight + fallbackOverlayStats.detailWeight,
+    selectedTexels: texelsUsed,
+    selectedCount,
+    totalCount: selections.length,
+    cappedByTexels,
+    textureFidelityRejectedCount: rejected.textureFidelityCount,
+    textureFidelityRejectedDetailWeight: rejected.textureFidelityDetailWeight,
+    textureFidelityRejectedTexels: rejected.textureFidelityTexels,
+  };
+}
+
+async function applyLightmapBakeMergedFallbackOverlayIslandsToRenderCandidates(
+  renderCandidates: QuakeFaceCandidate[],
+  selections: QuakeFaceLightmapBakeSelection[],
+  lighting: Uint8Array,
+  palette: RGB[],
+  urls: string[],
+  cache: Map<string, Promise<string> | string>,
+  encodeTextureUrl: QuakeTextureUrlEncoder,
+  options: QuakeLightmapBakeOptions,
+  pivot: QuakeVertex,
+  targetDetailWeight: number,
+): Promise<QuakeMergedLightmapOverlayStats> {
+  const selectedSourceFaceIndices = new Set<number>();
+  if (!options.mergedOverlay || options.mergedOverlayMaxExtraRatio <= 0 || targetDetailWeight <= 0) {
+    return {
+      cappedByLeaves: false,
+      candidateCount: 0,
+      detailWeight: 0,
+      maxExtraLeaves: 0,
+      selectedCount: 0,
+      selectedSourceFaceIndices,
+      sourceFaceCount: 0,
+      texels: 0,
+    };
+  }
+
+  const maxExtraLeaves = Math.floor(renderCandidates.length * options.mergedOverlayMaxExtraRatio);
+  if (maxExtraLeaves <= 0) {
+    return {
+      cappedByLeaves: selections.length > 0,
+      candidateCount: 0,
+      detailWeight: 0,
+      maxExtraLeaves,
+      selectedCount: 0,
+      selectedSourceFaceIndices,
+      sourceFaceCount: 0,
+      texels: 0,
+    };
+  }
+
+  const islands = mergedFallbackOverlayIslandSelectionsFor(selections, options, pivot);
+  islands.sort((a, b) =>
+    b.detailWeight / Math.max(1, b.texelCount) - a.detailWeight / Math.max(1, a.texelCount) ||
+    b.detailWeight - a.detailWeight ||
+    a.faceIndex - b.faceIndex
+  );
+
+  let detailWeight = 0;
+  let texels = 0;
+  let selectedCount = 0;
+  let cappedByLeaves = false;
+  const overlays: QuakeFaceCandidate[] = [];
+  for (const island of islands) {
+    if (detailWeight >= targetDetailWeight) break;
+    if (selectedCount >= maxExtraLeaves) {
+      cappedByLeaves = true;
+      break;
+    }
+    if (island.sourceFaces.some((sourceFace) => selectedSourceFaceIndices.has(sourceFace.sourceCandidate.faceIndex))) {
+      continue;
+    }
+
+    const overlay = await encodeMergedLightmapOverlaySelection(
+      island,
+      lighting,
+      palette,
+      urls,
+      cache,
+      encodeTextureUrl,
+      pivot,
+    );
+    if (!overlay) continue;
+    const sourceTexture = island.sourceFaces[0]?.sourceCandidate.texture;
+    if (!sourceTexture) continue;
+    const baseTexture = await litTextureUrlFor(
+      sourceTexture,
+      island.baseBrightness,
+      palette,
+      urls,
+      cache,
+      encodeTextureUrl,
+    );
+    for (const baseRenderCandidate of island.baseRenderCandidates) {
+      baseRenderCandidate.polygon = {
+        ...baseRenderCandidate.polygon,
+        texture: baseTexture,
+        textureWrap: REPEAT_WRAP,
+        textureAlphaMode: "opaque",
+        color: litTextureFallbackColor(sourceTexture, island.baseBrightness, palette, new Map()),
+        data: {
+          ...baseRenderCandidate.polygon.data,
+          "lit": formatQuakeBrightness(island.baseBrightness),
+          "lm-merged-fallback-base": true,
+        },
+      };
+    }
+    overlays.push(overlay);
+    detailWeight += island.detailWeight;
+    texels += island.texelCount;
+    selectedCount++;
+    for (const sourceFace of island.sourceFaces) {
+      selectedSourceFaceIndices.add(sourceFace.sourceCandidate.faceIndex);
+    }
+  }
+
+  renderCandidates.push(...overlays);
+  return {
+    cappedByLeaves,
+    candidateCount: islands.length,
+    detailWeight,
+    maxExtraLeaves,
+    selectedCount,
+    selectedSourceFaceIndices,
+    sourceFaceCount: selectedSourceFaceIndices.size,
+    texels,
+  };
+}
+
+async function applyFaceLightmapBakeTextureFallbackOverlaysToRenderCandidates(
+  renderCandidates: QuakeFaceCandidate[],
+  selections: QuakeFaceLightmapBakeSelection[],
+  lighting: Uint8Array,
+  palette: RGB[],
+  urls: string[],
+  cache: Map<string, Promise<string> | string>,
+  encodeTextureUrl: QuakeTextureUrlEncoder,
+  options: QuakeLightmapBakeOptions,
+  targetDetailWeight: number,
+): Promise<QuakeLightmapBakeFallbackOverlayStats> {
+  if (!options.textureFallbackOverlay || options.textureFallbackOverlayMaxExtraRatio <= 0 || targetDetailWeight <= 0) {
+    return {
+      cappedByLeaves: false,
+      detailWeight: 0,
+      maxExtraLeaves: 0,
+      selectedCount: 0,
+      texels: 0,
+    };
+  }
+
+  const maxExtraLeaves = Math.floor(renderCandidates.length * options.textureFallbackOverlayMaxExtraRatio);
+  if (maxExtraLeaves <= 0) {
+    return {
+      cappedByLeaves: selections.length > 0,
+      detailWeight: 0,
+      maxExtraLeaves,
+      selectedCount: 0,
+      texels: 0,
+    };
+  }
+
+  selections.sort((a, b) =>
+    b.detailDensity - a.detailDensity ||
+    b.detailWeight - a.detailWeight ||
+    a.sourceCandidate.faceIndex - b.sourceCandidate.faceIndex
+  );
+
+  let detailWeight = 0;
+  let texels = 0;
+  let selectedCount = 0;
+  let cappedByLeaves = false;
+  const overlays: QuakeFaceCandidate[] = [];
+  for (const selection of selections) {
+    if (detailWeight >= targetDetailWeight) break;
+    if (selectedCount >= maxExtraLeaves) {
+      cappedByLeaves = true;
+      break;
+    }
+
+    const overlay = await encodeFaceLightmapBakeTextureFallbackOverlaySelection(
+      selection,
+      lighting,
+      palette,
+      urls,
+      cache,
+      encodeTextureUrl,
+      options,
+    );
+    if (!overlay) continue;
+    const baseTexture = await litTextureUrlFor(
+      selection.sourceCandidate.texture,
+      selection.baseBrightness,
+      palette,
+      urls,
+      cache,
+      encodeTextureUrl,
+    );
+    selection.renderCandidate.polygon = {
+      ...selection.renderCandidate.polygon,
+      texture: baseTexture,
+      textureWrap: REPEAT_WRAP,
+      textureAlphaMode: "opaque",
+      color: litTextureFallbackColor(selection.sourceCandidate.texture, selection.baseBrightness, palette, new Map()),
+      data: {
+        ...selection.renderCandidate.polygon.data,
+        "lit": formatQuakeBrightness(selection.baseBrightness),
+        "lm-overlay-base": true,
+      },
+    };
+    overlays.push(overlay.overlay);
+    detailWeight += selection.detailWeight;
+    texels += overlay.texelCount;
+    selectedCount++;
+  }
+
+  renderCandidates.push(...overlays);
+  return {
+    cappedByLeaves,
+    detailWeight,
+    maxExtraLeaves,
+    selectedCount,
+    texels,
+  };
+}
+
+function mergedFallbackOverlayIslandSelectionsFor(
+  selections: QuakeFaceLightmapBakeSelection[],
+  options: QuakeLightmapBakeOptions,
+  pivot: QuakeVertex,
+): QuakeMergedLightmapOverlaySelection[] {
+  const keyedSelections = new Map<string, QuakeFaceLightmapBakeSelection[]>();
+  for (const selection of selections) {
+    const key = mergedFallbackOverlaySelectionGroupKey(selection);
+    if (!key) continue;
+    const group = keyedSelections.get(key);
+    if (group) {
+      group.push(selection);
+    } else {
+      keyedSelections.set(key, [selection]);
+    }
+  }
+
+  const islands: QuakeMergedLightmapOverlaySelection[] = [];
+  for (const group of keyedSelections.values()) {
+    for (const chunk of mergedFallbackOverlayConnectedChunks(group)) {
+      const island = mergedFallbackOverlayIslandSelectionFor(chunk, options, pivot);
+      if (island) islands.push(island);
+    }
+  }
+  return islands;
+}
+
+function mergedFallbackOverlaySelectionGroupKey(selection: QuakeFaceLightmapBakeSelection): string | null {
+  const vertices = selection.renderCandidate.polygon.vertices;
+  if (vertices.length < 3 || vertices.length > QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_VERTICES) return null;
+  const textureName = selection.sourceCandidate.texture.name.toLowerCase();
+  if (!textureName || textureName.startsWith("sky") || textureName.startsWith("*") || textureName.startsWith("+")) {
+    return null;
+  }
+  const planeKey = quakeLightmapOverlayPlaneKey(vertices);
+  if (!planeKey) return null;
+  return [
+    textureName,
+    String(selection.sourceCandidate.modelIndex),
+    String(selection.sourceCandidate.entityIndex ?? ""),
+    planeKey,
+  ].join("\u001f");
+}
+
+function mergedFallbackOverlayConnectedChunks(
+  selections: QuakeFaceLightmapBakeSelection[],
+): QuakeFaceLightmapBakeSelection[][] {
+  if (selections.length < 2) return [];
+
+  const adjacency = selections.map(() => new Set<number>());
+  const projectedSelections = mergedFallbackOverlayProjectedSelections(selections);
+  for (let first = 0; first < projectedSelections.length - 1; first++) {
+    const a = projectedSelections[first];
+    if (!a) continue;
+    for (let second = first + 1; second < projectedSelections.length; second++) {
+      const b = projectedSelections[second];
+      if (!b || !mergedFallbackOverlayProjectedSelectionsTouch(a, b)) continue;
+      adjacency[first].add(second);
+      adjacency[second].add(first);
+    }
+  }
+
+  const mergeableCache = new Map<string, boolean>();
+  const remaining = new Set(selections.map((_, index) => index));
+  const chunks: QuakeFaceLightmapBakeSelection[][] = [];
+  while (remaining.size > 0) {
+    const start = [...remaining].sort((a, b) =>
+      selections[b].detailWeight - selections[a].detailWeight ||
+      selections[a].sourceCandidate.faceIndex - selections[b].sourceCandidate.faceIndex
+    )[0];
+    remaining.delete(start);
+
+    const chunkIndexes = [start];
+    const frontier = new Set([...adjacency[start]].filter((index) => remaining.has(index)));
+    while (frontier.size > 0 && chunkIndexes.length < QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_SOURCE_FACES) {
+      const next = [...frontier]
+        .filter((index) => remaining.has(index))
+        .sort((a, b) =>
+          selections[b].detailWeight - selections[a].detailWeight ||
+          selections[a].sourceCandidate.faceIndex - selections[b].sourceCandidate.faceIndex
+        )
+        .find((index) =>
+          mergedFallbackOverlaySelectionsCanFormIsland(
+            [...chunkIndexes.map((selectionIndex) => selections[selectionIndex]), selections[index]],
+            mergeableCache,
+          )
+        );
+      if (next === undefined) break;
+
+      frontier.delete(next);
+      remaining.delete(next);
+      chunkIndexes.push(next);
+      for (const neighbor of adjacency[next]) {
+        if (remaining.has(neighbor)) frontier.add(neighbor);
+      }
+    }
+
+    if (chunkIndexes.length >= 2) chunks.push(chunkIndexes.map((index) => selections[index]));
+  }
+  return chunks;
+}
+
+function mergedFallbackOverlaySelectionsCanFormIsland(
+  selections: QuakeFaceLightmapBakeSelection[],
+  cache: Map<string, boolean>,
+): boolean {
+  if (selections.length < 2 || selections.length > QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_SOURCE_FACES) return false;
+  const key = selections
+    .map((selection) => selection.sourceCandidate.faceIndex)
+    .sort((a, b) => a - b)
+    .join(",");
+  const cached = cache.get(key);
+  if (cached !== undefined) return cached;
+
+  const coverage = mergedFallbackOverlayProjectedIslandCoverage(selections);
+  const mergeable = coverage !== null &&
+    quakeSaneLightmapOverlayBounds(coverage.bounds, QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_ASPECT_RATIO) &&
+    mergedLightmapOverlaySolidCoverageAcceptable(coverage);
+  cache.set(key, mergeable);
+  return mergeable;
+}
+
+interface QuakeMergedLightmapOverlaySolidCoverage {
+  bounds: QuakeLocalBounds;
+  fillRatio: number;
+  hasInteriorHole: boolean;
+  minSideQuake: number;
+  solidSampleRatio: number;
+}
+
+function mergedFallbackOverlayProjectedIslandCoverage(
+  selections: QuakeFaceLightmapBakeSelection[],
+): QuakeMergedLightmapOverlaySolidCoverage | null {
+  const firstPolygon = selections[0]?.renderCandidate.polygon;
+  if (!firstPolygon || firstPolygon.vertices.length < 3) return null;
+  const normal = quakePolygonNormal(firstPolygon.vertices);
+  const basis = quakeWallBleedBasis(firstPolygon.vertices, normal);
+  if (!basis) return null;
+
+  const localPolygons: Vec2[][] = [];
+  for (const selection of selections) {
+    const vertices = selection.renderCandidate.polygon.vertices;
+    if (!quakePointsLieOnBasisPlane(vertices, basis, normal)) return null;
+    localPolygons.push(vertices.map((point) => quakeProjectToBasis(point, basis)));
+  }
+  return mergedLightmapOverlaySolidCoverageForLocalPolygons(localPolygons);
+}
+
+function mergedLightmapOverlaySolidCoverageAcceptable(coverage: QuakeMergedLightmapOverlaySolidCoverage): boolean {
+  return coverage.fillRatio >= QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MIN_FILL_RATIO &&
+    coverage.minSideQuake >= QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MIN_SOLID_SIDE &&
+    coverage.solidSampleRatio >= QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MIN_SAMPLE_FILL_RATIO &&
+    !coverage.hasInteriorHole;
+}
+
+function mergedLightmapOverlaySolidCoverageForLocalPolygons(
+  localPolygons: Vec2[][],
+): QuakeMergedLightmapOverlaySolidCoverage | null {
+  const points = localPolygons.flat();
+  const bounds = quakeLocalBounds(points);
+  if (!bounds) return null;
+
+  const spanX = bounds.maxX - bounds.minX;
+  const spanY = bounds.maxY - bounds.minY;
+  const boundsArea = spanX * spanY;
+  if (boundsArea <= QUAKE_RENDER_COLLINEAR_EPS) return null;
+
+  const sourceArea = localPolygons.reduce((total, polygon) => total + Math.abs(quakeSignedArea2(polygon)), 0);
+  const fillRatio = Math.max(0, Math.min(1, sourceArea / boundsArea));
+  const samplesX = mergedLightmapOverlaySolidSampleCount(spanX);
+  const samplesY = mergedLightmapOverlaySolidSampleCount(spanY);
+  let solidSamples = 0;
+  let totalSamples = 0;
+  let hasInteriorHole = false;
+
+  for (let y = 0; y < samplesY; y++) {
+    const localY = bounds.maxY - ((y + 0.5) / samplesY) * spanY;
+    for (let x = 0; x < samplesX; x++) {
+      const localX = bounds.minX + ((x + 0.5) / samplesX) * spanX;
+      const covered = mergedLightmapOverlayLocalPointCovered(localPolygons, [localX, localY]);
+      totalSamples++;
+      if (covered) {
+        solidSamples++;
+      } else if (x > 0 && x < samplesX - 1 && y > 0 && y < samplesY - 1) {
+        hasInteriorHole = true;
+      }
+    }
+  }
+
+  return {
+    bounds,
+    fillRatio,
+    hasInteriorHole,
+    minSideQuake: Math.min(spanX, spanY) / QUAKE_UNIT_SCALE,
+    solidSampleRatio: totalSamples > 0 ? solidSamples / totalSamples : 0,
+  };
+}
+
+function mergedLightmapOverlaySolidSampleCount(span: number): number {
+  const quakeUnits = span / QUAKE_UNIT_SCALE;
+  return Math.max(
+    3,
+    Math.min(
+      QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_SOLID_SAMPLES,
+      Math.ceil(quakeUnits / QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_SOLID_SAMPLE_UNIT),
+    ),
+  );
+}
+
+function mergedLightmapOverlayLocalPointCovered(localPolygons: Vec2[][], point: Vec2): boolean {
+  return localPolygons.some((polygon) => quakePointInPolygon2(point, polygon));
+}
+
+interface QuakeMergedLightmapOverlayProjectedSelection {
+  bounds: QuakeLocalBounds;
+  edges: QuakeMergedLightmapOverlayProjectedEdge[];
+}
+
+interface QuakeMergedLightmapOverlayProjectedEdge {
+  a: Vec2;
+  b: Vec2;
+  bounds: QuakeLocalBounds;
+  length: number;
+}
+
+function mergedFallbackOverlayProjectedSelections(
+  selections: QuakeFaceLightmapBakeSelection[],
+): Array<QuakeMergedLightmapOverlayProjectedSelection | null> {
+  const firstPolygon = selections[0]?.renderCandidate.polygon;
+  if (!firstPolygon || firstPolygon.vertices.length < 3) return selections.map(() => null);
+  const normal = quakePolygonNormal(firstPolygon.vertices);
+  const basis = quakeWallBleedBasis(firstPolygon.vertices, normal);
+  if (!basis) return selections.map(() => null);
+
+  return selections.map((selection) => {
+    const localPoints = selection.renderCandidate.polygon.vertices.map((point) => quakeProjectToBasis(point, basis));
+    const bounds = quakeLocalBounds(localPoints);
+    if (!bounds) return null;
+    const edges: QuakeMergedLightmapOverlayProjectedEdge[] = [];
+    for (let index = 0; index < localPoints.length; index++) {
+      const a = localPoints[index];
+      const b = localPoints[(index + 1) % localPoints.length];
+      if (!a || !b) continue;
+      const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (length <= QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_EDGE_TOUCH_EPS) continue;
+      edges.push({ a, b, bounds: quakeEdgeLocalBounds(a, b), length });
+    }
+    return edges.length ? { bounds, edges } : null;
+  });
+}
+
+function quakeEdgeLocalBounds(a: Vec2, b: Vec2): QuakeLocalBounds {
+  return {
+    minX: Math.min(a[0], b[0]),
+    maxX: Math.max(a[0], b[0]),
+    minY: Math.min(a[1], b[1]),
+    maxY: Math.max(a[1], b[1]),
+  };
+}
+
+function mergedFallbackOverlayProjectedSelectionsTouch(
+  a: QuakeMergedLightmapOverlayProjectedSelection,
+  b: QuakeMergedLightmapOverlayProjectedSelection,
+): boolean {
+  const eps = QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_EDGE_TOUCH_EPS;
+  if (
+    intervalGap(a.bounds.minX, a.bounds.maxX, b.bounds.minX, b.bounds.maxX) > eps ||
+    intervalGap(a.bounds.minY, a.bounds.maxY, b.bounds.minY, b.bounds.maxY) > eps
+  ) {
+    return false;
+  }
+
+  for (const edgeA of a.edges) {
+    for (const edgeB of b.edges) {
+      if (
+        intervalGap(edgeA.bounds.minX, edgeA.bounds.maxX, edgeB.bounds.minX, edgeB.bounds.maxX) > eps ||
+        intervalGap(edgeA.bounds.minY, edgeA.bounds.maxY, edgeB.bounds.minY, edgeB.bounds.maxY) > eps
+      ) {
+        continue;
+      }
+      if (quakeSegmentsOverlapOnLine2(edgeA.a, edgeA.b, edgeB.a, edgeB.b, eps)) return true;
+    }
+  }
+  return false;
+}
+
+function quakeSegmentsOverlapOnLine2(a0: Vec2, a1: Vec2, b0: Vec2, b1: Vec2, eps: number): boolean {
+  const ax = a1[0] - a0[0];
+  const ay = a1[1] - a0[1];
+  const bx = b1[0] - b0[0];
+  const by = b1[1] - b0[1];
+  const aLength = Math.hypot(ax, ay);
+  const bLength = Math.hypot(bx, by);
+  if (aLength <= eps || bLength <= eps) return false;
+
+  const directionCross = ax * by - ay * bx;
+  if (Math.abs(directionCross) > eps * Math.max(1, aLength * bLength)) return false;
+
+  const offsetCross = ax * (b0[1] - a0[1]) - ay * (b0[0] - a0[0]);
+  if (Math.abs(offsetCross) / aLength > eps) return false;
+
+  const ux = ax / aLength;
+  const uy = ay / aLength;
+  const bStart = (b0[0] - a0[0]) * ux + (b0[1] - a0[1]) * uy;
+  const bEnd = (b1[0] - a0[0]) * ux + (b1[1] - a0[1]) * uy;
+  return intervalOverlap(0, aLength, Math.min(bStart, bEnd), Math.max(bStart, bEnd)) > eps;
+}
+
+function mergedFallbackOverlayIslandSelectionFor(
+  selections: QuakeFaceLightmapBakeSelection[],
+  options: QuakeLightmapBakeOptions,
+  pivot: QuakeVertex,
+): QuakeMergedLightmapOverlaySelection | undefined {
+  if (selections.length < 2 || selections.length > QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_SOURCE_FACES) {
+    return undefined;
+  }
+  const firstPolygon = selections[0]?.renderCandidate.polygon;
+  if (!firstPolygon || firstPolygon.vertices.length < 3) return undefined;
+  const normal = quakePolygonNormal(firstPolygon.vertices);
+  const basis = quakeWallBleedBasis(firstPolygon.vertices, normal);
+  if (!basis) return undefined;
+
+  let baseDisplayBrightness = 0;
+  let displayRange = 0;
+  let detailWeight = 0;
+  const sourceLocalPolygons: Vec2[][] = [];
+  const sourceFaces: QuakeMergedLightmapOverlaySourceFace[] = [];
+  for (const selection of selections) {
+    const sourceWorldPoints = selection.sourceCandidate.points.map((point) => quakeToPoly(point, pivot));
+    if (!quakePointsLieOnBasisPlane(sourceWorldPoints, basis, normal)) return undefined;
+    const sourceLocalPoints = sourceWorldPoints.map((point) => quakeProjectToBasis(point, basis));
+    if (!quakeConvexPolygon2(sourceLocalPoints)) return undefined;
+    const sourceLocalBounds = quakeLocalBounds(sourceLocalPoints);
+    if (!sourceLocalBounds) return undefined;
+    sourceLocalPolygons.push(sourceLocalPoints);
+    baseDisplayBrightness = Math.max(baseDisplayBrightness, displayLightBrightness(selection.baseBrightness));
+    displayRange = Math.max(displayRange, selection.displayRange);
+    detailWeight += selection.detailWeight;
+    sourceFaces.push({
+      bounds: sourceLocalBounds,
+      detailWeight: selection.detailWeight,
+      displayRange: selection.displayRange,
+      grid: selection.grid,
+      localPoints: sourceLocalPoints,
+      sourceCandidate: selection.sourceCandidate,
+      textureBounds: selection.bounds,
+    });
+  }
+  if (displayRange < options.minDisplayRange || detailWeight <= 0 || baseDisplayBrightness <= 0) return undefined;
+  const coverage = mergedLightmapOverlaySolidCoverageForLocalPolygons(sourceLocalPolygons);
+  if (
+    !coverage ||
+    !quakeSaneLightmapOverlayBounds(coverage.bounds, QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_ASPECT_RATIO) ||
+    !mergedLightmapOverlaySolidCoverageAcceptable(coverage)
+  ) {
+    return undefined;
+  }
+  const bounds = coverage.bounds;
+  const dimensions = mergedLightmapOverlayDimensions(bounds, options.mergedOverlayMaxTextureSide);
+  if (!dimensions) return undefined;
+  const localPoints = mergedLightmapOverlayRectangleLocalPoints(bounds);
+  const vertices = localPoints.map((point) => quakeWallBleedLocalToWorld(point, basis));
+  return {
+    baseBrightness: Math.max(QUAKE_LIGHT_MIN, Math.min(QUAKE_LIGHT_MAX, undisplayLightBrightness(baseDisplayBrightness))),
+    baseDisplayBrightness,
+    basis,
+    bounds,
+    detailWeight,
+    dimensions,
+    displayRange,
+    baseRenderCandidates: selections.map((selection) => selection.renderCandidate),
+    faceIndex: Math.min(...selections.map((selection) => selection.renderCandidate.faceIndex)),
+    fillRatio: coverage.fillRatio,
+    localPoints,
+    minSideQuake: coverage.minSideQuake,
+    solidSampleRatio: coverage.solidSampleRatio,
+    sourceFaces,
+    texelCount: dimensions.width * dimensions.height,
+    vertices,
+    uvs: mergedLightmapOverlayUvs(localPoints, bounds),
+  };
+}
+
+function mergedLightmapOverlaySelectionFor(
+  renderCandidate: QuakeFaceCandidate,
+  buildCandidateByFaceIndex: Map<number, QuakeFaceBuildCandidate>,
+  lighting: Uint8Array,
+  textures: Array<QuakeMipTexture | null>,
+  options: QuakeLightmapBakeOptions,
+  pivot: QuakeVertex,
+  skipSourceFaceIndices: Set<number>,
+): QuakeMergedLightmapOverlaySelection | undefined {
+  const sourceFaceIndices = renderCandidate.sourceFaceIndices;
+  if (sourceFaceIndices.length < 2 || sourceFaceIndices.length > QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_SOURCE_FACES) {
+    return undefined;
+  }
+  if (sourceFaceIndices.some((sourceFaceIndex) => skipSourceFaceIndices.has(sourceFaceIndex))) return undefined;
+  const vertices = renderCandidate.polygon.vertices;
+  if (vertices.length < 3 || vertices.length > QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_VERTICES) return undefined;
+  if (String(renderCandidate.polygon.data?.["tex"] ?? "").startsWith("lm-")) return undefined;
+
+  const normal = quakePolygonNormal(vertices);
+  const basis = quakeWallBleedBasis(vertices, normal);
+  if (!basis) return undefined;
+  const bounds = quakeLocalBounds(basis.localPoints);
+  if (!bounds || !quakeSaneLightmapOverlayBounds(bounds, QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_ASPECT_RATIO)) {
+    return undefined;
+  }
+  const dimensions = mergedLightmapOverlayDimensions(bounds, options.mergedOverlayMaxTextureSide);
+  if (!dimensions) return undefined;
+
+  const sourceCandidates = sourceFaceIndices
+    .map((sourceFaceIndex) => buildCandidateByFaceIndex.get(sourceFaceIndex))
+    .filter((candidate): candidate is QuakeFaceBuildCandidate => candidate !== undefined);
+  if (sourceCandidates.length !== sourceFaceIndices.length) return undefined;
+  const textureName = sourceCandidates[0]?.texture.name.toLowerCase();
+  if (!textureName || sourceCandidates.some((candidate) => candidate.texture.name.toLowerCase() !== textureName)) {
+    return undefined;
+  }
+
+  let baseDisplayBrightness = displayLightBrightness(
+    brightnessFromPolygonData(renderCandidate.polygon.data?.["lit"]) ?? sourceCandidates[0]?.brightness ?? 1,
+  );
+  let displayRange = 0;
+  let detailWeight = 0;
+  const sourceFaces: QuakeMergedLightmapOverlaySourceFace[] = [];
+  for (const sourceCandidate of sourceCandidates) {
+    if (!staticWorldLightmapCandidate(sourceCandidate, textures)) return undefined;
+    const sourceWorldPoints = sourceCandidate.points.map((point) => quakeToPoly(point, pivot));
+    if (!quakePointsLieOnBasisPlane(sourceWorldPoints, basis, normal)) return undefined;
+    const sourceLocalPoints = sourceWorldPoints.map((point) => quakeProjectToBasis(point, basis));
+    if (!quakeConvexPolygon2(sourceLocalPoints)) return undefined;
+    const sourceLocalBounds = quakeLocalBounds(sourceLocalPoints);
+    if (!sourceLocalBounds) return undefined;
+
+    const textureBounds = faceTextureCoordinateBounds(sourceCandidate.points, sourceCandidate.texInfo);
+    if (!textureBounds) return undefined;
+    const grid = faceLightmapGridFor(sourceCandidate.face, textureBounds, lighting);
+    if (!grid) return undefined;
+    const stats = faceLightmapDisplayStats(grid, lighting);
+    const sourceDisplayRange = stats.max - stats.min;
+    baseDisplayBrightness = Math.max(baseDisplayBrightness, stats.max);
+    displayRange = Math.max(displayRange, sourceDisplayRange);
+    const sourceDimensions = faceLightmapBakeDimensions(textureBounds, options.maxTextureSide);
+    const sourceTexels = sourceDimensions ? sourceDimensions.width * sourceDimensions.height : 0;
+    const sourceDetailWeight = sourceDisplayRange >= options.minDisplayRange
+      ? stats.rmsContrast * sourceTexels
+      : 0;
+    detailWeight += sourceDetailWeight;
+    sourceFaces.push({
+      bounds: sourceLocalBounds,
+      detailWeight: sourceDetailWeight,
+      displayRange: sourceDisplayRange,
+      grid,
+      localPoints: sourceLocalPoints,
+      sourceCandidate,
+      textureBounds,
+    });
+  }
+
+  if (displayRange < options.minDisplayRange || detailWeight <= 0) return undefined;
+  return {
+    baseBrightness: Math.max(QUAKE_LIGHT_MIN, Math.min(QUAKE_LIGHT_MAX, undisplayLightBrightness(baseDisplayBrightness))),
+    baseDisplayBrightness,
+    basis,
+    bounds,
+    detailWeight,
+    dimensions,
+    displayRange,
+    baseRenderCandidates: [renderCandidate],
+    faceIndex: renderCandidate.faceIndex,
+    localPoints: basis.localPoints,
+    sourceFaces,
+    texelCount: dimensions.width * dimensions.height,
+    vertices,
+    uvs: mergedLightmapOverlayUvs(basis.localPoints, bounds),
+  };
+}
+
+async function encodeMergedLightmapOverlaySelection(
+  selection: QuakeMergedLightmapOverlaySelection,
+  lighting: Uint8Array,
+  palette: RGB[],
+  urls: string[],
+  cache: Map<string, Promise<string> | string>,
+  encodeTextureUrl: QuakeTextureUrlEncoder,
+  pivot: QuakeVertex,
+): Promise<QuakeFaceCandidate | undefined> {
+  const key = [
+    "lightmap-merged-overlay",
+    selection.faceIndex,
+    selection.sourceFaces.map((sourceFace) => sourceFace.sourceCandidate.faceIndex).join(","),
+    selection.dimensions.width,
+    selection.dimensions.height,
+    selection.baseDisplayBrightness.toFixed(4),
+    selection.bounds.minX.toFixed(4),
+    selection.bounds.maxX.toFixed(4),
+    selection.bounds.minY.toFixed(4),
+    selection.bounds.maxY.toFixed(4),
+  ].join(":");
+  const cached = cache.get(key);
+  let url: string;
+  if (cached) {
+    url = await cached;
+  } else {
+    const task = encodeTextureUrl({
+      width: selection.dimensions.width,
+      height: selection.dimensions.height,
+      pixels: new Uint8Array(selection.dimensions.width * selection.dimensions.height),
+      palette,
+      brightness: 1,
+      rgba: buildMergedLightmapOverlayRgba(selection, lighting, pivot),
+    });
+    cache.set(key, task);
+    url = await task;
+    cache.set(key, url);
+    urls.push(url);
+  }
+
+  return {
+    faceIndex: selection.faceIndex,
+    sourceFaceIndices: selection.sourceFaces.map((sourceFace) => sourceFace.sourceCandidate.faceIndex),
+    points: [],
+    polygon: {
+      vertices: offsetQuakePolygonVertices(selection.vertices, QUAKE_LIGHTMAP_OVERLAY_OFFSET),
+      texture: url,
+      textureAlphaMode: "blend",
+      color: "#000000",
+      uvs: selection.uvs,
+      data: {
+        "f": selection.faceIndex,
+        "m": selection.sourceFaces[0]?.sourceCandidate.modelIndex ?? 0,
+        "tex": "lm-overlay",
+        "lm-merged": true,
+        "lm-overlay": true,
+        "lm-range": formatQuakeBrightness(selection.displayRange),
+        "lm-texels": selection.texelCount,
+        "lm-sources": selection.sourceFaces.length,
+        ...(selection.fillRatio !== undefined ? { "lm-fill": selection.fillRatio.toFixed(3) } : {}),
+        ...(selection.minSideQuake !== undefined ? { "lm-min-side": selection.minSideQuake.toFixed(1) } : {}),
+        ...(selection.solidSampleRatio !== undefined ? { "lm-solid": selection.solidSampleRatio.toFixed(3) } : {}),
+      },
+    },
+  };
+}
+
+async function encodeFaceLightmapBakeTextureFallbackOverlaySelection(
+  selection: QuakeFaceLightmapBakeSelection,
+  lighting: Uint8Array,
+  palette: RGB[],
+  urls: string[],
+  cache: Map<string, Promise<string> | string>,
+  encodeTextureUrl: QuakeTextureUrlEncoder,
+  options: QuakeLightmapBakeOptions,
+): Promise<{ overlay: QuakeFaceCandidate; texelCount: number } | undefined> {
+  const dimensions = faceLightmapBakeDimensions(selection.bounds, options.textureFallbackOverlayMaxTextureSide);
+  if (!dimensions) return undefined;
+
+  const baseDisplayBrightness = displayLightBrightness(selection.baseBrightness);
+  const key = [
+    "lightmap-bake-fallback-overlay",
+    selection.sourceCandidate.faceIndex,
+    dimensions.width,
+    dimensions.height,
+    options.textureFallbackOverlayMaxTextureSide,
+    baseDisplayBrightness.toFixed(4),
+    selection.bounds.minS.toFixed(3),
+    selection.bounds.maxS.toFixed(3),
+    selection.bounds.minT.toFixed(3),
+    selection.bounds.maxT.toFixed(3),
+  ].join(":");
+  const cached = cache.get(key);
+  let url: string;
+  if (cached) {
+    url = await cached;
+  } else {
+    const task = encodeTextureUrl({
+      width: dimensions.width,
+      height: dimensions.height,
+      pixels: new Uint8Array(dimensions.width * dimensions.height),
+      palette,
+      brightness: 1,
+      rgba: buildFaceLightmapOverlayRgba(
+        selection.bounds,
+        selection.grid,
+        lighting,
+        dimensions,
+        baseDisplayBrightness,
+      ),
+    });
+    cache.set(key, task);
+    url = await task;
+    cache.set(key, url);
+    urls.push(url);
+  }
+
+  const texelCount = dimensions.width * dimensions.height;
+  return {
+    overlay: {
+      faceIndex: selection.renderCandidate.faceIndex,
+      sourceFaceIndices: [selection.sourceCandidate.faceIndex],
+      points: selection.sourceCandidate.points,
+      polygon: {
+        vertices: offsetQuakePolygonVertices(selection.renderCandidate.polygon.vertices, QUAKE_LIGHTMAP_OVERLAY_OFFSET),
+        texture: url,
+        textureAlphaMode: "blend",
+        color: "#000000",
+        uvs: selection.uvs,
+        data: {
+          "f": selection.renderCandidate.faceIndex,
+          "m": selection.sourceCandidate.modelIndex,
+          "tex": "lm-overlay",
+          "lm-fallback": true,
+          "lm-overlay": true,
+          "lm-range": formatQuakeBrightness(selection.displayRange),
+          "lm-texels": texelCount,
+        },
+      },
+    },
+    texelCount,
+  };
+}
+
+function formatLightmapBakeStats(stats: QuakeLightmapBakeStats): string {
+  const captured = stats.candidateDetailWeight > 0
+    ? stats.selectedDetailWeight / stats.candidateDetailWeight
+    : 1;
+  const target = formatPercent(stats.detailTargetRatio);
+  const capNote = stats.cappedByTexels ? `; capped at ${formatTexelCount(stats.maxTotalTexels)} texels` : "";
+  const overlayNote = stats.fallbackOverlayCount > 0
+    ? `; ${stats.fallbackOverlayCount}/${stats.textureFidelityRejectedCount} texture-risky faces as overlays, ` +
+      `${formatTexelCount(stats.fallbackOverlayTexels)} texels`
+    : "";
+  const mergedFallbackNote = stats.mergedFallbackOverlayCount > 0
+    ? `; ${stats.mergedFallbackOverlayCount}/${stats.mergedFallbackOverlayCandidateCount} merged fallback overlays ` +
+      `covering ${stats.mergedFallbackOverlaySourceFaceCount} faces, ` +
+      `${formatTexelCount(stats.mergedFallbackOverlayTexels)} texels`
+    : "";
+  const overlayCapNote = stats.fallbackOverlayCappedByLeaves
+    ? `; overlay capped at ${stats.fallbackOverlayMaxExtraLeaves} faces`
+    : "";
+  const fidelityNote = stats.textureFidelityRejectedCount > 0
+    ? `; texture/repeat gate protected ${stats.textureFidelityRejectedCount} faces, ` +
+      `${formatTexelCount(stats.textureFidelityRejectedTexels)} texels`
+    : "";
+  return `Captured ${formatPercent(captured)} lightmap detail against ${target} target ` +
+    `(${stats.selectedCount}/${stats.totalCount} baked faces, ` +
+    `${formatTexelCount(stats.selectedTexels)} baked/${formatTexelCount(stats.candidateTexels)} candidate texels` +
+    `${capNote}${mergedFallbackNote}${overlayNote}${overlayCapNote}${fidelityNote}).`;
+}
+
+function formatMergedLightmapOverlayStats(stats: QuakeMergedLightmapOverlayStats): string {
+  const capNote = stats.cappedByLeaves ? `; capped at ${stats.maxExtraLeaves} overlays` : "";
+  return `Merged lightmap overlay prototype selected ${stats.selectedCount}/${stats.candidateCount} overlays ` +
+    `covering ${stats.sourceFaceCount} source faces ` +
+    `(${formatTexelCount(stats.texels)} texels, ${formatTexelCount(stats.detailWeight)} detail${capNote}).`;
+}
+
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatTexelCount(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return String(value);
 }
 
 function normalizeQuakeLightmapBakeOptions(
   options: Pick<
     QuakePreparedSceneCreateOptions,
-    "lightmapBake" | "lightmapBakeMaxSide" | "lightmapBakeMaxTotalTexels" | "lightmapBakeMinRange"
+    | "lightmapBake"
+    | "lightmapBakeDetailTarget"
+    | "lightmapBakeLightSupersample"
+    | "lightmapBakeMaxSide"
+    | "lightmapBakeMaxTotalTexels"
+    | "lightmapBakeMinDisplaySide"
+    | "lightmapBakeMinTextureScale"
+    | "lightmapBakeMinTextureSide"
+    | "lightmapBakeTextureFallbackOverlay"
+    | "lightmapBakeTextureFallbackOverlayMaxExtraRatio"
+    | "lightmapBakeTextureFallbackOverlayMaxSide"
+    | "lightmapBakeMergedOverlay"
+    | "lightmapBakeMergedOverlayMaxExtraRatio"
+    | "lightmapBakeMergedOverlayMaxSide"
+    | "lightmapBakeMinRange"
   > = {},
 ): QuakeLightmapBakeOptions {
+  const rawDetailTargetRatio = options.lightmapBakeDetailTarget ?? QUAKE_LIGHTMAP_BAKE_DEFAULT_DETAIL_TARGET_RATIO;
+  const detailTargetRatio = Math.max(
+    0,
+    Math.min(
+      1,
+      Number.isFinite(rawDetailTargetRatio) ? rawDetailTargetRatio : QUAKE_LIGHTMAP_BAKE_DEFAULT_DETAIL_TARGET_RATIO,
+    ),
+  );
   const rawMaxSide = options.lightmapBakeMaxSide ?? QUAKE_LIGHTMAP_BAKE_DEFAULT_MAX_TEXTURE_SIDE;
   const maxTextureSide = Math.max(
     QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SIDE,
     Math.min(
       QUAKE_LIGHTMAP_BAKE_MAX_TEXTURE_SIDE,
       Number.isFinite(rawMaxSide) ? Math.round(rawMaxSide) : QUAKE_LIGHTMAP_BAKE_DEFAULT_MAX_TEXTURE_SIDE,
+    ),
+  );
+  const rawLightSupersample = options.lightmapBakeLightSupersample
+    ?? QUAKE_LIGHTMAP_BAKE_DEFAULT_LIGHT_SUPERSAMPLE;
+  const lightSupersample = Math.max(
+    1,
+    Math.min(
+      QUAKE_LIGHTMAP_BAKE_MAX_LIGHT_SUPERSAMPLE,
+      Number.isFinite(rawLightSupersample)
+        ? Math.round(rawLightSupersample)
+        : QUAKE_LIGHTMAP_BAKE_DEFAULT_LIGHT_SUPERSAMPLE,
     ),
   );
   const rawMinRange = options.lightmapBakeMinRange ?? QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_DISPLAY_RANGE;
@@ -2656,16 +4458,97 @@ function normalizeQuakeLightmapBakeOptions(
       Number.isFinite(rawMinRange) ? rawMinRange : QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_DISPLAY_RANGE,
     ),
   );
+  const rawMinDisplaySide = options.lightmapBakeMinDisplaySide
+    ?? QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_DISPLAY_SIDE;
+  const minDisplaySide = Math.max(
+    0,
+    Number.isFinite(rawMinDisplaySide) ? rawMinDisplaySide : QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_DISPLAY_SIDE,
+  );
   const rawMaxTotalTexels = options.lightmapBakeMaxTotalTexels ?? QUAKE_LIGHTMAP_BAKE_DEFAULT_MAX_TOTAL_TEXELS;
   const maxTotalTexels = Math.max(
     0,
     Number.isFinite(rawMaxTotalTexels) ? Math.floor(rawMaxTotalTexels) : Number.POSITIVE_INFINITY,
   );
+  const rawMinTextureScale = options.lightmapBakeMinTextureScale
+    ?? QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_TEXTURE_SCALE;
+  const minTextureScale = Math.max(
+    0,
+    Math.min(
+      1,
+      Number.isFinite(rawMinTextureScale) ? rawMinTextureScale : QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_TEXTURE_SCALE,
+    ),
+  );
+  const rawMinTextureSide = options.lightmapBakeMinTextureSide
+    ?? QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_TEXTURE_SIDE;
+  const minTextureSide = Math.max(
+    QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SIDE,
+    Math.min(
+      maxTextureSide,
+      Number.isFinite(rawMinTextureSide)
+        ? Math.round(rawMinTextureSide)
+        : QUAKE_LIGHTMAP_BAKE_DEFAULT_MIN_TEXTURE_SIDE,
+    ),
+  );
+  const rawFallbackOverlayMaxExtraRatio = options.lightmapBakeTextureFallbackOverlayMaxExtraRatio
+    ?? QUAKE_LIGHTMAP_BAKE_TEXTURE_FALLBACK_OVERLAY_DEFAULT_MAX_EXTRA_RATIO;
+  const textureFallbackOverlayMaxExtraRatio = Math.max(
+    0,
+    Math.min(
+      QUAKE_LIGHTMAP_BAKE_TEXTURE_FALLBACK_OVERLAY_MAX_EXTRA_RATIO,
+      Number.isFinite(rawFallbackOverlayMaxExtraRatio)
+        ? rawFallbackOverlayMaxExtraRatio
+        : QUAKE_LIGHTMAP_BAKE_TEXTURE_FALLBACK_OVERLAY_DEFAULT_MAX_EXTRA_RATIO,
+    ),
+  );
+  const rawFallbackOverlayMaxSide = options.lightmapBakeTextureFallbackOverlayMaxSide
+    ?? QUAKE_LIGHTMAP_BAKE_TEXTURE_FALLBACK_OVERLAY_DEFAULT_MAX_TEXTURE_SIDE;
+  const textureFallbackOverlayMaxTextureSide = Math.max(
+    QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SIDE,
+    Math.min(
+      QUAKE_LIGHTMAP_BAKE_MAX_TEXTURE_SIDE,
+      Number.isFinite(rawFallbackOverlayMaxSide)
+        ? Math.round(rawFallbackOverlayMaxSide)
+        : QUAKE_LIGHTMAP_BAKE_TEXTURE_FALLBACK_OVERLAY_DEFAULT_MAX_TEXTURE_SIDE,
+    ),
+  );
+  const rawMergedOverlayMaxExtraRatio = options.lightmapBakeMergedOverlayMaxExtraRatio
+    ?? QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_DEFAULT_MAX_EXTRA_RATIO;
+  const mergedOverlayMaxExtraRatio = Math.max(
+    0,
+    Math.min(
+      QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_MAX_EXTRA_RATIO,
+      Number.isFinite(rawMergedOverlayMaxExtraRatio)
+        ? rawMergedOverlayMaxExtraRatio
+        : QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_DEFAULT_MAX_EXTRA_RATIO,
+    ),
+  );
+  const rawMergedOverlayMaxSide = options.lightmapBakeMergedOverlayMaxSide
+    ?? QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_DEFAULT_MAX_TEXTURE_SIDE;
+  const mergedOverlayMaxTextureSide = Math.max(
+    QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SIDE,
+    Math.min(
+      QUAKE_LIGHTMAP_BAKE_MAX_TEXTURE_SIDE,
+      Number.isFinite(rawMergedOverlayMaxSide)
+        ? Math.round(rawMergedOverlayMaxSide)
+        : QUAKE_LIGHTMAP_BAKE_MERGED_OVERLAY_DEFAULT_MAX_TEXTURE_SIDE,
+    ),
+  );
   return {
     enabled: options.lightmapBake === true,
+    detailTargetRatio,
+    lightSupersample,
     maxTextureSide,
     maxTotalTexels,
     minDisplayRange,
+    minDisplaySide,
+    minTextureScale,
+    minTextureSide,
+    textureFallbackOverlay: options.lightmapBakeTextureFallbackOverlay === true,
+    textureFallbackOverlayMaxExtraRatio,
+    textureFallbackOverlayMaxTextureSide,
+    mergedOverlay: options.lightmapBakeMergedOverlay === true,
+    mergedOverlayMaxExtraRatio,
+    mergedOverlayMaxTextureSide,
   };
 }
 
@@ -2805,6 +4688,7 @@ function faceLightmapBakeSelectionFor(
   lighting: Uint8Array,
   textures: Array<QuakeMipTexture | null>,
   options: QuakeLightmapBakeOptions,
+  rejected?: QuakeLightmapBakeTextureFidelityRejectedSelectionCollector,
 ): QuakeFaceLightmapBakeSelection | undefined {
   if (!options.enabled) return undefined;
   if (!staticWorldLightmapCandidate(sourceCandidate, textures)) return undefined;
@@ -2824,18 +4708,75 @@ function faceLightmapBakeSelectionFor(
   );
   const area = quakeFaceArea(sourceCandidate.points);
   const texelCount = dimensions.width * dimensions.height;
-  return {
+  const detailDensity = stats.rmsContrast;
+  const detailWeight = detailDensity * texelCount;
+  const fidelity = faceLightmapBakeTextureFidelity(bounds, dimensions, sourceCandidate.texture, sourceCandidate.points);
+  const selection = {
     baseBrightness,
     bounds,
+    detailDensity,
+    detailWeight,
     dimensions,
     displayRange,
     grid,
     renderCandidate,
-    score: displayRange * Math.sqrt(Math.max(1, area)),
+    score: detailDensity * Math.sqrt(Math.max(1, area)),
     sourceCandidate,
     texelCount,
     uvs,
   };
+  if (
+    fidelity.minScale < options.minTextureScale ||
+    fidelity.minSide < options.minTextureSide ||
+    fidelity.minDisplaySide < options.minDisplaySide ||
+    fidelity.repeatedTileRisk
+  ) {
+    if (rejected) {
+      rejected.selections.push(selection);
+      rejected.textureFidelityCount++;
+      rejected.textureFidelityDetailWeight += detailWeight;
+      rejected.textureFidelityTexels += texelCount;
+    }
+    return undefined;
+  }
+  return selection;
+}
+
+function faceLightmapBakeTextureFidelity(
+  bounds: QuakeTextureCoordinateBounds,
+  dimensions: { width: number; height: number },
+  texture: QuakeMipTexture,
+  renderPoints: QuakeVertex[],
+): { minDisplaySide: number; minScale: number; minSide: number; repeatedTileRisk: boolean } {
+  const spanS = Math.max(1, bounds.maxS - bounds.minS);
+  const spanT = Math.max(1, bounds.maxT - bounds.minT);
+  const repeatsS = spanS / Math.max(1, texture.width);
+  const repeatsT = spanT / Math.max(1, texture.height);
+  const maxRepeat = Math.max(repeatsS, repeatsT);
+  const minRepeat = Math.min(repeatsS, repeatsT);
+  const repeatedTile = repeatsS > 1 + QUAKE_LIGHTMAP_BAKE_REPEAT_EPS ||
+    repeatsT > 1 + QUAKE_LIGHTMAP_BAKE_REPEAT_EPS;
+  const minSide = Math.min(dimensions.width, dimensions.height);
+  const repeatedSmallBake = repeatedTile && minSide < QUAKE_LIGHTMAP_BAKE_REPEATED_TILE_MIN_BAKE_SIDE;
+  const repeatedStrip = maxRepeat > QUAKE_LIGHTMAP_BAKE_REPEATED_STRIP_MIN_REPEAT &&
+    minRepeat < QUAKE_LIGHTMAP_BAKE_REPEATED_STRIP_MIN_TILE_COVERAGE &&
+    repeatedTile;
+  return {
+    minDisplaySide: faceMinimumPlaneSpan(renderPoints),
+    minScale: Math.min(dimensions.width / spanS, dimensions.height / spanT),
+    minSide,
+    repeatedTileRisk: repeatedSmallBake || repeatedStrip,
+  };
+}
+
+function faceMinimumPlaneSpan(points: QuakeVertex[]): number {
+  if (points.length < 3) return 0;
+  const normal = faceNormal(points);
+  const bounds = facePlaneBounds(points, normal);
+  const spanU = bounds.maxU - bounds.minU;
+  const spanV = bounds.maxV - bounds.minV;
+  if (!Number.isFinite(spanU) || !Number.isFinite(spanV)) return 0;
+  return Math.max(0, Math.min(spanU, spanV));
 }
 
 async function encodeFaceLightmapBakeSelection(
@@ -2855,6 +4796,7 @@ async function encodeFaceLightmapBakeSelection(
     dimensions.width,
     dimensions.height,
     options.maxTextureSide,
+    options.lightSupersample,
     selection.baseBrightness.toFixed(4),
     bounds.minS.toFixed(3),
     bounds.maxS.toFixed(3),
@@ -2870,7 +4812,15 @@ async function encodeFaceLightmapBakeSelection(
     pixels: new Uint8Array(dimensions.width * dimensions.height),
     palette,
     brightness: 1,
-    rgba: buildFaceLightmapBakeRgba(sourceCandidate.texture, bounds, selection.grid, lighting, palette, dimensions),
+    rgba: buildFaceLightmapBakeRgba(
+      sourceCandidate.texture,
+      bounds,
+      selection.grid,
+      lighting,
+      palette,
+      dimensions,
+      options.lightSupersample,
+    ),
   });
   cache.set(key, task);
   const url = await task;
@@ -2948,10 +4898,11 @@ function faceLightmapBakeUv(
 function faceLightmapDisplayStats(
   grid: QuakeFaceLightmapGrid,
   lighting: Uint8Array,
-): { min: number; max: number; mean: number } {
+): { min: number; max: number; mean: number; rmsContrast: number } {
   let min = Infinity;
   let max = -Infinity;
   let total = 0;
+  let totalSq = 0;
   let count = 0;
   for (let y = 0; y < grid.height; y++) {
     for (let x = 0; x < grid.width; x++) {
@@ -2959,11 +4910,14 @@ function faceLightmapDisplayStats(
       min = Math.min(min, brightness);
       max = Math.max(max, brightness);
       total += brightness;
+      totalSq += brightness * brightness;
       count++;
     }
   }
-  if (count === 0) return { min: 1, max: 1, mean: 1 };
-  return { min, max, mean: total / count };
+  if (count === 0) return { min: 1, max: 1, mean: 1, rmsContrast: 0 };
+  const mean = total / count;
+  const variance = Math.max(0, totalSq / count - mean * mean);
+  return { min, max, mean, rmsContrast: Math.sqrt(variance) };
 }
 
 function buildFaceLightmapBakeRgba(
@@ -2973,6 +4927,7 @@ function buildFaceLightmapBakeRgba(
   lighting: Uint8Array,
   palette: RGB[],
   dimensions: { width: number; height: number },
+  lightSupersample: number,
 ): Uint8Array {
   const rgba = new Uint8Array(dimensions.width * dimensions.height * 4);
   const spanS = bounds.maxS - bounds.minS;
@@ -2985,7 +4940,7 @@ function buildFaceLightmapBakeRgba(
       const [r, g, b] = palette[paletteIndex] ?? [0, 0, 0];
       const light = paletteIndex >= 224
         ? 1
-        : displayLightBrightness(faceLightmapBrightnessAt(grid, lighting, s, t));
+        : displayLightBrightness(faceLightmapPixelBrightness(grid, lighting, bounds, dimensions, x, y, lightSupersample));
       const offset = (y * dimensions.width + x) * 4;
       rgba[offset] = clampByte(r * light);
       rgba[offset + 1] = clampByte(g * light);
@@ -3023,6 +4978,206 @@ function buildFaceLightmapOverlayRgba(
   return rgba;
 }
 
+function buildMergedLightmapOverlayRgba(
+  selection: QuakeMergedLightmapOverlaySelection,
+  lighting: Uint8Array,
+  pivot: QuakeVertex,
+): Uint8Array {
+  const rgba = new Uint8Array(selection.dimensions.width * selection.dimensions.height * 4);
+  const spanX = selection.bounds.maxX - selection.bounds.minX;
+  const spanY = selection.bounds.maxY - selection.bounds.minY;
+  const base = Math.max(QUAKE_LIGHT_MIN, selection.baseDisplayBrightness);
+  for (let y = 0; y < selection.dimensions.height; y++) {
+    const localY = selection.bounds.maxY - ((y + 0.5) / selection.dimensions.height) * spanY;
+    for (let x = 0; x < selection.dimensions.width; x++) {
+      const localX = selection.bounds.minX + ((x + 0.5) / selection.dimensions.width) * spanX;
+      const localPoint: Vec2 = [localX, localY];
+      const sourceFace = mergedLightmapOverlaySourceFaceAt(selection.sourceFaces, localPoint);
+      if (!sourceFace) continue;
+
+      const polyPoint = quakeWallBleedLocalToWorld(localPoint, selection.basis);
+      const quakePoint = polyToQuake(polyPoint, pivot);
+      const s = quakePoint.x * sourceFace.sourceCandidate.texInfo.s[0] +
+        quakePoint.y * sourceFace.sourceCandidate.texInfo.s[1] +
+        quakePoint.z * sourceFace.sourceCandidate.texInfo.s[2] +
+        sourceFace.sourceCandidate.texInfo.s[3];
+      const t = quakePoint.x * sourceFace.sourceCandidate.texInfo.t[0] +
+        quakePoint.y * sourceFace.sourceCandidate.texInfo.t[1] +
+        quakePoint.z * sourceFace.sourceCandidate.texInfo.t[2] +
+        sourceFace.sourceCandidate.texInfo.t[3];
+      const light = displayLightBrightness(faceLightmapBrightnessAt(sourceFace.grid, lighting, s, t));
+      const darken = Math.max(0, Math.min(QUAKE_LIGHTMAP_OVERLAY_MAX_OPACITY, 1 - light / base));
+      const offset = (y * selection.dimensions.width + x) * 4;
+      rgba[offset] = 0;
+      rgba[offset + 1] = 0;
+      rgba[offset + 2] = 0;
+      rgba[offset + 3] = clampByte(darken * 255);
+    }
+  }
+  return rgba;
+}
+
+function mergedLightmapOverlaySourceFaceAt(
+  sourceFaces: QuakeMergedLightmapOverlaySourceFace[],
+  point: Vec2,
+): QuakeMergedLightmapOverlaySourceFace | undefined {
+  for (const sourceFace of sourceFaces) {
+    if (
+      point[0] < sourceFace.bounds.minX - QUAKE_RENDER_COLLINEAR_EPS ||
+      point[0] > sourceFace.bounds.maxX + QUAKE_RENDER_COLLINEAR_EPS ||
+      point[1] < sourceFace.bounds.minY - QUAKE_RENDER_COLLINEAR_EPS ||
+      point[1] > sourceFace.bounds.maxY + QUAKE_RENDER_COLLINEAR_EPS
+    ) {
+      continue;
+    }
+    if (quakePointInPolygon2(point, sourceFace.localPoints)) return sourceFace;
+  }
+  return undefined;
+}
+
+function polyToQuake(point: Vec3, pivot: QuakeVertex): QuakeVertex {
+  return {
+    x: point[0] / QUAKE_UNIT_SCALE + pivot.x,
+    y: point[1] / QUAKE_UNIT_SCALE + pivot.y,
+    z: point[2] / QUAKE_UNIT_SCALE + pivot.z,
+  };
+}
+
+function quakeProjectToBasis(point: Vec3, basis: QuakeWallBleedBasis): Vec2 {
+  const delta = quakeVecSub3(point, basis.origin);
+  return [quakeVecDot3(delta, basis.xAxis), quakeVecDot3(delta, basis.yAxis)];
+}
+
+function quakePointsLieOnBasisPlane(points: Vec3[], basis: QuakeWallBleedBasis, normal: Vec3): boolean {
+  return points.every((point) =>
+    Math.abs(quakeVecDot3(quakeVecSub3(point, basis.origin), normal)) <= QUAKE_RENDER_COLLINEAR_EPS * 64,
+  );
+}
+
+function quakeLightmapOverlayPlaneKey(vertices: Vec3[]): string | null {
+  if (vertices.length < 3) return null;
+  let normal = quakePolygonNormal(vertices);
+  const first = vertices[0];
+  if (!first) return null;
+  let dist = quakeVecDot3(normal, first);
+  const flip = normal[0] < -QUAKE_RENDER_COLLINEAR_EPS ||
+    (Math.abs(normal[0]) <= QUAKE_RENDER_COLLINEAR_EPS && normal[1] < -QUAKE_RENDER_COLLINEAR_EPS) ||
+    (
+      Math.abs(normal[0]) <= QUAKE_RENDER_COLLINEAR_EPS &&
+      Math.abs(normal[1]) <= QUAKE_RENDER_COLLINEAR_EPS &&
+      normal[2] < -QUAKE_RENDER_COLLINEAR_EPS
+    );
+  if (flip) {
+    normal = [-normal[0], -normal[1], -normal[2]];
+    dist = -dist;
+  }
+  const scale = 1 / QUAKE_WALL_RENDER_EDGE_KEY_EPS;
+  return [
+    Math.round(normal[0] * scale),
+    Math.round(normal[1] * scale),
+    Math.round(normal[2] * scale),
+    Math.round(dist * scale),
+  ].join(",");
+}
+
+function quakeLocalBounds(points: Vec2[]): QuakeLocalBounds | null {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const point of points) {
+    minX = Math.min(minX, point[0]);
+    maxX = Math.max(maxX, point[0]);
+    minY = Math.min(minY, point[1]);
+    maxY = Math.max(maxY, point[1]);
+  }
+  if (![minX, maxX, minY, maxY].every(Number.isFinite) || maxX <= minX || maxY <= minY) return null;
+  return { minX, maxX, minY, maxY };
+}
+
+function quakeSaneLightmapOverlayBounds(bounds: QuakeLocalBounds, maxAspectRatio: number): boolean {
+  const spanX = bounds.maxX - bounds.minX;
+  const spanY = bounds.maxY - bounds.minY;
+  if (spanX <= QUAKE_RENDER_COLLINEAR_EPS || spanY <= QUAKE_RENDER_COLLINEAR_EPS) return false;
+  return Math.max(spanX / spanY, spanY / spanX) <= maxAspectRatio;
+}
+
+function mergedLightmapOverlayDimensions(
+  bounds: QuakeLocalBounds,
+  maxTextureSide: number,
+): { width: number; height: number } | undefined {
+  const spanX = (bounds.maxX - bounds.minX) / QUAKE_UNIT_SCALE;
+  const spanY = (bounds.maxY - bounds.minY) / QUAKE_UNIT_SCALE;
+  if (![spanX, spanY].every(Number.isFinite) || spanX <= 0 || spanY <= 0) return undefined;
+  const scale = Math.min(1, maxTextureSide / Math.max(spanX, spanY));
+  return {
+    width: Math.max(QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SIDE, Math.min(maxTextureSide, Math.ceil(spanX * scale))),
+    height: Math.max(QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SIDE, Math.min(maxTextureSide, Math.ceil(spanY * scale))),
+  };
+}
+
+function mergedLightmapOverlayUvs(points: Vec2[], bounds: QuakeLocalBounds): Vec2[] {
+  const spanX = Math.max(1e-6, bounds.maxX - bounds.minX);
+  const spanY = Math.max(1e-6, bounds.maxY - bounds.minY);
+  return points.map((point) => [
+    (point[0] - bounds.minX) / spanX,
+    (bounds.maxY - point[1]) / spanY,
+  ]);
+}
+
+function mergedLightmapOverlayRectangleLocalPoints(bounds: QuakeLocalBounds): Vec2[] {
+  return [
+    [bounds.minX, bounds.minY],
+    [bounds.maxX, bounds.minY],
+    [bounds.maxX, bounds.maxY],
+    [bounds.minX, bounds.maxY],
+  ];
+}
+
+function quakeConvexPolygon2(points: Vec2[]): boolean {
+  if (points.length < 3) return false;
+  let sign = 0;
+  for (let index = 0; index < points.length; index++) {
+    const a = points[index];
+    const b = points[(index + 1) % points.length];
+    const c = points[(index + 2) % points.length];
+    if (!a || !b || !c) return false;
+    const cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+    if (Math.abs(cross) <= QUAKE_RENDER_COLLINEAR_EPS) continue;
+    const nextSign = Math.sign(cross);
+    if (sign !== 0 && nextSign !== sign) return false;
+    sign = nextSign;
+  }
+  return sign !== 0;
+}
+
+function quakePointInPolygon2(point: Vec2, polygon: Vec2[]): boolean {
+  let inside = false;
+  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index++) {
+    const a = polygon[index];
+    const b = polygon[previous];
+    if (!a || !b) continue;
+    if (quakePointOnSegment2(point, a, b)) return true;
+    const intersects = (a[1] > point[1]) !== (b[1] > point[1]) &&
+      point[0] < ((b[0] - a[0]) * (point[1] - a[1])) / (b[1] - a[1]) + a[0];
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function quakePointOnSegment2(point: Vec2, a: Vec2, b: Vec2): boolean {
+  const abx = b[0] - a[0];
+  const aby = b[1] - a[1];
+  const apx = point[0] - a[0];
+  const apy = point[1] - a[1];
+  const cross = abx * apy - aby * apx;
+  if (Math.abs(cross) > QUAKE_RENDER_COLLINEAR_EPS) return false;
+  const dot = apx * abx + apy * aby;
+  if (dot < -QUAKE_RENDER_COLLINEAR_EPS) return false;
+  const lenSq = abx * abx + aby * aby;
+  return dot <= lenSq + QUAKE_RENDER_COLLINEAR_EPS;
+}
+
 function quakeFaceArea(points: QuakeVertex[]): number {
   if (points.length < 3) return 0;
   const origin = points[0];
@@ -3053,6 +5208,38 @@ function quakeVertexCross(a: QuakeVertex, b: QuakeVertex): QuakeVertex {
 
 function quakeVertexLength(value: QuakeVertex): number {
   return Math.hypot(value.x, value.y, value.z);
+}
+
+function faceLightmapPixelBrightness(
+  grid: QuakeFaceLightmapGrid,
+  lighting: Uint8Array,
+  bounds: QuakeTextureCoordinateBounds,
+  dimensions: { width: number; height: number },
+  pixelX: number,
+  pixelY: number,
+  lightSupersample: number,
+): number {
+  const samplesPerAxis = Math.max(1, Math.floor(lightSupersample));
+  const spanS = bounds.maxS - bounds.minS;
+  const spanT = bounds.maxT - bounds.minT;
+  if (samplesPerAxis <= 1) {
+    const s = bounds.minS + ((pixelX + 0.5) / dimensions.width) * spanS;
+    const t = bounds.maxT - ((pixelY + 0.5) / dimensions.height) * spanT;
+    return faceLightmapBrightnessAt(grid, lighting, s, t);
+  }
+
+  let total = 0;
+  const step = 1 / samplesPerAxis;
+  for (let sampleY = 0; sampleY < samplesPerAxis; sampleY++) {
+    const y = pixelY + (sampleY + 0.5) * step;
+    const t = bounds.maxT - (y / dimensions.height) * spanT;
+    for (let sampleX = 0; sampleX < samplesPerAxis; sampleX++) {
+      const x = pixelX + (sampleX + 0.5) * step;
+      const s = bounds.minS + (x / dimensions.width) * spanS;
+      total += faceLightmapBrightnessAt(grid, lighting, s, t);
+    }
+  }
+  return clampLightBrightness(total / (samplesPerAxis * samplesPerAxis));
 }
 
 function faceLightmapBrightnessAt(

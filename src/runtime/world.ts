@@ -28,6 +28,8 @@ const quakeTextureAnimationPresentationObservers = new WeakMap<HTMLElement, Muta
 const quakeMeshPresentationObservers = new WeakMap<HTMLElement, MutationObserver>();
 const quakeBackfaceVisibleLeaves = new WeakSet<HTMLElement>();
 
+type QuakeDebugOutlineKind = "world" | "sky" | "special" | "animated" | "lit" | "brush" | "entity" | "lightstyle";
+
 export interface QuakeFaceLeaf {
   faceIndex: number;
   modelIndex?: number;
@@ -206,7 +208,8 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     }
     const origin = options.getOrigin();
     options.syncPickupsVisibility(origin);
-    const visibleFaces = currentVisibility?.visibleFacesAt(origin) ?? null;
+    const visibleFaceGroup = currentVisibility?.visibleFaceGroupAt(origin) ?? null;
+    const visibleFaces = visibleFaceGroup?.faces ?? null;
     if (!visibleFaces) {
       let addedLeaves = 0;
       let removedLeaves = 0;
@@ -232,7 +235,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       return;
     }
 
-    const nextKey = faceSetKey(visibleFaces);
+    const nextKey = visibleFaceGroup?.key ?? faceSetKey(visibleFaces);
     if (!force && nextKey === visibleFaceKey) {
       recordQuakeWorldVisibilitySync(visibilityChurn, "same-key", startedAt, { pvsFaceCount: visibleFaces.size });
       return;
@@ -342,6 +345,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
 
   const addQuakeLightstyleRenderBundleMesh = (renderBundle: QuakePreparedRenderBundle): PolyMeshHandle => {
     const handle = mountQuakeRenderBundleMesh(options.sceneElement, renderBundle);
+    handle.element.classList.add("quake-lightstyle-mesh");
     stripQuakeWorldMeshMetadata(handle.element);
     indexQuakeFaceLeaves(handle, renderBundle, faceLeaves, false, "lightstyle");
     syncQuakeLightstyleOverlayAnimations(handle);
@@ -415,6 +419,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
         baseBackgroundPosition: leaf.style.backgroundPosition,
         baseBackgroundSize: leaf.style.backgroundSize,
       };
+      syncQuakeLeafDebugOutlineKind(record);
       if (previous) previous.next = record;
       previousByParent.set(parent, record);
       quakeLeaves.push(record);
@@ -486,6 +491,22 @@ function stripQuakeWorldMeshMetadata(element: HTMLElement): void {
 
 function stripQuakeWorldLeafMetadata(leaf: HTMLElement): void {
   stripQuakeLeafMetadata(leaf);
+}
+
+function syncQuakeLeafDebugOutlineKind(leaf: QuakeFaceLeaf): void {
+  leaf.element.dataset.quakeDebugOutline = quakeDebugOutlineKind(leaf);
+}
+
+function quakeDebugOutlineKind(leaf: QuakeFaceLeaf): QuakeDebugOutlineKind {
+  if (leaf.meshKind === "lightstyle") return "lightstyle";
+  const textureName = leaf.textureName?.toLowerCase() ?? "";
+  if (textureName.startsWith("sky")) return "sky";
+  if (leaf.specialTexture || textureName.startsWith("*")) return "special";
+  if (leaf.textureAnimated || textureName.startsWith("+")) return "animated";
+  if (leaf.modelIndex !== undefined && leaf.modelIndex !== 0) return "brush";
+  if (leaf.entityIndex !== undefined && leaf.entityIndex > 0) return "entity";
+  if (leaf.lightstyleAnimated) return "lit";
+  return "world";
 }
 
 export function injectQuakeWorldAnimations(): void {

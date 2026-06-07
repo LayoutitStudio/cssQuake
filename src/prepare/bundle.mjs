@@ -7,6 +7,9 @@ import {
 const QUAKE_RENDER_SUPERSAMPLE = 1;
 const QUAKE_CAMERA_ZOOM = (BASE_TILE * 0.65) / QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_RENDER_BUNDLE_TIMEOUT_MS = 30000;
+const QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_MIN = 1;
+const QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_STEP = 1;
+const QUAKE_ADAPTIVE_ATLAS_BACKGROUND_SNAP_EPSILON = 0.25;
 
 window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
   polygons,
@@ -15,6 +18,7 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
   extractLeafStyles = false,
   styleClassName = "",
   tightenAtlasLeaves = false,
+  adaptiveAtlasLeafSize = false,
 }) {
   const host = createQuakeRenderHost();
 
@@ -31,6 +35,9 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
 
     await waitForBakedTextureLeaves(handle.element);
     if (tightenAtlasLeaves) await tightenQuakeAtlasLeaves(handle.element);
+    const adaptiveAtlasLeafSizeStats = adaptiveAtlasLeafSize
+      ? applyAdaptiveQuakeAtlasLeafSizes(handle.element)
+      : null;
     const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await serializeMeshWithAssets(handle.element, {
       extractLeafStyles,
       styleClassName,
@@ -45,6 +52,7 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
       leafCount: handle.element.querySelectorAll("b,i,s,u").length,
       atlasLeafCount: handle.element.querySelectorAll("s").length,
       polygonCount: polygons.length,
+      ...(adaptiveAtlasLeafSizeStats ? { adaptiveAtlasLeafSizeStats } : {}),
     };
   } finally {
     host.remove();
@@ -56,6 +64,7 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
   textureQuality = 1,
   extractLeafStyles = true,
   tightenAtlasLeaves = false,
+  adaptiveAtlasLeafSize = false,
 }) {
   if (!Array.isArray(frames) || !frames.length) {
     throw new Error("Animated render bundle build requires at least one frame.");
@@ -98,6 +107,9 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
       if (tightenAtlasLeaves) {
         baseTightAtlasBoundsByKey = await tightenQuakeAtlasLeaves(handle.element, baseTightAtlasBoundsByKey);
       }
+      const adaptiveAtlasLeafSizeStats = adaptiveAtlasLeafSize
+        ? applyAdaptiveQuakeAtlasLeafSizes(handle.element)
+        : null;
       if (index === 0) {
         const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await serializeMeshWithAssets(handle.element, {
           extractLeafStyles,
@@ -115,6 +127,7 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
           leafCount: handle.element.querySelectorAll("b,i,s,u").length,
           atlasLeafCount: handle.element.querySelectorAll("s").length,
           polygonCount: frame.polygons.length,
+          ...(adaptiveAtlasLeafSizeStats ? { adaptiveAtlasLeafSizeStats } : {}),
         });
         continue;
       }
@@ -228,6 +241,86 @@ async function tightenQuakeAtlasLeaf(leaf, boundsByKey, useExistingBounds) {
   leaf.style.height = `${roundCssPx(bounds.height)}px`;
   leaf.style.background = `${style.backgroundImage} ${roundCssPx(position[0] - bounds.x)}px ` +
     `${roundCssPx(position[1] - bounds.y)}px / ${roundCssPx(size[0])}px ${roundCssPx(size[1])}px no-repeat`;
+}
+
+function applyAdaptiveQuakeAtlasLeafSizes(mesh) {
+  const stats = {
+    totalLeaves: 0,
+    resizedLeaves: 0,
+    beforeArea: 0,
+    afterArea: 0,
+    maxWidth: 0,
+    maxHeight: 0,
+  };
+  for (const leaf of mesh.querySelectorAll("s")) {
+    const result = applyAdaptiveQuakeAtlasLeafSize(leaf);
+    if (!result) continue;
+    stats.totalLeaves++;
+    stats.beforeArea += Math.round(result.beforeWidth * result.beforeHeight);
+    stats.afterArea += Math.round(result.afterWidth * result.afterHeight);
+    stats.maxWidth = Math.max(stats.maxWidth, result.afterWidth);
+    stats.maxHeight = Math.max(stats.maxHeight, result.afterHeight);
+    if (result.resized) stats.resizedLeaves++;
+  }
+  return stats;
+}
+
+function applyAdaptiveQuakeAtlasLeafSize(leaf) {
+  const win = leaf.ownerDocument.defaultView ?? window;
+  const style = win.getComputedStyle(leaf);
+  const matrix = parseMatrix3d(leaf.style.transform || style.transform);
+  if (!matrix) return null;
+
+  const beforeWidth = cssPixelValue(leaf.style.width) ||
+    cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
+    cssPixelValue(style.width) ||
+    64;
+  const beforeHeight = cssPixelValue(leaf.style.height) ||
+    cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
+    cssPixelValue(style.height) ||
+    64;
+  if (beforeWidth <= 0 || beforeHeight <= 0) return null;
+
+  const matrixScaleX = Math.hypot(matrix[0], matrix[1], matrix[2]);
+  const matrixScaleY = Math.hypot(matrix[4], matrix[5], matrix[6]);
+  const afterWidth = adaptiveQuakeAtlasLeafSide(beforeWidth, matrixScaleX);
+  const afterHeight = adaptiveQuakeAtlasLeafSide(beforeHeight, matrixScaleY);
+  if (afterWidth === beforeWidth && afterHeight === beforeHeight) {
+    return { beforeWidth, beforeHeight, afterWidth, afterHeight, resized: false };
+  }
+
+  const background = adaptiveQuakeAtlasLeafBackground(leaf, style, afterWidth / beforeWidth, afterHeight / beforeHeight);
+  if (!background) return null;
+
+  const nextMatrix = [...matrix];
+  const matrixScaleCompensationX = beforeWidth / afterWidth;
+  const matrixScaleCompensationY = beforeHeight / afterHeight;
+  for (let index = 0; index < 4; index++) nextMatrix[index] *= matrixScaleCompensationX;
+  for (let index = 4; index < 8; index++) nextMatrix[index] *= matrixScaleCompensationY;
+
+  leaf.style.transform = formatMatrix3d(nextMatrix);
+  leaf.style.width = `${roundCssPx(afterWidth)}px`;
+  leaf.style.height = `${roundCssPx(afterHeight)}px`;
+  leaf.style.background = background;
+  return { beforeWidth, beforeHeight, afterWidth, afterHeight, resized: true };
+}
+
+function adaptiveQuakeAtlasLeafSide(beforeSide, matrixScale) {
+  const desiredSide = beforeSide * matrixScale;
+  const roundedSide = Math.round(desiredSide / QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_STEP) *
+    QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_STEP;
+  return Math.max(QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_MIN, roundedSide);
+}
+
+function adaptiveQuakeAtlasLeafBackground(leaf, style, scaleX, scaleY) {
+  const backgroundImage = style.backgroundImage;
+  if (!backgroundImage || backgroundImage === "none") return "";
+  const position = cssPixelPair(style.backgroundPosition, style.backgroundPositionX, style.backgroundPositionY);
+  const size = cssPixelPair(style.backgroundSize);
+  if (!position || !size || size[0] <= 0 || size[1] <= 0) return "";
+  return `${backgroundImage} ${roundAdaptiveCssPx(position[0] * scaleX)}px ` +
+    `${roundAdaptiveCssPx(position[1] * scaleY)}px / ${roundAdaptiveCssPx(size[0] * scaleX)}px ` +
+    `${roundAdaptiveCssPx(size[1] * scaleY)}px no-repeat`;
 }
 
 function quakeAtlasLeafKey(leaf) {
@@ -351,6 +444,13 @@ function roundCssPx(value) {
   return Number(value.toFixed(3));
 }
 
+function roundAdaptiveCssPx(value) {
+  const rounded = Math.round(value);
+  return Math.abs(value - rounded) <= QUAKE_ADAPTIVE_ATLAS_BACKGROUND_SNAP_EPSILON
+    ? rounded
+    : roundCssPx(value);
+}
+
 async function serializeMeshWithAssets(mesh, options = {}) {
   const serializableMesh = options.mutateOriginal ? mesh : mesh.cloneNode(true);
   const leafMetadata = extractRenderBundleLeafMetadata(serializableMesh);
@@ -428,12 +528,14 @@ function inheritRenderBundleFrameStyleBackgrounds(leafFrameStyles, baseLeafFrame
 function extractRenderBundleLeafMetadata(mesh) {
   return [...mesh.querySelectorAll("b,i,s,u")].map((leaf) => {
     const faceIndex = renderBundleIntegerAttr(leaf, "data-f");
+    const polyIndex = renderBundleIntegerAttr(leaf, "data-poly-index");
     const modelIndex = renderBundleIntegerAttr(leaf, "data-m");
     const entityIndex = renderBundleIntegerAttr(leaf, "data-e");
     const textureName = leaf.getAttribute("data-tex");
     const lightstyle = leaf.getAttribute("data-ls");
     return {
       f: faceIndex ?? -1,
+      ...(polyIndex !== undefined ? { p: polyIndex } : {}),
       ...(modelIndex !== undefined ? { m: modelIndex } : {}),
       ...(entityIndex !== undefined ? { e: entityIndex } : {}),
       ...(textureName ? { t: textureName } : {}),

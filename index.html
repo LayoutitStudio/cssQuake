@@ -347,6 +347,7 @@
       <img class="cssquake-logo" src="/src/assets/cssquake-logo.png" width="1409" height="268" alt="cssQuake" />
       <span id="cssquake-version" class="cssquake-version" aria-hidden="true"></span>
       <div id="quake-hud">
+        <div id="quake-bonus-overlay" aria-hidden="true"></div>
         <div id="quake-damage-overlay" aria-hidden="true"></div>
         <div id="quake-hud-status" role="status" aria-live="polite" hidden></div>
         <div id="quake-main-menu" role="button" tabindex="-1" aria-label="cssQuake menu" hidden>
@@ -406,41 +407,10 @@
               <h1 id="quake-about-title" class="quake-menu-panel-title">
                 <img src="/q/menu-title-help.png" width="75" height="20" alt="Help" />
               </h1>
-              <p class="quake-bm">
-                cssQuake turns BSP maps into real DOM geometry through PolyCSS.
-              </p>
-              <p class="quake-bm">
-                Textures, baked light, and camera movement are handled with CSS transforms.
-              </p>
-              <p class="quake-bm">
-                Gameplay stays Quake-like: collision, triggers, doors, pickups, HUD, and weapons.
-              </p>
             </header>
-            <nav id="quake-about-source-links" class="quake-menu-links" aria-label="Project source links">
-              <ul>
-                <li><a href="https://github.com/LayoutitStudio/polycss" class="quake-bm-label quake-bm-alt" target="_blank" rel="noopener noreferrer">3D engine: PolyCSS</a></li>
-                <li><a href="https://github.com/id-Software/Quake" class="quake-bm-label quake-bm-alt" target="_blank" rel="noopener noreferrer">Source: Quake</a></li>
-                <li><a href="mailto:minotopo@gmail.com" class="quake-bm-label quake-bm-alt quake-bm-email">Contact: minotopo@gmail.com</a></li>
-              </ul>
-            </nav>
-            <nav id="quake-about-actions" class="quake-menu-actions" aria-label="Help actions">
-              <button id="quake-about-back" class="quake-bm-label quake-bm-alt" type="button">Back</button>
-            </nav>
-          </div>
-        </section>
-        <section id="quake-options-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-options-title" tabindex="-1" hidden>
-          <div id="quake-options-card" class="quake-menu-card" role="document">
-            <header class="quake-menu-panel-header">
-              <h1 id="quake-options-title" class="quake-menu-panel-title">
-                <img src="/q/menu-title-options.png" width="124" height="20" alt="Options" />
-              </h1>
-              <p class="quake-bm">
-                Move with the keyboard. Aim and fire with the mouse.
-              </p>
-            </header>
-            <div id="quake-options-sections" class="quake-menu-panel-sections">
-              <section aria-labelledby="quake-options-controls-title">
-                <h2 id="quake-options-controls-title" class="quake-bm-label quake-bm-alt">Controls</h2>
+            <div id="quake-help-sections" class="quake-menu-panel-sections">
+              <section aria-labelledby="quake-help-controls-title">
+                <h2 id="quake-help-controls-title" class="quake-bm-label quake-bm-alt">Controls</h2>
                 <ul class="quake-help-list">
                   <li>
                     <span class="quake-help-keys"><kbd class="quake-bm-key quake-bm-alt">W</kbd><kbd class="quake-bm-key quake-bm-alt">A</kbd><kbd class="quake-bm-key quake-bm-alt">S</kbd><kbd class="quake-bm-key quake-bm-alt">D</kbd></span>
@@ -472,37 +442,104 @@
                   </li>
                 </ul>
               </section>
-              <section aria-labelledby="quake-options-game-title">
-                <h2 id="quake-options-game-title" class="quake-bm-label quake-bm-alt">Game</h2>
-                <div class="quake-options-list">
-                  <label class="quake-option-toggle">
-                    <input id="quake-option-disable-sound" type="checkbox" checked />
-                    <span class="quake-option-checkbox" aria-hidden="true"></span>
-                    <span class="quake-option-text quake-bm-label">Disable sound</span>
-                  </label>
-                  <label class="quake-option-toggle">
-                    <input id="quake-option-disable-enemies" type="checkbox" />
-                    <span class="quake-option-checkbox" aria-hidden="true"></span>
-                    <span class="quake-option-text quake-bm-label">Disable enemies</span>
-                  </label>
-                  <label class="quake-option-toggle">
-                    <input id="quake-option-disable-damage" type="checkbox" />
-                    <span class="quake-option-checkbox" aria-hidden="true"></span>
-                    <span class="quake-option-text quake-bm-label">Disable damage</span>
-                  </label>
-                  <label class="quake-option-toggle">
-                    <input id="quake-option-invert-mouse" type="checkbox" />
-                    <span class="quake-option-checkbox" aria-hidden="true"></span>
-                    <span class="quake-option-text quake-bm-label">Invert mouse</span>
-                  </label>
-                </div>
-              </section>
+            </div>
+            <nav id="quake-about-actions" class="quake-menu-actions" aria-label="Help actions">
+              <button id="quake-about-back" class="quake-bm-label quake-bm-alt" type="button">Back</button>
+            </nav>
+          </div>
+        </section>
+        <section id="quake-options-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-options-title" tabindex="-1" hidden>
+          <div id="quake-options-card" class="quake-menu-card" role="document">
+            <header class="quake-menu-panel-header">
+              <h1 id="quake-options-title" class="quake-menu-panel-title">
+                <img src="/q/menu-title-options.png" width="124" height="20" alt="Options" />
+              </h1>
+            </header>
+            <div id="quake-options-sections" class="quake-menu-panel-sections">
+              <div class="quake-options-list">
+                <label class="quake-option-toggle quake-option-debug-toggle">
+                  <input id="quake-option-debug-mode" type="checkbox" />
+                  <span class="quake-option-checkbox" aria-hidden="true"></span>
+                  <span class="quake-option-debug-copy">
+                    <span class="quake-option-text quake-bm-label">Debug mode</span>
+                    <span class="quake-option-note quake-bm-label">Stats and render toggles.</span>
+                  </span>
+                </label>
+                <div class="quake-option-separator" aria-hidden="true"></div>
+                <label class="quake-option-toggle">
+                  <input id="quake-option-disable-sound" type="checkbox" checked />
+                  <span class="quake-option-checkbox" aria-hidden="true"></span>
+                  <span class="quake-option-text quake-bm-label">Disable sound</span>
+                </label>
+                <label class="quake-option-toggle">
+                  <input id="quake-option-disable-enemies" type="checkbox" />
+                  <span class="quake-option-checkbox" aria-hidden="true"></span>
+                  <span class="quake-option-text quake-bm-label">Disable enemies</span>
+                </label>
+                <label class="quake-option-toggle">
+                  <input id="quake-option-disable-damage" type="checkbox" />
+                  <span class="quake-option-checkbox" aria-hidden="true"></span>
+                  <span class="quake-option-text quake-bm-label">Disable damage</span>
+                </label>
+                <label class="quake-option-toggle">
+                  <input id="quake-option-invert-mouse" type="checkbox" />
+                  <span class="quake-option-checkbox" aria-hidden="true"></span>
+                  <span class="quake-option-text quake-bm-label">Invert mouse</span>
+                </label>
+              </div>
             </div>
             <nav id="quake-options-actions" class="quake-menu-actions" aria-label="Options actions">
               <button id="quake-options-back" class="quake-bm-label quake-bm-alt" type="button">Back</button>
             </nav>
           </div>
         </section>
+        <aside id="quake-debug-panel" aria-labelledby="quake-debug-title" hidden>
+          <div id="quake-debug-card">
+            <header id="quake-debug-header">
+              <h2 id="quake-debug-title" class="quake-bm-label quake-bm-alt">Debug</h2>
+              <button id="quake-debug-close" class="quake-bm-key quake-bm-alt" type="button" aria-label="Exit debug mode">Exit</button>
+            </header>
+            <dl id="quake-debug-stats" aria-label="Debug stats">
+              <div><dt class="quake-bm-label">Map</dt><dd data-quake-debug-stat="map">-</dd></div>
+              <div><dt class="quake-bm-label">Pose</dt><dd data-quake-debug-stat="pose">-</dd></div>
+              <div><dt class="quake-bm-label">Visible</dt><dd data-quake-debug-stat="visible">-</dd></div>
+              <div><dt class="quake-bm-label">DOM</dt><dd data-quake-debug-stat="dom">-</dd></div>
+              <div><dt class="quake-bm-label">Enemies</dt><dd data-quake-debug-stat="enemies">-</dd></div>
+              <div><dt class="quake-bm-label">Pickups</dt><dd data-quake-debug-stat="pickups">-</dd></div>
+            </dl>
+            <section id="quake-debug-render-options" aria-labelledby="quake-debug-render-title">
+              <h3 id="quake-debug-render-title" class="quake-bm-label quake-bm-alt">Render</h3>
+              <div class="quake-options-list">
+                <label class="quake-option-toggle">
+                  <input id="quake-debug-hide-textures" type="checkbox" />
+                  <span class="quake-option-checkbox" aria-hidden="true"></span>
+                  <span class="quake-option-text quake-bm-label">Hide textures</span>
+                </label>
+                <label class="quake-option-toggle">
+                  <input id="quake-debug-static-lighting" type="checkbox" />
+                  <span class="quake-option-checkbox" aria-hidden="true"></span>
+                  <span class="quake-option-text quake-bm-label">Static lighting</span>
+                </label>
+                <label class="quake-option-toggle">
+                  <input id="quake-debug-show-labels" type="checkbox" />
+                  <span class="quake-option-checkbox" aria-hidden="true"></span>
+                  <span class="quake-option-text quake-bm-label">Texture IDs</span>
+                </label>
+                <label class="quake-option-toggle">
+                  <input id="quake-debug-show-outlines" type="checkbox" checked />
+                  <span class="quake-option-checkbox" aria-hidden="true"></span>
+                  <span class="quake-option-text quake-bm-label">Surface outlines</span>
+                </label>
+              </div>
+              <div id="quake-debug-outline-legend" aria-label="Surface outline legend">
+                <span><span class="quake-debug-outline-swatch quake-debug-outline-swatch-world" aria-hidden="true"></span><span class="quake-bm-label">World</span></span>
+                <span><span class="quake-debug-outline-swatch quake-debug-outline-swatch-special" aria-hidden="true"></span><span class="quake-bm-label">Special</span></span>
+                <span><span class="quake-debug-outline-swatch quake-debug-outline-swatch-movers" aria-hidden="true"></span><span class="quake-bm-label">Objects/items</span></span>
+                <span><span class="quake-debug-outline-swatch quake-debug-outline-swatch-enemies" aria-hidden="true"></span><span class="quake-bm-label">Enemies</span></span>
+              </div>
+            </section>
+          </div>
+        </aside>
         <div id="quake-crosshair" aria-hidden="true"></div>
         <div id="quake-classic-hud" aria-label="Quake status bar">
           <img id="quake-classic-hud-image" src="/q/hud.png" width="320" height="24" alt="" />

@@ -98,7 +98,8 @@ export function mountQuakeRenderBundleMesh(
     throw new Error("Quake render bundle did not contain a .polycss-mesh root.");
   }
   applyQuakeRenderBundleLeafFrameStyles(element, renderBundle);
-  const leafCount = element.querySelectorAll("b,i,s,u").length;
+  const leaves = element.querySelectorAll<HTMLElement>("b,i,s,u");
+  const leafCount = leaves.length;
   if (leafCount !== renderBundle.leafCount) {
     throw new Error(`Quake render bundle leaf count mismatch: expected ${renderBundle.leafCount}, got ${leafCount}.`);
   }
@@ -107,8 +108,39 @@ export function mountQuakeRenderBundleMesh(
       `Quake render bundle leaf metadata mismatch: expected ${leafCount}, got ${renderBundle.leafMetadata.length}.`,
     );
   }
+  syncQuakeRenderBundleDebugLeafIds(leaves, renderBundle);
   sceneElement.appendChild(element);
   return createQuakeRenderBundleMeshHandle(element);
+}
+
+function syncQuakeRenderBundleDebugLeafIds(
+  leaves: NodeListOf<HTMLElement>,
+  renderBundle: QuakePreparedRenderBundle,
+): void {
+  for (let index = 0; index < leaves.length; index++) {
+    const leaf = leaves[index];
+    const id = quakeRenderBundleDebugLeafId(leaf, renderBundle.leafMetadata[index]);
+    if (id === null) {
+      leaf?.removeAttribute("data-quake-poly-id");
+      continue;
+    }
+    leaf.dataset.quakePolyId = String(id);
+  }
+}
+
+function quakeRenderBundleDebugLeafId(
+  leaf: HTMLElement | undefined,
+  metadata: QuakePreparedRenderBundle["leafMetadata"][number] | undefined,
+): number | null {
+  const polyIndex = metadata?.p ?? renderBundleDebugIntegerAttr(leaf, "data-poly-index");
+  if (Number.isSafeInteger(polyIndex) && polyIndex >= 0) return polyIndex;
+  const faceIndex = metadata?.f;
+  return Number.isSafeInteger(faceIndex) && faceIndex >= 0 ? faceIndex : null;
+}
+
+function renderBundleDebugIntegerAttr(element: HTMLElement | undefined, name: string): number | undefined {
+  const value = Number(element?.getAttribute(name));
+  return Number.isSafeInteger(value) ? value : undefined;
 }
 
 export function mountQuakeRenderBundleFrameSetMesh(
