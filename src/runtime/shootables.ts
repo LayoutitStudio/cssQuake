@@ -943,9 +943,10 @@ export function createQuakeShootablesController({
       Math.abs(forwardHorizontal[1]) <= COLLISION_EPSILON) {
       return true;
     }
+    const bounds = shootableBounds(shootable);
     const toShootable: Vec3 = [
-      shootable.origin[0] - playerOrigin[0],
-      shootable.origin[1] - playerOrigin[1],
+      (bounds.min[0] + bounds.max[0]) * 0.5 - playerOrigin[0],
+      (bounds.min[1] + bounds.max[1]) * 0.5 - playerOrigin[1],
       0,
     ];
     const depth = dotVec3(toShootable, forwardHorizontal);
