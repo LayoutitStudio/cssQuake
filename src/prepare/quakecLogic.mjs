@@ -12,8 +12,11 @@ const quakeToolsRawBaseUrl =
   `https://raw.githubusercontent.com/id-Software/Quake-Tools/${quakeToolsRevision}`;
 
 const monsterLogicReportPath = path.join(projectRoot, "notes/quake-logic-monsters-report.md");
+const programFactsReportPath = path.join(projectRoot, "notes/quake-logic-program-facts-report.md");
 const soldierReportPath = path.join(projectRoot, "notes/quake-logic-soldier-report.md");
 const generatedLogicPath = path.join(projectRoot, "src/generated/quakeMonsterLogic.ts");
+const generatedProgramFactsJsonPath = path.join(projectRoot, "src/generated/quakeProgramFacts.json");
+const generatedProgramFactsPath = path.join(projectRoot, "src/generated/quakeProgramFacts.ts");
 
 const quakeVectorConstants = new Map([
   ["VEC_ORIGIN", [0, 0, 0]],
@@ -129,32 +132,148 @@ const monsterTargets = [
   },
 ];
 
+const programFactTargets = [
+  {
+    classname: "monster_army",
+    functionName: "monster_army",
+    kind: "monster",
+    sourcePath: "qcc/v101qc/soldier.qc",
+  },
+  {
+    classname: "item_health",
+    functionName: "item_health",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    classname: "func_plat",
+    functionName: "func_plat",
+    kind: "mover",
+    sourcePath: "qcc/v101qc/plats.qc",
+  },
+  {
+    classname: "func_door",
+    functionName: "func_door",
+    kind: "mover",
+    sourcePath: "qcc/v101qc/doors.qc",
+  },
+  {
+    classname: "func_button",
+    functionName: "func_button",
+    kind: "mover",
+    sourcePath: "qcc/v101qc/buttons.qc",
+  },
+  {
+    classname: "trigger_multiple",
+    functionName: "trigger_multiple",
+    kind: "trigger",
+    sourcePath: "qcc/v101qc/triggers.qc",
+  },
+];
+
+const sharedProgramFactSourcePaths = [
+  "qcc/v101qc/defs.qc",
+];
+
+const sourceTextCache = new Map();
+
 const sharedSources = {
-  fight: await fetchText(sourceUrlFor("qcc/v101qc/fight.qc")),
-  weapons: await fetchText(sourceUrlFor("qcc/v101qc/weapons.qc")),
+  fight: await fetchSourceText("qcc/v101qc/fight.qc"),
+  weapons: await fetchSourceText("qcc/v101qc/weapons.qc"),
 };
 const extractedMonsters = [];
 for (const target of monsterTargets) {
   extractedMonsters.push(await extractMonsterLogic(target, sharedSources));
 }
 
+const programFacts = await extractProgramFacts(programFactTargets);
 const generatedLogic = renderGeneratedLogic(extractedMonsters);
+const generatedProgramFacts = renderGeneratedProgramFacts(programFacts);
 const monstersReport = renderMonstersReport(extractedMonsters);
+const programFactsReport = renderProgramFactsReport(programFacts);
 const soldierReport = renderSingleMonsterReport(extractedMonsters[0]);
 
 await mkdir(path.dirname(monsterLogicReportPath), { recursive: true });
 await writeFile(monsterLogicReportPath, monstersReport);
+await writeFile(programFactsReportPath, programFactsReport);
 await writeFile(soldierReportPath, soldierReport);
 await mkdir(path.dirname(generatedLogicPath), { recursive: true });
 await writeFile(generatedLogicPath, generatedLogic);
+await writeFile(generatedProgramFactsJsonPath, `${json(programFacts)}\n`);
+await writeFile(generatedProgramFactsPath, generatedProgramFacts);
 
 console.log(`Wrote ${path.relative(projectRoot, monsterLogicReportPath)}`);
+console.log(`Wrote ${path.relative(projectRoot, programFactsReportPath)}`);
 console.log(`Wrote ${path.relative(projectRoot, soldierReportPath)}`);
 console.log(`Wrote ${path.relative(projectRoot, generatedLogicPath)}`);
+console.log(`Wrote ${path.relative(projectRoot, generatedProgramFactsJsonPath)}`);
+console.log(`Wrote ${path.relative(projectRoot, generatedProgramFactsPath)}`);
+
+async function extractProgramFacts(targets) {
+  const sharedConstants = new Map();
+  for (const sourcePath of sharedProgramFactSourcePaths) {
+    const source = await fetchSourceText(sourcePath);
+    for (const [name, value] of parseQuakeConstants(source)) {
+      sharedConstants.set(name, value);
+    }
+  }
+  const entities = {};
+  for (const target of targets) {
+    const entityFact = await extractProgramEntityFact(target, sharedConstants);
+    entities[entityFact.classname] = entityFact;
+  }
+  return {
+    version: 1,
+    source: {
+      repository: quakeToolsRepositoryUrl,
+      revision: quakeToolsRevision,
+    },
+    entities,
+  };
+}
+
+async function extractProgramEntityFact(target, sharedConstants) {
+  const source = await fetchSourceText(target.sourcePath);
+  const functionDefinition = extractFunctionDefinition(source, target.functionName);
+  if (!functionDefinition) {
+    throw new Error(`Could not find QuakeC function ${target.functionName} in ${target.sourcePath}.`);
+  }
+  const constants = new Map([
+    ...sharedConstants,
+    ...parseQuakeConstants(source),
+  ]);
+  const body = functionDefinition.body;
+  const assignments = extractSelfAssignments(body, functionDefinition, target, constants);
+  return {
+    callbacks: extractCallbackAssignments(assignments),
+    calls: extractCalls(body),
+    classname: target.classname,
+    defaultAssignments: extractDefaultAssignments(body, functionDefinition, target, constants),
+    dependencies: {
+      models: extractProgramDependencyRefs(body, functionDefinition, target, "model"),
+      sounds: extractProgramDependencyRefs(body, functionDefinition, target, "sound"),
+    },
+    fieldAssignments: assignments,
+    functionName: target.functionName,
+    kind: target.kind,
+    setmodels: extractSetmodelRefs(body, functionDefinition, target, constants),
+    setsizes: extractSetsizeRefs(body, functionDefinition, target, constants),
+    sourceRefs: [sourceRefForBodyIndex(functionDefinition, target, 0)],
+    source: {
+      license: "GPL-2.0-or-later header in source file",
+      repository: quakeToolsRepositoryUrl,
+      revision: quakeToolsRevision,
+      sourceFile: target.sourcePath,
+      sourceSha256: sha256(source),
+      sourceUrl: sourceUrlFor(target.sourcePath),
+    },
+    spawnflagChecks: extractSpawnflagChecks(body, functionDefinition, target, constants),
+  };
+}
 
 async function extractMonsterLogic(target, shared) {
   const sourceUrl = sourceUrlFor(target.sourcePath);
-  const source = await fetchText(sourceUrl);
+  const source = await fetchSourceText(target.sourcePath);
   const frameMap = parseFrameMap(source);
   const states = parseStates(source, frameMap);
   const callbacks = {
@@ -186,6 +305,14 @@ async function extractMonsterLogic(target, shared) {
     states,
     target,
   };
+}
+
+async function fetchSourceText(sourcePath) {
+  const url = sourceUrlFor(sourcePath);
+  if (!sourceTextCache.has(url)) {
+    sourceTextCache.set(url, fetchText(url));
+  }
+  return await sourceTextCache.get(url);
 }
 
 async function fetchText(url) {
@@ -272,6 +399,189 @@ function parseQuakeVectorExpression(expression) {
   if (!literal) return null;
   const vector = parseVectorLiteral(literal[1]);
   return vector.every(Number.isFinite) ? vector : null;
+}
+
+function parseQuakeConstants(sourceText) {
+  const constants = new Map();
+  for (const match of sourceText.matchAll(/\bfloat\s+([A-Za-z_]\w*)\s*=\s*([-+]?[0-9.]+)\s*;/g)) {
+    constants.set(match[1], Number(match[2]));
+  }
+  for (const match of sourceText.matchAll(/^\s*#define\s+([A-Za-z_]\w*)\s+([-+]?[0-9.]+)\b/gm)) {
+    constants.set(match[1], Number(match[2]));
+  }
+  for (const [name, value] of quakeVectorConstants) {
+    constants.set(name, value);
+  }
+  return constants;
+}
+
+function extractProgramDependencyRefs(body, functionDefinition, target, kind) {
+  const refs = [];
+  const pattern = kind === "model"
+    ? /\b(precache_model|setmodel)\s*\(\s*(?:self\s*,\s*)?"([^"]+)"\s*\)/g
+    : /\b(precache_sound)\s*\(\s*"([^"]+)"\s*\)/g;
+  for (const match of body.matchAll(pattern)) {
+    refs.push({
+      call: match[1],
+      path: match[2].toLowerCase(),
+      sourceRef: sourceRefForBodyIndex(functionDefinition, target, match.index ?? 0),
+    });
+  }
+  return dedupeProgramRefs(refs);
+}
+
+function dedupeProgramRefs(refs) {
+  const out = [];
+  const seen = new Set();
+  for (const ref of refs) {
+    const key = `${ref.call}:${ref.path}:${ref.sourceRef.line}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(ref);
+  }
+  return out;
+}
+
+function extractSelfAssignments(body, functionDefinition, target, constants) {
+  const assignments = [];
+  for (const match of body.matchAll(/\bself\.([A-Za-z_]\w*)\s*=(?!=)\s*([^;]+);/g)) {
+    const expression = normalizeQuakeExpression(match[2]);
+    assignments.push({
+      field: match[1],
+      expression,
+      ...parsedProgramValueField(expression, constants),
+      sourceRef: sourceRefForBodyIndex(functionDefinition, target, match.index ?? 0),
+    });
+  }
+  return assignments;
+}
+
+function extractCallbackAssignments(assignments) {
+  const callbacks = {};
+  for (const assignment of assignments) {
+    if (!isQuakeCallbackField(assignment.field)) continue;
+    if (!/^[A-Za-z_]\w*$/.test(assignment.expression)) continue;
+    callbacks[assignment.field] = assignment.expression;
+  }
+  return callbacks;
+}
+
+function isQuakeCallbackField(field) {
+  return field === "blocked" ||
+    field === "touch" ||
+    field === "use" ||
+    field === "think" ||
+    field.startsWith("th_");
+}
+
+function extractDefaultAssignments(body, functionDefinition, target, constants) {
+  const defaults = [];
+  const guardedPatterns = [
+    /if\s*\(\s*!\s*self\.([A-Za-z_]\w*)\s*\)\s*self\.\1\s*=\s*([^;]+);/g,
+    /if\s*\(\s*self\.([A-Za-z_]\w*)\s*==\s*0\s*\)\s*self\.\1\s*=\s*([^;]+);/g,
+  ];
+  for (const pattern of guardedPatterns) {
+    for (const match of body.matchAll(pattern)) {
+      const expression = normalizeQuakeExpression(match[2]);
+      defaults.push({
+        condition: normalizeQuakeExpression(match[0].slice(0, match[0].indexOf(")") + 1)),
+        field: match[1],
+        expression,
+        ...parsedProgramValueField(expression, constants),
+        sourceRef: sourceRefForBodyIndex(functionDefinition, target, match.index ?? 0),
+      });
+    }
+  }
+  return dedupeProgramAssignments(defaults);
+}
+
+function dedupeProgramAssignments(assignments) {
+  const out = [];
+  const seen = new Set();
+  for (const assignment of assignments) {
+    const key = `${assignment.field}:${assignment.expression}:${assignment.sourceRef.line}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(assignment);
+  }
+  return out;
+}
+
+function extractSpawnflagChecks(body, functionDefinition, target, constants) {
+  const checks = [];
+  for (const match of body.matchAll(/\bself\.spawnflags\s*&\s*([A-Za-z_]\w*)/g)) {
+    const name = match[1];
+    checks.push({
+      name,
+      ...(constants.has(name) ? { value: constants.get(name) } : {}),
+      sourceRef: sourceRefForBodyIndex(functionDefinition, target, match.index ?? 0),
+    });
+  }
+  return dedupeSpawnflagChecks(checks);
+}
+
+function dedupeSpawnflagChecks(checks) {
+  const out = [];
+  const seen = new Set();
+  for (const check of checks) {
+    const key = `${check.name}:${check.value ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(check);
+  }
+  return out;
+}
+
+function extractSetmodelRefs(body, functionDefinition, target, constants) {
+  const refs = [];
+  for (const match of body.matchAll(/\bsetmodel\s*\(\s*self\s*,\s*([^)]+)\)/g)) {
+    const expression = normalizeQuakeExpression(match[1]);
+    refs.push({
+      expression,
+      ...parsedProgramValueField(expression, constants),
+      sourceRef: sourceRefForBodyIndex(functionDefinition, target, match.index ?? 0),
+    });
+  }
+  return refs;
+}
+
+function extractSetsizeRefs(body, functionDefinition, target, constants) {
+  const refs = [];
+  for (const match of body.matchAll(/\bsetsize\s*\(\s*self\s*,\s*([^,]+)\s*,\s*([^)]+)\)/g)) {
+    const minExpression = normalizeQuakeExpression(match[1]);
+    const maxExpression = normalizeQuakeExpression(match[2]);
+    refs.push({
+      minExpression,
+      ...parsedProgramValueField(minExpression, constants, "min"),
+      maxExpression,
+      ...parsedProgramValueField(maxExpression, constants, "max"),
+      sourceRef: sourceRefForBodyIndex(functionDefinition, target, match.index ?? 0),
+    });
+  }
+  return refs;
+}
+
+function parsedProgramValueField(expression, constants, key = "value") {
+  const value = parseProgramLiteralValue(expression, constants);
+  return value === undefined ? {} : { [key]: value };
+}
+
+function parseProgramLiteralValue(expression, constants) {
+  const text = normalizeQuakeExpression(expression);
+  if (constants.has(text)) return constants.get(text);
+  const quoted = /^"([^"]*)"$/.exec(text);
+  if (quoted) return quoted[1];
+  const vector = parseQuakeVectorExpression(text);
+  if (vector) return vector;
+  if (/^[-+]?[0-9.]+$/.test(text)) {
+    const number = Number(text);
+    return Number.isFinite(number) ? number : undefined;
+  }
+  return undefined;
+}
+
+function normalizeQuakeExpression(expression) {
+  return expression.trim().replace(/\s+/g, " ");
 }
 
 function buildMonsterChains({ callbacks, eventSemantics, source, states, target }) {
@@ -580,13 +890,36 @@ function stateCallsIn(body, states) {
 }
 
 function extractFunctionBody(sourceText, functionName) {
+  return extractFunctionDefinition(sourceText, functionName)?.body ?? null;
+}
+
+function extractFunctionDefinition(sourceText, functionName) {
   const signaturePattern = new RegExp(`(?:void|float)\\s*(?:\\([^)]*\\))?\\s*${escapeRegExp(functionName)}\\s*=\\s*\\{`, "m");
   const signature = signaturePattern.exec(sourceText);
   if (!signature) return null;
   const bodyStart = signature.index + signature[0].lastIndexOf("{");
   const bodyEnd = findMatchingBrace(sourceText, bodyStart);
   if (bodyEnd < 0) return null;
-  return sourceText.slice(bodyStart + 1, bodyEnd);
+  return {
+    body: sourceText.slice(bodyStart + 1, bodyEnd),
+    bodyStartIndex: bodyStart + 1,
+    endLine: lineNumberAt(sourceText, bodyEnd),
+    functionName,
+    sourceText,
+    startLine: lineNumberAt(sourceText, signature.index),
+  };
+}
+
+function sourceRefForBodyIndex(functionDefinition, target, bodyIndex) {
+  return {
+    sourceFile: target.sourcePath,
+    functionName: target.functionName,
+    line: lineNumberAt(functionDefinition.sourceText, functionDefinition.bodyStartIndex + bodyIndex),
+  };
+}
+
+function lineNumberAt(text, index) {
+  return text.slice(0, Math.max(0, index)).split(/\r?\n/).length;
 }
 
 function findMatchingBrace(text, startIndex) {
@@ -721,6 +1054,64 @@ ${rows.map((row) => `| ${row.join(" | ")} |`).join("\n")}
 ## Runtime Implication
 
 The generated data can now drive QuakeC frame-chain selection for all 9 generated animated monsters. cssQuake does not use hand-authored monster combat fallback; monsters without generated executable combat coverage should remain non-combat until QuakeC-derived support is added.
+`;
+}
+
+function renderProgramFactsReport(programFacts) {
+  const entities = Object.values(programFacts.entities);
+  const rows = entities.map((entity) => [
+    `\`${entity.classname}\``,
+    entity.kind,
+    `\`${entity.source.sourceFile}:${entity.sourceRefs[0]?.line ?? ""}\``,
+    entity.dependencies.models.length,
+    entity.dependencies.sounds.length,
+    Object.keys(entity.callbacks).map((callback) => `\`${callback}\``).join(", "),
+    entity.defaultAssignments.map((assignment) => `\`${assignment.field}=${assignment.expression}\``).join(", "),
+    entity.spawnflagChecks.map((check) => `\`${check.name}${check.value !== undefined ? `:${check.value}` : ""}\``).join(", "),
+  ]);
+
+  return `# QuakeC Program Facts Extraction Report
+
+Generated by \`src/prepare/quakecLogic.mjs\`.
+
+## Source
+
+| Field | Value |
+| --- | --- |
+| Repository | ${quakeToolsRepositoryUrl} |
+| Revision | \`${quakeToolsRevision}\` |
+| License | GPL-2.0-or-later header in source files |
+
+## Extraction Scope
+
+This first pass extracts source-derived facts only. It does not execute QuakeC and does not change runtime behavior.
+
+Parsed for representative entities:
+
+- spawn function source refs
+- direct \`self.*\` assignments
+- callback assignments such as \`self.touch\`, \`self.use\`, \`self.blocked\`, and \`self.th_*\`
+- guarded defaults such as \`if (!self.speed) self.speed = 150\`
+- \`precache_model\`, \`precache_sound\`, \`setmodel\`, and \`setsize\`
+- spawnflag checks with constant values when available in the same source or shared \`defs.qc\`
+
+Not parsed as executable semantics yet:
+
+- arbitrary expression evaluation
+- branch-specific assignment conditions beyond simple guarded defaults
+- target graph resolution
+- BSP brush model bounds
+- runtime mover or trigger behavior
+
+## Extracted Entities
+
+| Classname | Kind | Source | Models | Sounds | Callbacks | Defaults | Spawnflags |
+| --- | --- | --- | ---: | ---: | --- | --- | --- |
+${rows.map((row) => `| ${row.join(" | ")} |`).join("\n")}
+
+## Runtime Implication
+
+None yet. These facts are generated for audit and fixtures before runtime systems consume them.
 `;
 }
 
@@ -976,6 +1367,100 @@ export const QUAKE_MONSTER_LOGIC_SOURCE = QUAKE_MONSTER_LOGIC_SOURCES.monster_ar
 export const QUAKE_MONSTER_COMBAT_POLICIES = ${json(combatPolicies)} as const satisfies Readonly<Record<string, QuakeMonsterCombatPolicy>>;
 
 export const QUAKE_MONSTER_LOGIC = ${json(monsters)} as const satisfies Readonly<Record<string, QuakeMonsterLogicDefinition>>;
+`;
+}
+
+function renderGeneratedProgramFacts(programFacts) {
+  return `// Generated by src/prepare/quakecLogic.mjs. Do not edit by hand.
+// Derived from id Software QuakeC source in Quake-Tools qcc/v101qc.
+// Source license: GPL-2.0-or-later header in the source files.
+// cssQuake distribution license: GPL-2.0-only.
+// Source revision: ${quakeToolsRevision}
+
+export type QuakeProgramEntityKind = "misc" | "monster" | "mover" | "pickup" | "shootable" | "trigger";
+
+export type QuakeProgramFactValue = number | string | readonly [number, number, number];
+
+export interface QuakeProgramLogicSourceMetadata {
+  license: string;
+  repository: string;
+  revision: string;
+  sourceFile: string;
+  sourceSha256: string;
+  sourceUrl: string;
+}
+
+export interface QuakeProgramSourceRef {
+  sourceFile: string;
+  functionName: string;
+  line: number;
+}
+
+export interface QuakeProgramDependencyRef {
+  call: string;
+  path: string;
+  sourceRef: QuakeProgramSourceRef;
+}
+
+export interface QuakeProgramFieldAssignment {
+  condition?: string;
+  expression: string;
+  field: string;
+  sourceRef: QuakeProgramSourceRef;
+  value?: QuakeProgramFactValue;
+}
+
+export interface QuakeProgramSetmodelRef {
+  expression: string;
+  sourceRef: QuakeProgramSourceRef;
+  value?: QuakeProgramFactValue;
+}
+
+export interface QuakeProgramSetsizeRef {
+  max?: QuakeProgramFactValue;
+  maxExpression: string;
+  min?: QuakeProgramFactValue;
+  minExpression: string;
+  sourceRef: QuakeProgramSourceRef;
+}
+
+export interface QuakeProgramSpawnflagCheck {
+  name: string;
+  sourceRef: QuakeProgramSourceRef;
+  value?: number;
+}
+
+export interface QuakeProgramEntityFact {
+  callbacks: Readonly<Record<string, string>>;
+  calls: readonly string[];
+  classname: string;
+  defaultAssignments: readonly QuakeProgramFieldAssignment[];
+  dependencies: {
+    models: readonly QuakeProgramDependencyRef[];
+    sounds: readonly QuakeProgramDependencyRef[];
+  };
+  fieldAssignments: readonly QuakeProgramFieldAssignment[];
+  functionName: string;
+  kind: QuakeProgramEntityKind;
+  setmodels: readonly QuakeProgramSetmodelRef[];
+  setsizes: readonly QuakeProgramSetsizeRef[];
+  source: QuakeProgramLogicSourceMetadata;
+  sourceRefs: readonly QuakeProgramSourceRef[];
+  spawnflagChecks: readonly QuakeProgramSpawnflagCheck[];
+}
+
+export interface QuakeProgramFacts {
+  version: 1;
+  source: {
+    repository: string;
+    revision: string;
+  };
+  entities: Readonly<Record<string, QuakeProgramEntityFact>>;
+}
+
+export const QUAKE_PROGRAM_FACTS = ${json(programFacts)} as const satisfies QuakeProgramFacts;
+
+export const QUAKE_PROGRAM_ENTITY_FACTS = QUAKE_PROGRAM_FACTS.entities;
 `;
 }
 

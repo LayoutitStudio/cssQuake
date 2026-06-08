@@ -1,0 +1,2068 @@
+{
+  "version": 1,
+  "source": {
+    "repository": "https://github.com/id-Software/Quake-Tools",
+    "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73"
+  },
+  "entities": {
+    "monster_army": {
+      "callbacks": {
+        "th_stand": "army_stand1",
+        "th_walk": "army_walk1",
+        "th_run": "army_run1",
+        "th_missile": "army_atk1",
+        "th_pain": "army_pain",
+        "th_die": "army_die"
+      },
+      "calls": [
+        "remove",
+        "precache_model",
+        "precache_sound",
+        "setmodel",
+        "setsize",
+        "walkmonster_start"
+      ],
+      "classname": "monster_army",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/soldier.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/soldier.qc",
+              "functionName": "monster_army",
+              "line": 270
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "progs/h_guard.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/soldier.qc",
+              "functionName": "monster_army",
+              "line": 271
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "progs/gib1.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/soldier.qc",
+              "functionName": "monster_army",
+              "line": 272
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "progs/gib2.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/soldier.qc",
+              "functionName": "monster_army",
+              "line": 273
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "progs/gib3.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/soldier.qc",
+              "functionName": "monster_army",
+              "line": 274
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/soldier.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/soldier.qc",
+              "functionName": "monster_army",
+              "line": 289
+            }
+          }
+        ],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "soldier/death1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/soldier.qc",
+              "functionName": "monster_army",
+              "line": 276
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "soldier/idle.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/soldier.qc",
+              "functionName": "monster_army",
+              "line": 277
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "soldier/pain1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/soldier.qc",
+              "functionName": "monster_army",
+              "line": 278
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "soldier/pain2.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/soldier.qc",
+              "functionName": "monster_army",
+              "line": 279
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "soldier/sattck1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/soldier.qc",
+              "functionName": "monster_army",
+              "line": 280
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "soldier/sight1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/soldier.qc",
+              "functionName": "monster_army",
+              "line": 281
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "player/udeath.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/soldier.qc",
+              "functionName": "monster_army",
+              "line": 283
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "solid",
+          "expression": "SOLID_SLIDEBOX",
+          "value": 3,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 286
+          }
+        },
+        {
+          "field": "movetype",
+          "expression": "MOVETYPE_STEP",
+          "value": 4,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 287
+          }
+        },
+        {
+          "field": "health",
+          "expression": "30",
+          "value": 30,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 292
+          }
+        },
+        {
+          "field": "th_stand",
+          "expression": "army_stand1",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 294
+          }
+        },
+        {
+          "field": "th_walk",
+          "expression": "army_walk1",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 295
+          }
+        },
+        {
+          "field": "th_run",
+          "expression": "army_run1",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 296
+          }
+        },
+        {
+          "field": "th_missile",
+          "expression": "army_atk1",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 297
+          }
+        },
+        {
+          "field": "th_pain",
+          "expression": "army_pain",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 298
+          }
+        },
+        {
+          "field": "th_die",
+          "expression": "army_die",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 299
+          }
+        }
+      ],
+      "functionName": "monster_army",
+      "kind": "monster",
+      "setmodels": [
+        {
+          "expression": "\"progs/soldier.mdl\"",
+          "value": "progs/soldier.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 289
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 -24'",
+          "min": [
+            -16,
+            -16,
+            -24
+          ],
+          "maxExpression": "'16 16 40'",
+          "max": [
+            16,
+            16,
+            40
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 291
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/soldier.qc",
+          "functionName": "monster_army",
+          "line": 264
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/soldier.qc",
+        "sourceSha256": "fc3e52365518a78be5924e1d862f07bf8be7b0de151283b55d13a6599f5c3b61",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/soldier.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "item_health": {
+      "callbacks": {
+        "touch": "health_touch"
+      },
+      "calls": [
+        "precache_model",
+        "precache_sound",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_health",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "maps/b_bh10.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_health",
+              "line": 136
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_bh10.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_health",
+              "line": 139
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "maps/b_bh100.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_health",
+              "line": 147
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_bh100.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_health",
+              "line": 149
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "maps/b_bh25.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_health",
+              "line": 156
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_bh25.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_health",
+              "line": 158
+            }
+          }
+        ],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "items/r_item1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_health",
+              "line": 138
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "items/r_item2.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_health",
+              "line": 148
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "items/health1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_health",
+              "line": 157
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "health_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 132
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"items/r_item1.wav\"",
+          "value": "items/r_item1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 140
+          }
+        },
+        {
+          "field": "healamount",
+          "expression": "15",
+          "value": 15,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 141
+          }
+        },
+        {
+          "field": "healtype",
+          "expression": "0",
+          "value": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 142
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"items/r_item2.wav\"",
+          "value": "items/r_item2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 150
+          }
+        },
+        {
+          "field": "healamount",
+          "expression": "100",
+          "value": 100,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 151
+          }
+        },
+        {
+          "field": "healtype",
+          "expression": "2",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 152
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"items/health1.wav\"",
+          "value": "items/health1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 159
+          }
+        },
+        {
+          "field": "healamount",
+          "expression": "25",
+          "value": 25,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 160
+          }
+        },
+        {
+          "field": "healtype",
+          "expression": "1",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 161
+          }
+        }
+      ],
+      "functionName": "item_health",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"maps/b_bh10.bsp\"",
+          "value": "maps/b_bh10.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 139
+          }
+        },
+        {
+          "expression": "\"maps/b_bh100.bsp\"",
+          "value": "maps/b_bh100.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 149
+          }
+        },
+        {
+          "expression": "\"maps/b_bh25.bsp\"",
+          "value": "maps/b_bh25.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 158
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'0 0 0'",
+          "min": [
+            0,
+            0,
+            0
+          ],
+          "maxExpression": "'32 32 56'",
+          "max": [
+            32,
+            32,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 163
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_health",
+          "line": 131
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": [
+        {
+          "name": "H_ROTTEN",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 134
+          }
+        },
+        {
+          "name": "H_MEGA",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 145
+          }
+        }
+      ]
+    },
+    "func_plat": {
+      "callbacks": {
+        "blocked": "plat_crush",
+        "use": "plat_use"
+      },
+      "calls": [
+        "precache_sound",
+        "setorigin",
+        "setmodel",
+        "setsize",
+        "plat_spawn_inside_trigger"
+      ],
+      "classname": "func_plat",
+      "defaultAssignments": [
+        {
+          "condition": "if (!self.t_length)",
+          "field": "t_length",
+          "expression": "80",
+          "value": 80,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 170
+          }
+        },
+        {
+          "condition": "if (!self.t_width)",
+          "field": "t_width",
+          "expression": "10",
+          "value": 10,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 172
+          }
+        },
+        {
+          "condition": "if (!self.speed)",
+          "field": "speed",
+          "expression": "150",
+          "value": 150,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 207
+          }
+        },
+        {
+          "condition": "if (self.sounds == 0)",
+          "field": "sounds",
+          "expression": "2",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 175
+          }
+        }
+      ],
+      "dependencies": {
+        "models": [],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "plats/plat1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/plats.qc",
+              "functionName": "func_plat",
+              "line": 181
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "plats/plat2.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/plats.qc",
+              "functionName": "func_plat",
+              "line": 182
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "plats/medplat1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/plats.qc",
+              "functionName": "func_plat",
+              "line": 189
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "plats/medplat2.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/plats.qc",
+              "functionName": "func_plat",
+              "line": 190
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "t_length",
+          "expression": "80",
+          "value": 80,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 171
+          }
+        },
+        {
+          "field": "t_width",
+          "expression": "10",
+          "value": 10,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 173
+          }
+        },
+        {
+          "field": "sounds",
+          "expression": "2",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 176
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"plats/plat1.wav\"",
+          "value": "plats/plat1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 183
+          }
+        },
+        {
+          "field": "noise1",
+          "expression": "\"plats/plat2.wav\"",
+          "value": "plats/plat2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 184
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"plats/medplat1.wav\"",
+          "value": "plats/medplat1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 191
+          }
+        },
+        {
+          "field": "noise1",
+          "expression": "\"plats/medplat2.wav\"",
+          "value": "plats/medplat2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 192
+          }
+        },
+        {
+          "field": "mangle",
+          "expression": "self.angles",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 196
+          }
+        },
+        {
+          "field": "angles",
+          "expression": "'0 0 0'",
+          "value": [
+            0,
+            0,
+            0
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 197
+          }
+        },
+        {
+          "field": "classname",
+          "expression": "\"plat\"",
+          "value": "plat",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 199
+          }
+        },
+        {
+          "field": "solid",
+          "expression": "SOLID_BSP",
+          "value": 4,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 200
+          }
+        },
+        {
+          "field": "movetype",
+          "expression": "MOVETYPE_PUSH",
+          "value": 7,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 201
+          }
+        },
+        {
+          "field": "blocked",
+          "expression": "plat_crush",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 206
+          }
+        },
+        {
+          "field": "speed",
+          "expression": "150",
+          "value": 150,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 208
+          }
+        },
+        {
+          "field": "pos1",
+          "expression": "self.origin",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 211
+          }
+        },
+        {
+          "field": "pos2",
+          "expression": "self.origin",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 212
+          }
+        },
+        {
+          "field": "pos2_z",
+          "expression": "self.origin_z - self.height",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 214
+          }
+        },
+        {
+          "field": "pos2_z",
+          "expression": "self.origin_z - self.size_z + 8",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 216
+          }
+        },
+        {
+          "field": "use",
+          "expression": "plat_trigger_use",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 218
+          }
+        },
+        {
+          "field": "state",
+          "expression": "STATE_UP",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 224
+          }
+        },
+        {
+          "field": "use",
+          "expression": "plat_use",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 225
+          }
+        },
+        {
+          "field": "state",
+          "expression": "STATE_BOTTOM",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 230
+          }
+        }
+      ],
+      "functionName": "func_plat",
+      "kind": "mover",
+      "setmodels": [
+        {
+          "expression": "self.model",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 203
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "self.mins",
+          "maxExpression": "self.maxs",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 204
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/plats.qc",
+          "functionName": "func_plat",
+          "line": 167
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/plats.qc",
+        "sourceSha256": "bd8d79dbcc7db94462db3a9a04e9368b99dfdd8e736f1fac775246a258249d76",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/plats.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "func_door": {
+      "callbacks": {
+        "blocked": "door_blocked",
+        "use": "door_use",
+        "th_die": "door_killed",
+        "touch": "door_touch",
+        "think": "LinkDoors"
+      },
+      "calls": [
+        "precache_sound",
+        "dprint",
+        "SetMovedir",
+        "setorigin",
+        "setmodel",
+        "fabs"
+      ],
+      "classname": "func_door",
+      "defaultAssignments": [
+        {
+          "condition": "if (!self.speed)",
+          "field": "speed",
+          "expression": "100",
+          "value": 100,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 520
+          }
+        },
+        {
+          "condition": "if (!self.wait)",
+          "field": "wait",
+          "expression": "3",
+          "value": 3,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 522
+          }
+        },
+        {
+          "condition": "if (!self.lip)",
+          "field": "lip",
+          "expression": "8",
+          "value": 8,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 524
+          }
+        },
+        {
+          "condition": "if (!self.dmg)",
+          "field": "dmg",
+          "expression": "2",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 526
+          }
+        }
+      ],
+      "dependencies": {
+        "models": [],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "doors/medtry.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 443
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "doors/meduse.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 444
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "doors/runetry.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 450
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "doors/runeuse.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 451
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "doors/basetry.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 457
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "doors/baseuse.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 458
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "misc/null.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 468
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "misc/null.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 469
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "doors/drclos4.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 475
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "doors/doormv1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 476
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "doors/hydro1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 482
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "doors/hydro2.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 483
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "doors/stndr1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 489
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "doors/stndr2.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 490
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "doors/ddoor1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 496
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "doors/ddoor2.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "func_door",
+              "line": 497
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "noise3",
+          "expression": "\"doors/medtry.wav\"",
+          "value": "doors/medtry.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 445
+          }
+        },
+        {
+          "field": "noise4",
+          "expression": "\"doors/meduse.wav\"",
+          "value": "doors/meduse.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 446
+          }
+        },
+        {
+          "field": "noise3",
+          "expression": "\"doors/runetry.wav\"",
+          "value": "doors/runetry.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 452
+          }
+        },
+        {
+          "field": "noise4",
+          "expression": "\"doors/runeuse.wav\"",
+          "value": "doors/runeuse.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 453
+          }
+        },
+        {
+          "field": "noise3",
+          "expression": "\"doors/basetry.wav\"",
+          "value": "doors/basetry.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 459
+          }
+        },
+        {
+          "field": "noise4",
+          "expression": "\"doors/baseuse.wav\"",
+          "value": "doors/baseuse.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 460
+          }
+        },
+        {
+          "field": "noise1",
+          "expression": "\"misc/null.wav\"",
+          "value": "misc/null.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 470
+          }
+        },
+        {
+          "field": "noise2",
+          "expression": "\"misc/null.wav\"",
+          "value": "misc/null.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 471
+          }
+        },
+        {
+          "field": "noise1",
+          "expression": "\"doors/drclos4.wav\"",
+          "value": "doors/drclos4.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 477
+          }
+        },
+        {
+          "field": "noise2",
+          "expression": "\"doors/doormv1.wav\"",
+          "value": "doors/doormv1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 478
+          }
+        },
+        {
+          "field": "noise2",
+          "expression": "\"doors/hydro1.wav\"",
+          "value": "doors/hydro1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 484
+          }
+        },
+        {
+          "field": "noise1",
+          "expression": "\"doors/hydro2.wav\"",
+          "value": "doors/hydro2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 485
+          }
+        },
+        {
+          "field": "noise2",
+          "expression": "\"doors/stndr1.wav\"",
+          "value": "doors/stndr1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 491
+          }
+        },
+        {
+          "field": "noise1",
+          "expression": "\"doors/stndr2.wav\"",
+          "value": "doors/stndr2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 492
+          }
+        },
+        {
+          "field": "noise1",
+          "expression": "\"doors/ddoor2.wav\"",
+          "value": "doors/ddoor2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 498
+          }
+        },
+        {
+          "field": "noise2",
+          "expression": "\"doors/ddoor1.wav\"",
+          "value": "doors/ddoor1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 499
+          }
+        },
+        {
+          "field": "max_health",
+          "expression": "self.health",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 505
+          }
+        },
+        {
+          "field": "solid",
+          "expression": "SOLID_BSP",
+          "value": 4,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 506
+          }
+        },
+        {
+          "field": "movetype",
+          "expression": "MOVETYPE_PUSH",
+          "value": 7,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 507
+          }
+        },
+        {
+          "field": "classname",
+          "expression": "\"door\"",
+          "value": "door",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 510
+          }
+        },
+        {
+          "field": "blocked",
+          "expression": "door_blocked",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 512
+          }
+        },
+        {
+          "field": "use",
+          "expression": "door_use",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 513
+          }
+        },
+        {
+          "field": "items",
+          "expression": "IT_KEY1",
+          "value": 131072,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 516
+          }
+        },
+        {
+          "field": "items",
+          "expression": "IT_KEY2",
+          "value": 262144,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 518
+          }
+        },
+        {
+          "field": "speed",
+          "expression": "100",
+          "value": 100,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 521
+          }
+        },
+        {
+          "field": "wait",
+          "expression": "3",
+          "value": 3,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 523
+          }
+        },
+        {
+          "field": "lip",
+          "expression": "8",
+          "value": 8,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 525
+          }
+        },
+        {
+          "field": "dmg",
+          "expression": "2",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 527
+          }
+        },
+        {
+          "field": "pos1",
+          "expression": "self.origin",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 529
+          }
+        },
+        {
+          "field": "pos2",
+          "expression": "self.pos1 + self.movedir*(fabs(self.movedir*self.size) - self.lip)",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 530
+          }
+        },
+        {
+          "field": "pos2",
+          "expression": "self.pos1",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 537
+          }
+        },
+        {
+          "field": "pos1",
+          "expression": "self.origin",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 538
+          }
+        },
+        {
+          "field": "state",
+          "expression": "STATE_BOTTOM",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 541
+          }
+        },
+        {
+          "field": "takedamage",
+          "expression": "DAMAGE_YES",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 545
+          }
+        },
+        {
+          "field": "th_die",
+          "expression": "door_killed",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 546
+          }
+        },
+        {
+          "field": "wait",
+          "expression": "-1",
+          "value": -1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 550
+          }
+        },
+        {
+          "field": "touch",
+          "expression": "door_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 552
+          }
+        },
+        {
+          "field": "think",
+          "expression": "LinkDoors",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 556
+          }
+        },
+        {
+          "field": "nextthink",
+          "expression": "self.ltime + 0.1",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 557
+          }
+        }
+      ],
+      "functionName": "func_door",
+      "kind": "mover",
+      "setmodels": [
+        {
+          "expression": "self.model",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 509
+          }
+        }
+      ],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/doors.qc",
+          "functionName": "func_door",
+          "line": 439
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/doors.qc",
+        "sourceSha256": "d90c1657fb66a6c005ef7369e307c065ba728618015c9ef9df61be03db43a24a",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/doors.qc"
+      },
+      "spawnflagChecks": [
+        {
+          "name": "DOOR_SILVER_KEY",
+          "value": 16,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 515
+          }
+        },
+        {
+          "name": "DOOR_GOLD_KEY",
+          "value": 8,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 517
+          }
+        },
+        {
+          "name": "DOOR_START_OPEN",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 534
+          }
+        }
+      ]
+    },
+    "func_button": {
+      "callbacks": {
+        "blocked": "button_blocked",
+        "use": "button_use",
+        "th_die": "button_killed",
+        "touch": "button_touch"
+      },
+      "calls": [
+        "precache_sound",
+        "SetMovedir",
+        "setmodel",
+        "fabs"
+      ],
+      "classname": "func_button",
+      "defaultAssignments": [
+        {
+          "condition": "if (!self.speed)",
+          "field": "speed",
+          "expression": "40",
+          "value": 40,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 147
+          }
+        },
+        {
+          "condition": "if (!self.wait)",
+          "field": "wait",
+          "expression": "1",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 149
+          }
+        },
+        {
+          "condition": "if (!self.lip)",
+          "field": "lip",
+          "expression": "4",
+          "value": 4,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 151
+          }
+        }
+      ],
+      "dependencies": {
+        "models": [],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "buttons/airbut1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/buttons.qc",
+              "functionName": "func_button",
+              "line": 110
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "buttons/switch21.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/buttons.qc",
+              "functionName": "func_button",
+              "line": 115
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "buttons/switch02.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/buttons.qc",
+              "functionName": "func_button",
+              "line": 120
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "buttons/switch04.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/buttons.qc",
+              "functionName": "func_button",
+              "line": 125
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "noise",
+          "expression": "\"buttons/airbut1.wav\"",
+          "value": "buttons/airbut1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 111
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"buttons/switch21.wav\"",
+          "value": "buttons/switch21.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 116
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"buttons/switch02.wav\"",
+          "value": "buttons/switch02.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 121
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"buttons/switch04.wav\"",
+          "value": "buttons/switch04.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 126
+          }
+        },
+        {
+          "field": "movetype",
+          "expression": "MOVETYPE_PUSH",
+          "value": 7,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 131
+          }
+        },
+        {
+          "field": "solid",
+          "expression": "SOLID_BSP",
+          "value": 4,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 132
+          }
+        },
+        {
+          "field": "blocked",
+          "expression": "button_blocked",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 135
+          }
+        },
+        {
+          "field": "use",
+          "expression": "button_use",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 136
+          }
+        },
+        {
+          "field": "max_health",
+          "expression": "self.health",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 140
+          }
+        },
+        {
+          "field": "th_die",
+          "expression": "button_killed",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 141
+          }
+        },
+        {
+          "field": "takedamage",
+          "expression": "DAMAGE_YES",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 142
+          }
+        },
+        {
+          "field": "touch",
+          "expression": "button_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 145
+          }
+        },
+        {
+          "field": "speed",
+          "expression": "40",
+          "value": 40,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 148
+          }
+        },
+        {
+          "field": "wait",
+          "expression": "1",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 150
+          }
+        },
+        {
+          "field": "lip",
+          "expression": "4",
+          "value": 4,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 152
+          }
+        },
+        {
+          "field": "state",
+          "expression": "STATE_BOTTOM",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 154
+          }
+        },
+        {
+          "field": "pos1",
+          "expression": "self.origin",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 156
+          }
+        },
+        {
+          "field": "pos2",
+          "expression": "self.pos1 + self.movedir*(fabs(self.movedir*self.size) - self.lip)",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 157
+          }
+        }
+      ],
+      "functionName": "func_button",
+      "kind": "mover",
+      "setmodels": [
+        {
+          "expression": "self.model",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 133
+          }
+        }
+      ],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/buttons.qc",
+          "functionName": "func_button",
+          "line": 105
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/buttons.qc",
+        "sourceSha256": "449bdc68d7b102f133b454c31346d40b95606ca2f66a76cb7b79e1a5c4e98c9c",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/buttons.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "trigger_multiple": {
+      "callbacks": {
+        "use": "multi_use",
+        "th_die": "multi_killed",
+        "touch": "multi_touch"
+      },
+      "calls": [
+        "precache_sound",
+        "InitTrigger",
+        "objerror",
+        "setorigin"
+      ],
+      "classname": "trigger_multiple",
+      "defaultAssignments": [
+        {
+          "condition": "if (!self.wait)",
+          "field": "wait",
+          "expression": "0.2",
+          "value": 0.2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 147
+          }
+        }
+      ],
+      "dependencies": {
+        "models": [],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "misc/secret.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/triggers.qc",
+              "functionName": "trigger_multiple",
+              "line": 133
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "misc/talk.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/triggers.qc",
+              "functionName": "trigger_multiple",
+              "line": 138
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "misc/trigger1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/triggers.qc",
+              "functionName": "trigger_multiple",
+              "line": 143
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "noise",
+          "expression": "\"misc/secret.wav\"",
+          "value": "misc/secret.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 134
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"misc/talk.wav\"",
+          "value": "misc/talk.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 139
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"misc/trigger1.wav\"",
+          "value": "misc/trigger1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 144
+          }
+        },
+        {
+          "field": "wait",
+          "expression": "0.2",
+          "value": 0.2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 148
+          }
+        },
+        {
+          "field": "use",
+          "expression": "multi_use",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 149
+          }
+        },
+        {
+          "field": "max_health",
+          "expression": "self.health",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 157
+          }
+        },
+        {
+          "field": "th_die",
+          "expression": "multi_killed",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 158
+          }
+        },
+        {
+          "field": "takedamage",
+          "expression": "DAMAGE_YES",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 159
+          }
+        },
+        {
+          "field": "solid",
+          "expression": "SOLID_BBOX",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 160
+          }
+        },
+        {
+          "field": "touch",
+          "expression": "multi_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 167
+          }
+        }
+      ],
+      "functionName": "trigger_multiple",
+      "kind": "trigger",
+      "setmodels": [],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/triggers.qc",
+          "functionName": "trigger_multiple",
+          "line": 130
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/triggers.qc",
+        "sourceSha256": "4bd82bfde06a285907582d9292fe2aca391d1ee9c1aec3178e242d9ad5fa3ae6",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/triggers.qc"
+      },
+      "spawnflagChecks": [
+        {
+          "name": "SPAWNFLAG_NOTOUCH",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 155
+          }
+        }
+      ]
+    }
+  }
+}

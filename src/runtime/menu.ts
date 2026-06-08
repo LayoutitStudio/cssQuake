@@ -25,6 +25,7 @@ export interface QuakeMenuControllerOptions {
   levelPanel: HTMLElement | null;
   aboutPanel: HTMLElement | null;
   optionsPanel: HTMLElement | null;
+  onSelectNewGame?(): void | Promise<void>;
   onSelectLevel?(mapName: string): void | Promise<void>;
   onSelectDebug?(): void;
   shouldOpenMainMenuOnControlsEnd?(): boolean;
@@ -43,6 +44,7 @@ export function createQuakeMenuController({
   levelPanel,
   aboutPanel,
   optionsPanel,
+  onSelectNewGame,
   onSelectLevel,
   onSelectDebug,
   shouldOpenMainMenuOnControlsEnd,
@@ -50,6 +52,7 @@ export function createQuakeMenuController({
   syncCrosshairTarget,
 }: QuakeMenuControllerOptions): QuakeMenuController {
   let mainMenuSelectionIndex = 0;
+  let startingNewGame = false;
   let loadingLevelMap: string | null = null;
 
   function showMainMenu(): void {
@@ -84,6 +87,26 @@ export function createQuakeMenuController({
   function startFromMainMenu(): void {
     controls.lock();
     hideMainMenu();
+  }
+
+  function selectNewGame(): void {
+    if (!onSelectNewGame) {
+      startFromMainMenu();
+      return;
+    }
+    if (startingNewGame) return;
+    startingNewGame = true;
+    Promise.resolve(onSelectNewGame())
+      .then(() => {
+        startingNewGame = false;
+        controls.lock();
+        hideMainMenu();
+      })
+      .catch((error: unknown) => {
+        console.error(error);
+        startingNewGame = false;
+        showMainMenu();
+      });
   }
 
   function isMainMenuOpen(): boolean {
@@ -208,7 +231,7 @@ export function createQuakeMenuController({
 
   function activateMainMenuSelection(): void {
     const row = QUAKE_MAIN_MENU_ROWS[mainMenuSelectionIndex] ?? 0;
-    if (row === 0) startFromMainMenu();
+    if (row === 0) selectNewGame();
     if (row === 1) showLevelPanel();
     if (row === 2) showDebugPanel();
     if (row === 3) showOptionsPanel();

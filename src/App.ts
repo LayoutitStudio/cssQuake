@@ -750,6 +750,7 @@ const menu = createQuakeMenuController({
   levelPanel,
   aboutPanel,
   optionsPanel,
+  onSelectNewGame: startQuakeNewGame,
   onSelectLevel: loadQuakeMap,
   onSelectDebug: () => setQuakeDebugMode(true),
   shouldOpenMainMenuOnControlsEnd: shouldOpenQuakeMainMenuOnControlsEnd,
@@ -1371,6 +1372,15 @@ function respawnQuakePlayerFromDeath(): boolean {
     controls.lock();
   }
   return true;
+}
+
+function startQuakeNewGame(): void {
+  if (!currentResult) return;
+  clearQuakeMoveInput();
+  clearQuakeAttackInput();
+  clearQuakeMobileMoveInput();
+  clearQuakeLevelComplete();
+  getPlayer().respawn();
 }
 
 function isQuakeLevelTransitionActive(): boolean {

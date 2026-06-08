@@ -73,6 +73,7 @@ const weaponOutputPath = path.join(quakeOutputDir, "weapon.json");
 const pickupOutputPath = path.join(quakeOutputDir, "pickups.json");
 const progsOutputPath = path.join(quakeOutputDir, "progs.json");
 const soundManifestOutputPath = path.join(quakeOutputDir, "sounds.json");
+const sourceProgramFactsInputPath = path.join(projectRoot, "src/generated/quakeProgramFacts.json");
 const sourcePath = path.join(projectRoot, "src/prepare/scene.ts");
 const textureOutputDir = path.join(quakeAssetOutputDir, "t");
 const soundOutputDir = path.join(quakeOutputDir, "s");
@@ -601,7 +602,8 @@ try {
     await writeFile(menuTitleOptionsOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 0, 40, 124, 20));
     await writeFile(menuTitleHelpOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 1, 60, 75, 20));
     await writeFile(concharsOutputPath, await buildQuakeConcharsPng(uiAssets));
-    const programMetadata = buildQuakeProgramMetadata(uiAssets);
+    const sourceProgramFacts = await loadQuakeSourceProgramFacts();
+    const programMetadata = buildQuakeProgramMetadata(uiAssets, sourceProgramFacts);
     await writeFile(weaponOutputPath, JSON.stringify(await buildQuakeWeaponModel(uiAssets, renderBundleBuilder)));
     await writeFile(progsOutputPath, JSON.stringify(programMetadata));
     const pickupModels = await buildQuakePickupModels(
@@ -1387,6 +1389,20 @@ function isQuakeSoundEntry(entry) {
 
 function quakeSoundManifestKey(pakPath) {
   return pakPath.replace(/^sound\//i, "").toLowerCase();
+}
+
+async function loadQuakeSourceProgramFacts() {
+  try {
+    const text = await readFile(sourceProgramFactsInputPath, "utf8");
+    const facts = JSON.parse(text);
+    if (!facts || typeof facts !== "object" || !facts.entities || typeof facts.entities !== "object") {
+      throw new Error("Invalid Quake source program facts JSON.");
+    }
+    return facts;
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
 }
 
 function buildQuakeAssetManifest(preparedMaps, programMetadata, pickupModels) {
@@ -2711,7 +2727,7 @@ function isQuakeMonsterBodyModel(modelPath) {
     !["bolt.mdl", "grenade.mdl", "k_spike.mdl", "lavaball.mdl", "laser.mdl", "s_light.mdl", "v_spike.mdl", "w_spike.mdl", "zom_gib.mdl"].includes(filename);
 }
 
-function buildQuakeProgramMetadata(assets) {
+function buildQuakeProgramMetadata(assets, sourceProgramFacts = null) {
   const entry = assets.entries.get("progs.dat");
   if (!entry) throw new Error("Missing Quake progs.dat.");
   const progs = assets.pak.subarray(entry.offset, entry.offset + entry.length);
@@ -2719,7 +2735,7 @@ function buildQuakeProgramMetadata(assets) {
   const stringsOffset = header.ofsStrings;
   const readProgramString = (offset) => readNullTerminatedString(progs, stringsOffset + offset);
 
-  const modelStringByGlobalOffset = new Map();
+  const assetStringByGlobalOffset = new Map();
   for (let i = 0; i < header.numGlobalDefs; i++) {
     const offset = header.ofsGlobalDefs + i * 8;
     const type = progs.readUInt16LE(offset) & 0x7fff;
@@ -2727,9 +2743,8 @@ function buildQuakeProgramMetadata(assets) {
     const globalOffset = progs.readUInt16LE(offset + 2);
     const stringOffset = progs.readInt32LE(header.ofsGlobals + globalOffset * 4);
     const value = readProgramString(stringOffset);
-    if (/^(maps|progs)\/.+\.(bsp|mdl|spr)$/i.test(value)) {
-      modelStringByGlobalOffset.set(globalOffset, value.toLowerCase());
-    }
+    const asset = quakeProgramAssetString(value);
+    if (asset) assetStringByGlobalOffset.set(globalOffset, asset);
   }
 
   const functions = [];
@@ -2756,25 +2771,38 @@ function buildQuakeProgramMetadata(assets) {
 
   const entityFunctions = [];
   const modelsByClassname = {};
+  const soundsByClassname = {};
   for (const fn of functions) {
     if (!isQuakeEntityFunctionName(fn.name) || fn.firstStatement <= 0) continue;
     const endStatement = functionEndByIndex.get(fn.index) ?? header.numStatements;
-    const models = quakeFunctionModelReferences(progs, header, fn.firstStatement, endStatement, modelStringByGlobalOffset);
-    if (models.length === 0) continue;
+    const models = quakeFunctionAssetReferences(progs, header, fn.firstStatement, endStatement, assetStringByGlobalOffset, "model");
+    const sounds = quakeFunctionAssetReferences(progs, header, fn.firstStatement, endStatement, assetStringByGlobalOffset, "sound");
+    if (models.length === 0 && sounds.length === 0) continue;
     entityFunctions.push({
       classname: fn.name,
       file: fn.file,
       models,
+      ...(sounds.length ? { sounds } : {}),
+      dependencies: {
+        models,
+        sounds,
+      },
     });
-    modelsByClassname[fn.name] = models.map((entry) => entry.path);
+    if (models.length) modelsByClassname[fn.name] = models.map((entry) => entry.path);
+    if (sounds.length) soundsByClassname[fn.name] = sounds.map((entry) => entry.path);
   }
 
   entityFunctions.sort((a, b) => a.classname.localeCompare(b.classname));
+  const sourceFactChecks = sourceProgramFacts
+    ? buildQuakeProgramSourceFactChecks(sourceProgramFacts, { modelsByClassname, soundsByClassname })
+    : null;
   return {
     version: 1,
     crc: header.crc,
     entityFunctions,
     modelsByClassname,
+    soundsByClassname,
+    ...(sourceFactChecks ? { sourceFactChecks } : {}),
   };
 }
 
@@ -2798,19 +2826,80 @@ function parseQuakeProgramHeader(progs) {
   };
 }
 
-function quakeFunctionModelReferences(progs, header, firstStatement, endStatement, modelStringByGlobalOffset) {
-  const models = [];
+function quakeProgramAssetString(value) {
+  const path = value.trim().toLowerCase();
+  if (/^(maps|progs)\/.+\.(bsp|mdl|spr)$/i.test(path)) {
+    return { kind: "model", path };
+  }
+  if (/^(?:sound\/)?[a-z0-9_/-]+\.wav$/i.test(path)) {
+    return { kind: "sound", path: path.replace(/^sound\//i, "") };
+  }
+  return null;
+}
+
+function quakeFunctionAssetReferences(progs, header, firstStatement, endStatement, assetStringByGlobalOffset, kind) {
+  const assets = [];
   const seen = new Set();
   for (let statement = firstStatement; statement < endStatement; statement++) {
     const offset = header.ofsStatements + statement * 8;
     for (const operandOffset of [offset + 2, offset + 4, offset + 6]) {
-      const model = modelStringByGlobalOffset.get(progs.readInt16LE(operandOffset));
-      if (!model || seen.has(model)) continue;
-      seen.add(model);
-      models.push({ path: model, statement });
+      const asset = assetStringByGlobalOffset.get(progs.readInt16LE(operandOffset));
+      if (!asset || asset.kind !== kind || seen.has(asset.path)) continue;
+      seen.add(asset.path);
+      assets.push({ path: asset.path, statement });
     }
   }
-  return models;
+  return assets;
+}
+
+function buildQuakeProgramSourceFactChecks(sourceProgramFacts, compiledMetadata) {
+  const checks = [];
+  const mismatches = [];
+  let matchedModels = 0;
+  let matchedSounds = 0;
+  for (const [classname, sourceFact] of Object.entries(sourceProgramFacts.entities ?? {})) {
+    const sourceModels = quakeSourceDependencyPaths(sourceFact, "models");
+    const sourceSounds = quakeSourceDependencyPaths(sourceFact, "sounds").map((soundPath) => soundPath.replace(/^sound\//i, ""));
+    const compiledModels = new Set(compiledMetadata.modelsByClassname[classname] ?? []);
+    const compiledSounds = new Set(compiledMetadata.soundsByClassname[classname] ?? []);
+    const missingModels = sourceModels.filter((modelPath) => !compiledModels.has(modelPath));
+    const missingSounds = sourceSounds.filter((soundPath) => !compiledSounds.has(soundPath));
+    matchedModels += sourceModels.length - missingModels.length;
+    matchedSounds += sourceSounds.length - missingSounds.length;
+    const check = {
+      classname,
+      sourceModels,
+      sourceSounds,
+      matchedModels: sourceModels.length - missingModels.length,
+      matchedSounds: sourceSounds.length - missingSounds.length,
+      missingModels,
+      missingSounds,
+      status: missingModels.length || missingSounds.length ? "mismatch" : "matched",
+    };
+    checks.push(check);
+    if (check.status === "mismatch") mismatches.push(check);
+  }
+  return {
+    version: 1,
+    sourceRevision: sourceProgramFacts.source?.revision ?? "",
+    status: mismatches.length ? "mismatch" : "matched",
+    checkedClassnames: checks.map((check) => check.classname),
+    matchedModels,
+    matchedSounds,
+    checks,
+    mismatches,
+  };
+}
+
+function quakeSourceDependencyPaths(sourceFact, key) {
+  const dependencies = Array.isArray(sourceFact?.dependencies?.[key])
+    ? sourceFact.dependencies[key]
+    : [];
+  return [...new Set(
+    dependencies
+      .map((dependency) => typeof dependency?.path === "string" ? dependency.path.trim().toLowerCase() : "")
+      .filter(Boolean),
+  )].sort();
 }
 
 function isQuakeEntityFunctionName(name) {

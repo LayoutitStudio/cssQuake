@@ -645,10 +645,10 @@ body.quake-menu-open #quake-main-menu-logo-shimmer::before {
 .quake-main-menu-item-disabled .quake-main-menu-label {
   filter: grayscale(1) saturate(0.35) brightness(0.85);
 }
-.quake-main-menu-label-single-player {
-  --quake-main-menu-label-width: 218;
+.quake-main-menu-label-new-game {
+  --quake-main-menu-label-width: 130;
   --quake-main-menu-label-height: 20;
-  background-image: url("/q/main-menu-active.png");
+  background-image: url("/src/assets/main-menu-new-game.png");
 }
 .quake-main-menu-label-multiplayer {
   --quake-main-menu-label-width: 190;

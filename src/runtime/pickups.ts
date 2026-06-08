@@ -58,10 +58,42 @@ export interface QuakeProgramEntityFunctionModelReference {
   statement: number;
 }
 
+export interface QuakeProgramEntityFunctionSoundReference {
+  path: string;
+  statement: number;
+}
+
 export interface QuakeProgramEntityFunctionMetadata {
   classname: string;
   file: string;
   models: QuakeProgramEntityFunctionModelReference[];
+  sounds?: QuakeProgramEntityFunctionSoundReference[];
+  dependencies?: {
+    models: QuakeProgramEntityFunctionModelReference[];
+    sounds: QuakeProgramEntityFunctionSoundReference[];
+  };
+}
+
+export interface QuakeProgramSourceFactEntityCheck {
+  classname: string;
+  sourceModels: string[];
+  sourceSounds: string[];
+  matchedModels: number;
+  matchedSounds: number;
+  missingModels: string[];
+  missingSounds: string[];
+  status: "matched" | "mismatch";
+}
+
+export interface QuakeProgramSourceFactChecks {
+  version: number;
+  sourceRevision: string;
+  status: "matched" | "mismatch";
+  checkedClassnames: string[];
+  matchedModels: number;
+  matchedSounds: number;
+  checks: QuakeProgramSourceFactEntityCheck[];
+  mismatches: QuakeProgramSourceFactEntityCheck[];
 }
 
 export interface QuakeProgramMetadata {
@@ -69,6 +101,8 @@ export interface QuakeProgramMetadata {
   crc: number;
   entityFunctions: QuakeProgramEntityFunctionMetadata[];
   modelsByClassname: Record<string, string[]>;
+  soundsByClassname?: Record<string, string[]>;
+  sourceFactChecks?: QuakeProgramSourceFactChecks;
 }
 
 export type QuakePickupEffect = QuakeInventoryDelta;

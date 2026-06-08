@@ -3423,6 +3423,7 @@ async function applyFaceLightmapBakeToRenderCandidates(
       textures,
       options,
       rejected,
+      pivot,
     );
     if (selection) selections.push(selection);
   }
@@ -4697,6 +4698,7 @@ function faceLightmapBakeSelectionFor(
   textures: Array<QuakeMipTexture | null>,
   options: QuakeLightmapBakeOptions,
   rejected?: QuakeLightmapBakeTextureFidelityRejectedSelectionCollector,
+  pivot?: QuakeVertex,
 ): QuakeFaceLightmapBakeSelection | undefined {
   if (!options.enabled) return undefined;
   if (!staticWorldLightmapCandidate(sourceCandidate, textures)) return undefined;
@@ -4709,7 +4711,11 @@ function faceLightmapBakeSelectionFor(
   if (displayRange < options.minDisplayRange) return undefined;
   const dimensions = faceLightmapBakeDimensions(bounds, options.maxTextureSide);
   if (!dimensions) return undefined;
-  const uvs = sourceCandidate.points.map((point) => faceLightmapBakeUv(point, sourceCandidate.texInfo, bounds));
+  const uvs = pivot
+    ? renderCandidate.polygon.vertices.map((vertex) =>
+      faceLightmapBakeUv(polyToQuake(vertex, pivot), sourceCandidate.texInfo, bounds)
+    )
+    : sourceCandidate.points.map((point) => faceLightmapBakeUv(point, sourceCandidate.texInfo, bounds));
   const baseBrightness = Math.max(
     QUAKE_LIGHT_MIN,
     Math.min(QUAKE_LIGHT_MAX, undisplayLightBrightness(Math.max(stats.max, stats.mean))),
