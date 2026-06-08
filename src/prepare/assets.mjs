@@ -88,10 +88,6 @@ const quakeDomTighteningTargets = parseQuakeDomTighteningTargets(process.env.QUA
 const quakeDomHomography = process.env.QUAKE_DOM_HOMOGRAPHY === "1";
 const quakeTriangleAtlasBasis = process.env.QUAKE_TRIANGLE_ATLAS_BASIS === "1";
 const quakeDeterministicWorldAtlas = process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS !== "0";
-const quakeDeterministicWorldAtlasSourceRaw =
-  process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS_SOURCE?.trim().toLowerCase() ?? "software";
-const quakeDeterministicWorldAtlasSource =
-  quakeDeterministicWorldAtlasSourceRaw === "css" ? "css" : "software";
 const quakeDeterministicWorldAtlasImagePolicy =
   process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS_IMAGE_POLICY?.trim().toLowerCase() ?? "atlas";
 const quakeAliasRebakeMerge = process.env.QUAKE_ALIAS_REBAKE_MERGE === "1";
@@ -510,7 +506,6 @@ try {
           delete prepared.renderBundle.debugOutlineAssetUrls;
           delete prepared.renderBundle.debugTransparentOutlineAssetUrls;
           const deterministicAtlasStats = await replaceQuakeRenderBundleWorldAtlas({
-            atlasSource: quakeDeterministicWorldAtlasSource,
             imagePolicy: quakeDeterministicWorldAtlasImagePolicy,
             mapPath,
             name: mapName,
@@ -527,7 +522,7 @@ try {
             outlineKind: quakeRenderBundleDebugOutlineKindForName(mapName),
           });
           console.log(
-            `Deterministic world atlas for ${mapName} (${deterministicAtlasStats.atlasSource ?? "css"}): ` +
+            `Deterministic world atlas for ${mapName}: ` +
             `${deterministicAtlasStats.replacedLeaves} replaced, ` +
             `${deterministicAtlasStats.skippedLeaves} skipped, ` +
             `${deterministicAtlasStats.pageCount ?? 0} png pages, ` +

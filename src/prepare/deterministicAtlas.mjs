@@ -26,16 +26,10 @@ const BSP_LUMP_MODELS = 14;
 const BSP_LUMP_COUNT = 15;
 const BSP_HEADER_SIZE = 4 + BSP_LUMP_COUNT * 8;
 const QUAKE_PLAYER_MINS_Z = -24;
-const QUAKE_LIGHT_SAMPLE_SIZE = 16;
-const QUAKE_LIGHT_MIN = 0.18;
-const QUAKE_LIGHT_MAX = 1.45;
-const QUAKE_LIGHT_SAMPLE_NORMAL_SCALE = 272 / 256;
-const QUAKE_LIGHT_DISPLAY_GAMMA = 0.86;
 const QUAKE_DETERMINISTIC_ATLAS_PAGE_SIZE = 4096;
 const QUAKE_DETERMINISTIC_ATLAS_PAGE_PADDING = 1;
 const QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_MIN = 1;
 const QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_STEP = 1;
-const QUAKE_LIGHTSTYLE0_SCALE = 1;
 const WINQUAKE_VID_CBITS = 6;
 const WINQUAKE_DEFAULT_STYLE_VALUE = 256;
 const WINQUAKE_LIGHTSTYLE_VALUES = new Map([[0, 12 * 22]]);
@@ -46,7 +40,6 @@ const SOFTWARE_SURFACE_RESPONSE_HEADER_BYTES = 16;
 const QUAKE_POLYCSS_PROJECTIVE_QUAD_GUARDS = { bleed: 0 };
 
 export async function replaceQuakeRenderBundleWorldAtlas({
-  atlasSource = "css",
   imagePolicy = "atlas",
   mapPath,
   name,
@@ -71,14 +64,10 @@ export async function replaceQuakeRenderBundleWorldAtlas({
   const skipped = new Map();
   const skipSamples = new Map();
   const startedAt = Date.now();
-  const normalizedAtlasSource = atlasSource === "software" ? "software" : "css";
   const normalizedImagePolicy = normalizeDeterministicImagePolicy(imagePolicy);
-  const softwareOracle = normalizedAtlasSource === "software"
-    ? await createSoftwareQuakeSurfaceOracle()
-    : null;
+  const softwareOracle = await createSoftwareQuakeSurfaceOracle();
   const context = {
     boundsBySourceFace: new Map(),
-    gridBySourceFace: new Map(),
     planByPolygon: new Map(),
     sourceByFace: new Map(),
     softwareSurfaceBySourceFace: new Map(),
@@ -90,7 +79,6 @@ export async function replaceQuakeRenderBundleWorldAtlas({
       const tile = await deterministicLeafTile({
         bspData,
         context,
-        atlasSource: normalizedAtlasSource,
         leaf,
         polygons: renderPolygons,
         visibility,
@@ -168,7 +156,6 @@ export async function replaceQuakeRenderBundleWorldAtlas({
   const oldBytes = await referencedAssetBytes(renderBundle.assetUrls.slice(0, firstNewAssetIndex), outputDir, publicPath);
   return {
     enabled: true,
-    atlasSource: normalizedAtlasSource,
     imagePolicy: normalizedImagePolicy,
     name,
     pageBytes: pageBytes + leafImageBytes,
@@ -197,7 +184,7 @@ function parseQuakeBspFromPak(pakBuffer, mapPath) {
   return parseBsp(bsp, pak, pakBuffer);
 }
 
-async function deterministicLeafTile({ atlasSource, bspData, context, leaf, polygons, visibility }) {
+async function deterministicLeafTile({ bspData, context, leaf, polygons, visibility }) {
   const metadata = leaf.metadata ?? {};
   const polygonIndex = metadata.p;
   const renderFaceIndex = metadata.f;
@@ -249,10 +236,6 @@ async function deterministicLeafTile({ atlasSource, bspData, context, leaf, poly
   if (sources.some((item) => !item.face.styles.every((style) => style === 0 || style === 255))) {
     return { skip: "animated-lightstyle", sample: sourceSample() };
   }
-  if (sources.some((item) => item.face.lightOffset < 0) || !bspData.lighting.length) {
-    if (atlasSource !== "software") return { skip: "unlit-source-face", sample: sourceSample() };
-  }
-
   const polygon = polygons[polygonIndex];
   if (!polygon?.vertices?.length || !polygon?.uvs?.length) {
     return { skip: "missing-polygon-uvs", sample: sourceSample() };
@@ -268,11 +251,8 @@ async function deterministicLeafTile({ atlasSource, bspData, context, leaf, poly
     const bounds = cachedSourceBounds(context, item);
     return {
       bounds,
-      lightGrid: baked ? cachedLightmapGrid(context, item, bounds) : null,
       polyPoints: item.points.map((point) => quakeToPoly(point, bspData.pivot)),
-      softwareSurface: atlasSource === "software"
-        ? await cachedWinQuakeSurface(context, item, bounds, bspData)
-        : null,
+      softwareSurface: await cachedWinQuakeSurface(context, item, bounds, bspData),
       source: item,
     };
   }));
@@ -281,9 +261,7 @@ async function deterministicLeafTile({ atlasSource, bspData, context, leaf, poly
   if (mergedSourceEntries && !screenToPoly) {
     return { skip: "merged-missing-plan-map", sample: sourceSample() };
   }
-  const lightGrid = sourceEntries[0].lightGrid;
   const softwareSurface = sourceEntries[0].softwareSurface;
-  const rawLight = baked ? 1 : Number(polygon.data?.lit) || 1;
   const rgba = Buffer.alloc(leaf.width * leaf.height * 4);
   let solidPixels = 0;
   const derivedUvAffine = plan.uvAffine ? null : derivePlanUvAffine(plan, polygon);
@@ -308,9 +286,6 @@ async function deterministicLeafTile({ atlasSource, bspData, context, leaf, poly
     } else {
       return false;
     }
-    let sampleSource = source;
-    let sampleBounds = sourceBounds;
-    let sampleLightGrid = lightGrid;
     let sampleSoftwareSurface = softwareSurface;
     let s = baked
       ? sourceBounds.minS + u * (sourceBounds.maxS - sourceBounds.minS)
@@ -322,20 +297,13 @@ async function deterministicLeafTile({ atlasSource, bspData, context, leaf, poly
       const polyPoint = screenToPoly(planX, planY);
       const entry = polyPoint ? sourceEntryAtPolyPoint(mergedSourceEntries, polyPoint) : null;
       if (!entry) return false;
-      sampleSource = entry.source;
-      sampleBounds = entry.bounds;
-      sampleLightGrid = entry.lightGrid;
       sampleSoftwareSurface = entry.softwareSurface;
       const quakePoint = polyToQuake(polyPoint, bspData.pivot);
-      const coords = textureCoordsAtQuakePoint(quakePoint, sampleSource.texInfo);
+      const coords = textureCoordsAtQuakePoint(quakePoint, entry.source.texInfo);
       s = coords.s;
       t = coords.t;
     }
-    const rgb = sampleSoftwareSurface
-      ? winQuakeRgbAt(sampleSoftwareSurface, s, t)
-      : baked
-        ? cssExpectedBakedRgbAt(sampleSource, sampleBounds, sampleLightGrid, s, t, bspData)
-        : cssExpectedRawRgbAt(sampleSource, s, t, rawLight, bspData);
+    const rgb = winQuakeRgbAt(sampleSoftwareSurface, s, t);
     const offset = (y * leaf.width + x) * 4;
     rgba[offset] = rgb[0];
     rgba[offset + 1] = rgb[1];
@@ -423,14 +391,6 @@ function cachedSourceBounds(context, source) {
   return bounds;
 }
 
-function cachedLightmapGrid(context, source, bounds) {
-  const key = source.faceIndex;
-  if (context.gridBySourceFace.has(key)) return context.gridBySourceFace.get(key);
-  const grid = lightmapGrid(source, bounds);
-  context.gridBySourceFace.set(key, grid);
-  return grid;
-}
-
 async function cachedWinQuakeSurface(context, source, bounds, data) {
   const key = source.faceIndex;
   if (context.softwareSurfaceBySourceFace.has(key)) return context.softwareSurfaceBySourceFace.get(key);
@@ -440,6 +400,9 @@ async function cachedWinQuakeSurface(context, source, bounds, data) {
 }
 
 async function buildWinQuakeSurface(source, bounds, data, softwareOracle) {
+  if (!softwareOracle?.renderMip0) {
+    throw new Error("softwareQuakeSurface oracle is required for deterministic world atlas generation.");
+  }
   const texturemins = [
     Math.floor(bounds.minS / 16) * 16,
     Math.floor(bounds.minT / 16) * 16,
@@ -448,79 +411,12 @@ async function buildWinQuakeSurface(source, bounds, data, softwareOracle) {
     (Math.ceil(bounds.maxS / 16) - Math.floor(bounds.minS / 16)) * 16,
     (Math.ceil(bounds.maxT / 16) - Math.floor(bounds.minT / 16)) * 16,
   ];
-  const lightWidth = (extents[0] >> 4) + 1;
-  const lightHeight = (extents[1] >> 4) + 1;
-  const sampleCount = lightWidth * lightHeight;
-  if (softwareOracle) {
-    const cache = await softwareOracle.renderMip0({ data, extents, sampleCount, source, texturemins });
-    return {
-      texturemins,
-      ...cache,
-    };
-  }
-  const blocklights = new Int32Array(sampleCount);
-  if (source.face.lightOffset >= 0) {
-    for (let styleIndex = 0; styleIndex < source.face.styles.length; styleIndex++) {
-      const style = source.face.styles[styleIndex];
-      if (style === 255) continue;
-      const scale = WINQUAKE_LIGHTSTYLE_VALUES.get(style) ?? WINQUAKE_DEFAULT_STYLE_VALUE;
-      const base = source.face.lightOffset + styleIndex * sampleCount;
-      for (let index = 0; index < sampleCount; index++) {
-        blocklights[index] += (data.lighting[base + index] ?? 0) * scale;
-      }
-    }
-  }
-  for (let index = 0; index < sampleCount; index++) {
-    let light = ((255 * 256 - blocklights[index]) >> (8 - WINQUAKE_VID_CBITS));
-    if (light < (1 << WINQUAKE_VID_CBITS)) light = (1 << WINQUAKE_VID_CBITS);
-    blocklights[index] = light;
-  }
+  const sampleCount = ((extents[0] >> 4) + 1) * ((extents[1] >> 4) + 1);
+  const cache = await softwareOracle.renderMip0({ data, extents, sampleCount, source, texturemins });
   return {
     texturemins,
-    ...buildSoftwareQuakeMip0Cache(source.texture, texturemins, extents, lightWidth, blocklights, data),
+    ...cache,
   };
-}
-
-function buildSoftwareQuakeMip0Cache(texture, texturemins, extents, lightWidth, blocklights, data) {
-  const width = extents[0];
-  const height = extents[1];
-  const cacheData = Buffer.alloc(width * height * 4);
-  const numHBlocks = width >> 4;
-  const numVBlocks = height >> 4;
-
-  for (let u = 0; u < numHBlocks; u++) {
-    for (let v = 0; v < numVBlocks; v++) {
-      let lightleft = blocklights[v * lightWidth + u] ?? 0;
-      let lightright = blocklights[v * lightWidth + u + 1] ?? lightleft;
-      const lightleftstep = ((blocklights[(v + 1) * lightWidth + u] ?? lightleft) - lightleft) >> 4;
-      const lightrightstep = ((blocklights[(v + 1) * lightWidth + u + 1] ?? lightright) - lightright) >> 4;
-
-      for (let row = 0; row < 16; row++) {
-        const lightstep = (lightleft - lightright) >> 4;
-        let light = lightright;
-        const y = v * 16 + row;
-        const texY = wrappedCoord(texturemins[1] + y, texture.height);
-        for (let column = 15; column >= 0; column--) {
-          const x = u * 16 + column;
-          const texX = wrappedCoord(texturemins[0] + x, texture.width);
-          const paletteIndex = texture.pixels[texY * texture.width + texX] ?? 0;
-          const colormapOffset = light & 0xFF00;
-          const mapped = data.colormap[colormapOffset + paletteIndex] ?? paletteIndex;
-          const [r, g, b] = data.palette[mapped] ?? [0, 0, 0];
-          const target = (y * width + x) * 4;
-          cacheData[target] = r;
-          cacheData[target + 1] = g;
-          cacheData[target + 2] = b;
-          cacheData[target + 3] = 255;
-          light += lightstep;
-        }
-        lightright += lightrightstep;
-        lightleft += lightleftstep;
-      }
-    }
-  }
-
-  return { cacheData, cacheHeight: height, cacheWidth: width };
 }
 
 function winQuakeRgbAt(surface, s, t) {
@@ -539,13 +435,56 @@ async function createSoftwareQuakeSurfaceOracle() {
   const sourcePath = path.join(projectRoot, "scripts/native/softwareQuakeSurface.c");
   const binaryPath = path.join(tmp, "softwareQuakeSurface");
   try {
-    await execFile("clang", ["-O2", "-std=c99", sourcePath, "-o", binaryPath]);
+    const compiler = await compileSoftwareQuakeSurface(sourcePath, binaryPath);
+    if (!compiler) {
+      await rm(tmp, { recursive: true, force: true });
+      throw new Error(
+        `No C compiler found for softwareQuakeSurface. ` +
+          `Tried ${softwareQuakeCompilerCandidates().join(", ")}.`,
+      );
+    }
   } catch (error) {
     await rm(tmp, { recursive: true, force: true });
     throw error;
   }
   const child = spawn(binaryPath, [], { stdio: ["pipe", "pipe", "pipe"] });
   return createSoftwareQuakeSurfaceOracleClient(child, tmp);
+}
+
+async function compileSoftwareQuakeSurface(sourcePath, binaryPath) {
+  const args = ["-O2", "-std=c99", sourcePath, "-o", binaryPath];
+  for (const compiler of softwareQuakeCompilerCandidates()) {
+    try {
+      await execFile(compiler, args);
+      return compiler;
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw new Error(`Failed to compile softwareQuakeSurface with ${compiler}: ${formatExecError(error)}`, {
+        cause: error,
+      });
+    }
+  }
+  return null;
+}
+
+function softwareQuakeCompilerCandidates() {
+  const candidates = [process.env.QUAKE_SOFTWARE_CC, process.env.CC, "cc", "gcc", "clang"];
+  const seen = new Set();
+  return candidates.flatMap((value) => {
+    const compiler = value?.trim();
+    if (!compiler || seen.has(compiler)) return [];
+    seen.add(compiler);
+    return [compiler];
+  });
+}
+
+function formatExecError(error) {
+  const details = [
+    error?.message,
+    error?.stderr?.toString().trim(),
+    error?.stdout?.toString().trim(),
+  ].filter(Boolean);
+  return details.join("\n").trim() || String(error);
 }
 
 function createSoftwareQuakeSurfaceOracleClient(child, tmp) {
@@ -1328,77 +1267,6 @@ function faceTextureCoordinateBounds(points, texInfo) {
   return { minS, maxS, minT, maxT };
 }
 
-function cssExpectedRawRgbAt(source, s, t, light, data) {
-  const paletteIndex = sampleWrappedTextureTexel(source.texture, s, t);
-  const [r, g, b] = data.palette[paletteIndex] ?? [0, 0, 0];
-  if (paletteIndex >= 224) return [r, g, b];
-  return [clampByte(r * light), clampByte(g * light), clampByte(b * light)];
-}
-
-function cssExpectedBakedRgbAt(source, bounds, grid, s, t, data) {
-  const paletteIndex = sampleWrappedTextureTexel(source.texture, s, t);
-  const [r, g, b] = data.palette[paletteIndex] ?? [0, 0, 0];
-  if (paletteIndex >= 224) return [r, g, b];
-  const light = displayLightBrightness(faceLightmapBrightnessAt(source, bounds, grid, s, t, data));
-  return [clampByte(r * light), clampByte(g * light), clampByte(b * light)];
-}
-
-function faceLightmapBrightnessAt(source, bounds, grid, s, t, data) {
-  const sampleS = s / QUAKE_LIGHT_SAMPLE_SIZE - grid.minS;
-  const sampleT = t / QUAKE_LIGHT_SAMPLE_SIZE - grid.minT;
-  const x0 = Math.max(0, Math.min(grid.width - 1, Math.floor(sampleS)));
-  const y0 = Math.max(0, Math.min(grid.height - 1, Math.floor(sampleT)));
-  const x1 = Math.min(grid.width - 1, x0 + 1);
-  const y1 = Math.min(grid.height - 1, y0 + 1);
-  const fx = Math.max(0, Math.min(1, sampleS - x0));
-  const fy = Math.max(0, Math.min(1, sampleT - y0));
-  const top = lerp(lightmapSampleBrightness(source, grid, x0, y0, data), lightmapSampleBrightness(source, grid, x1, y0, data), fx);
-  const bottom = lerp(lightmapSampleBrightness(source, grid, x0, y1, data), lightmapSampleBrightness(source, grid, x1, y1, data), fx);
-  return clampLightBrightness(lerp(top, bottom, fy));
-}
-
-function lightmapGrid(source, bounds) {
-  const minS = Math.floor(bounds.minS / QUAKE_LIGHT_SAMPLE_SIZE);
-  const minT = Math.floor(bounds.minT / QUAKE_LIGHT_SAMPLE_SIZE);
-  const width = Math.max(1, Math.ceil(bounds.maxS / QUAKE_LIGHT_SAMPLE_SIZE) - minS + 1);
-  const height = Math.max(1, Math.ceil(bounds.maxT / QUAKE_LIGHT_SAMPLE_SIZE) - minT + 1);
-  const styles = source.face.styles.filter((style) => style !== 255);
-  return { height, minS, minT, sampleCount: width * height, styles, width };
-}
-
-function lightmapSampleBrightness(source, grid, x, y, data) {
-  const sampleIndex = y * grid.width + x;
-  let brightness = 0;
-  for (let styleIndex = 0; styleIndex < grid.styles.length; styleIndex++) {
-    const offset = source.face.lightOffset + styleIndex * grid.sampleCount + sampleIndex;
-    brightness += lightSampleToBrightness(data.lighting[offset] ?? 0) * lightScaleForStyle(grid.styles[styleIndex] ?? 0);
-  }
-  return clampLightBrightness(brightness);
-}
-
-function lightSampleToBrightness(sample) {
-  return clampLightBrightness((sample / 128) * QUAKE_LIGHT_SAMPLE_NORMAL_SCALE);
-}
-
-function lightScaleForStyle(style) {
-  return style === 0 ? QUAKE_LIGHTSTYLE0_SCALE : 1;
-}
-
-function displayLightBrightness(brightness) {
-  const clamped = clampLightBrightness(brightness);
-  return clamped < 1 ? Math.pow(clamped, QUAKE_LIGHT_DISPLAY_GAMMA) : clamped;
-}
-
-function clampLightBrightness(value) {
-  return Math.max(QUAKE_LIGHT_MIN, Math.min(QUAKE_LIGHT_MAX, value));
-}
-
-function sampleWrappedTextureTexel(texture, s, t) {
-  const x = wrappedCoord(s, texture.width);
-  const y = wrappedCoord(t, texture.height);
-  return texture.pixels[y * texture.width + x] ?? 0;
-}
-
 function textureCoordsAtQuakePoint(point, texInfo) {
   return {
     s: point.x * texInfo.s[0] + point.y * texInfo.s[1] + point.z * texInfo.s[2] + texInfo.s[3],
@@ -1420,15 +1288,6 @@ function polyToQuake(point, pivot) {
     y: point[1] / QUAKE_UNIT_SCALE + pivot.y,
     z: point[2] / QUAKE_UNIT_SCALE + pivot.z,
   };
-}
-
-function wrappedCoord(value, size) {
-  const whole = Math.floor(value);
-  return ((whole % size) + size) % size;
-}
-
-function clampByte(value) {
-  return Math.max(0, Math.min(255, Math.round(value)));
 }
 
 function uvAtPlanPoint(plan, x, y, frameW, frameH) {
