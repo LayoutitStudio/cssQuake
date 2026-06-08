@@ -35,6 +35,8 @@ const renderBundleStyleCache = new Map<string, HTMLStyleElement | HTMLLinkElemen
 const renderBundleStyleLoadPromises = new Map<string, Promise<void>>();
 const renderBundleLoadedStyles = new WeakSet<HTMLLinkElement>();
 const renderBundleLeafFrameStylesLoadPromises = new Map<string, Promise<QuakeRenderBundleLeafFrameStylesFile>>();
+const renderBundleDebugOutlinePreloads = new WeakMap<QuakePreparedRenderBundle, Promise<void>>();
+const renderBundleDebugTransparentOutlinePreloads = new WeakMap<QuakePreparedRenderBundle, Promise<void>>();
 const renderBundleCompiledLeafFrameStylesCache = new WeakMap<
   QuakePreparedRenderBundle,
   readonly QuakeCompiledRenderBundleLeafFrameStyle[]
@@ -47,6 +49,12 @@ const renderBundleAssetPreloads = new Map<string, {
   image: HTMLImageElement;
   promise: Promise<void>;
 }>();
+const mountedRenderBundleByElement = new WeakMap<HTMLElement, QuakePreparedRenderBundle>();
+const mountedRenderBundleElements = new Set<HTMLElement>();
+let renderBundleDebugOutlinesEnabled = false;
+let renderBundleDebugTransparentOutlinesEnabled = false;
+const renderBundleDebugLeafBackgrounds = new WeakMap<HTMLElement, QuakeRenderBundleDebugLeafBackground>();
+const renderBundleDebugLeavesByElement = new WeakMap<HTMLElement, Set<HTMLElement>>();
 
 type QuakeRenderBundleLeafFrameStylesFile = {
   version: 3;
@@ -87,6 +95,17 @@ interface QuakeRenderBundleStyleDeclaration {
   value: string;
 }
 
+interface QuakeRenderBundleDebugLeafBackground {
+  background: string;
+  computedBackgroundImage: string;
+  computedBackgroundPosition: string;
+  computedBackgroundSize: string;
+  backgroundImage: string;
+  backgroundPosition: string;
+  backgroundRepeat: string;
+  backgroundSize: string;
+}
+
 export function mountQuakeRenderBundleMesh(
   sceneElement: HTMLElement,
   renderBundle: QuakePreparedRenderBundle,
@@ -109,7 +128,14 @@ export function mountQuakeRenderBundleMesh(
     );
   }
   syncQuakeRenderBundleDebugLeafIds(leaves, renderBundle);
+  mountedRenderBundleByElement.set(element, renderBundle);
+  mountedRenderBundleElements.add(element);
   sceneElement.appendChild(element);
+  if (renderBundleDebugOutlinesEnabled) {
+    void enableQuakeRenderBundleDebugOutlines(element, renderBundle, {
+      hideTextures: renderBundleDebugTransparentOutlinesEnabled,
+    }).catch((error) => console.error("[cssQuake] Could not load debug outline atlas.", error));
+  }
   return createQuakeRenderBundleMeshHandle(element);
 }
 
@@ -139,7 +165,9 @@ function quakeRenderBundleDebugLeafId(
 }
 
 function renderBundleDebugIntegerAttr(element: HTMLElement | undefined, name: string): number | undefined {
-  const value = Number(element?.getAttribute(name));
+  const rawValue = element?.getAttribute(name);
+  if (rawValue === undefined || rawValue === null || rawValue === "") return undefined;
+  const value = Number(rawValue);
   return Number.isSafeInteger(value) ? value : undefined;
 }
 
@@ -195,6 +223,7 @@ export function mountQuakeRenderBundleFrameSetMesh(
     }
     currentFrameIndex = boundedNextFrameIndex;
     syncQuakeRenderBundleFrameSetMetadata(handle.element, currentFrameIndex);
+    syncQuakeRenderBundleDebugOutlineLeaves(handle.element, frameSetLeaves);
     return true;
   };
   if (boundedFrameIndex !== currentFrameIndex) handle.setFrameIndex(boundedFrameIndex);
@@ -267,6 +296,310 @@ export async function preloadQuakeRenderBundleAssets(
     tasks.push(preloadQuakeRenderBundleAsset(url).finally(() => complete?.()));
   }
   await Promise.all(tasks);
+}
+
+export interface QuakeRenderBundleDebugOutlineOptions {
+  hideTextures?: boolean;
+}
+
+export function syncQuakeRenderBundleDebugOutlines(
+  enabled: boolean,
+  options: QuakeRenderBundleDebugOutlineOptions = {},
+): void {
+  renderBundleDebugOutlinesEnabled = enabled;
+  renderBundleDebugTransparentOutlinesEnabled = options.hideTextures === true;
+  for (const element of mountedRenderBundleElements) {
+    if (!element.isConnected) {
+      mountedRenderBundleElements.delete(element);
+      continue;
+    }
+    const renderBundle = mountedRenderBundleByElement.get(element);
+    if (!renderBundle) continue;
+    if (enabled) {
+      void enableQuakeRenderBundleDebugOutlines(element, renderBundle, options)
+        .catch((error) => console.error("[cssQuake] Could not load debug outline atlas.", error));
+    } else {
+      disableQuakeRenderBundleDebugOutlines(element, renderBundle);
+    }
+  }
+}
+
+export function syncQuakeRenderBundleDebugOutlineLeaves(
+  context: HTMLElement,
+  leaves: Iterable<HTMLElement>,
+): void {
+  if (!renderBundleDebugOutlinesEnabled) return;
+  const element = quakeRenderBundleMeshElement(context);
+  if (!element?.classList.contains("quake-debug-outline-atlas-ready")) return;
+  const renderBundle = mountedRenderBundleByElement.get(element);
+  if (!renderBundle) return;
+  const options = { hideTextures: renderBundleDebugTransparentOutlinesEnabled };
+  const urls = quakeRenderBundleDebugOutlineUrls(renderBundle, options);
+  if (!urls?.length) return;
+  setQuakeRenderBundleDebugOutlineRootVars(element, urls);
+  applyQuakeRenderBundleDebugOutlineLeaves(element, renderBundle, urls, options, leaves);
+}
+
+async function enableQuakeRenderBundleDebugOutlines(
+  element: HTMLElement,
+  renderBundle: QuakePreparedRenderBundle,
+  options: QuakeRenderBundleDebugOutlineOptions,
+): Promise<void> {
+  const urls = quakeRenderBundleDebugOutlineUrls(renderBundle, options);
+  if (!urls?.length) {
+    element.classList.remove("quake-debug-outline-atlas-ready");
+    restoreQuakeRenderBundleDebugOutlineLeafBackgrounds(element);
+    return;
+  }
+  await preloadQuakeRenderBundleDebugOutlineAssets(renderBundle, options);
+  if (
+    !renderBundleDebugOutlinesEnabled ||
+    renderBundleDebugTransparentOutlinesEnabled !== (options.hideTextures === true) ||
+    !element.isConnected
+  ) {
+    return;
+  }
+  setQuakeRenderBundleDebugOutlineRootVars(element, urls);
+  element.classList.add("quake-debug-outline-atlas-ready");
+  captureQuakeRenderBundleDebugOutlineLeafBackgrounds(element);
+  applyQuakeRenderBundleDebugOutlineLeafBackgrounds(element, renderBundle, urls, options);
+}
+
+function disableQuakeRenderBundleDebugOutlines(
+  element: HTMLElement,
+  renderBundle: QuakePreparedRenderBundle,
+): void {
+  element.classList.remove("quake-debug-outline-atlas-ready");
+  const count = Math.max(
+    renderBundle.debugOutlineAssetUrls?.length ?? 0,
+    renderBundle.debugTransparentOutlineAssetUrls?.length ?? 0,
+  );
+  for (let index = 0; index < count; index++) {
+    element.style.removeProperty(`--qdbg${index}`);
+  }
+  restoreQuakeRenderBundleDebugOutlineLeafBackgrounds(element);
+}
+
+function preloadQuakeRenderBundleDebugOutlineAssets(
+  renderBundle: QuakePreparedRenderBundle,
+  options: QuakeRenderBundleDebugOutlineOptions,
+): Promise<void> {
+  const cache = options.hideTextures === true
+    ? renderBundleDebugTransparentOutlinePreloads
+    : renderBundleDebugOutlinePreloads;
+  const existing = cache.get(renderBundle);
+  if (existing) return existing;
+  const promise = Promise.all((quakeRenderBundleDebugOutlineUrls(renderBundle, options) ?? [])
+    .map(preloadQuakeRenderBundleAsset))
+    .then(() => undefined);
+  cache.set(renderBundle, promise);
+  return promise;
+}
+
+function quakeRenderBundleDebugOutlineUrls(
+  renderBundle: QuakePreparedRenderBundle,
+  options: QuakeRenderBundleDebugOutlineOptions,
+): string[] | undefined {
+  return options.hideTextures === true
+    ? renderBundle.debugTransparentOutlineAssetUrls
+    : renderBundle.debugOutlineAssetUrls;
+}
+
+function applyQuakeRenderBundleDebugOutlineLeafBackgrounds(
+  element: HTMLElement,
+  renderBundle: QuakePreparedRenderBundle,
+  urls: readonly string[],
+  options: QuakeRenderBundleDebugOutlineOptions,
+): void {
+  applyQuakeRenderBundleDebugOutlineLeaves(
+    element,
+    renderBundle,
+    urls,
+    options,
+    element.querySelectorAll<HTMLElement>("s"),
+  );
+}
+
+function applyQuakeRenderBundleDebugOutlineLeaves(
+  element: HTMLElement,
+  renderBundle: QuakePreparedRenderBundle,
+  urls: readonly string[],
+  options: QuakeRenderBundleDebugOutlineOptions,
+  leaves: Iterable<HTMLElement>,
+): void {
+  const assetIndexByPath = quakeRenderBundleAssetIndexByPath(renderBundle.assetUrls);
+  for (const leaf of leaves) {
+    const style = getComputedStyle(leaf);
+    captureQuakeRenderBundleDebugOutlineLeafBackground(element, leaf, style, {
+      replace: !quakeRenderBundleDebugLeafOverrideIsApplied(leaf),
+    });
+    const previous = renderBundleDebugLeafBackgrounds.get(leaf);
+    const backgroundImage = previous?.computedBackgroundImage ?? style.backgroundImage;
+    const originalImage = quakeRenderBundleOriginalBackgroundImage(backgroundImage, assetIndexByPath);
+    if (!originalImage || !urls[originalImage.assetIndex]) {
+      if (options.hideTextures === true) {
+        hideQuakeRenderBundleDebugLeafTexture(leaf);
+      } else if (quakeRenderBundleDebugLeafTextureIsHidden(leaf)) {
+        restoreQuakeRenderBundleDebugOutlineLeafBackground(leaf);
+      }
+      continue;
+    }
+    const position = firstQuakeRenderBundleBackgroundLayerValue(
+      previous?.computedBackgroundPosition ?? style.backgroundPosition,
+    ) || "0px 0px";
+    const size = firstQuakeRenderBundleBackgroundLayerValue(
+      previous?.computedBackgroundSize ?? style.backgroundSize,
+    ) || "auto";
+    const image = options.hideTextures === true
+      ? `var(--qdbg${originalImage.assetIndex})`
+      : `var(--qdbg${originalImage.assetIndex}), ${originalImage.image}`;
+    const repeat = options.hideTextures === true ? "no-repeat" : "no-repeat, no-repeat";
+    const layeredPosition = options.hideTextures === true ? position : `${position}, ${position}`;
+    const layeredSize = options.hideTextures === true ? size : `${size}, ${size}`;
+    if (
+      leaf.style.backgroundImage === image &&
+      leaf.style.backgroundPosition === layeredPosition &&
+      leaf.style.backgroundSize === layeredSize &&
+      leaf.style.backgroundRepeat === repeat
+    ) {
+      continue;
+    }
+    if (options.hideTextures === true) {
+      leaf.removeAttribute("data-quake-debug-texture-hidden");
+      leaf.style.backgroundImage = image;
+      leaf.style.backgroundPosition = layeredPosition;
+      leaf.style.backgroundSize = layeredSize;
+      leaf.style.backgroundRepeat = repeat;
+    } else {
+      leaf.removeAttribute("data-quake-debug-texture-hidden");
+      leaf.style.backgroundImage = image;
+      leaf.style.backgroundPosition = layeredPosition;
+      leaf.style.backgroundSize = layeredSize;
+      leaf.style.backgroundRepeat = repeat;
+    }
+  }
+}
+
+function captureQuakeRenderBundleDebugOutlineLeafBackgrounds(element: HTMLElement): void {
+  for (const leaf of element.querySelectorAll<HTMLElement>("s")) {
+    captureQuakeRenderBundleDebugOutlineLeafBackground(element, leaf);
+  }
+}
+
+function captureQuakeRenderBundleDebugOutlineLeafBackground(
+  element: HTMLElement,
+  leaf: HTMLElement,
+  style = getComputedStyle(leaf),
+  options: { replace?: boolean } = {},
+): void {
+  if (renderBundleDebugLeafBackgrounds.has(leaf) && !options.replace) return;
+  let leaves = renderBundleDebugLeavesByElement.get(element);
+  if (!leaves) {
+    leaves = new Set();
+    renderBundleDebugLeavesByElement.set(element, leaves);
+  }
+  leaves.add(leaf);
+  renderBundleDebugLeafBackgrounds.set(leaf, {
+    background: leaf.style.background,
+    computedBackgroundImage: style.backgroundImage,
+    computedBackgroundPosition: style.backgroundPosition,
+    computedBackgroundSize: style.backgroundSize,
+    backgroundImage: leaf.style.backgroundImage,
+    backgroundPosition: leaf.style.backgroundPosition,
+    backgroundRepeat: leaf.style.backgroundRepeat,
+    backgroundSize: leaf.style.backgroundSize,
+  });
+}
+
+function quakeRenderBundleDebugOutlineBackgroundIsApplied(backgroundImage: string): boolean {
+  return backgroundImage.includes("var(--qdbg");
+}
+
+function quakeRenderBundleDebugLeafOverrideIsApplied(leaf: HTMLElement): boolean {
+  return quakeRenderBundleDebugOutlineBackgroundIsApplied(leaf.style.backgroundImage) ||
+    quakeRenderBundleDebugLeafTextureIsHidden(leaf);
+}
+
+function quakeRenderBundleDebugLeafTextureIsHidden(leaf: HTMLElement): boolean {
+  return leaf.dataset.quakeDebugTextureHidden === "true" && leaf.style.backgroundImage === "none";
+}
+
+function hideQuakeRenderBundleDebugLeafTexture(leaf: HTMLElement): void {
+  if (quakeRenderBundleDebugLeafTextureIsHidden(leaf)) return;
+  leaf.dataset.quakeDebugTextureHidden = "true";
+  leaf.style.background = "none";
+}
+
+function restoreQuakeRenderBundleDebugOutlineLeafBackgrounds(element: HTMLElement): void {
+  const leaves = new Set<HTMLElement>(renderBundleDebugLeavesByElement.get(element));
+  for (const leaf of element.querySelectorAll<HTMLElement>("s")) leaves.add(leaf);
+  for (const leaf of leaves) {
+    restoreQuakeRenderBundleDebugOutlineLeafBackground(leaf);
+  }
+  renderBundleDebugLeavesByElement.delete(element);
+}
+
+function restoreQuakeRenderBundleDebugOutlineLeafBackground(leaf: HTMLElement): void {
+  const previous = renderBundleDebugLeafBackgrounds.get(leaf);
+  leaf.removeAttribute("data-quake-debug-texture-hidden");
+  if (!previous) return;
+  leaf.style.removeProperty("background");
+  leaf.style.removeProperty("background-image");
+  leaf.style.removeProperty("background-position");
+  leaf.style.removeProperty("background-repeat");
+  leaf.style.removeProperty("background-size");
+  if (previous.background) leaf.style.background = previous.background;
+  if (previous.backgroundImage) leaf.style.backgroundImage = previous.backgroundImage;
+  if (previous.backgroundPosition) leaf.style.backgroundPosition = previous.backgroundPosition;
+  if (previous.backgroundRepeat) leaf.style.backgroundRepeat = previous.backgroundRepeat;
+  if (previous.backgroundSize) leaf.style.backgroundSize = previous.backgroundSize;
+  renderBundleDebugLeafBackgrounds.delete(leaf);
+}
+
+function setQuakeRenderBundleDebugOutlineRootVars(element: HTMLElement, urls: readonly string[]): void {
+  for (let index = 0; index < urls.length; index++) {
+    const url = urls[index];
+    if (!url) continue;
+    element.style.setProperty(`--qdbg${index}`, `url("${url.replace(/["\\\n\r\f]/g, "\\$&")}")`);
+  }
+}
+
+function quakeRenderBundleMeshElement(element: HTMLElement): HTMLElement | null {
+  return element.classList.contains("polycss-mesh") ? element : element.closest(".polycss-mesh");
+}
+
+function quakeRenderBundleAssetIndexByPath(assetUrls: readonly string[]): Map<string, number> {
+  const indexes = new Map<string, number>();
+  for (let index = 0; index < assetUrls.length; index++) {
+    const path = quakeRenderBundleUrlPath(assetUrls[index]);
+    if (path) indexes.set(path, index);
+  }
+  return indexes;
+}
+
+function quakeRenderBundleOriginalBackgroundImage(
+  backgroundImage: string,
+  assetIndexByPath: Map<string, number>,
+): { assetIndex: number; image: string } | undefined {
+  for (const match of backgroundImage.matchAll(/url\(["']?([^"')]+)["']?\)/g)) {
+    const path = quakeRenderBundleUrlPath(match[1]);
+    const index = path ? assetIndexByPath.get(path) : undefined;
+    if (index !== undefined) return { assetIndex: index, image: match[0] };
+  }
+  return undefined;
+}
+
+function firstQuakeRenderBundleBackgroundLayerValue(value: string): string {
+  return value.split(",")[0]?.trim() ?? "";
+}
+
+function quakeRenderBundleUrlPath(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url, window.location.href).pathname;
+  } catch {
+    return undefined;
+  }
 }
 
 function preloadQuakeRenderBundleStyle(renderBundle: QuakePreparedRenderBundle): Promise<void> {
@@ -647,11 +980,15 @@ export function stripPolyMeshMetadata(element: HTMLElement): void {
 export function createQuakeRenderBundleMeshHandle(element: HTMLElement): PolyMeshHandle {
   const transform: { position?: Vec3; rotation?: Vec3; scale?: number | Vec3 } = {};
   let appliedTransformStyle = element.style.transform;
+  const removeElement = () => {
+    mountedRenderBundleElements.delete(element);
+    element.remove();
+  };
   const handle = {
     polygons: [] as Polygon[],
     element,
     transform,
-    remove: () => element.remove(),
+    remove: removeElement,
     setPolygons: () => undefined,
     updatePolygon: () => undefined,
     setTransform: (nextTransform: Partial<typeof transform>) => {
@@ -668,7 +1005,7 @@ export function createQuakeRenderBundleMeshHandle(element: HTMLElement): PolyMes
       }
       appliedTransformStyle = nextStyle;
     },
-    dispose: () => element.remove(),
+    dispose: removeElement,
     rebakeAtlas: () => undefined,
     getPosition: () => transform.position,
     getRotation: () => transform.rotation,

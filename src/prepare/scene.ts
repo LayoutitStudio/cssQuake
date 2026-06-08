@@ -480,6 +480,8 @@ export interface QuakePreparedRenderBundle {
   styleUrl?: string;
   styleClassName?: string;
   assetUrls: string[];
+  debugOutlineAssetUrls?: string[];
+  debugTransparentOutlineAssetUrls?: string[];
   leafMetadata: QuakeRenderBundleLeafMetadata[];
   leafFrameStyles?: QuakeRenderBundleLeafFrameStyle[];
   leafFrameStylesUrl?: string;
@@ -875,6 +877,12 @@ function clonePreparedRenderBundle(renderBundle: QuakePreparedRenderBundle): Qua
   return {
     ...renderBundle,
     assetUrls: [...renderBundle.assetUrls],
+    ...(renderBundle.debugOutlineAssetUrls ? {
+      debugOutlineAssetUrls: [...renderBundle.debugOutlineAssetUrls],
+    } : {}),
+    ...(renderBundle.debugTransparentOutlineAssetUrls ? {
+      debugTransparentOutlineAssetUrls: [...renderBundle.debugTransparentOutlineAssetUrls],
+    } : {}),
     leafMetadata: renderBundle.leafMetadata.map((leaf) => ({ ...leaf })),
     ...(renderBundle.leafFrameStyles ? {
       leafFrameStyles: renderBundle.leafFrameStyles.map((frameStyle) => [...frameStyle]),

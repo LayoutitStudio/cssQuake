@@ -1,7 +1,12 @@
 import {
   BASE_TILE,
+  SOLID_QUAD_CANONICAL_SIZE,
+  computeProjectiveQuadMatrix,
+  computeTextureAtlasPlanPublic,
   createPolyPerspectiveCamera,
   createPolyScene,
+  resolveProjectiveQuadGuards,
+  stableBasisFromPlan,
 } from "@layoutit/polycss";
 
 import { QUAKE_RENDER_SUPERSAMPLE } from "../quakeScale.js";
@@ -10,7 +15,27 @@ const QUAKE_CAMERA_ZOOM = (BASE_TILE * 0.65) / QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_RENDER_BUNDLE_TIMEOUT_MS = 30000;
 const QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_MIN = 1;
 const QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_STEP = 1;
-const QUAKE_ADAPTIVE_ATLAS_BACKGROUND_SNAP_EPSILON = 0.25;
+const QUAKE_MATRIX_LINEAR_SNAP_EPSILON = 0.0015;
+const QUAKE_MATRIX_TRANSLATION_SNAP_EPSILON = 0.006;
+const QUAKE_MATRIX_TRANSLATION_SNAP_GRID = 0.125;
+const QUAKE_MATRIX_LINEAR_SNAP_TARGETS = [-1, -0.5, -0.25, -0.125, 0, 0.125, 0.25, 0.5, 1];
+const QUAKE_ATLAS_HOMOGRAPHY_AREA_PAD = 1.04;
+const QUAKE_ATLAS_HOMOGRAPHY_MIN_SAVED_AREA = 256;
+const QUAKE_ATLAS_HOMOGRAPHY_MIN_SAVED_RATIO = 0.08;
+const QUAKE_ANIMATED_ATLAS_HOMOGRAPHY_MIN_SAVED_AREA = 1;
+const QUAKE_ANIMATED_ATLAS_HOMOGRAPHY_MIN_SAVED_RATIO = 0.01;
+const QUAKE_ATLAS_HOMOGRAPHY_MIN_SIDE = 4;
+const QUAKE_ATLAS_HOMOGRAPHY_MAX_SIDE_RATIO = 2;
+const QUAKE_ATLAS_HOMOGRAPHY_PAGE_SIZE = 4096;
+const QUAKE_ATLAS_HOMOGRAPHY_PAGE_PADDING = 1;
+const QUAKE_ATLAS_HOMOGRAPHY_MATRIX_EPSILON = 0.075;
+const QUAKE_ATLAS_HOMOGRAPHY_MIN_CORNER_W = 0.05;
+const QUAKE_ATLAS_HOMOGRAPHY_GUARDS = resolveProjectiveQuadGuards({ bleed: 0 });
+const QUAKE_POLYCSS_PROJECTIVE_QUAD_GUARDS = { bleed: 0 };
+const QUAKE_TRIANGLE_ATLAS_BASIS_ANGLE_STEP_DEGREES = 5;
+const QUAKE_TRIANGLE_ATLAS_BASIS_PADDING = 1;
+const QUAKE_TRIANGLE_ATLAS_BASIS_MIN_SAVED_AREA = 4;
+const QUAKE_TRIANGLE_ATLAS_BASIS_MIN_SAVED_RATIO = 0.01;
 
 window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
   polygons,
@@ -20,13 +45,24 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
   styleClassName = "",
   tightenAtlasLeaves = false,
   adaptiveAtlasLeafSize = false,
+  optimizeAtlasLeafBasis = false,
+  optimizeAtlasLeafHomography = false,
 }) {
   const host = createQuakeRenderHost();
 
   try {
     const scene = createQuakeRenderScene(host, textureQuality);
+    const atlasLeafBasisOptimization = optimizeAtlasLeafBasis
+      ? optimizeQuakeAtlasLeafBasisPolygons(polygons)
+      : null;
+    let renderPolygons = atlasLeafBasisOptimization?.polygons ?? polygons;
     const handle = scene.add(
-      { polygons, objectUrls: [], warnings: [], dispose: () => undefined },
+      {
+        polygons: renderPolygons,
+        objectUrls: [],
+        warnings: [],
+        dispose: () => undefined,
+      },
       {
         merge,
         meshResolution: "lossless",
@@ -35,10 +71,15 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
     );
 
     await waitForBakedTextureLeaves(handle.element);
+    const atlasLeafHomographyOptimizationStats = optimizeAtlasLeafHomography
+      ? await optimizeQuakeAtlasLeafHomography(handle.element, renderPolygons)
+      : null;
     if (tightenAtlasLeaves) await tightenQuakeAtlasLeaves(handle.element);
     const adaptiveAtlasLeafSizeStats = adaptiveAtlasLeafSize
       ? applyAdaptiveQuakeAtlasLeafSizes(handle.element)
       : null;
+    const transformSnapStats = snapQuakeLeafTransformsToStableGrid(handle.element);
+    const atlasBackgroundSnapStats = snapQuakeAtlasLeafBackgroundsToIntegerPx(handle.element);
     const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await serializeMeshWithAssets(handle.element, {
       extractLeafStyles,
       styleClassName,
@@ -52,8 +93,16 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
       leafFrameStyles,
       leafCount: handle.element.querySelectorAll("b,i,s,u").length,
       atlasLeafCount: handle.element.querySelectorAll("s").length,
-      polygonCount: polygons.length,
+      polygonCount: renderPolygons.length,
       ...(adaptiveAtlasLeafSizeStats ? { adaptiveAtlasLeafSizeStats } : {}),
+      ...(transformSnapStats.snappedLeaves || transformSnapStats.precisionLeaves ? { transformSnapStats } : {}),
+      ...(atlasBackgroundSnapStats.snappedLeaves ? { atlasBackgroundSnapStats } : {}),
+      ...(atlasLeafBasisOptimization?.stats?.rotatedPolygons
+        ? { atlasLeafBasisOptimizationStats: atlasLeafBasisOptimization.stats }
+        : {}),
+      ...(atlasLeafHomographyOptimizationStats?.optimizedLeaves
+        ? { atlasLeafHomographyOptimizationStats }
+        : {}),
     };
   } finally {
     host.remove();
@@ -66,6 +115,9 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
   extractLeafStyles = true,
   tightenAtlasLeaves = false,
   adaptiveAtlasLeafSize = false,
+  optimizeAtlasLeafBasis = false,
+  optimizeAtlasLeafHomography = false,
+  optimizeAtlasTriangleBasis = false,
 }) {
   if (!Array.isArray(frames) || !frames.length) {
     throw new Error("Animated render bundle build requires at least one frame.");
@@ -77,9 +129,22 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
   const host = createQuakeRenderHost();
 
   try {
+    const atlasLeafBasisRotationPlan = optimizeAtlasLeafBasis
+      ? quakeAtlasLeafBasisRotationPlan(firstFrame.polygons)
+      : null;
+    const renderFramePolygons = frames.map((frame) =>
+      atlasLeafBasisRotationPlan
+        ? applyQuakeAtlasLeafBasisRotationPlan(frame.polygons, atlasLeafBasisRotationPlan)
+        : frame.polygons
+    );
     const scene = createQuakeRenderScene(host, textureQuality);
     const handle = scene.add(
-      { polygons: firstFrame.polygons, objectUrls: [], warnings: [], dispose: () => undefined },
+      {
+        polygons: renderFramePolygons[0],
+        objectUrls: [],
+        warnings: [],
+        dispose: () => undefined,
+      },
       {
         merge: false,
         meshResolution: "lossless",
@@ -90,27 +155,45 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
     const outFrames = [];
     let baseLeafFrameStylesByClass = new Map();
     let baseTightAtlasBoundsByKey = null;
+    await waitForBakedTextureLeaves(handle.element);
+    const animatedAtlasLeafHomographyPlan = optimizeAtlasLeafHomography
+      ? await createQuakeAnimatedAtlasLeafHomographyPlan(handle, renderFramePolygons)
+      : null;
+    const animatedTriangleAtlasBasisPlan = optimizeAtlasTriangleBasis
+      ? await createQuakeAnimatedTriangleAtlasBasisPlan(handle.element, renderFramePolygons[0])
+      : null;
     for (let index = 0; index < frames.length; index++) {
       const frame = frames[index];
       if (!frame?.polygons?.length) {
         throw new Error(`Animated render bundle frame ${index} has no polygons.`);
       }
       if (index > 0) {
-        handle.setPolygons(frame.polygons, {
-          merge: false,
-          stableDom: true,
-          recomputeAutoCenter: false,
-        });
+        handle.setPolygons(
+          renderFramePolygons[index],
+          {
+            merge: false,
+            stableDom: true,
+            recomputeAutoCenter: false,
+          },
+        );
         await waitForRenderBundleFrameUpdate();
       }
       const name = frame.name ?? `frame-${index}`;
       await waitForBakedTextureLeaves(handle.element);
+      if (animatedAtlasLeafHomographyPlan) {
+        applyQuakeAnimatedAtlasLeafHomographyPlan(handle.element, animatedAtlasLeafHomographyPlan, index);
+      }
+      if (animatedTriangleAtlasBasisPlan) {
+        applyQuakeAnimatedTriangleAtlasBasisPlan(handle.element, animatedTriangleAtlasBasisPlan);
+      }
       if (tightenAtlasLeaves) {
         baseTightAtlasBoundsByKey = await tightenQuakeAtlasLeaves(handle.element, baseTightAtlasBoundsByKey);
       }
       const adaptiveAtlasLeafSizeStats = adaptiveAtlasLeafSize
         ? applyAdaptiveQuakeAtlasLeafSizes(handle.element)
         : null;
+      const transformSnapStats = snapQuakeLeafTransformsToStableGrid(handle.element);
+      const atlasBackgroundSnapStats = snapQuakeAtlasLeafBackgroundsToIntegerPx(handle.element);
       if (index === 0) {
         const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await serializeMeshWithAssets(handle.element, {
           extractLeafStyles,
@@ -129,6 +212,17 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
           atlasLeafCount: handle.element.querySelectorAll("s").length,
           polygonCount: frame.polygons.length,
           ...(adaptiveAtlasLeafSizeStats ? { adaptiveAtlasLeafSizeStats } : {}),
+          ...(transformSnapStats.snappedLeaves || transformSnapStats.precisionLeaves ? { transformSnapStats } : {}),
+          ...(atlasBackgroundSnapStats.snappedLeaves ? { atlasBackgroundSnapStats } : {}),
+          ...(atlasLeafBasisRotationPlan?.stats?.rotatedPolygons
+            ? { atlasLeafBasisOptimizationStats: atlasLeafBasisRotationPlan.stats }
+            : {}),
+          ...(animatedAtlasLeafHomographyPlan?.stats?.optimizedLeaves
+            ? { atlasLeafHomographyOptimizationStats: animatedAtlasLeafHomographyPlan.stats }
+            : {}),
+          ...(animatedTriangleAtlasBasisPlan?.stats?.optimizedLeaves
+            ? { triangleAtlasBasisOptimizationStats: animatedTriangleAtlasBasisPlan.stats }
+            : {}),
         });
         continue;
       }
@@ -152,6 +246,7 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
 };
 
 function createQuakeRenderHost() {
+  window.__polycssProjectiveQuadGuards = QUAKE_POLYCSS_PROJECTIVE_QUAD_GUARDS;
   const host = document.createElement("main");
   host.style.position = "absolute";
   host.style.left = "-100000px";
@@ -202,6 +297,1045 @@ async function waitForBakedTextureLeaves(mesh) {
   }
 }
 
+function optimizeQuakeAtlasLeafBasisPolygons(polygons) {
+  const plan = quakeAtlasLeafBasisRotationPlan(polygons);
+  return {
+    polygons: applyQuakeAtlasLeafBasisRotationPlan(polygons, plan),
+    stats: plan.stats,
+  };
+}
+
+function quakeAtlasLeafBasisRotationPlan(polygons) {
+  const rotations = [];
+  const stats = {
+    totalPolygons: Array.isArray(polygons) ? polygons.length : 0,
+    texturedPolygons: 0,
+    candidatePolygons: 0,
+    rotatedPolygons: 0,
+    beforeArea: 0,
+    afterArea: 0,
+    maxSavedArea: 0,
+  };
+  if (!Array.isArray(polygons)) return { rotations, stats };
+
+  for (let index = 0; index < polygons.length; index++) {
+    const polygon = polygons[index];
+    const vertices = polygon?.vertices;
+    if (polygon?.texture) stats.texturedPolygons++;
+    const rotation = quakeAtlasLeafBasisRotation(vertices, Boolean(polygon?.texture));
+    rotations[index] = rotation.offset;
+    if (!rotation.candidate) continue;
+    stats.candidatePolygons++;
+    stats.beforeArea += rotation.beforeArea;
+    stats.afterArea += rotation.afterArea;
+    const savedArea = Math.max(0, rotation.beforeArea - rotation.afterArea);
+    if (rotation.offset > 0) {
+      stats.rotatedPolygons++;
+      stats.maxSavedArea = Math.max(stats.maxSavedArea, savedArea);
+    }
+  }
+  stats.beforeArea = Math.round(stats.beforeArea);
+  stats.afterArea = Math.round(stats.afterArea);
+  stats.savedArea = Math.max(0, stats.beforeArea - stats.afterArea);
+  stats.savedRatio = stats.beforeArea > 0
+    ? Number((stats.savedArea / stats.beforeArea).toFixed(4))
+    : 0;
+  stats.maxSavedArea = Math.round(stats.maxSavedArea);
+  return { rotations, stats };
+}
+
+function quakeAtlasLeafBasisRotation(vertices, isTextured) {
+  if (!isTextured || !Array.isArray(vertices) || vertices.length < 3) {
+    return { offset: 0, candidate: false, beforeArea: 0, afterArea: 0 };
+  }
+  const normal = quakePolygonNormal(vertices);
+  if (!normal) return { offset: 0, candidate: false, beforeArea: 0, afterArea: 0 };
+
+  let base = null;
+  let best = null;
+  for (let edgeIndex = 0; edgeIndex < vertices.length; edgeIndex++) {
+    const area = quakePolygonBasisArea(vertices, normal, edgeIndex);
+    if (!area) continue;
+    if (edgeIndex === 0) base = area;
+    if (!best || area.pixelArea < best.pixelArea || (
+      area.pixelArea === best.pixelArea &&
+      area.rawArea < best.rawArea
+    )) {
+      best = area;
+    }
+  }
+  if (!base || !best) return { offset: 0, candidate: false, beforeArea: 0, afterArea: 0 };
+  const improved = best.edgeIndex > 0 && best.pixelArea + 0.5 < base.pixelArea;
+  return {
+    offset: improved ? best.edgeIndex : 0,
+    candidate: true,
+    beforeArea: base.pixelArea,
+    afterArea: improved ? best.pixelArea : base.pixelArea,
+  };
+}
+
+function quakePolygonNormal(vertices) {
+  for (let index = 1; index < vertices.length - 1; index++) {
+    const a = quakeVecSub(vertices[index], vertices[0]);
+    const b = quakeVecSub(vertices[index + 1], vertices[0]);
+    const normal = quakeVecNormalize(quakeVecCross(a, b));
+    if (normal) return normal;
+  }
+  return null;
+}
+
+function quakePolygonBasisArea(vertices, normal, edgeIndex) {
+  const start = vertices[edgeIndex];
+  const end = vertices[(edgeIndex + 1) % vertices.length];
+  const xAxis = quakeVecNormalize(quakeVecSub(end, start));
+  if (!xAxis) return null;
+  const yAxis = quakeVecNormalize(quakeVecCross(normal, xAxis));
+  if (!yAxis) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const vertex of vertices) {
+    const x = quakeVecDot(vertex, xAxis);
+    const y = quakeVecDot(vertex, yAxis);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  const rawWidth = maxX - minX;
+  const rawHeight = maxY - minY;
+  if (!Number.isFinite(rawWidth) || !Number.isFinite(rawHeight) || rawWidth <= 0 || rawHeight <= 0) return null;
+  return {
+    edgeIndex,
+    rawArea: rawWidth * rawHeight,
+    pixelArea: Math.max(1, Math.ceil(rawWidth)) * Math.max(1, Math.ceil(rawHeight)),
+  };
+}
+
+function applyQuakeAtlasLeafBasisRotationPlan(polygons, plan) {
+  if (!plan?.stats?.rotatedPolygons) return polygons;
+  return polygons.map((polygon, index) => rotateQuakeAtlasLeafBasisPolygon(polygon, plan.rotations[index] ?? 0));
+}
+
+function rotateQuakeAtlasLeafBasisPolygon(polygon, offset) {
+  const vertices = polygon?.vertices;
+  if (!offset || !Array.isArray(vertices) || offset <= 0 || offset >= vertices.length) return polygon;
+  return {
+    ...polygon,
+    vertices: rotateQuakePolygonArray(vertices, offset),
+    ...(Array.isArray(polygon.uvs) && polygon.uvs.length === vertices.length
+      ? { uvs: rotateQuakePolygonArray(polygon.uvs, offset) }
+      : {}),
+    ...(Array.isArray(polygon.simplifyVertexKeys) && polygon.simplifyVertexKeys.length === vertices.length
+      ? { simplifyVertexKeys: rotateQuakePolygonArray(polygon.simplifyVertexKeys, offset) }
+      : {}),
+    ...(Array.isArray(polygon.simplifySourceVertexKeys) && polygon.simplifySourceVertexKeys.length === vertices.length
+      ? { simplifySourceVertexKeys: rotateQuakePolygonArray(polygon.simplifySourceVertexKeys, offset) }
+      : {}),
+  };
+}
+
+function rotateQuakePolygonArray(values, offset) {
+  return [...values.slice(offset), ...values.slice(0, offset)].map((value) =>
+    Array.isArray(value) ? [...value] : value
+  );
+}
+
+async function optimizeQuakeAtlasLeafHomography(mesh, polygons) {
+  const { candidates, stats } = await quakeAtlasLeafHomographyCandidates(mesh, polygons);
+  if (!candidates.length) return stats;
+  await applyQuakeAtlasLeafHomographyCandidates(candidates);
+  finalizeQuakeAtlasLeafHomographyStats(stats, candidates);
+  return stats;
+}
+
+async function quakeAtlasLeafHomographyCandidates(mesh, polygons, options = {}) {
+  const stats = {
+    totalLeaves: 0,
+    quadLeaves: 0,
+    candidateLeaves: 0,
+    optimizedLeaves: 0,
+    beforeArea: 0,
+    afterArea: 0,
+    savedArea: 0,
+    skipped: {},
+  };
+  const leaves = [...mesh.querySelectorAll("s")];
+  const candidates = [];
+  for (const leaf of leaves) {
+    stats.totalLeaves++;
+    const candidate = await quakeAtlasLeafHomographyCandidate(leaf, polygons, options);
+    if (!candidate) continue;
+    if (candidate.skip) {
+      incrementQuakeStat(stats.skipped, candidate.skip);
+      continue;
+    }
+    stats.quadLeaves++;
+    if (!candidate.optimize) continue;
+    stats.candidateLeaves++;
+    candidates.push(candidate);
+  }
+  return { candidates, stats };
+}
+
+function finalizeQuakeAtlasLeafHomographyStats(stats, candidates) {
+  stats.optimizedLeaves = 0;
+  stats.beforeArea = 0;
+  stats.afterArea = 0;
+  for (const candidate of candidates) {
+    stats.optimizedLeaves++;
+    stats.beforeArea += candidate.beforeArea;
+    stats.afterArea += candidate.afterArea;
+  }
+  stats.beforeArea = Math.round(stats.beforeArea);
+  stats.afterArea = Math.round(stats.afterArea);
+  stats.savedArea = Math.max(0, stats.beforeArea - stats.afterArea);
+  stats.savedRatio = stats.beforeArea > 0
+    ? Number((stats.savedArea / stats.beforeArea).toFixed(4))
+    : 0;
+  return stats;
+}
+
+async function quakeAtlasLeafHomographyCandidate(leaf, polygons, options = {}) {
+  const polygonIndex = renderBundleIntegerAttr(leaf, "data-poly-index");
+  if (polygonIndex === undefined || polygonIndex < 0) return { skip: "missing-poly-index" };
+  const polygon = polygons?.[polygonIndex];
+  if (!polygon?.texture) return { skip: "untextured" };
+  if (!Array.isArray(polygon.vertices) || polygon.vertices.length !== 4) return { skip: "non-quad" };
+  if (!Array.isArray(polygon.uvs) || polygon.uvs.length !== 4) return { skip: "missing-quad-uvs" };
+  if (Array.isArray(polygon.textureTriangles) && polygon.textureTriangles.length) return { skip: "texture-triangles" };
+
+  const win = leaf.ownerDocument.defaultView ?? window;
+  const style = win.getComputedStyle(leaf);
+  const atlasSize = cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
+    cssPixelValue(style.width) ||
+    64;
+  const position = cssPixelPair(style.backgroundPosition, style.backgroundPositionX, style.backgroundPositionY);
+  const size = cssPixelPair(style.backgroundSize);
+  const matrix = parseMatrix3d(leaf.style.transform || style.transform);
+  const imageUrl = cssUrlValue(style.backgroundImage);
+  if (!position || !size || !matrix || !imageUrl || atlasSize <= 0 || size[0] <= 0 || size[1] <= 0) {
+    return { skip: "invalid-leaf-style" };
+  }
+
+  const plan = computeTextureAtlasPlanPublic(polygon, polygonIndex, {
+    tileSize: BASE_TILE,
+    layerElevation: BASE_TILE,
+  }, QUAKE_POLYCSS_PROJECTIVE_QUAD_GUARDS);
+  if (!plan || plan.screenPts.length !== 8 || plan.canvasW <= 0 || plan.canvasH <= 0) {
+    return { skip: "invalid-plan" };
+  }
+  const expectedMatrix = parseMatrix3dValues(plan.atlasMatrix);
+  if (!expectedMatrix || !matrix3dAlmostEqual(matrix, expectedMatrix, QUAKE_ATLAS_HOMOGRAPHY_MATRIX_EPSILON)) {
+    return { skip: "matrix-mismatch" };
+  }
+  const basis = stableBasisFromPlan(plan, polygon);
+  if (!basis) return { skip: "missing-basis" };
+  const projectiveMatrix = computeProjectiveQuadMatrix(
+    plan.screenPts,
+    basis.xAxis,
+    basis.yAxis,
+    basis.normal,
+    basis.tx,
+    basis.ty,
+    basis.tz,
+    QUAKE_ATLAS_HOMOGRAPHY_GUARDS,
+  );
+  if (!projectiveMatrix) return { skip: "projective-rejected" };
+
+  const localPoints = quakeAtlasHomographyLocalPoints(plan, atlasSize);
+  const coveredArea = Math.abs(signedQuakeFlatPolygonArea(localPoints));
+  const atlas = await loadQuakeAtlasImageData(imageUrl);
+  if (!atlas) return { skip: "missing-atlas" };
+  const tightBounds = atlasLeafAlphaBounds(atlas, atlasSize, position, size);
+  const beforeArea = Math.round(tightBounds ? tightBounds.width * tightBounds.height : atlasSize * atlasSize);
+  const targetArea = Math.max(1, Math.ceil(coveredArea * QUAKE_ATLAS_HOMOGRAPHY_AREA_PAD));
+  const savedArea = beforeArea - targetArea;
+  const minSavedArea = options.minSavedArea ?? QUAKE_ATLAS_HOMOGRAPHY_MIN_SAVED_AREA;
+  const minSavedRatio = options.minSavedRatio ?? QUAKE_ATLAS_HOMOGRAPHY_MIN_SAVED_RATIO;
+  if (
+    beforeArea <= 0 ||
+    savedArea < minSavedArea ||
+    savedArea / beforeArea < minSavedRatio
+  ) {
+    return { optimize: false };
+  }
+
+  const dimensions = quakeAtlasHomographyTargetDimensions(localPoints, targetArea, atlasSize);
+  if (!dimensions) return { skip: "invalid-target-size" };
+  const nextMatrix = scaleQuakeProjectiveMatrix(projectiveMatrix, dimensions.width, dimensions.height);
+  if (!quakeProjectiveMatrixHasStableCornerW(nextMatrix, dimensions.width, dimensions.height)) {
+    return { skip: "unstable-projective-corner-w" };
+  }
+  const tile = renderQuakeAtlasHomographyTile({
+    atlas,
+    atlasSize,
+    backgroundPosition: position,
+    backgroundSize: size,
+    height: dimensions.height,
+    plan,
+    width: dimensions.width,
+  });
+  if (!tile) return { skip: "render-failed" };
+
+  return {
+    afterArea: dimensions.width * dimensions.height,
+    beforeArea,
+    height: dimensions.height,
+    leaf,
+    matrix: nextMatrix,
+    optimize: true,
+    polygonIndex,
+    tile,
+    texture: polygon.texture,
+    uvs: polygon.uvs.map((uv) => [...uv]),
+    width: dimensions.width,
+  };
+}
+
+function quakeAtlasHomographyLocalPoints(plan, atlasSize) {
+  const scaleX = atlasSize / plan.canvasW;
+  const scaleY = atlasSize / plan.canvasH;
+  const out = [];
+  for (let index = 0; index < plan.screenPts.length; index += 2) {
+    out.push((plan.screenPts[index] ?? 0) * scaleX, (plan.screenPts[index + 1] ?? 0) * scaleY);
+  }
+  return out;
+}
+
+function quakeAtlasHomographyTargetDimensions(points, targetArea, atlasSize) {
+  const edge = (a, b) => {
+    const ax = points[a * 2] ?? 0;
+    const ay = points[a * 2 + 1] ?? 0;
+    const bx = points[b * 2] ?? 0;
+    const by = points[b * 2 + 1] ?? 0;
+    return Math.hypot(bx - ax, by - ay);
+  };
+  const widthHint = Math.max(1, (edge(0, 1) + edge(2, 3)) / 2);
+  const heightHint = Math.max(1, (edge(1, 2) + edge(3, 0)) / 2);
+  const aspect = Math.max(0.2, Math.min(5, widthHint / heightHint));
+  let width = Math.max(QUAKE_ATLAS_HOMOGRAPHY_MIN_SIDE, Math.ceil(Math.sqrt(targetArea * aspect)));
+  let height = Math.max(QUAKE_ATLAS_HOMOGRAPHY_MIN_SIDE, Math.ceil(targetArea / width));
+  const maxSide = Math.max(QUAKE_ATLAS_HOMOGRAPHY_MIN_SIDE, Math.ceil(atlasSize * QUAKE_ATLAS_HOMOGRAPHY_MAX_SIDE_RATIO));
+  if (width > maxSide || height > maxSide) {
+    const scale = Math.min(maxSide / width, maxSide / height);
+    width = Math.max(QUAKE_ATLAS_HOMOGRAPHY_MIN_SIDE, Math.floor(width * scale));
+    height = Math.max(QUAKE_ATLAS_HOMOGRAPHY_MIN_SIDE, Math.ceil(targetArea / width));
+  }
+  if (width <= 0 || height <= 0 || width > QUAKE_ATLAS_HOMOGRAPHY_PAGE_SIZE || height > QUAKE_ATLAS_HOMOGRAPHY_PAGE_SIZE) {
+    return null;
+  }
+  return { width, height };
+}
+
+function renderQuakeAtlasHomographyTile({
+  atlas,
+  atlasSize,
+  backgroundPosition,
+  backgroundSize,
+  height,
+  plan,
+  width,
+}) {
+  const homography = computeQuakeHomography2d(
+    [
+      0, SOLID_QUAD_CANONICAL_SIZE,
+      SOLID_QUAD_CANONICAL_SIZE, SOLID_QUAD_CANONICAL_SIZE,
+      SOLID_QUAD_CANONICAL_SIZE, 0,
+      0, 0,
+    ],
+    plan.screenPts,
+  );
+  if (!homography) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return null;
+  const imageData = context.createImageData(width, height);
+  const data = imageData.data;
+  for (let y = 0; y < height; y++) {
+    const canonicalY = ((y + 0.5) / height) * SOLID_QUAD_CANONICAL_SIZE;
+    for (let x = 0; x < width; x++) {
+      const canonicalX = ((x + 0.5) / width) * SOLID_QUAD_CANONICAL_SIZE;
+      const point = applyQuakeHomography2d(homography, canonicalX, canonicalY);
+      if (!point) continue;
+      const localX = (point[0] / plan.canvasW) * atlasSize;
+      const localY = (point[1] / plan.canvasH) * atlasSize;
+      const rgba = sampleQuakeAtlasBackground(atlas, backgroundPosition, backgroundSize, localX, localY);
+      const offset = (y * width + x) * 4;
+      data[offset] = rgba[0];
+      data[offset + 1] = rgba[1];
+      data[offset + 2] = rgba[2];
+      data[offset + 3] = rgba[3];
+    }
+  }
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+async function applyQuakeAtlasLeafHomographyCandidates(candidates) {
+  await prepareQuakeAtlasLeafHomographyCandidatePages(candidates);
+  for (const candidate of candidates) {
+    applyQuakeAtlasLeafHomographyCandidateStyle(candidate.leaf, candidate, candidate.matrix);
+  }
+}
+
+async function prepareQuakeAtlasLeafHomographyCandidatePages(candidates) {
+  const pages = packQuakeAtlasHomographyTiles(candidates);
+  for (const page of pages) {
+    const canvas = document.createElement("canvas");
+    canvas.width = page.width;
+    canvas.height = page.height;
+    const context = canvas.getContext("2d");
+    if (!context) continue;
+    context.drawImage(page.canvas, 0, 0);
+    page.url = await canvasToQuakeBlobUrl(canvas);
+  }
+  for (const candidate of candidates) {
+    const page = candidate.page;
+    if (!page?.url) continue;
+    candidate.background = quakeAtlasLeafHomographyCandidateBackground(candidate);
+  }
+}
+
+function quakeAtlasLeafHomographyCandidateBackground(candidate) {
+  const page = candidate.page;
+  return `url("${page.url}") -${roundCssPx(candidate.x)}px ` +
+    `-${roundCssPx(candidate.y)}px / ${roundCssPx(page.width)}px ${roundCssPx(page.height)}px no-repeat`;
+}
+
+function applyQuakeAtlasLeafHomographyCandidateStyle(leaf, candidate, matrix) {
+  if (!leaf || !candidate?.background || !matrix) return;
+  leaf.style.transform = matrix;
+  leaf.style.width = `${roundCssPx(candidate.width)}px`;
+  leaf.style.height = `${roundCssPx(candidate.height)}px`;
+  leaf.style.background = candidate.background;
+}
+
+async function createQuakeAnimatedAtlasLeafHomographyPlan(handle, framePolygons) {
+  const { candidates: baseCandidates, stats } = await quakeAtlasLeafHomographyCandidates(
+    handle.element,
+    framePolygons[0],
+    {
+      minSavedArea: QUAKE_ANIMATED_ATLAS_HOMOGRAPHY_MIN_SAVED_AREA,
+      minSavedRatio: QUAKE_ANIMATED_ATLAS_HOMOGRAPHY_MIN_SAVED_RATIO,
+    },
+  );
+  let candidates = baseCandidates;
+  const matricesByFrame = [
+    new Map(candidates.map((candidate) => [candidate.polygonIndex, candidate.matrix])),
+  ];
+  let currentFrameIndex = 0;
+
+  for (let frameIndex = 1; frameIndex < framePolygons.length && candidates.length; frameIndex++) {
+    handle.setPolygons(framePolygons[frameIndex], {
+      merge: false,
+      stableDom: true,
+      recomputeAutoCenter: false,
+    });
+    currentFrameIndex = frameIndex;
+    await waitForRenderBundleFrameUpdate();
+    await waitForBakedTextureLeaves(handle.element);
+
+    const leavesByPolyIndex = quakeAtlasLeavesByPolyIndex(handle.element);
+    const frameMatrices = new Map();
+    const stableCandidates = [];
+    for (const candidate of candidates) {
+      const result = quakeReusableAtlasLeafHomographyFrameMatrix(
+        leavesByPolyIndex.get(candidate.polygonIndex),
+        framePolygons[frameIndex],
+        candidate,
+      );
+      if (result.skip) {
+        incrementQuakeStat(stats.skipped, `animated-${result.skip}`);
+        continue;
+      }
+      frameMatrices.set(candidate.polygonIndex, result.matrix);
+      stableCandidates.push(candidate);
+    }
+    matricesByFrame[frameIndex] = frameMatrices;
+    candidates = stableCandidates;
+  }
+
+  if (currentFrameIndex !== 0) {
+    handle.setPolygons(framePolygons[0], {
+      merge: false,
+      stableDom: true,
+      recomputeAutoCenter: false,
+    });
+    await waitForRenderBundleFrameUpdate();
+    await waitForBakedTextureLeaves(handle.element);
+  }
+
+  stats.animatedFrames = framePolygons.length;
+  if (!candidates.length) {
+    finalizeQuakeAtlasLeafHomographyStats(stats, []);
+    return {
+      candidates: [],
+      candidatesByPolygonIndex: new Map(),
+      matricesByFrame,
+      stats,
+    };
+  }
+
+  await prepareQuakeAtlasLeafHomographyCandidatePages(candidates);
+  const candidatesByPolygonIndex = new Map(candidates.map((candidate) => [candidate.polygonIndex, candidate]));
+  const stableMatricesByFrame = matricesByFrame.map((frameMatrices) =>
+    new Map(candidates.map((candidate) => [
+      candidate.polygonIndex,
+      frameMatrices?.get(candidate.polygonIndex) ?? candidate.matrix,
+    ]))
+  );
+  finalizeQuakeAtlasLeafHomographyStats(stats, candidates);
+  return {
+    candidates,
+    candidatesByPolygonIndex,
+    matricesByFrame: stableMatricesByFrame,
+    stats,
+  };
+}
+
+function applyQuakeAnimatedAtlasLeafHomographyPlan(mesh, plan, frameIndex) {
+  const frameMatrices = plan.matricesByFrame[frameIndex];
+  if (!frameMatrices?.size || !plan.candidatesByPolygonIndex.size) return;
+  const leavesByPolyIndex = quakeAtlasLeavesByPolyIndex(mesh);
+  for (const [polygonIndex, candidate] of plan.candidatesByPolygonIndex) {
+    applyQuakeAtlasLeafHomographyCandidateStyle(
+      leavesByPolyIndex.get(polygonIndex),
+      candidate,
+      frameMatrices.get(polygonIndex),
+    );
+  }
+}
+
+async function createQuakeAnimatedTriangleAtlasBasisPlan(mesh, polygons) {
+  const stats = {
+    totalLeaves: 0,
+    triangleLeaves: 0,
+    candidateLeaves: 0,
+    optimizedLeaves: 0,
+    beforeArea: 0,
+    afterArea: 0,
+    savedArea: 0,
+    skipped: {},
+  };
+  const candidates = [];
+  for (const leaf of mesh.querySelectorAll("s")) {
+    stats.totalLeaves++;
+    const candidate = await quakeTriangleAtlasBasisCandidate(leaf, polygons);
+    if (!candidate) continue;
+    if (candidate.skip) {
+      incrementQuakeStat(stats.skipped, candidate.skip);
+      continue;
+    }
+    stats.triangleLeaves++;
+    if (!candidate.optimize) continue;
+    stats.candidateLeaves++;
+    candidates.push(candidate);
+  }
+  if (!candidates.length) return { candidatesByPolygonIndex: new Map(), stats };
+  await prepareQuakeAtlasLeafHomographyCandidatePages(candidates);
+  stats.optimizedLeaves = candidates.length;
+  stats.beforeArea = Math.round(candidates.reduce((sum, candidate) => sum + candidate.beforeArea, 0));
+  stats.afterArea = Math.round(candidates.reduce((sum, candidate) => sum + candidate.afterArea, 0));
+  stats.savedArea = Math.max(0, stats.beforeArea - stats.afterArea);
+  stats.savedRatio = stats.beforeArea > 0
+    ? Number((stats.savedArea / stats.beforeArea).toFixed(4))
+    : 0;
+  return {
+    candidatesByPolygonIndex: new Map(candidates.map((candidate) => [candidate.polygonIndex, candidate])),
+    stats,
+  };
+}
+
+async function quakeTriangleAtlasBasisCandidate(leaf, polygons) {
+  const polygonIndex = renderBundleIntegerAttr(leaf, "data-poly-index");
+  if (polygonIndex === undefined || polygonIndex < 0) return { skip: "missing-poly-index" };
+  const polygon = polygons?.[polygonIndex];
+  if (!polygon?.texture) return { skip: "untextured" };
+  if (!Array.isArray(polygon.vertices) || polygon.vertices.length !== 3) return { skip: "non-triangle" };
+  if (!Array.isArray(polygon.uvs) || polygon.uvs.length !== 3) return { skip: "missing-triangle-uvs" };
+
+  const win = leaf.ownerDocument.defaultView ?? window;
+  const style = win.getComputedStyle(leaf);
+  const matrix = parseMatrix3d(leaf.style.transform || style.transform);
+  const width = cssPixelValue(leaf.style.width) ||
+    cssPixelValue(style.width) ||
+    cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
+    64;
+  const height = cssPixelValue(leaf.style.height) ||
+    cssPixelValue(style.height) ||
+    cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
+    64;
+  const position = cssPixelPair(style.backgroundPosition, style.backgroundPositionX, style.backgroundPositionY);
+  const size = cssPixelPair(style.backgroundSize);
+  const imageUrl = cssUrlValue(style.backgroundImage);
+  if (!matrix || !position || !size || !imageUrl || width <= 0 || height <= 0 || size[0] <= 0 || size[1] <= 0) {
+    return { skip: "invalid-leaf-style" };
+  }
+  if (matrix[3] || matrix[7] || matrix[11] || matrix[15] !== 1) return { skip: "projective" };
+
+  const atlas = await loadQuakeAtlasImageData(imageUrl);
+  if (!atlas) return { skip: "missing-atlas" };
+  const basis = quakeTriangleAtlasRotatedBasis(atlas, position, size, width, height);
+  if (!basis) return { skip: "empty-alpha" };
+
+  const beforeArea = width * height;
+  const afterArea = basis.width * basis.height;
+  const savedArea = beforeArea - afterArea;
+  if (
+    afterArea <= 0 ||
+    savedArea < QUAKE_TRIANGLE_ATLAS_BASIS_MIN_SAVED_AREA ||
+    savedArea / beforeArea < QUAKE_TRIANGLE_ATLAS_BASIS_MIN_SAVED_RATIO
+  ) {
+    return { optimize: false };
+  }
+
+  const tile = renderQuakeTriangleAtlasBasisTile({
+    atlas,
+    backgroundPosition: position,
+    backgroundSize: size,
+    basis,
+  });
+  if (!tile) return { skip: "render-failed" };
+
+  return {
+    afterArea,
+    basis,
+    beforeArea,
+    height: basis.height,
+    optimize: true,
+    polygonIndex,
+    tile,
+    width: basis.width,
+  };
+}
+
+function quakeTriangleAtlasRotatedBasis(atlas, position, backgroundSize, width, height) {
+  const points = quakeAtlasLeafAlphaLocalPoints(atlas, position, backgroundSize, width, height);
+  if (points.length < 3) return null;
+  let best = null;
+  for (
+    let degrees = 0;
+    degrees < 90;
+    degrees += QUAKE_TRIANGLE_ATLAS_BASIS_ANGLE_STEP_DEGREES
+  ) {
+    const angle = degrees * Math.PI / 180;
+    const current = quakeRotatedAlphaBounds(points, angle);
+    if (!current) continue;
+    if (!best || current.area < best.area) best = current;
+  }
+  return best;
+}
+
+function quakeAtlasLeafAlphaLocalPoints(atlas, position, backgroundSize, width, height) {
+  const [positionX, positionY] = position;
+  const [backgroundWidth, backgroundHeight] = backgroundSize;
+  const sourceLeft = Math.max(0, Math.floor((-positionX / backgroundWidth) * atlas.width) - 1);
+  const sourceTop = Math.max(0, Math.floor((-positionY / backgroundHeight) * atlas.height) - 1);
+  const sourceRight = Math.min(
+    atlas.width,
+    Math.ceil(((width - positionX) / backgroundWidth) * atlas.width) + 1,
+  );
+  const sourceBottom = Math.min(
+    atlas.height,
+    Math.ceil(((height - positionY) / backgroundHeight) * atlas.height) + 1,
+  );
+  const points = [];
+  for (let y = sourceTop; y < sourceBottom; y++) {
+    for (let x = sourceLeft; x < sourceRight; x++) {
+      const alpha = atlas.data[(y * atlas.width + x) * 4 + 3];
+      if (alpha <= 2) continue;
+      const localX = ((x + 0.5) / atlas.width) * backgroundWidth + positionX;
+      const localY = ((y + 0.5) / atlas.height) * backgroundHeight + positionY;
+      if (localX < -1 || localY < -1 || localX > width + 1 || localY > height + 1) continue;
+      points.push([localX, localY]);
+    }
+  }
+  return points;
+}
+
+function quakeRotatedAlphaBounds(points, angle) {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of points) {
+    const rotatedX = x * cos + y * sin;
+    const rotatedY = -x * sin + y * cos;
+    minX = Math.min(minX, rotatedX);
+    minY = Math.min(minY, rotatedY);
+    maxX = Math.max(maxX, rotatedX);
+    maxY = Math.max(maxY, rotatedY);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return null;
+  }
+  minX -= QUAKE_TRIANGLE_ATLAS_BASIS_PADDING;
+  minY -= QUAKE_TRIANGLE_ATLAS_BASIS_PADDING;
+  maxX += QUAKE_TRIANGLE_ATLAS_BASIS_PADDING;
+  maxY += QUAKE_TRIANGLE_ATLAS_BASIS_PADDING;
+  const width = Math.max(1, Math.ceil(maxX - minX));
+  const height = Math.max(1, Math.ceil(maxY - minY));
+  return {
+    angle,
+    area: width * height,
+    cos,
+    height,
+    minX,
+    minY,
+    sin,
+    width,
+  };
+}
+
+function renderQuakeTriangleAtlasBasisTile({
+  atlas,
+  backgroundPosition,
+  backgroundSize,
+  basis,
+}) {
+  const canvas = document.createElement("canvas");
+  canvas.width = basis.width;
+  canvas.height = basis.height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return null;
+  const imageData = context.createImageData(basis.width, basis.height);
+  const data = imageData.data;
+  for (let y = 0; y < basis.height; y++) {
+    for (let x = 0; x < basis.width; x++) {
+      const rotatedX = basis.minX + x + 0.5;
+      const rotatedY = basis.minY + y + 0.5;
+      const localX = rotatedX * basis.cos - rotatedY * basis.sin;
+      const localY = rotatedX * basis.sin + rotatedY * basis.cos;
+      const rgba = sampleQuakeAtlasBackground(atlas, backgroundPosition, backgroundSize, localX, localY);
+      const offset = (y * basis.width + x) * 4;
+      data[offset] = rgba[0];
+      data[offset + 1] = rgba[1];
+      data[offset + 2] = rgba[2];
+      data[offset + 3] = rgba[3];
+    }
+  }
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+function transformQuakeAffineMatrix2d(matrix, basis) {
+  const next = [...matrix];
+  for (let index = 0; index < 4; index++) {
+    const x = matrix[index];
+    const y = matrix[index + 4];
+    next[index] = x * basis.cos + y * basis.sin;
+    next[index + 4] = -x * basis.sin + y * basis.cos;
+  }
+  const offsetX = basis.minX * basis.cos - basis.minY * basis.sin;
+  const offsetY = basis.minX * basis.sin + basis.minY * basis.cos;
+  next[12] += matrix[0] * offsetX + matrix[4] * offsetY;
+  next[13] += matrix[1] * offsetX + matrix[5] * offsetY;
+  next[14] += matrix[2] * offsetX + matrix[6] * offsetY;
+  next[15] += matrix[3] * offsetX + matrix[7] * offsetY;
+  return formatMatrix3d(next);
+}
+
+function applyQuakeAnimatedTriangleAtlasBasisPlan(mesh, plan) {
+  if (!plan.candidatesByPolygonIndex.size) return;
+  const leavesByPolyIndex = quakeAtlasLeavesByPolyIndex(mesh);
+  for (const [polygonIndex, candidate] of plan.candidatesByPolygonIndex) {
+    const leaf = leavesByPolyIndex.get(polygonIndex);
+    const win = leaf?.ownerDocument.defaultView ?? window;
+    const style = leaf ? win.getComputedStyle(leaf) : null;
+    const matrix = style ? parseMatrix3d(leaf.style.transform || style.transform) : null;
+    if (!matrix) continue;
+    applyQuakeAtlasLeafHomographyCandidateStyle(
+      leaf,
+      candidate,
+      transformQuakeAffineMatrix2d(matrix, candidate.basis),
+    );
+  }
+}
+
+function quakeReusableAtlasLeafHomographyFrameMatrix(leaf, polygons, baseCandidate) {
+  if (!leaf) return { skip: "missing-leaf" };
+  const polygonIndex = renderBundleIntegerAttr(leaf, "data-poly-index");
+  if (polygonIndex !== baseCandidate.polygonIndex) return { skip: "poly-index-mismatch" };
+  const polygon = polygons?.[polygonIndex];
+  if (!polygon?.texture) return { skip: "untextured" };
+  if (!Array.isArray(polygon.vertices) || polygon.vertices.length !== 4) return { skip: "non-quad" };
+  if (!Array.isArray(polygon.uvs) || polygon.uvs.length !== 4) return { skip: "missing-quad-uvs" };
+  if (Array.isArray(polygon.textureTriangles) && polygon.textureTriangles.length) return { skip: "texture-triangles" };
+  if (polygon.texture !== baseCandidate.texture) return { skip: "texture-mismatch" };
+  if (!quakePolygonUvsAlmostEqual(polygon.uvs, baseCandidate.uvs)) return { skip: "uv-mismatch" };
+
+  const win = leaf.ownerDocument.defaultView ?? window;
+  const style = win.getComputedStyle(leaf);
+  const matrix = parseMatrix3d(leaf.style.transform || style.transform);
+  if (!matrix) return { skip: "invalid-leaf-style" };
+  const plan = computeTextureAtlasPlanPublic(polygon, polygonIndex, {
+    tileSize: BASE_TILE,
+    layerElevation: BASE_TILE,
+  }, QUAKE_POLYCSS_PROJECTIVE_QUAD_GUARDS);
+  if (!plan || plan.screenPts.length !== 8 || plan.canvasW <= 0 || plan.canvasH <= 0) {
+    return { skip: "invalid-plan" };
+  }
+  const expectedMatrix = parseMatrix3dValues(plan.atlasMatrix);
+  if (!expectedMatrix || !matrix3dAlmostEqual(matrix, expectedMatrix, QUAKE_ATLAS_HOMOGRAPHY_MATRIX_EPSILON)) {
+    return { skip: "matrix-mismatch" };
+  }
+  const basis = stableBasisFromPlan(plan, polygon);
+  if (!basis) return { skip: "missing-basis" };
+  const projectiveMatrix = computeProjectiveQuadMatrix(
+    plan.screenPts,
+    basis.xAxis,
+    basis.yAxis,
+    basis.normal,
+    basis.tx,
+    basis.ty,
+    basis.tz,
+    QUAKE_ATLAS_HOMOGRAPHY_GUARDS,
+  );
+  if (!projectiveMatrix) return { skip: "projective-rejected" };
+  const nextMatrix = scaleQuakeProjectiveMatrix(projectiveMatrix, baseCandidate.width, baseCandidate.height);
+  if (!quakeProjectiveMatrixHasStableCornerW(nextMatrix, baseCandidate.width, baseCandidate.height)) {
+    return { skip: "unstable-projective-corner-w" };
+  }
+  return { matrix: nextMatrix };
+}
+
+function quakeAtlasLeavesByPolyIndex(mesh) {
+  const out = new Map();
+  for (const leaf of mesh.querySelectorAll("s")) {
+    const polygonIndex = renderBundleIntegerAttr(leaf, "data-poly-index");
+    if (polygonIndex === undefined || polygonIndex < 0 || out.has(polygonIndex)) continue;
+    out.set(polygonIndex, leaf);
+  }
+  return out;
+}
+
+function quakePolygonUvsAlmostEqual(left, right, epsilon = 1e-6) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  return left.every((uv, index) => {
+    const other = right[index];
+    return Array.isArray(uv) &&
+      Array.isArray(other) &&
+      uv.length === other.length &&
+      uv.every((value, component) => Math.abs(value - other[component]) <= epsilon);
+  });
+}
+
+function packQuakeAtlasHomographyTiles(candidates) {
+  const pages = [];
+  let page = null;
+  const newPage = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = QUAKE_ATLAS_HOMOGRAPHY_PAGE_SIZE;
+    canvas.height = QUAKE_ATLAS_HOMOGRAPHY_PAGE_SIZE;
+    const out = {
+      canvas,
+      context: canvas.getContext("2d"),
+      cursorX: QUAKE_ATLAS_HOMOGRAPHY_PAGE_PADDING,
+      cursorY: QUAKE_ATLAS_HOMOGRAPHY_PAGE_PADDING,
+      rowHeight: 0,
+      width: 1,
+      height: 1,
+      url: "",
+    };
+    pages.push(out);
+    return out;
+  };
+  for (const candidate of [...candidates].sort((a, b) => b.height - a.height || b.width - a.width)) {
+    if (!page) page = newPage();
+    if (page.cursorX + candidate.width + QUAKE_ATLAS_HOMOGRAPHY_PAGE_PADDING > QUAKE_ATLAS_HOMOGRAPHY_PAGE_SIZE) {
+      page.cursorX = QUAKE_ATLAS_HOMOGRAPHY_PAGE_PADDING;
+      page.cursorY += page.rowHeight + QUAKE_ATLAS_HOMOGRAPHY_PAGE_PADDING;
+      page.rowHeight = 0;
+    }
+    if (page.cursorY + candidate.height + QUAKE_ATLAS_HOMOGRAPHY_PAGE_PADDING > QUAKE_ATLAS_HOMOGRAPHY_PAGE_SIZE) {
+      page = newPage();
+    }
+    candidate.page = page;
+    candidate.x = page.cursorX;
+    candidate.y = page.cursorY;
+    page.context.drawImage(candidate.tile, candidate.x, candidate.y);
+    page.cursorX += candidate.width + QUAKE_ATLAS_HOMOGRAPHY_PAGE_PADDING;
+    page.rowHeight = Math.max(page.rowHeight, candidate.height);
+    page.width = Math.max(page.width, candidate.x + candidate.width + QUAKE_ATLAS_HOMOGRAPHY_PAGE_PADDING);
+    page.height = Math.max(page.height, candidate.y + candidate.height + QUAKE_ATLAS_HOMOGRAPHY_PAGE_PADDING);
+  }
+  return pages;
+}
+
+function canvasToQuakeBlobUrl(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(URL.createObjectURL(blob));
+      } else {
+        reject(new Error("Could not encode homography atlas page."));
+      }
+    }, "image/png");
+  });
+}
+
+function sampleQuakeAtlasBackground(atlas, position, size, localX, localY) {
+  const sourceX = ((localX - position[0]) / size[0]) * atlas.width;
+  const sourceY = ((localY - position[1]) / size[1]) * atlas.height;
+  return sampleQuakeAtlasBilinear(atlas, sourceX, sourceY);
+}
+
+function sampleQuakeAtlasBilinear(atlas, x, y) {
+  if (x < 0 || y < 0 || x > atlas.width - 1 || y > atlas.height - 1) return [0, 0, 0, 0];
+  const x0 = Math.max(0, Math.min(atlas.width - 1, Math.floor(x)));
+  const y0 = Math.max(0, Math.min(atlas.height - 1, Math.floor(y)));
+  const x1 = Math.max(0, Math.min(atlas.width - 1, x0 + 1));
+  const y1 = Math.max(0, Math.min(atlas.height - 1, y0 + 1));
+  const tx = x - x0;
+  const ty = y - y0;
+  const c00 = quakeAtlasPixel(atlas, x0, y0);
+  const c10 = quakeAtlasPixel(atlas, x1, y0);
+  const c01 = quakeAtlasPixel(atlas, x0, y1);
+  const c11 = quakeAtlasPixel(atlas, x1, y1);
+  return [0, 1, 2, 3].map((index) => {
+    const top = c00[index] * (1 - tx) + c10[index] * tx;
+    const bottom = c01[index] * (1 - tx) + c11[index] * tx;
+    return Math.max(0, Math.min(255, Math.round(top * (1 - ty) + bottom * ty)));
+  });
+}
+
+function quakeAtlasPixel(atlas, x, y) {
+  const offset = (y * atlas.width + x) * 4;
+  return [
+    atlas.data[offset] ?? 0,
+    atlas.data[offset + 1] ?? 0,
+    atlas.data[offset + 2] ?? 0,
+    atlas.data[offset + 3] ?? 0,
+  ];
+}
+
+function computeQuakeHomography2d(source, target) {
+  if (!Array.isArray(source) || !Array.isArray(target) || source.length !== 8 || target.length !== 8) return null;
+  const rows = [];
+  const rhs = [];
+  for (let index = 0; index < 4; index++) {
+    const x = source[index * 2];
+    const y = source[index * 2 + 1];
+    const u = target[index * 2];
+    const v = target[index * 2 + 1];
+    rows.push([x, y, 1, 0, 0, 0, -u * x, -u * y]);
+    rhs.push(u);
+    rows.push([0, 0, 0, x, y, 1, -v * x, -v * y]);
+    rhs.push(v);
+  }
+  const solution = solveQuakeLinearSystem(rows, rhs);
+  return solution ? [...solution, 1] : null;
+}
+
+function applyQuakeHomography2d(h, x, y) {
+  const denominator = h[6] * x + h[7] * y + h[8];
+  if (Math.abs(denominator) <= 1e-9) return null;
+  return [
+    (h[0] * x + h[1] * y + h[2]) / denominator,
+    (h[3] * x + h[4] * y + h[5]) / denominator,
+  ];
+}
+
+function solveQuakeLinearSystem(rows, rhs) {
+  const size = rhs.length;
+  const matrix = rows.map((row, index) => [...row, rhs[index]]);
+  for (let column = 0; column < size; column++) {
+    let pivot = column;
+    for (let row = column + 1; row < size; row++) {
+      if (Math.abs(matrix[row][column]) > Math.abs(matrix[pivot][column])) pivot = row;
+    }
+    if (Math.abs(matrix[pivot][column]) <= 1e-9) return null;
+    if (pivot !== column) [matrix[pivot], matrix[column]] = [matrix[column], matrix[pivot]];
+    const pivotValue = matrix[column][column];
+    for (let col = column; col <= size; col++) matrix[column][col] /= pivotValue;
+    for (let row = 0; row < size; row++) {
+      if (row === column) continue;
+      const factor = matrix[row][column];
+      if (Math.abs(factor) <= 1e-12) continue;
+      for (let col = column; col <= size; col++) matrix[row][col] -= factor * matrix[column][col];
+    }
+  }
+  return matrix.map((row) => row[size]);
+}
+
+function signedQuakeFlatPolygonArea(points) {
+  let area = 0;
+  for (let index = 0; index < points.length; index += 2) {
+    const next = (index + 2) % points.length;
+    area += (points[index] ?? 0) * (points[next + 1] ?? 0) -
+      (points[next] ?? 0) * (points[index + 1] ?? 0);
+  }
+  return area / 2;
+}
+
+function scaleQuakeProjectiveMatrix(value, width, height) {
+  const values = parseMatrix3dValues(value);
+  if (!values) return `matrix3d(${value})`;
+  const scaleX = SOLID_QUAD_CANONICAL_SIZE / width;
+  const scaleY = SOLID_QUAD_CANONICAL_SIZE / height;
+  for (let index = 0; index < 4; index++) values[index] *= scaleX;
+  for (let index = 4; index < 8; index++) values[index] *= scaleY;
+  return formatMatrix3d(values);
+}
+
+function quakeProjectiveMatrixHasStableCornerW(value, width, height) {
+  const matrix = Array.isArray(value) ? value : parseMatrix3dValues(value);
+  if (!matrix || width <= 0 || height <= 0) return false;
+  const corners = [
+    [0, 0],
+    [width, 0],
+    [width, height],
+    [0, height],
+  ];
+  return corners.every(([x, y]) => {
+    const w = matrix[3] * x + matrix[7] * y + matrix[15];
+    return Number.isFinite(w) && w >= QUAKE_ATLAS_HOMOGRAPHY_MIN_CORNER_W;
+  });
+}
+
+function parseMatrix3dValues(value) {
+  const text = String(value ?? "").trim();
+  const match = /^matrix3d\(([^)]+)\)$/.exec(text);
+  const body = match ? match[1] : text;
+  const values = body.split(",").map((part) => Number(part.trim()));
+  return values.length === 16 && values.every(Number.isFinite) ? values : null;
+}
+
+function matrix3dAlmostEqual(a, b, epsilon) {
+  return a.length === b.length && a.every((value, index) => Math.abs(value - b[index]) <= epsilon);
+}
+
+function incrementQuakeStat(stats, key) {
+  stats[key] = (stats[key] ?? 0) + 1;
+}
+
+function quakeVecSub(a, b) {
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+function quakeVecCross(a, b) {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+function quakeVecDot(a, b) {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function quakeVecNormalize(value) {
+  const length = Math.hypot(value[0], value[1], value[2]);
+  return length > 1e-9 ? [value[0] / length, value[1] / length, value[2] / length] : null;
+}
+
 const quakeAtlasImageDataCache = new Map();
 
 async function tightenQuakeAtlasLeaves(mesh, boundsByKey = null) {
@@ -237,6 +1371,7 @@ async function tightenQuakeAtlasLeaf(leaf, boundsByKey, useExistingBounds) {
   const tightArea = bounds.width * bounds.height;
   if (tightArea <= 0 || tightArea >= fullArea * 0.985) return;
   const nextMatrix = translateMatrix3d(matrix, bounds.x, bounds.y);
+  if (!quakeProjectiveMatrixHasStableCornerW(nextMatrix, bounds.width, bounds.height)) return;
   leaf.style.transform = formatMatrix3d(nextMatrix);
   leaf.style.width = `${roundCssPx(bounds.width)}px`;
   leaf.style.height = `${roundCssPx(bounds.height)}px`;
@@ -319,9 +1454,105 @@ function adaptiveQuakeAtlasLeafBackground(leaf, style, scaleX, scaleY) {
   const position = cssPixelPair(style.backgroundPosition, style.backgroundPositionX, style.backgroundPositionY);
   const size = cssPixelPair(style.backgroundSize);
   if (!position || !size || size[0] <= 0 || size[1] <= 0) return "";
-  return `${backgroundImage} ${roundAdaptiveCssPx(position[0] * scaleX)}px ` +
-    `${roundAdaptiveCssPx(position[1] * scaleY)}px / ${roundAdaptiveCssPx(size[0] * scaleX)}px ` +
-    `${roundAdaptiveCssPx(size[1] * scaleY)}px no-repeat`;
+  return `${backgroundImage} ${roundCssIntegerPx(position[0] * scaleX)}px ` +
+    `${roundCssIntegerPx(position[1] * scaleY)}px / ${roundCssIntegerPx(size[0] * scaleX)}px ` +
+    `${roundCssIntegerPx(size[1] * scaleY)}px no-repeat`;
+}
+
+function snapQuakeLeafTransformsToStableGrid(mesh) {
+    const stats = {
+      totalLeaves: 0,
+      snappedLeaves: 0,
+      snappedValues: 0,
+      precisionLeaves: 0,
+    };
+    for (const leaf of mesh.querySelectorAll("b,i,s,u")) {
+      stats.totalLeaves++;
+      const result = snapQuakeLeafTransformToStableGrid(leaf);
+      if (!result) continue;
+      if (result.snappedValues) stats.snappedLeaves++;
+      stats.snappedValues += result.snappedValues;
+      if (result.precisionChanged) stats.precisionLeaves++;
+    }
+    return stats;
+  }
+
+function snapQuakeLeafTransformToStableGrid(leaf) {
+  const win = leaf.ownerDocument.defaultView ?? window;
+  const style = win.getComputedStyle(leaf);
+  const matrix = parseMatrix3d(leaf.style.transform || style.transform);
+  if (!matrix) return null;
+
+  let snappedValues = 0;
+  const next = matrix.map((value, index) => {
+    const snapped = index >= 12 && index <= 14
+      ? snapQuakeMatrixTranslation(value)
+      : snapQuakeMatrixLinear(value);
+      if (snapped !== value) snappedValues++;
+      return snapped;
+    });
+    const formatted = formatMatrix3d(next);
+    const precisionChanged = compactCssTransform(leaf.style.transform || style.transform) !==
+      compactCssTransform(formatted);
+    if (!snappedValues && !precisionChanged) return null;
+    leaf.style.transform = formatted;
+    return { snappedValues, precisionChanged };
+  }
+
+  function compactCssTransform(value) {
+    return String(value ?? "").replace(/\s+/g, "");
+  }
+
+function snapQuakeMatrixLinear(value) {
+  for (const target of QUAKE_MATRIX_LINEAR_SNAP_TARGETS) {
+    if (Math.abs(value - target) <= QUAKE_MATRIX_LINEAR_SNAP_EPSILON) return target;
+  }
+  return value;
+}
+
+function snapQuakeMatrixTranslation(value) {
+  const snapped = Math.round(value / QUAKE_MATRIX_TRANSLATION_SNAP_GRID) *
+    QUAKE_MATRIX_TRANSLATION_SNAP_GRID;
+  return Math.abs(value - snapped) <= QUAKE_MATRIX_TRANSLATION_SNAP_EPSILON
+    ? snapped
+    : value;
+}
+
+function snapQuakeAtlasLeafBackgroundsToIntegerPx(mesh) {
+  const stats = {
+    totalLeaves: 0,
+    snappedLeaves: 0,
+  };
+  for (const leaf of mesh.querySelectorAll("s")) {
+    stats.totalLeaves++;
+    if (snapQuakeAtlasLeafBackgroundToIntegerPx(leaf)) stats.snappedLeaves++;
+  }
+  return stats;
+}
+
+function snapQuakeAtlasLeafBackgroundToIntegerPx(leaf) {
+  const win = leaf.ownerDocument.defaultView ?? window;
+  const style = win.getComputedStyle(leaf);
+  const backgroundImage = style.backgroundImage;
+  if (!backgroundImage || backgroundImage === "none") return false;
+  const position = cssPixelPair(style.backgroundPosition, style.backgroundPositionX, style.backgroundPositionY);
+  const size = cssPixelPair(style.backgroundSize);
+  if (!position || !size || size[0] <= 0 || size[1] <= 0) return false;
+
+  const snapped = [
+    roundCssIntegerPx(position[0]),
+    roundCssIntegerPx(position[1]),
+    Math.max(1, roundCssIntegerPx(size[0])),
+    Math.max(1, roundCssIntegerPx(size[1])),
+  ];
+  const changed = Math.abs(position[0] - snapped[0]) > 0.000001 ||
+    Math.abs(position[1] - snapped[1]) > 0.000001 ||
+    Math.abs(size[0] - snapped[2]) > 0.000001 ||
+    Math.abs(size[1] - snapped[3]) > 0.000001;
+
+  leaf.style.background = `${backgroundImage} ${snapped[0]}px ${snapped[1]}px / ` +
+    `${snapped[2]}px ${snapped[3]}px no-repeat`;
+  return changed;
 }
 
 function quakeAtlasLeafKey(leaf) {
@@ -445,11 +1676,8 @@ function roundCssPx(value) {
   return Number(value.toFixed(3));
 }
 
-function roundAdaptiveCssPx(value) {
-  const rounded = Math.round(value);
-  return Math.abs(value - rounded) <= QUAKE_ADAPTIVE_ATLAS_BACKGROUND_SNAP_EPSILON
-    ? rounded
-    : roundCssPx(value);
+function roundCssIntegerPx(value) {
+  return Math.round(value);
 }
 
 async function serializeMeshWithAssets(mesh, options = {}) {
@@ -546,7 +1774,9 @@ function extractRenderBundleLeafMetadata(mesh) {
 }
 
 function renderBundleIntegerAttr(element, name) {
-  const value = Number(element.getAttribute(name));
+  const rawValue = element.getAttribute(name);
+  if (rawValue === null || rawValue === "") return undefined;
+  const value = Number(rawValue);
   return Number.isInteger(value) ? value : undefined;
 }
 
@@ -601,8 +1831,8 @@ function compactRenderBundleLeafFrameStyle(style) {
 }
 
 function renderBundleLeafClass(leaf, usedLeafClasses) {
-  const polyIndex = Number(leaf.getAttribute("data-poly-index"));
-  if (!Number.isSafeInteger(polyIndex) || polyIndex < 0) return "";
+  const polyIndex = renderBundleIntegerAttr(leaf, "data-poly-index");
+  if (polyIndex === undefined || polyIndex < 0) return "";
   const leafClass = `q${polyIndex.toString(36)}`;
   if (usedLeafClasses.has(leafClass)) return "";
   usedLeafClasses.add(leafClass);

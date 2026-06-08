@@ -15,7 +15,11 @@ import {
   type QuakeWorldVisibilityChurnStats,
 } from "./debug/churnStats";
 import { markQuakeTrace } from "./debug/traceMarks";
-import { mountQuakeRenderBundleMesh, stripPolyMeshMetadata } from "./renderBundleMesh";
+import {
+  mountQuakeRenderBundleMesh,
+  stripPolyMeshMetadata,
+  syncQuakeRenderBundleDebugOutlineLeaves,
+} from "./renderBundleMesh";
 
 const QUAKE_LEAF_PRESENTATION_RESYNC_DELAYS = [0, 80, 300] as const;
 const QUAKE_LIGHTSTYLE_FPS = 6;
@@ -157,6 +161,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       applyQuakeLeafPresentation(leaf);
     }
     hoistQuakeMeshBackgroundImages(handle.element);
+    syncQuakeDebugOutlineLeavesForHandle(handle);
     observeQuakeMeshPresentation(handle.element);
   };
 
@@ -178,6 +183,8 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
               pixelate(handle);
             } else {
               for (const leaf of quakeLeaves) applyQuakeLeafPresentation(leaf.element);
+              syncQuakeDebugOutlineLeavesForHandle(currentHandle);
+              syncQuakeDebugOutlineLeavesForHandle(currentLightstyleOverlayHandle);
             }
           } finally {
             remaining--;
@@ -277,6 +284,9 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       syncQuakeTextureAnimationLeafAnimationClock(leaf.element, now);
       insertQuakeLeafInOrder(leaf);
       leaf.element.hidden = false;
+      if (leaf.tagName === "s") {
+        syncQuakeRenderBundleDebugOutlineLeaves(leaf.parent, [leaf.element]);
+      }
     } else {
       leaf.element.remove();
     }
@@ -460,6 +470,11 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     }
   };
 
+  const syncQuakeDebugOutlineLeavesForHandle = (handle: PolyMeshHandle | null): void => {
+    if (!handle) return;
+    syncQuakeRenderBundleDebugOutlineLeaves(handle.element, handle.element.querySelectorAll<HTMLElement>("s"));
+  };
+
   return {
     clear,
     debugStats,
@@ -592,7 +607,7 @@ function stripQuakeLeafStyleMetadata(leaf: HTMLElement): void {
   if (leaf.style.imageRendering === "pixelated") {
     leaf.style.removeProperty("image-rendering");
   }
-  if (leaf.style.backgroundRepeat === "no-repeat") {
+  if (leaf.style.backgroundRepeat === "no-repeat" && !quakeLeafDebugOutlineBackgroundIsApplied(leaf)) {
     leaf.style.removeProperty("background-repeat");
   }
 }
@@ -747,6 +762,7 @@ function applyQuakeTextureAnimationLeafPresentation(leaf: HTMLElement): void {
   if (!animation) return;
   observeQuakeTextureAnimationLeafPresentation(leaf);
   if (quakeTextureAnimationActiveLeaves.has(leaf)) return;
+  if (quakeLeafDebugOutlineBackgroundIsApplied(leaf)) return;
   leaf.style.backgroundImage = quakeCssUrl(animation.sprite);
   leaf.style.backgroundPosition = "0px 0px";
   leaf.style.backgroundPositionY = "0px";
@@ -792,6 +808,10 @@ function quakeLeafBackgroundImageReferences(leaf: HTMLElement, url: string): boo
     leaf.style.getPropertyValue(varName).includes(needle) ||
       mesh?.style.getPropertyValue(varName).includes(needle),
   );
+}
+
+function quakeLeafDebugOutlineBackgroundIsApplied(leaf: HTMLElement): boolean {
+  return leaf.style.backgroundImage.includes("var(--qdbg");
 }
 
 export function syncQuakeTextureAnimationLeafAnimationClock(leaf: HTMLElement, now = performance.now()): void {

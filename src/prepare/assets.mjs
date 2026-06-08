@@ -8,13 +8,16 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import sharp from "sharp";
 
+import { replaceQuakeRenderBundleWorldAtlas } from "./deterministicAtlas.mjs";
 import { QUAKE_UNIT_SCALE } from "../quakeScale.js";
 
 const require = createRequire(import.meta.url);
 const { path7z } = require("7z-bin");
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "../..");
-const generatedPublicDir = path.join(projectRoot, "build/generated/public");
+const generatedPublicDir = process.env.QUAKE_GENERATED_PUBLIC_DIR?.trim()
+  ? path.resolve(projectRoot, process.env.QUAKE_GENERATED_PUBLIC_DIR.trim())
+  : path.join(projectRoot, "build/generated/public");
 const quakePublicPath = "/q";
 const quakeOutputDir = path.join(generatedPublicDir, quakePublicPath.slice(1));
 const quakeAssetVersion = cssQuakeAssetVersion();
@@ -80,6 +83,21 @@ const quakeRenderBundleAvifEffort = Number.parseInt(process.env.QUAKE_RENDER_BUN
 const quakeRenderBundleConcurrency = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_CONCURRENCY ?? "", 10);
 const quakePrepareMapOnly = process.env.QUAKE_PREPARE_MAP_ONLY === "1";
 const quakeRenderBundleAdaptiveAtlasLeafSize = process.env.QUAKE_RENDER_BUNDLE_ADAPTIVE_ATLAS_LEAF_SIZE === "1";
+const quakePrepareMapOnlyAllowNewManifest = process.env.QUAKE_PREPARE_MAP_ONLY_ALLOW_NEW_MANIFEST === "1";
+const quakeDomTighteningTargets = parseQuakeDomTighteningTargets(process.env.QUAKE_DOM_TIGHTENING ?? "all");
+const quakeDomHomography = process.env.QUAKE_DOM_HOMOGRAPHY === "1";
+const quakeTriangleAtlasBasis = process.env.QUAKE_TRIANGLE_ATLAS_BASIS === "1";
+const quakeDeterministicWorldAtlas = process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS !== "0";
+const quakeDeterministicWorldAtlasSource =
+  process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS_SOURCE?.trim().toLowerCase() === "software"
+    ? "software"
+    : "css";
+const quakeDeterministicWorldAtlasImagePolicy =
+  process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS_IMAGE_POLICY?.trim().toLowerCase() ?? "atlas";
+const quakeAliasRebakeMerge = process.env.QUAKE_ALIAS_REBAKE_MERGE === "1";
+const quakeAliasRebakeMergeAffineEpsilon = Number.parseFloat(
+  process.env.QUAKE_ALIAS_REBAKE_MERGE_AFFINE_EPSILON ?? "",
+);
 const quakeLightmapBake = process.env.QUAKE_LIGHTMAP_BAKE !== "0";
 const quakeLightmapBakeDetailTarget = Number.parseFloat(process.env.QUAKE_LIGHTMAP_BAKE_DETAIL_TARGET ?? "");
 const quakeLightmapBakeLightSupersample = Number.parseInt(process.env.QUAKE_LIGHTMAP_BAKE_LIGHT_SUPERSAMPLE ?? "", 10);
@@ -144,8 +162,26 @@ const QUAKE_ANIMATION_FRAME_SET_MIN_COMMON_LEAF_RATIO = 0.95;
 const QUAKE_ALIAS_MERGE_MAX_NONPLANAR_DISTANCE = 0.03;
 const QUAKE_ALIAS_MERGE_UV_EPSILON = 1e-6;
 const QUAKE_ALIAS_MERGE_GEOMETRY_EPSILON = 1e-8;
+const QUAKE_ALIAS_REBAKE_MERGE_AFFINE_EPSILON = Number.isFinite(quakeAliasRebakeMergeAffineEpsilon)
+  ? Math.max(0, quakeAliasRebakeMergeAffineEpsilon)
+  : 0.0025;
 const QUAKE_ALIAS_SKIN_PADDING_RADIUS = 4;
 const QUAKE_ALIAS_SKIN_FILLER_INDEX = 208;
+const QUAKE_DEBUG_OUTLINE_WIDTH = 0.5;
+const QUAKE_DEBUG_OUTLINE_DEFAULT_ATLAS_SIZE = 64;
+const QUAKE_DEBUG_OUTLINE_COLORS = {
+  world: "#008000",
+  sky: "#00ffff",
+  special: "#00ffff",
+  animated: "#00ffff",
+  lit: "#008000",
+  brush: "#ffff00",
+  entity: "#ffff00",
+  pickup: "#ffff00",
+  enemy: "#ff0000",
+  lightstyle: "#00ffff",
+  viewmodel: "#ffff00",
+};
 const QUAKE_PICKUP_MODEL_PATHS = {
   item_armor1: "progs/armor.mdl",
   item_armor2: "progs/armor.mdl",
@@ -268,11 +304,41 @@ function shouldBuildRenderBundleForMap(mapName) {
     renderBundleMapNames.has("all");
 }
 
+function parseQuakeDomTighteningTargets(value) {
+  if (value === undefined) return null;
+  const targets = new Set();
+  for (let token of value.split(",")) {
+    token = token.trim().toLowerCase();
+    if (!token || token === "0" || token === "off" || token === "false" || token === "none") continue;
+    if (token === "pickup") token = "pickups";
+    if (token === "monster") token = "monsters";
+    if (token === "models") {
+      targets.add("pickups");
+      targets.add("monsters");
+      continue;
+    }
+    if (!["all", "world", "pickups", "monsters", "other"].includes(token)) {
+      throw new Error(
+        `Unknown QUAKE_DOM_TIGHTENING target ${JSON.stringify(token)}. ` +
+        "Use world,pickups,monsters,models,all,none.",
+      );
+    }
+    targets.add(token);
+  }
+  return targets;
+}
+
+function quakeDomTighteningEnabled(target, fallback) {
+  if (!quakeDomTighteningTargets) return fallback;
+  return quakeDomTighteningTargets.has("all") || quakeDomTighteningTargets.has(target);
+}
+
 async function readStableQuakeAssetManifestForMapOnly() {
   let text = "";
   try {
     text = await readFile(manifestOutputPath, "utf8");
   } catch (error) {
+    if (error?.code === "ENOENT" && quakePrepareMapOnlyAllowNewManifest) return null;
     if (error?.code === "ENOENT") {
       throw new Error("QUAKE_PREPARE_MAP_ONLY=1 requires an existing full Quake manifest. Run pnpm prepare:quake once first.");
     }
@@ -285,9 +351,11 @@ async function readStableQuakeAssetManifestForMapOnly() {
     throw new Error("QUAKE_PREPARE_MAP_ONLY=1 found an invalid existing Quake manifest. Run a full pnpm prepare:quake first.");
   }
   if (manifest?.status === "regenerating") {
+    if (quakePrepareMapOnlyAllowNewManifest) return null;
     throw new Error("QUAKE_PREPARE_MAP_ONLY=1 found a regenerating manifest. Let the current prepare finish or run a full prepare.");
   }
   if (!Array.isArray(manifest?.maps) || !manifest?.assets) {
+    if (quakePrepareMapOnlyAllowNewManifest) return null;
     throw new Error("QUAKE_PREPARE_MAP_ONLY=1 found an incomplete manifest. Run a full pnpm prepare:quake first.");
   }
   return text;
@@ -430,14 +498,51 @@ try {
       if (shouldBuildRenderBundleForMap(mapName)) {
         const scene = createQuakeSceneFromPreparedScene(prepared);
         const lightstyleOverlayPolygons = buildQuakeLightstyleOverlayPolygons(scene.polygons);
+        const tightenWorldDom = quakeDomTighteningEnabled("world", false);
         prepared.renderBundle = await renderBundleBuilder.build({
           mapName,
           polygons: scene.polygons,
+          tightenAtlasLeaves: tightenWorldDom,
+          optimizeAtlasLeafBasis: tightenWorldDom,
+          optimizeAtlasLeafHomography: tightenWorldDom && quakeDomHomography,
         });
+        if (quakeDeterministicWorldAtlas) {
+          delete prepared.renderBundle.debugOutlineAssetUrls;
+          delete prepared.renderBundle.debugTransparentOutlineAssetUrls;
+          const deterministicAtlasStats = await replaceQuakeRenderBundleWorldAtlas({
+            atlasSource: quakeDeterministicWorldAtlasSource,
+            imagePolicy: quakeDeterministicWorldAtlasImagePolicy,
+            mapPath,
+            name: mapName,
+            optimizeAtlasLeafBasis: tightenWorldDom,
+            outputDir: path.join(renderBundleOutputDir, mapName),
+            pakBuffer: pak,
+            polygons: scene.polygons,
+            publicPath: `${quakeRenderBundlePublicPath}/${mapName}`,
+            renderBundle: prepared.renderBundle,
+            visibility: prepared.visibility,
+          });
+          prepared.renderBundle.deterministicWorldAtlasStats = deterministicAtlasStats;
+          await addQuakeRenderBundleDebugOutlineAssets(prepared.renderBundle, {
+            outlineKind: quakeRenderBundleDebugOutlineKindForName(mapName),
+          });
+          console.log(
+            `Deterministic world atlas for ${mapName} (${deterministicAtlasStats.atlasSource ?? "css"}): ` +
+            `${deterministicAtlasStats.replacedLeaves} replaced, ` +
+            `${deterministicAtlasStats.skippedLeaves} skipped, ` +
+            `${deterministicAtlasStats.pageCount ?? 0} png pages, ` +
+            `${deterministicAtlasStats.leafImageCount ?? 0} leaf images, ` +
+            `${formatBytes(deterministicAtlasStats.pageBytes ?? 0)} in ` +
+            `${deterministicAtlasStats.elapsedMs ?? 0}ms`,
+          );
+        }
         if (lightstyleOverlayPolygons.length) {
           prepared.lightstyleRenderBundle = await renderBundleBuilder.build({
             bundleName: `${mapName}l`,
             polygons: lightstyleOverlayPolygons,
+            tightenAtlasLeaves: tightenWorldDom,
+            optimizeAtlasLeafBasis: tightenWorldDom,
+            optimizeAtlasLeafHomography: tightenWorldDom && quakeDomHomography,
           });
         } else {
           delete prepared.lightstyleRenderBundle;
@@ -462,12 +567,18 @@ try {
       preparedMaps.map((item) => item.outputPath),
       { removeUnreferenced: false },
     );
-    await writeFile(manifestOutputPath, stableManifestJson);
+    await writeFile(
+      manifestOutputPath,
+      stableManifestJson ?? JSON.stringify(buildQuakeAssetManifest(preparedMaps, {}, { models: {} })),
+    );
     for (const { outputPath, prepared, size } of preparedMaps) {
       console.log(`Wrote ${path.relative(projectRoot, outputPath)} (${formatBytes(size)})`);
       console.log(`${prepared.label}: ${prepared.faceCount}/${prepared.sourceFaceCount} faces, ${prepared.textureCount} textures`);
     }
-    console.log(`Restored ${path.relative(projectRoot, manifestOutputPath)} after map-only prepare`);
+    console.log(
+      `${stableManifestJson ? "Restored" : "Wrote"} ${path.relative(projectRoot, manifestOutputPath)} ` +
+      "after map-only prepare",
+    );
   } else {
     const uiAssets = loadQuakeHudAssets(pak, parseQuakePakDirectory);
     await writeFile(hudBaseOutputPath, await buildQuakeHudBasePng(uiAssets));
@@ -594,6 +705,7 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
     sharedAssets,
     writeStyle = true,
     includeLeafFrameStyles = false,
+    outlineKind,
   }) {
     const assetDir = path.join(renderBundleOutputDir, name);
     await rm(assetDir, { recursive: true, force: true });
@@ -657,23 +769,30 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
       styleUrl = `${quakeRenderBundlePublicPath}/${name}/${filename}`;
     }
 
+    const renderBundle = {
+      version: 1,
+      kind: "polycss-mesh",
+      polycssVersion: polycssPackage.version,
+      textureLighting: "baked",
+      textureQuality: 1,
+      meshHtml,
+      ...(styleUrl ? { styleUrl } : {}),
+      ...(styleClassName ? { styleClassName } : {}),
+      assetUrls,
+      ...(includeLeafFrameStyles && leafFrameStylesByClass.length ? { leafFrameStylesByClass } : {}),
+      leafMetadata: result.leafMetadata,
+      polygonCount: result.polygonCount,
+      leafCount: result.leafCount,
+      atlasLeafCount: result.atlasLeafCount,
+    };
+    await addQuakeRenderBundleDebugOutlineAssets(renderBundle, {
+      outlineKind: outlineKind ?? quakeRenderBundleDebugOutlineKindForName(name),
+      lightstyle: quakeRenderBundleNameIsLightstyle(name),
+      meshCss,
+    });
+
     return {
-      renderBundle: {
-        version: 1,
-        kind: "polycss-mesh",
-        polycssVersion: polycssPackage.version,
-        textureLighting: "baked",
-        textureQuality: 1,
-        meshHtml,
-        ...(styleUrl ? { styleUrl } : {}),
-        ...(styleClassName ? { styleClassName } : {}),
-        assetUrls,
-        ...(includeLeafFrameStyles && leafFrameStylesByClass.length ? { leafFrameStylesByClass } : {}),
-        leafMetadata: result.leafMetadata,
-        polygonCount: result.polygonCount,
-        leafCount: result.leafCount,
-        atlasLeafCount: result.atlasLeafCount,
-      },
+      renderBundle,
       meshCss,
       writtenAssetCount,
       reusedAssetCount,
@@ -689,6 +808,10 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
       textureQuality = 1,
       extractLeafStyles = false,
       tightenAtlasLeaves = false,
+      optimizeAtlasLeafBasis = false,
+      optimizeAtlasLeafHomography = false,
+      optimizeAtlasTriangleBasis = false,
+      outlineKind,
     }) {
       const name = bundleName ?? mapName;
       if (!name) throw new Error("Render bundle build requires a bundleName or mapName.");
@@ -705,6 +828,9 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
             styleClassName,
             tightenAtlasLeaves,
             adaptiveAtlasLeafSize,
+            optimizeAtlasLeafBasis,
+            optimizeAtlasLeafHomography,
+            optimizeAtlasTriangleBasis,
           },
         ),
       );
@@ -713,10 +839,14 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
         result,
         styleClassName,
         startedAt,
+        outlineKind,
       });
       console.log(
         `Built render bundle for ${name}: ${result.leafCount} leaves, ` +
-        `${written.writtenAssetCount} atlas assets${renderBundleAdaptiveAtlasLeafSizeLog(result)} in ` +
+        `${written.writtenAssetCount} atlas assets` +
+        `${renderBundleAtlasLeafBasisLog(result)}` +
+        `${renderBundleAtlasLeafHomographyLog(result)}` +
+        `${renderBundleAdaptiveAtlasLeafSizeLog(result)} in ` +
         `${written.elapsed}ms`,
       );
       return written.renderBundle;
@@ -727,6 +857,10 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
       textureQuality = 1,
       extractLeafStyles = true,
       tightenAtlasLeaves = false,
+      optimizeAtlasLeafBasis = false,
+      optimizeAtlasLeafHomography = false,
+      optimizeAtlasTriangleBasis = false,
+      outlineKind,
     }) {
       if (!bundleName) throw new Error("Animated render bundle build requires a bundleName.");
       if (!Array.isArray(frames) || frames.length <= 1) {
@@ -750,6 +884,9 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
             extractLeafStyles,
             tightenAtlasLeaves,
             adaptiveAtlasLeafSize: false,
+            optimizeAtlasLeafBasis,
+            optimizeAtlasLeafHomography,
+            optimizeAtlasTriangleBasis,
           },
         ),
       );
@@ -765,6 +902,7 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
         sharedAssets,
         writeStyle: false,
         includeLeafFrameStyles: true,
+        outlineKind,
       });
       writtenAssetCount += firstWritten.writtenAssetCount;
       frameBundles.push(firstWritten.renderBundle);
@@ -780,6 +918,9 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
       console.log(
         `Built animated render bundle for ${bundleName}: ${result.frames.length} frames, ` +
         `${firstFrame?.leafCount ?? 0} leaves, ${writtenAssetCount} atlas assets ` +
+        `${renderBundleAtlasLeafBasisLog(firstFrame)} ` +
+        `${renderBundleAtlasLeafHomographyLog(firstFrame)} ` +
+        `${renderBundleTriangleAtlasBasisLog(firstFrame)} ` +
         `${renderBundleAdaptiveAtlasLeafSizeLog(firstFrame)} ` +
         `(${reusedAssetCount} frame references reused) in ${elapsed}ms`,
       );
@@ -794,6 +935,270 @@ function renderBundleAdaptiveAtlasLeafSizeLog(result) {
   if (!stats?.resizedLeaves) return "";
   return `, adaptive ${stats.resizedLeaves}/${stats.totalLeaves} leaves ` +
     `${stats.beforeArea}->${stats.afterArea} local px`;
+}
+
+function renderBundleAtlasLeafBasisLog(result) {
+  const stats = result?.atlasLeafBasisOptimizationStats;
+  if (!stats?.rotatedPolygons) return "";
+  return `, basis ${stats.rotatedPolygons}/${stats.candidatePolygons} textured polygons ` +
+    `${stats.beforeArea}->${stats.afterArea} local px`;
+}
+
+function renderBundleAtlasLeafHomographyLog(result) {
+  const stats = result?.atlasLeafHomographyOptimizationStats;
+  if (!stats?.optimizedLeaves && !stats?.candidateLeaves) return "";
+  return `, homography ${stats.optimizedLeaves}/${stats.candidateLeaves} leaves ` +
+    `${stats.beforeArea}->${stats.afterArea} local px`;
+}
+
+function renderBundleTriangleAtlasBasisLog(result) {
+  const stats = result?.triangleAtlasBasisOptimizationStats;
+  if (!stats?.optimizedLeaves) return "";
+  return `, triangle-basis ${stats.optimizedLeaves}/${stats.triangleLeaves} leaves ` +
+    `${stats.beforeArea}->${stats.afterArea} local px`;
+}
+
+async function addQuakeRenderBundleDebugOutlineAssets(renderBundle, options = {}) {
+  if (!renderBundle?.assetUrls?.length || !renderBundle.meshHtml) return;
+  const leaves = quakeRenderBundleOutlineLeaves(renderBundle, options);
+  if (!leaves.length) return;
+
+  const leavesByAsset = new Map();
+  for (const leaf of leaves) {
+    const bucket = leavesByAsset.get(leaf.assetIndex);
+    if (bucket) {
+      bucket.push(leaf);
+    } else {
+      leavesByAsset.set(leaf.assetIndex, [leaf]);
+    }
+  }
+  if (!leavesByAsset.size) return;
+
+  const debugOutlineAssetUrls = [];
+  const debugTransparentOutlineAssetUrls = [];
+  for (let index = 0; index < renderBundle.assetUrls.length; index++) {
+    const sourceUrl = renderBundle.assetUrls[index];
+    const sourcePath = quakePublicUrlOutputPath(sourceUrl);
+    const pageLeaves = leavesByAsset.get(index) ?? [];
+    if (!sourcePath || pageLeaves.length === 0) {
+      debugOutlineAssetUrls[index] = sourceUrl;
+      debugTransparentOutlineAssetUrls[index] = sourceUrl;
+      continue;
+    }
+
+    const image = sharp(sourcePath);
+    const metadata = await image.metadata();
+    const width = metadata.width;
+    const height = metadata.height;
+    if (!width || !height) continue;
+
+    const overlay = Buffer.from(quakeDebugOutlineSvg(width, height, pageLeaves));
+    const extension = path.extname(sourcePath);
+    const basename = sourcePath.slice(0, -extension.length);
+    const outlinePath = `${basename}-outline${extension}`;
+    await sharp({
+      create: {
+        width,
+        height,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .composite([{ input: overlay, blend: "over" }])
+      .toFile(outlinePath);
+
+    debugOutlineAssetUrls[index] = quakeOutputPathPublicUrl(outlinePath);
+    debugTransparentOutlineAssetUrls[index] = debugOutlineAssetUrls[index];
+  }
+
+  if (debugOutlineAssetUrls.some(Boolean) && debugTransparentOutlineAssetUrls.some(Boolean)) {
+    renderBundle.debugOutlineAssetUrls = debugOutlineAssetUrls;
+    renderBundle.debugTransparentOutlineAssetUrls = debugTransparentOutlineAssetUrls;
+  }
+}
+
+function quakeRenderBundleOutlineLeaves(renderBundle, options) {
+  const leaves = [];
+  const stylesByClass = quakeRenderBundleCssLeafStyles(options.meshCss);
+  let leafIndex = 0;
+  for (const match of renderBundle.meshHtml.matchAll(/<(b|i|s|u)\b([^>]*)>/g)) {
+    const tagName = match[1];
+    const attributes = match[2] ?? "";
+    const metadata = renderBundle.leafMetadata?.[leafIndex];
+    leafIndex++;
+    if (tagName !== "s" || !metadata) continue;
+    const style = quakeRenderBundleLeafStyle(attributes, stylesByClass);
+    if (!style) continue;
+    const leaf = quakeDebugOutlineLeafFromStyle(style, renderBundle, metadata, options);
+    if (leaf) leaves.push(leaf);
+  }
+  return leaves;
+}
+
+function quakeRenderBundleLeafStyle(attributes, stylesByClass) {
+  const inlineStyle = quakeHtmlAttributeValue(attributes, "style");
+  if (inlineStyle) return inlineStyle;
+  const classValue = quakeHtmlAttributeValue(attributes, "class");
+  if (!classValue) return "";
+  return classValue
+    .split(/\s+/)
+    .map((className) => stylesByClass.get(className) ?? "")
+    .filter(Boolean)
+    .join(";");
+}
+
+function quakeRenderBundleCssLeafStyles(meshCss = "") {
+  const styles = new Map();
+  for (const match of meshCss.matchAll(/\.r[a-f0-9]+\s+\.([a-z0-9_-]+)\s*\{([^}]*)\}/gi)) {
+    const className = match[1];
+    const style = match[2]?.trim();
+    if (className && style) styles.set(className, style);
+  }
+  return styles;
+}
+
+function quakeDebugOutlineLeafFromStyle(style, renderBundle, metadata, options) {
+  const declarations = quakeCssDeclarations(style);
+  const background = declarations.get("background") ?? "";
+  const assetIndex = quakeDebugOutlineBackgroundAssetIndex(background);
+  if (assetIndex === undefined || !renderBundle.assetUrls[assetIndex]) return null;
+  const positionAndSize = quakeDebugOutlineBackgroundPositionAndSize(background);
+  if (!positionAndSize) return null;
+  const atlasSize = quakeCssPx(declarations.get("--polycss-atlas-size")) ?? QUAKE_DEBUG_OUTLINE_DEFAULT_ATLAS_SIZE;
+  const localWidth = quakeCssPx(declarations.get("width")) ?? atlasSize;
+  const localHeight = quakeCssPx(declarations.get("height")) ?? atlasSize;
+  if (localWidth <= 0 || localHeight <= 0) return null;
+  return {
+    assetIndex,
+    color: quakeDebugOutlineColor(metadata, options),
+    backgroundPositionX: positionAndSize.positionX,
+    backgroundPositionY: positionAndSize.positionY,
+    backgroundWidth: positionAndSize.sizeWidth,
+    backgroundHeight: positionAndSize.sizeHeight,
+    localWidth,
+    localHeight,
+  };
+}
+
+function quakeDebugOutlineBackgroundAssetIndex(background) {
+  const match = background.match(/var\(--bg(\d+)\)/);
+  if (!match) return undefined;
+  const index = Number(match[1]);
+  return Number.isInteger(index) && index >= 0 ? index : undefined;
+}
+
+function quakeDebugOutlineBackgroundPositionAndSize(background) {
+  const match = background.match(/var\(--bg\d+\)\s+(-?\d*\.?\d+)px\s+(-?\d*\.?\d+)px\s*\/\s*(-?\d*\.?\d+)px\s+(-?\d*\.?\d+)px/);
+  if (!match) return null;
+  const values = match.slice(1).map(Number);
+  if (values.some((value) => !Number.isFinite(value))) return null;
+  const [positionX, positionY, sizeWidth, sizeHeight] = values;
+  if (sizeWidth <= 0 || sizeHeight <= 0) return null;
+  return { positionX, positionY, sizeWidth, sizeHeight };
+}
+
+function quakeDebugOutlineColor(metadata, options) {
+  const kind = options.outlineKind ?? (options.lightstyle ? "lightstyle" : quakeDebugOutlineKind(metadata));
+  return QUAKE_DEBUG_OUTLINE_COLORS[kind] ?? QUAKE_DEBUG_OUTLINE_COLORS.world;
+}
+
+function quakeDebugOutlineKind(metadata) {
+  const textureName = String(metadata.t ?? "").toLowerCase();
+  if (textureName.startsWith("sky")) return "sky";
+  if (textureName.startsWith("*")) return "special";
+  if (textureName.startsWith("+")) return "animated";
+  if (metadata.m !== undefined && metadata.m !== 0) return "brush";
+  if (metadata.e !== undefined && metadata.e > 0) return "entity";
+  if (metadata.l !== undefined) return "lit";
+  return "world";
+}
+
+function quakeDebugOutlineSvg(width, height, leaves) {
+  const rects = [];
+  for (const leaf of leaves) {
+    const scaleX = width / leaf.backgroundWidth;
+    const scaleY = height / leaf.backgroundHeight;
+    const x = clampNumber((-leaf.backgroundPositionX / leaf.backgroundWidth) * width, 0, width);
+    const y = clampNumber((-leaf.backgroundPositionY / leaf.backgroundHeight) * height, 0, height);
+    const w = clampNumber((leaf.localWidth / leaf.backgroundWidth) * width, 0, width - x);
+    const h = clampNumber((leaf.localHeight / leaf.backgroundHeight) * height, 0, height - y);
+    const tx = Math.max(1, QUAKE_DEBUG_OUTLINE_WIDTH * scaleX);
+    const ty = Math.max(1, QUAKE_DEBUG_OUTLINE_WIDTH * scaleY);
+    if (w <= 0 || h <= 0) continue;
+    const color = escapeXml(leaf.color);
+    rects.push(`<rect x="${roundSvg(x)}" y="${roundSvg(y)}" width="${roundSvg(w)}" height="${roundSvg(Math.min(ty, h))}" fill="${color}"/>`);
+    rects.push(`<rect x="${roundSvg(x)}" y="${roundSvg(y + Math.max(0, h - ty))}" width="${roundSvg(w)}" height="${roundSvg(Math.min(ty, h))}" fill="${color}"/>`);
+    rects.push(`<rect x="${roundSvg(x)}" y="${roundSvg(y)}" width="${roundSvg(Math.min(tx, w))}" height="${roundSvg(h)}" fill="${color}"/>`);
+    rects.push(`<rect x="${roundSvg(x + Math.max(0, w - tx))}" y="${roundSvg(y)}" width="${roundSvg(Math.min(tx, w))}" height="${roundSvg(h)}" fill="${color}"/>`);
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" shape-rendering="crispEdges">${rects.join("")}</svg>`;
+}
+
+function quakeRenderBundleNameIsLightstyle(name) {
+  return quakeMapNames.some((mapName) => name === `${mapName}l`);
+}
+
+function quakeRenderBundleDebugOutlineKindForName(name) {
+  return name === "w" ? "viewmodel" : undefined;
+}
+
+function quakePublicUrlOutputPath(url) {
+  if (!url?.startsWith("/")) return null;
+  return path.join(generatedPublicDir, url.slice(1));
+}
+
+function quakeOutputPathPublicUrl(outputPath) {
+  return `/${path.relative(generatedPublicDir, outputPath).split(path.sep).join("/")}`;
+}
+
+function quakeHtmlAttributeValue(attributes, name) {
+  const match = attributes.match(new RegExp(`\\s${name}="([^"]*)"`));
+  return match ? decodeHtmlAttribute(match[1]) : "";
+}
+
+function decodeHtmlAttribute(value) {
+  return value
+    .replace(/&quot;/g, "\"")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function quakeCssDeclarations(style) {
+  const declarations = new Map();
+  for (const part of style.split(";")) {
+    const separator = part.indexOf(":");
+    if (separator <= 0) continue;
+    const name = part.slice(0, separator).trim();
+    const value = part.slice(separator + 1).trim();
+    if (name && value) declarations.set(name, value);
+  }
+  return declarations;
+}
+
+function quakeCssPx(value) {
+  const match = String(value ?? "").trim().match(/^(-?\d*\.?\d+)px$/);
+  if (!match) return undefined;
+  const number = Number(match[1]);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function roundSvg(value) {
+  return Number(value.toFixed(4));
+}
+
+function escapeXml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&apos;",
+  })[char]);
 }
 
 async function createQuakeRenderBundlePage(browser, bundlePath) {
@@ -1856,6 +2261,8 @@ async function buildQuakeWeaponModel(assets, renderBundleBuilder) {
       bundleName: "w",
       polygons: anchorQuakeWeaponPolygons(polygons),
       extractLeafStyles: true,
+      tightenAtlasLeaves: quakeDomTighteningEnabled("other", false),
+      optimizeAtlasLeafBasis: quakeDomTighteningEnabled("other", false),
     }),
   };
 }
@@ -1929,7 +2336,8 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
     if (polygonPlan.mergedPairCount > 0) {
       console.log(
         `Merged ${source}: ${model.triangles.length} triangles -> ` +
-        `${polygonPlan.entries.length} alias polygons (${polygonPlan.mergedPairCount} pairs).`,
+        `${polygonPlan.entries.length} alias polygons (${polygonPlan.mergedPairCount} pairs` +
+        `${polygonPlan.rebakedPairCount ? `, ${polygonPlan.rebakedPairCount} rebaked` : ""}).`,
       );
     }
     const animationFrames = model.frames.map((frame) => ({
@@ -1946,6 +2354,14 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
       source,
       texture,
       polygons: renderAnimationFrames[0].polygons,
+      domTighteningTarget: quakeAliasModelDomTighteningTarget(source, {
+        animatedAliasModelPaths,
+        enemyAliasModelPaths,
+        projectileAliasModelPaths,
+      }),
+      debugOutlineKind: quakeAliasModelDebugOutlineKind(source, {
+        enemyAliasModelPaths,
+      }),
       ...(includeAnimationFrames && renderAnimationFrames.length > 1 ? { animationFrames: renderAnimationFrames } : {}),
       ...(renderScale !== 1 ? { renderScale } : {}),
       bounds: polygonBounds(animationFrames[0].polygons),
@@ -1977,6 +2393,8 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
       const prepared = {
         source,
         polygons,
+        domTighteningTarget: "pickups",
+        debugOutlineKind: "pickup",
         bounds: polygonBounds(polygons),
       };
       await addQuakePickupModelRenderBundles(prepared, renderBundleBuilder);
@@ -1999,8 +2417,25 @@ function hasRenderableQuakePickupModelBundle(model) {
   return bundles.some((bundle) => Number(bundle?.leafCount) > 0 || bundle?.meshHtml?.includes("<s"));
 }
 
+function quakeAliasModelDomTighteningTarget(source, sets) {
+  if (sets.animatedAliasModelPaths?.has(source)) return "pickups";
+  if (sets.enemyAliasModelPaths?.has(source) || sets.projectileAliasModelPaths?.has(source)) return "monsters";
+  return "other";
+}
+
+function quakeAliasModelDebugOutlineKind(source, sets) {
+  return sets.enemyAliasModelPaths?.has(source) ? "enemy" : "pickup";
+}
+
 async function addQuakePickupModelRenderBundles(model, renderBundleBuilder, textureQuality = 1) {
   const baseName = quakeModelBundleName(model.source);
+  const domTighteningTarget = model.domTighteningTarget ?? "other";
+  const outlineKind = model.debugOutlineKind ?? "pickup";
+  const tightenAtlasLeaves = quakeDomTighteningEnabled(domTighteningTarget, true);
+  const optimizeAtlasLeafBasis = quakeDomTighteningEnabled(domTighteningTarget, false);
+  const optimizeAtlasLeafHomography = tightenAtlasLeaves &&
+    quakeDomHomography &&
+    domTighteningTarget === "monsters";
   if (model.animationFrames?.length > 1) {
     const frameBundles = await renderBundleBuilder.buildAnimatedFrameSet({
       bundleName: baseName,
@@ -2010,7 +2445,11 @@ async function addQuakePickupModelRenderBundles(model, renderBundleBuilder, text
       })),
       textureQuality,
       extractLeafStyles: true,
-      tightenAtlasLeaves: true,
+      tightenAtlasLeaves,
+      optimizeAtlasLeafBasis,
+      optimizeAtlasLeafHomography,
+      optimizeAtlasTriangleBasis: quakeTriangleAtlasBasis && optimizeAtlasLeafBasis,
+      outlineKind,
     });
     for (let index = 0; index < model.animationFrames.length; index++) {
       model.animationFrames[index].renderBundle = frameBundles[index];
@@ -2029,7 +2468,9 @@ async function addQuakePickupModelRenderBundles(model, renderBundleBuilder, text
     polygons: quakePickupModelRenderBundlePolygons(model, 0),
     textureQuality,
     extractLeafStyles: true,
-    tightenAtlasLeaves: true,
+    tightenAtlasLeaves,
+    optimizeAtlasLeafBasis,
+    outlineKind,
   });
 }
 
@@ -2201,6 +2642,8 @@ function quakeRenderBundleLeafHasClass(attributes, leafClasses) {
 }
 
 function stripQuakePickupModelFallbackGeometry(model) {
+  delete model.debugOutlineKind;
+  delete model.domTighteningTarget;
   delete model.texture;
   delete model.polygons;
   for (const frame of model.animationFrames ?? []) {
@@ -2511,18 +2954,27 @@ function quakePickupVertex(vertex) {
 }
 
 function scaleQuakeModelPolygons(polygons, scale) {
+  const scaleVertex = (vertex) => [
+    vertex[0] * scale,
+    vertex[1] * scale,
+    vertex[2] * scale,
+  ];
   return polygons.map((polygon) => ({
     ...polygon,
-    vertices: polygon.vertices.map((vertex) => [
-      vertex[0] * scale,
-      vertex[1] * scale,
-      vertex[2] * scale,
-    ]),
+    vertices: polygon.vertices.map(scaleVertex),
+    ...(Array.isArray(polygon.textureTriangles) ? {
+      textureTriangles: polygon.textureTriangles.map((triangle) => ({
+        vertices: triangle.vertices.map(scaleVertex),
+        uvs: triangle.uvs.map((uv) => [...uv]),
+      })),
+    } : {}),
   }));
 }
 
 function buildQuakeAliasPolygonPlan(model, twoSidedTriangleIndices) {
-  const candidateEntries = quakeAliasMergedPolygonCandidates(model, twoSidedTriangleIndices);
+  const candidateEntries = quakeAliasMergedPolygonCandidates(model, twoSidedTriangleIndices, {
+    rebakeUvSeams: quakeAliasRebakeMerge,
+  });
   const candidateCountsByTriangleIndex = new Map();
   for (const entry of candidateEntries) {
     for (const triangleIndex of entry.triangleIndices) {
@@ -2559,7 +3011,11 @@ function buildQuakeAliasPolygonPlan(model, twoSidedTriangleIndices) {
     entries.push(quakeAliasSingleTrianglePlan(model, twoSidedTriangleIndices, triangleIndex));
   }
 
-  return { entries, mergedPairCount: mergedEntriesByFirstTriangleIndex.size };
+  return {
+    entries,
+    mergedPairCount: mergedEntriesByFirstTriangleIndex.size,
+    rebakedPairCount: entries.filter((entry) => entry.rebakedTextureTriangles).length,
+  };
 }
 
 function quakeAliasSingleTrianglePlan(model, twoSidedTriangleIndices, triangleIndex) {
@@ -2572,7 +3028,7 @@ function quakeAliasSingleTrianglePlan(model, twoSidedTriangleIndices, triangleIn
   };
 }
 
-function quakeAliasMergedPolygonCandidates(model, twoSidedTriangleIndices) {
+function quakeAliasMergedPolygonCandidates(model, twoSidedTriangleIndices, options = {}) {
   const edgeTriangleIndices = quakeAliasEdgeTriangleIndices(model.triangles);
   const candidateEntries = [];
   const candidateKeys = new Set();
@@ -2593,6 +3049,7 @@ function quakeAliasMergedPolygonCandidates(model, twoSidedTriangleIndices) {
         twoSidedTriangleIndices,
         triangleIndex,
         otherTriangleIndex,
+        options,
       );
       if (mergedEntry) candidateEntries.push(mergedEntry);
     }
@@ -2607,25 +3064,34 @@ function quakeAliasCandidatePairScore(entry, candidateCountsByTriangleIndex) {
   );
 }
 
-function quakeAliasMergedPolygonPlan(model, twoSidedTriangleIndices, triangleIndexA, triangleIndexB) {
+function quakeAliasMergedPolygonPlan(model, twoSidedTriangleIndices, triangleIndexA, triangleIndexB, options = {}) {
   const triangleA = model.triangles[triangleIndexA];
   const triangleB = model.triangles[triangleIndexB];
   const sharedIndices = triangleA.indices.filter((index) => triangleB.indices.includes(index));
   const uniqueIndices = new Set([...triangleA.indices, ...triangleB.indices]);
   if (sharedIndices.length !== 2 || uniqueIndices.size !== 4) return null;
-  if (!quakeAliasSharedEdgeUvsMatch(model, triangleA, triangleB, sharedIndices)) return null;
+  const sharedEdgeUvsMatch = quakeAliasSharedEdgeUvsMatch(model, triangleA, triangleB, sharedIndices);
+  if (!sharedEdgeUvsMatch && !options.rebakeUvSeams) return null;
 
   const cycle = quakeAliasBoundaryIndexCycle(triangleA.indices, triangleB.indices);
   if (!cycle) return null;
   const indexOrder = quakeAliasOrientMergedIndexOrder(model, triangleIndexA, triangleIndexB, cycle);
   if (!quakeAliasMergedPolygonFramesAreSafe(model, triangleIndexA, triangleIndexB, indexOrder)) return null;
+  if (!sharedEdgeUvsMatch && !quakeAliasMergedPolygonFramesShareAffineShape(model, indexOrder)) return null;
 
-  const uvs = indexOrder.map((index) => quakeAliasPlanUv(model, triangleA, triangleB, index));
   const twoSided = twoSidedTriangleIndices.has(triangleIndexA) || twoSidedTriangleIndices.has(triangleIndexB);
   return {
     triangleIndices: [triangleIndexA, triangleIndexB],
     indexOrder,
-    uvs,
+    ...(sharedEdgeUvsMatch
+      ? { uvs: indexOrder.map((index) => quakeAliasPlanUv(model, triangleA, triangleB, index)) }
+      : {
+          rebakedTextureTriangles: true,
+          textureTriangles: [
+            quakeAliasTextureTrianglePlan(model, triangleA),
+            quakeAliasTextureTrianglePlan(model, triangleB),
+          ],
+        }),
     ...(twoSided ? { data: { "two-sided": true } } : {}),
   };
 }
@@ -2650,8 +3116,21 @@ function quakeAliasPlanUv(model, triangleA, triangleB, index) {
 function quakeAliasPolygonFromPlan(model, frame, entry) {
   return {
     vertices: entry.indexOrder.map((index) => quakePickupVertex(frame.vertices[index])),
-    uvs: entry.uvs.map((uv) => [...uv]),
+    ...(entry.uvs ? { uvs: entry.uvs.map((uv) => [...uv]) } : {}),
+    ...(entry.textureTriangles ? {
+      textureTriangles: entry.textureTriangles.map((triangle) => ({
+        vertices: triangle.indices.map((index) => quakePickupVertex(frame.vertices[index])),
+        uvs: triangle.uvs.map((uv) => [...uv]),
+      })),
+    } : {}),
     ...(entry.data ? { data: { ...entry.data } } : {}),
+  };
+}
+
+function quakeAliasTextureTrianglePlan(model, triangle) {
+  return {
+    indices: [...triangle.indices],
+    uvs: triangle.indices.map((index) => quakeAliasUv(model, triangle, index)),
   };
 }
 
@@ -2755,6 +3234,55 @@ function quakeAliasMergedPolygonFramesAreSafe(model, triangleIndexA, triangleInd
   return true;
 }
 
+function quakeAliasMergedPolygonFramesShareAffineShape(model, indexOrder) {
+  const baseFrame = model.frames[0];
+  if (!baseFrame) return false;
+  const baseVertices = indexOrder.map((index) => quakePickupVertex(baseFrame.vertices[index]));
+  const fourthVertexCoords = quakeAffineCoordsInTriangle(
+    baseVertices[0],
+    baseVertices[1],
+    baseVertices[2],
+    baseVertices[3],
+  );
+  if (!fourthVertexCoords) return false;
+
+  for (const frame of model.frames) {
+    const vertices = indexOrder.map((index) => quakePickupVertex(frame.vertices[index]));
+    const predicted = [
+      vertices[0][0] +
+        (vertices[1][0] - vertices[0][0]) * fourthVertexCoords[0] +
+        (vertices[2][0] - vertices[0][0]) * fourthVertexCoords[1],
+      vertices[0][1] +
+        (vertices[1][1] - vertices[0][1]) * fourthVertexCoords[0] +
+        (vertices[2][1] - vertices[0][1]) * fourthVertexCoords[1],
+      vertices[0][2] +
+        (vertices[1][2] - vertices[0][2]) * fourthVertexCoords[0] +
+        (vertices[2][2] - vertices[0][2]) * fourthVertexCoords[1],
+    ];
+    if (quakeVectorDistance(predicted, vertices[3]) > QUAKE_ALIAS_REBAKE_MERGE_AFFINE_EPSILON) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function quakeAffineCoordsInTriangle(a, b, c, point) {
+  const ab = quakeVectorSubtract(b, a);
+  const ac = quakeVectorSubtract(c, a);
+  const ap = quakeVectorSubtract(point, a);
+  const abAb = quakeVectorDot(ab, ab);
+  const abAc = quakeVectorDot(ab, ac);
+  const acAc = quakeVectorDot(ac, ac);
+  const apAb = quakeVectorDot(ap, ab);
+  const apAc = quakeVectorDot(ap, ac);
+  const determinant = abAb * acAc - abAc * abAc;
+  if (Math.abs(determinant) <= QUAKE_ALIAS_MERGE_GEOMETRY_EPSILON) return null;
+  return [
+    (apAb * acAc - apAc * abAc) / determinant,
+    (apAc * abAb - apAb * abAc) / determinant,
+  ];
+}
+
 function quakeAliasTriangleUnitNormal(model, frame, triangleIndex) {
   const triangle = model.triangles[triangleIndex];
   return quakePolygonUnitNormal(triangle.indices.map((index) => quakePickupVertex(frame.vertices[index])));
@@ -2817,6 +3345,10 @@ function quakeVectorCross(a, b) {
 
 function quakeVectorDot(a, b) {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function quakeVectorDistance(a, b) {
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
 
 function quakeVectorNormalize(vector) {
