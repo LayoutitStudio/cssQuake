@@ -88,10 +88,10 @@ const quakeDomTighteningTargets = parseQuakeDomTighteningTargets(process.env.QUA
 const quakeDomHomography = process.env.QUAKE_DOM_HOMOGRAPHY === "1";
 const quakeTriangleAtlasBasis = process.env.QUAKE_TRIANGLE_ATLAS_BASIS === "1";
 const quakeDeterministicWorldAtlas = process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS !== "0";
+const quakeDeterministicWorldAtlasSourceRaw =
+  process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS_SOURCE?.trim().toLowerCase() ?? "software";
 const quakeDeterministicWorldAtlasSource =
-  process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS_SOURCE?.trim().toLowerCase() === "software"
-    ? "software"
-    : "css";
+  quakeDeterministicWorldAtlasSourceRaw === "css" ? "css" : "software";
 const quakeDeterministicWorldAtlasImagePolicy =
   process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS_IMAGE_POLICY?.trim().toLowerCase() ?? "atlas";
 const quakeAliasRebakeMerge = process.env.QUAKE_ALIAS_REBAKE_MERGE === "1";

@@ -8,7 +8,8 @@
     <script>
       (function () {
         var GA_ID = "G-XV72TXWTM5";
-        var isProductionHost = window.location.hostname === "cssquake.wtf" || window.location.hostname === "www.cssquake.wtf";
+        var productionHosts = ["cssquake.com", "www.cssquake.com", "cssquake.wtf", "www.cssquake.wtf"];
+        var isProductionHost = productionHosts.indexOf(window.location.hostname) >= 0;
 
         if (!isProductionHost) {
           window["ga-disable-" + GA_ID] = true;
@@ -32,16 +33,16 @@
       content="Play Quake shareware maps rendered as real DOM geometry with HTML, CSS transforms, and PolyCSS."
     />
     <meta name="robots" content="index, follow" />
-    <link rel="canonical" href="https://cssquake.wtf/" />
+    <link rel="canonical" href="https://cssquake.com/" />
     <meta property="og:site_name" content="cssQuake" />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://cssquake.wtf/" />
+    <meta property="og:url" content="https://cssquake.com/" />
     <meta property="og:title" content="cssQuake - Quake rendered with HTML and CSS" />
     <meta
       property="og:description"
       content="Play Quake shareware maps rendered as real DOM geometry with HTML, CSS transforms, and PolyCSS."
     />
-    <meta property="og:image" content="https://cssquake.wtf/assets/cssquake-social.webp" />
+    <meta property="og:image" content="https://cssquake.com/assets/cssquake-social.webp" />
     <meta property="og:image:type" content="image/webp" />
     <meta property="og:image:width" content="2075" />
     <meta property="og:image:height" content="1000" />
@@ -52,17 +53,17 @@
       name="twitter:description"
       content="Play Quake shareware maps rendered as real DOM geometry with HTML, CSS transforms, and PolyCSS."
     />
-    <meta name="twitter:image" content="https://cssquake.wtf/assets/cssquake-social.webp" />
+    <meta name="twitter:image" content="https://cssquake.com/assets/cssquake-social.webp" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@type": "WebApplication",
         "name": "cssQuake",
-        "url": "https://cssquake.wtf/",
+        "url": "https://cssquake.com/",
         "description": "Play Quake shareware maps rendered as real DOM geometry with HTML, CSS transforms, and PolyCSS.",
         "applicationCategory": "GameApplication",
         "operatingSystem": "Any",
-        "image": "https://cssquake.wtf/assets/cssquake-social.webp",
+        "image": "https://cssquake.com/assets/cssquake-social.webp",
         "codeRepository": "https://github.com/LayoutitStudio/cssQuake"
       }
     </script>
