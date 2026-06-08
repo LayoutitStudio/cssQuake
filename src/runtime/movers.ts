@@ -53,6 +53,10 @@ interface QuakeDoorTriggerField {
   maxZ: number;
 }
 
+interface QuakePlatTriggerField extends QuakeDoorTriggerField {
+  contact: "plat-trigger";
+}
+
 export interface QuakeMoversControllerOptions {
   applyState: (state: QuakeMoverState, movePlayer: boolean) => void;
   fireTarget: (targetname: string, sourceEntityIndex?: number) => void;
@@ -77,6 +81,7 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
   let movers = new Map<number, QuakeMoverState>();
   let pathCorners = new Map<string, QuakeEntity>();
   let doorTriggerFields: QuakeDoorTriggerField[] = [];
+  let platTriggerFields: QuakePlatTriggerField[] = [];
   let pivot = { x: 0, y: 0, z: 0 };
   let moverFrame: number | null = null;
   let moverTime = 0;
@@ -89,6 +94,7 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     movers = new Map();
     pathCorners = new Map();
     doorTriggerFields = [];
+    platTriggerFields = [];
     moverTime = 0;
     pivot = { x: 0, y: 0, z: 0 };
   };
@@ -112,6 +118,7 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     }
     linkDoorGroups();
     setupDoorTriggerFields();
+    setupPlatTriggerFields();
     for (const state of movers.values()) options.applyState(state, false);
     if ([...movers.values()].some(moverLoopActive)) startLoop();
   };
@@ -406,11 +413,20 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     }
   };
 
+  const setupPlatTriggerFields = (): void => {
+    platTriggerFields = [];
+    for (const state of movers.values()) {
+      if (state.kind !== "plat") continue;
+      const field = quakePlatTriggerField(state, pivot);
+      if (field) platTriggerFields.push(field);
+    }
+  };
+
   const touchingDoorTriggerFields = (
     origin: [number, number, number],
     eyeHeight: number,
   ): QuakeTouchedTrigger[] => {
-    if (!doorTriggerFields.length) return [];
+    if (!doorTriggerFields.length && !platTriggerFields.length) return [];
     const minX = origin[0] - PLAYER_RADIUS;
     const maxX = origin[0] + PLAYER_RADIUS;
     const minY = origin[1] - PLAYER_RADIUS;
@@ -429,6 +445,19 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
         modelIndex: field.modelIndex,
         classname: "func_door",
         contact: "door-trigger",
+      });
+    }
+    for (const field of platTriggerFields) {
+      if (
+        maxX < field.minX || minX > field.maxX ||
+        maxY < field.minY || minY > field.maxY ||
+        maxZ < field.minZ || minZ > field.maxZ
+      ) continue;
+      out.push({
+        entityIndex: field.entityIndex,
+        modelIndex: field.modelIndex,
+        classname: "func_plat",
+        contact: field.contact,
       });
     }
     return out;
@@ -468,6 +497,53 @@ function quakeMoverDefaultWait(classname: string): number {
   if (classname === "func_plat") return 3;
   if (classname === "func_door_secret") return 5;
   return 3;
+}
+
+const QUAKE_PLAT_LOW_TRIGGER = 1;
+const QUAKE_PLAT_TRIGGER_INSET = 25;
+const QUAKE_PLAT_TRIGGER_TOP_EXTRA = 8;
+const QUAKE_PLAT_TRIGGER_LOW_HEIGHT = 8;
+const QUAKE_PLAT_TRIGGER_MIN_SIDE = 50;
+
+function quakePlatTriggerField(
+  state: QuakeMoverState,
+  pivot: { x: number; y: number; z: number },
+): QuakePlatTriggerField | null {
+  const travel = Math.abs(state.openOffset[2] - state.closedOffset[2]) / QUAKE_COLLISION_UNIT_SCALE;
+  if (travel <= COLLISION_EPSILON) return null;
+
+  let minX = state.model.mins.x + QUAKE_PLAT_TRIGGER_INSET;
+  let maxX = state.model.maxs.x - QUAKE_PLAT_TRIGGER_INSET;
+  let minY = state.model.mins.y + QUAKE_PLAT_TRIGGER_INSET;
+  let maxY = state.model.maxs.y - QUAKE_PLAT_TRIGGER_INSET;
+  const sizeX = state.model.maxs.x - state.model.mins.x;
+  const sizeY = state.model.maxs.y - state.model.mins.y;
+  if (sizeX <= QUAKE_PLAT_TRIGGER_MIN_SIDE) {
+    minX = (state.model.mins.x + state.model.maxs.x) / 2;
+    maxX = minX + 1;
+  }
+  if (sizeY <= QUAKE_PLAT_TRIGGER_MIN_SIDE) {
+    minY = (state.model.mins.y + state.model.maxs.y) / 2;
+    maxY = minY + 1;
+  }
+
+  const triggerTopZ = state.model.maxs.z + QUAKE_PLAT_TRIGGER_TOP_EXTRA;
+  const triggerBottomZ = triggerTopZ - (travel + QUAKE_PLAT_TRIGGER_TOP_EXTRA);
+  const maxZ = (quakeEntitySpawnflags(state.entity) & QUAKE_PLAT_LOW_TRIGGER)
+    ? triggerBottomZ + QUAKE_PLAT_TRIGGER_LOW_HEIGHT
+    : triggerTopZ;
+
+  return {
+    entityIndex: state.entity.index,
+    modelIndex: state.model.index,
+    minX: (minX - pivot.x) * QUAKE_COLLISION_UNIT_SCALE,
+    maxX: (maxX - pivot.x) * QUAKE_COLLISION_UNIT_SCALE,
+    minY: (minY - pivot.y) * QUAKE_COLLISION_UNIT_SCALE,
+    maxY: (maxY - pivot.y) * QUAKE_COLLISION_UNIT_SCALE,
+    minZ: (triggerBottomZ - pivot.z) * QUAKE_COLLISION_UNIT_SCALE,
+    maxZ: (maxZ - pivot.z) * QUAKE_COLLISION_UNIT_SCALE,
+    contact: "plat-trigger",
+  };
 }
 
 function createQuakeMoverState(

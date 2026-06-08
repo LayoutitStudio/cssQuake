@@ -22,6 +22,7 @@ import { mountQuakeBitmapText } from "./runtime/bitmapText";
 import {
   COLLISION_EPSILON,
   GROUND_SNAP,
+  PLAYER_RADIUS,
   QUAKE_BUTTON_USE_RANGE,
   QUAKE_COLLISION_UNIT_SCALE,
   STEP_HEIGHT,
@@ -55,6 +56,7 @@ import {
 import { createQuakeMonsterStateRunner } from "./runtime/quakeMonsterStateRunner";
 import {
   createQuakeShootablesController,
+  quakeShootableModelPath,
   quakeShootableFallbackPolygons,
   type QuakeShootablesDebugStats,
 } from "./runtime/shootables";
@@ -75,6 +77,7 @@ import {
   createQuakePickupController,
   quakePickupModelRenderBundleFrameSet,
   quakePickupModelRenderBundle,
+  quakePickupModelPath,
   quakePickupPolygons,
   type QuakePickupModel,
   type QuakePickupModelLibrary,
@@ -85,6 +88,8 @@ import {
   mountQuakeRenderBundleFrameSetMesh,
   mountQuakeRenderBundleMesh,
   preloadQuakeRenderBundleAssets,
+  syncQuakeRenderBundleDebugOutlineLeaves,
+  syncQuakeRenderBundleDebugOutlines,
   stripPolyMeshMetadata,
 } from "./runtime/renderBundleMesh";
 
@@ -104,12 +109,12 @@ const optionsPanel = document.getElementById("quake-options-panel") as HTMLEleme
 const disableSoundOption = document.getElementById("quake-option-disable-sound") as HTMLInputElement | null;
 const disableEnemiesOption = document.getElementById("quake-option-disable-enemies") as HTMLInputElement | null;
 const disableDamageOption = document.getElementById("quake-option-disable-damage") as HTMLInputElement | null;
-const debugModeOption = document.getElementById("quake-option-debug-mode") as HTMLInputElement | null;
 const invertMouseOption = document.getElementById("quake-option-invert-mouse") as HTMLInputElement | null;
 const debugPanel = document.getElementById("quake-debug-panel") as HTMLElement | null;
 const debugPanelClose = document.getElementById("quake-debug-close") as HTMLButtonElement | null;
 const debugHideTexturesOption = document.getElementById("quake-debug-hide-textures") as HTMLInputElement | null;
 const debugStaticLightingOption = document.getElementById("quake-debug-static-lighting") as HTMLInputElement | null;
+const debugFlyModeOption = document.getElementById("quake-debug-fly-mode") as HTMLInputElement | null;
 const debugShowOutlinesOption = document.getElementById("quake-debug-show-outlines") as HTMLInputElement | null;
 const debugShowLabelsOption = document.getElementById("quake-debug-show-labels") as HTMLInputElement | null;
 const debugStatElements = new Map(
@@ -163,6 +168,21 @@ interface QuakeCrosshairTargetCache {
   valid: boolean;
 }
 
+interface QuakeMobileMoveStickEvent {
+  data: {
+    raw?: {
+      position?: {
+        x: number;
+        y: number;
+      };
+    };
+    vector?: {
+      x: number;
+      y: number;
+    };
+  };
+}
+
 const quakeCrosshairTargetCache: QuakeCrosshairTargetCache = {
   actionTrace: null,
   shootableTrace: null,
@@ -185,6 +205,9 @@ let quakeMobileMoveFrame = 0;
 let quakeMobileMoveTime = 0;
 let quakeMobileMoveX = 0;
 let quakeMobileMoveY = 0;
+let quakeDebugFlyFrame = 0;
+let quakeDebugFlyTime = 0;
+let quakeDebugFlyKeyCodesDown = new Set<string>();
 let quakeWeaponViewPunchFrame = 0;
 let quakeWeaponViewPunchOffset = 0;
 let quakeWeaponViewPunchAt = 0;
@@ -484,6 +507,9 @@ const QUAKE_GRAVITY = 800 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MOBILE_MOVE_SPEED = 5.4 * QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_MOBILE_MOVE_DEADZONE = 0.08;
 const QUAKE_MOBILE_MOVE_DT_CLAMP = 0.035;
+const QUAKE_DEBUG_FLY_SPEED = 10.8 * QUAKE_RENDER_SUPERSAMPLE;
+const QUAKE_DEBUG_FLY_FAST_MULTIPLIER = 3;
+const QUAKE_DEBUG_FLY_DT_CLAMP = 0.05;
 const QUAKE_DEFAULT_CAMERA_ZOOM = (BASE_TILE * 0.65) / QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_CAMERA_ZOOM = quakeCameraZoomFromUrl() ?? QUAKE_DEFAULT_CAMERA_ZOOM;
 const QUAKE_REFERENCE_FOV = 90;
@@ -500,9 +526,11 @@ let quakeAssetManifest = FALLBACK_QUAKE_ASSET_MANIFEST;
 let quakeMapUrls = quakeSceneUrlMap(quakeAssetManifest);
 let quakeEnemiesDisabled = quakeUrlBoolean("disableEnemies") || (disableEnemiesOption?.checked ?? false);
 let quakeDamageDisabled = disableDamageOption?.checked ?? false;
-let quakeDebugMode = quakeUrlBoolean("debugPolys") || (debugModeOption?.checked ?? false);
-let quakeDebugHideTextures = debugHideTexturesOption?.checked ?? false;
+let quakeDebugMode = quakeUrlBoolean("debugPolys");
+let quakeDebugHideTextures = quakeDebugMode || (debugHideTexturesOption?.checked ?? false);
 let quakeDebugStaticLighting = debugStaticLightingOption?.checked ?? false;
+let quakeDebugFlyMode = quakeUrlBoolean("debugFly") || (debugFlyModeOption?.checked ?? false);
+let quakeDebugFlyModeActive = false;
 let quakeDebugShowOutlines = debugShowOutlinesOption?.checked ?? true;
 let quakeDebugShowLabels = debugShowLabelsOption?.checked ?? false;
 let quakeDebugPanelStatsTimer: number | null = null;
@@ -680,10 +708,11 @@ const controls = createPolyFirstPersonControls(scene, {
   moveSpeed: QUAKE_MOBILE_MOVE_SPEED,
   lookSensitivity: 0.12,
   invertY: quakeInvertMouse,
-  jumpEnabled: true,
+  moveEnabled: false,
+  jumpEnabled: false,
   crouchEnabled: false,
   jumpVelocity: QUAKE_JUMP_VELOCITY,
-  gravity: QUAKE_GRAVITY,
+  gravity: 0,
 });
 let quakePlayerDead = false;
 let quakeDeathUnlockMenuSuppressUntil = 0;
@@ -722,6 +751,7 @@ const menu = createQuakeMenuController({
   aboutPanel,
   optionsPanel,
   onSelectLevel: loadQuakeMap,
+  onSelectDebug: () => setQuakeDebugMode(true),
   shouldOpenMainMenuOnControlsEnd: shouldOpenQuakeMainMenuOnControlsEnd,
   clearCrosshairTarget: clearQuakeCrosshairTarget,
   syncCrosshairTarget: syncQuakeCrosshairTarget,
@@ -822,8 +852,10 @@ const weapons = createQuakeWeaponsController({
 });
 player = createQuakePlayerController({
   activateSolidTouch,
+  canUseGameplayInput: canUseQuakeGameplayInput,
   canTakeDamage: () => !quakeDamageDisabled && !quakePlayerDead,
   controls,
+  getYaw: () => scene.camera.state.rotY ?? 270,
   getCollisionWorld: () => currentCollisionWorld,
   getCurrentScene: () => currentResult,
   gravity: QUAKE_GRAVITY,
@@ -984,16 +1016,17 @@ function setQuakeDamageDisabled(disabled: boolean): void {
 }
 
 function setQuakeDebugMode(enabled: boolean): void {
+  const wasEnabled = quakeDebugMode;
   quakeDebugMode = enabled;
-  if (debugModeOption) debugModeOption.checked = enabled;
+  if (enabled && !wasEnabled) quakeDebugHideTextures = true;
   syncQuakeDebugRenderOptions();
+  syncQuakeDebugFlyMode();
   syncQuakeDebugPanelVisibility();
   syncQuakeDebugPointerLockState();
 }
 
 function setQuakeDebugHideTextures(enabled: boolean): void {
   quakeDebugHideTextures = enabled;
-  if (enabled) quakeDebugShowOutlines = true;
   if (debugHideTexturesOption) debugHideTexturesOption.checked = enabled;
   syncQuakeDebugRenderOptions();
 }
@@ -1004,9 +1037,13 @@ function setQuakeDebugStaticLighting(enabled: boolean): void {
   syncQuakeDebugRenderOptions();
 }
 
+function setQuakeDebugFlyMode(enabled: boolean): void {
+  quakeDebugFlyMode = enabled;
+  syncQuakeDebugFlyMode();
+}
+
 function setQuakeDebugShowOutlines(enabled: boolean): void {
   quakeDebugShowOutlines = enabled;
-  if (debugShowOutlinesOption) debugShowOutlinesOption.checked = enabled;
   syncQuakeDebugRenderOptions();
 }
 
@@ -1017,16 +1054,61 @@ function setQuakeDebugShowLabels(enabled: boolean): void {
 }
 
 function syncQuakeDebugRenderOptions(): void {
-  if (quakeDebugHideTextures) quakeDebugShowOutlines = true;
+  const effectiveShowOutlines = quakeDebugEffectiveShowOutlines();
   if (debugHideTexturesOption) debugHideTexturesOption.checked = quakeDebugHideTextures;
   if (debugStaticLightingOption) debugStaticLightingOption.checked = quakeDebugStaticLighting;
-  if (debugShowOutlinesOption) debugShowOutlinesOption.checked = quakeDebugShowOutlines;
+  if (debugShowOutlinesOption) {
+    debugShowOutlinesOption.checked = effectiveShowOutlines;
+    debugShowOutlinesOption.disabled = quakeDebugHideTextures;
+  }
   if (debugShowLabelsOption) debugShowLabelsOption.checked = quakeDebugShowLabels;
+  syncQuakeRenderBundleDebugOutlines(quakeDebugMode && effectiveShowOutlines, {
+    hideTextures: quakeDebugHideTextures,
+  });
   document.body.classList.remove("quake-poly-debug");
   document.body.classList.toggle("quake-debug-no-textures", quakeDebugMode && quakeDebugHideTextures);
   document.body.classList.toggle("quake-debug-static-lighting", quakeDebugMode && quakeDebugStaticLighting);
-  document.body.classList.toggle("quake-debug-outlines", quakeDebugMode && quakeDebugShowOutlines);
+  document.body.classList.toggle("quake-debug-outlines", quakeDebugMode && effectiveShowOutlines);
   document.body.classList.toggle("quake-debug-labels", quakeDebugMode && quakeDebugShowLabels);
+}
+
+function quakeDebugEffectiveShowOutlines(): boolean {
+  return quakeDebugShowOutlines || quakeDebugHideTextures;
+}
+
+function syncQuakeDebugFlyMode(): void {
+  if (debugFlyModeOption) debugFlyModeOption.checked = quakeDebugFlyMode;
+  const requested = quakeDebugMode && quakeDebugFlyMode;
+  const wasActive = quakeDebugFlyModeActive;
+  quakeDebugFlyModeActive = requested;
+  document.body.classList.toggle("quake-debug-fly", requested);
+  if (requested) {
+    clearQuakeMoveInput();
+    clearQuakeCrouchInput();
+    controls.update({ moveEnabled: false, jumpEnabled: false, crouchEnabled: false, gravity: 0 });
+    scheduleQuakeDebugFlyFrame();
+    return;
+  }
+
+  clearQuakeDebugFlyInput();
+  if (wasActive) respawnQuakePlayerFromFlyMode();
+  if (canUseQuakeGameplayInput()) {
+    controls.update({
+      moveEnabled: false,
+      jumpEnabled: false,
+      crouchEnabled: false,
+      jumpVelocity: QUAKE_JUMP_VELOCITY,
+      gravity: 0,
+    });
+  } else {
+    controls.update({ moveEnabled: false, jumpEnabled: false, crouchEnabled: false, jumpVelocity: QUAKE_JUMP_VELOCITY, gravity: 0 });
+  }
+}
+
+function respawnQuakePlayerFromFlyMode(): boolean {
+  if (!currentResult || quakeAppLoading) return false;
+  getPlayer().respawn();
+  return true;
 }
 
 function syncQuakeDebugPointerLockState(): void {
@@ -1123,6 +1205,7 @@ function syncQuakeOptionControls(): void {
   if (disableDamageOption) disableDamageOption.checked = quakeDamageDisabled;
   setQuakeDebugMode(quakeDebugMode);
   syncQuakeDebugRenderOptions();
+  syncQuakeDebugFlyMode();
   if (invertMouseOption) invertMouseOption.checked = quakeInvertMouse;
 }
 
@@ -1135,10 +1218,12 @@ function clearQuakeLevelLoadTimer(): void {
 
 function clearQuakeLevelComplete(): void {
   clearQuakeAttackInput();
+  clearQuakeDebugFlyInput();
+  clearQuakeMoveInput();
   clearQuakeWeaponViewPunch();
   document.body.classList.remove("quake-level-complete");
   if (!document.body.classList.contains("quake-hud-message")) clearQuakeHudStatus();
-  controls.update({ moveEnabled: true, jumpEnabled: true, jumpVelocity: QUAKE_JUMP_VELOCITY, gravity: QUAKE_GRAVITY });
+  controls.update({ moveEnabled: false, jumpEnabled: false, crouchEnabled: false, jumpVelocity: QUAKE_JUMP_VELOCITY, gravity: 0 });
 }
 
 function flashQuakeCrosshairHit(): void {
@@ -1212,7 +1297,9 @@ function shouldOpenQuakeMainMenuOnControlsEnd(): boolean {
 function showQuakePlayerDeath(): void {
   if (quakePlayerDead) return;
   quakePlayerDead = true;
+  clearQuakeMoveInput();
   clearQuakeAttackInput();
+  clearQuakeDebugFlyInput();
   clearQuakeMobileMoveInput();
   clearQuakeWeaponViewPunch();
   clearQuakeBonusOverlay();
@@ -1230,7 +1317,7 @@ function showQuakePlayerDeath(): void {
   showQuakeDeathOverlay();
   setQuakeDamageOverlay(true);
   setQuakeHudDamageCue(true);
-  controls.update({ lookEnabled: false, moveEnabled: false, jumpEnabled: false });
+  controls.update({ lookEnabled: false, moveEnabled: false, jumpEnabled: false, gravity: 0 });
   suppressQuakeMainMenuOnNextControlsEnd();
   controls.unlock();
 }
@@ -1248,7 +1335,7 @@ function clearQuakePlayerDeath(): void {
   clearQuakeDeathOverlay();
   setQuakeHudDamageCue(false);
   setQuakeDamageOverlay(false);
-  controls.update({ lookEnabled: true, moveEnabled: true, jumpEnabled: true, jumpVelocity: QUAKE_JUMP_VELOCITY, gravity: QUAKE_GRAVITY });
+  controls.update({ lookEnabled: true, moveEnabled: false, jumpEnabled: false, crouchEnabled: false, jumpVelocity: QUAKE_JUMP_VELOCITY, gravity: 0 });
 }
 
 function showQuakeDeathOverlay(): void {
@@ -1299,6 +1386,10 @@ function canUseQuakeGameplayInput(): boolean {
     currentCollisionWorld !== null;
 }
 
+function isQuakeDebugFlyModeActive(): boolean {
+  return quakeDebugMode && quakeDebugFlyMode && canUseQuakeGameplayInput();
+}
+
 function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable ||
@@ -1322,6 +1413,18 @@ function syncQuakeCrouchInput(): void {
   player.setCrouching(canUseQuakeGameplayInput() && quakeCrouchKeyCodesDown.size > 0);
 }
 
+function clearQuakeMoveInput(): void {
+  player?.clearMoveInput();
+}
+
+function handleQuakeMoveKey(event: KeyboardEvent, pressed: boolean): boolean {
+  if (quakeDebugMode && quakeDebugFlyMode) return false;
+  if (!QUAKE_MOVE_KEY_CODES.has(event.code) && event.code !== "Space") return false;
+  if (pressed && (!canUseQuakeGameplayInput() || isEditableKeyboardTarget(event.target))) return false;
+  if (!player?.handleMoveKey(event.code, pressed)) return false;
+  return true;
+}
+
 function clearQuakeCrouchInput(): void {
   if (quakeCrouchKeyCodesDown.size === 0 && !player?.isCrouching()) return;
   quakeCrouchKeyCodesDown.clear();
@@ -1329,6 +1432,7 @@ function clearQuakeCrouchInput(): void {
 }
 
 function handleQuakeCrouchKey(event: KeyboardEvent, pressed: boolean): boolean {
+  if (quakeDebugMode && quakeDebugFlyMode) return false;
   if (!QUAKE_CROUCH_KEY_CODES.has(event.code)) return false;
   if (pressed) {
     if (!canUseQuakeGameplayInput() || isEditableKeyboardTarget(event.target)) return false;
@@ -1338,6 +1442,37 @@ function handleQuakeCrouchKey(event: KeyboardEvent, pressed: boolean): boolean {
   }
   syncQuakeCrouchInput();
   return true;
+}
+
+function clearQuakeDebugFlyInput(): void {
+  quakeDebugFlyKeyCodesDown.clear();
+  quakeDebugFlyTime = 0;
+  if (!quakeDebugFlyFrame) return;
+  window.cancelAnimationFrame(quakeDebugFlyFrame);
+  quakeDebugFlyFrame = 0;
+}
+
+function handleQuakeDebugFlyKey(event: KeyboardEvent, pressed: boolean): boolean {
+  if (!quakeDebugMode || !quakeDebugFlyMode || !quakeDebugFlyKeyCode(event.code)) return false;
+  if (!canUseQuakeGameplayInput() || isEditableKeyboardTarget(event.target)) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  if (pressed) {
+    quakeDebugFlyKeyCodesDown.add(event.code);
+    scheduleQuakeDebugFlyFrame();
+  } else {
+    quakeDebugFlyKeyCodesDown.delete(event.code);
+  }
+  return true;
+}
+
+function quakeDebugFlyKeyCode(code: string): boolean {
+  return QUAKE_MOVE_KEY_CODES.has(code) ||
+    QUAKE_CROUCH_KEY_CODES.has(code) ||
+    code === "Space" ||
+    code === "KeyC" ||
+    code === "ShiftLeft" ||
+    code === "ShiftRight";
 }
 
 function createQuakeLoadingProgressTracker(status = "Loading"): QuakeLoadingProgressTracker {
@@ -1375,6 +1510,8 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
   quakeAppLoading = active;
   if (active) {
     clearQuakeAttackInput();
+    clearQuakeDebugFlyInput();
+    clearQuakeMoveInput();
     clearQuakeMobileMoveInput();
     clearQuakeCrouchInput();
     clearQuakeWeaponViewPunch();
@@ -1390,7 +1527,7 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
       loadingOverlay.hidden = false;
       loadingOverlay.setAttribute("aria-busy", "true");
     }
-    controls.update({ moveEnabled: false });
+    controls.update({ moveEnabled: false, jumpEnabled: false, gravity: 0 });
     clearQuakeCrosshairTarget();
     return;
   }
@@ -1413,15 +1550,18 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
     loadingAction.hidden = true;
   }
   if (!menu.isMainMenuOpen() && !menu.isMenuPanelOpen() && !isQuakeLevelTransitionActive()) {
-    controls.update({ moveEnabled: true });
+    controls.update({ moveEnabled: false, jumpEnabled: false, gravity: 0 });
   }
+  syncQuakeDebugFlyMode();
   syncQuakeCrosshairTarget();
-  showQuakeStatsOverlay();
+  syncQuakeStatsOverlayAvailability();
 }
 
 function setQuakeLoadingError(): void {
   quakeAppLoading = true;
   clearQuakeAttackInput();
+  clearQuakeDebugFlyInput();
+  clearQuakeMoveInput();
   clearQuakeMobileMoveInput();
   clearQuakeCrouchInput();
   clearQuakeWeaponViewPunch();
@@ -1436,13 +1576,15 @@ function setQuakeLoadingError(): void {
     loadingOverlay.hidden = false;
     loadingOverlay.setAttribute("aria-busy", "false");
   }
-  controls.update({ moveEnabled: false });
+  controls.update({ moveEnabled: false, jumpEnabled: false, gravity: 0 });
   clearQuakeCrosshairTarget();
 }
 
 function setQuakeAssetsRegenerating(message = QUAKE_ASSETS_REGENERATING_ACTION): void {
   quakeAppLoading = true;
   clearQuakeAttackInput();
+  clearQuakeDebugFlyInput();
+  clearQuakeMoveInput();
   clearQuakeMobileMoveInput();
   clearQuakeCrouchInput();
   clearQuakeWeaponViewPunch();
@@ -1457,7 +1599,7 @@ function setQuakeAssetsRegenerating(message = QUAKE_ASSETS_REGENERATING_ACTION):
     loadingOverlay.hidden = false;
     loadingOverlay.setAttribute("aria-busy", "true");
   }
-  controls.update({ moveEnabled: false });
+  controls.update({ moveEnabled: false, jumpEnabled: false, gravity: 0 });
   clearQuakeCrosshairTarget();
 }
 
@@ -1559,6 +1701,7 @@ function quakePointToPoly(point: { x: number; y: number; z: number }): Vec3 {
 
 function disposeCurrentScene(): void {
   clearQuakeAttackInput();
+  clearQuakeDebugFlyInput();
   clearQuakeWeaponViewPunch();
   clearQuakeBonusOverlay();
   viewmodel.remove();
@@ -1701,6 +1844,92 @@ function forwardDirection(rotX: number, rotY: number): Vec3 {
     -Math.sin(rx) * Math.sin(ry),
     -Math.cos(rx),
   ];
+}
+
+function scheduleQuakeDebugFlyFrame(): void {
+  if (quakeAppDisposed || quakeDebugFlyFrame || !quakeDebugMode || !quakeDebugFlyMode) return;
+  quakeDebugFlyFrame = window.requestAnimationFrame(runQuakeDebugFlyFrame);
+}
+
+function runQuakeDebugFlyFrame(now: number): void {
+  quakeDebugFlyFrame = 0;
+  if (!quakeDebugMode || !quakeDebugFlyMode) {
+    quakeDebugFlyTime = 0;
+    return;
+  }
+  if (!isQuakeDebugFlyModeActive()) {
+    quakeDebugFlyTime = now;
+    scheduleQuakeDebugFlyFrame();
+    return;
+  }
+
+  controls.update({ moveEnabled: false, jumpEnabled: false, crouchEnabled: false, gravity: 0 });
+  const dt = Math.min(QUAKE_DEBUG_FLY_DT_CLAMP, quakeDebugFlyTime ? (now - quakeDebugFlyTime) / 1000 : 0.0167);
+  quakeDebugFlyTime = now;
+  const direction = quakeDebugFlyDirection();
+  if (distanceSq3(direction, [0, 0, 0]) > 0) {
+    const origin = controls.getOrigin();
+    const speed = QUAKE_DEBUG_FLY_SPEED * (quakeDebugFlyFastActive() ? QUAKE_DEBUG_FLY_FAST_MULTIPLIER : 1);
+    const nextOrigin: [number, number, number] = [
+      origin[0] + direction[0] * speed * dt,
+      origin[1] + direction[1] * speed * dt,
+      origin[2] + direction[2] * speed * dt,
+    ];
+    getPlayer().setDebugOrigin(nextOrigin);
+    controls.update({ moveEnabled: false, jumpEnabled: false, crouchEnabled: false, gravity: 0 });
+    syncQuakeDebugFlyView(nextOrigin);
+  }
+  scheduleQuakeDebugFlyFrame();
+}
+
+function quakeDebugFlyDirection(): Vec3 {
+  const rotX = scene.camera.state.rotX ?? 88;
+  const rotY = scene.camera.state.rotY ?? 270;
+  const forward = forwardDirection(rotX, rotY);
+  const horizontalForward = forwardDirection(90, rotY);
+  const right: Vec3 = [horizontalForward[1], -horizontalForward[0], 0];
+  const direction: Vec3 = [0, 0, 0];
+
+  if (quakeDebugFlyKeyCodesDown.has("KeyW") || quakeDebugFlyKeyCodesDown.has("ArrowUp")) {
+    direction[0] += forward[0];
+    direction[1] += forward[1];
+    direction[2] += forward[2];
+  }
+  if (quakeDebugFlyKeyCodesDown.has("KeyS") || quakeDebugFlyKeyCodesDown.has("ArrowDown")) {
+    direction[0] -= forward[0];
+    direction[1] -= forward[1];
+    direction[2] -= forward[2];
+  }
+  if (quakeDebugFlyKeyCodesDown.has("KeyD") || quakeDebugFlyKeyCodesDown.has("ArrowRight")) {
+    direction[0] += right[0];
+    direction[1] += right[1];
+  }
+  if (quakeDebugFlyKeyCodesDown.has("KeyA") || quakeDebugFlyKeyCodesDown.has("ArrowLeft")) {
+    direction[0] -= right[0];
+    direction[1] -= right[1];
+  }
+  if (quakeDebugFlyKeyCodesDown.has("Space")) direction[2] += 1;
+  if (
+    quakeDebugFlyKeyCodesDown.has("ControlLeft") ||
+    quakeDebugFlyKeyCodesDown.has("ControlRight") ||
+    quakeDebugFlyKeyCodesDown.has("KeyC")
+  ) {
+    direction[2] -= 1;
+  }
+
+  return distanceSq3(direction, [0, 0, 0]) > 0 ? normalizeVec3(direction) : direction;
+}
+
+function quakeDebugFlyFastActive(): boolean {
+  return quakeDebugFlyKeyCodesDown.has("ShiftLeft") || quakeDebugFlyKeyCodesDown.has("ShiftRight");
+}
+
+function syncQuakeDebugFlyView(origin: [number, number, number]): void {
+  shootables.syncVisibility(origin, true);
+  getPickups().syncVisibility(origin);
+  viewmodel.syncTransform();
+  world.syncVisibility(true);
+  syncQuakeCrosshairTarget();
 }
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -1856,10 +2085,6 @@ function activateSolidTouch(touch: QuakeTouchedTrigger): void {
   if (!entity) return;
   if (targetSystem.isDisabled(entity.index)) return;
   if (activateQuakeSolidGate(entity)) return;
-  if (entity.classname === "func_plat") {
-    activateQuakeEntity(entity.index);
-    return;
-  }
   if ((entity.classname === "func_door" || entity.classname === "func_door_secret") && !entity.properties.targetname) {
     activateQuakeEntity(entity.index);
   }
@@ -2200,6 +2425,7 @@ function quakeMoverGroupUnlocked(state: QuakeMoverState): boolean {
 }
 
 function moverBlockedByPlayer(state: QuakeMoverState, nextOffset: Vec3, delta: Vec3): boolean {
+  if (isQuakeDebugFlyModeActive()) return false;
   if (state.kind === "button" || shouldCarryPlayerWithMover(state, delta)) return false;
   const origin = controls.getOrigin();
   if (!currentCollisionWorld?.playerIntersectsBrush?.(
@@ -2208,8 +2434,28 @@ function moverBlockedByPlayer(state: QuakeMoverState, nextOffset: Vec3, delta: V
     origin,
     getPlayer().eyeHeight(),
   )) return false;
+  if (moverPushClearsPlayer(state, nextOffset, delta, origin)) return false;
   damageQuakePlayerForMoverBlock(state);
   return true;
+}
+
+function moverPushClearsPlayer(
+  state: QuakeMoverState,
+  nextOffset: Vec3,
+  delta: Vec3,
+  origin = controls.getOrigin(),
+): boolean {
+  const pushedOrigin: [number, number, number] = [
+    origin[0] + delta[0],
+    origin[1] + delta[1],
+    origin[2] + delta[2],
+  ];
+  return !currentCollisionWorld?.playerIntersectsBrush?.(
+    state.entity.index,
+    nextOffset,
+    pushedOrigin,
+    getPlayer().eyeHeight(),
+  );
 }
 
 function damageQuakePlayerForMoverBlock(state: QuakeMoverState): void {
@@ -2263,8 +2509,26 @@ function syncQuakeMoverSound(state: QuakeMoverState, activeUpdate: boolean): voi
 }
 
 function shouldCarryPlayerWithMover(state: QuakeMoverState, delta: Vec3): boolean {
+  if (isQuakeDebugFlyModeActive()) return false;
   if (state.kind === "button" || distanceSq3(delta, [0, 0, 0]) <= COLLISION_EPSILON) return false;
   const origin = controls.getOrigin();
+  if (
+    playerStandingOnMover(state, state.lastOffset, delta, origin) ||
+    playerStandingOnMover(state, state.offset, delta, origin)
+  ) {
+    return true;
+  }
+  if (
+    currentCollisionWorld?.playerIntersectsBrush?.(
+      state.entity.index,
+      state.offset,
+      origin,
+      getPlayer().eyeHeight(),
+    ) &&
+    moverPushClearsPlayer(state, state.offset, delta, origin)
+  ) {
+    return true;
+  }
   const footZ = origin[2] - getPlayer().eyeHeight();
   const verticalWindow = Math.abs(delta[2]) + GROUND_SNAP;
   const contact = currentCollisionWorld?.floorContactAt?.(
@@ -2275,6 +2539,40 @@ function shouldCarryPlayerWithMover(state: QuakeMoverState, delta: Vec3): boolea
   );
   if (contact) return contact.entityIndex === state.entity.index;
   return getPlayer().currentGroundEntity() === state.entity.index;
+}
+
+function playerStandingOnMover(
+  state: QuakeMoverState,
+  offset: Vec3,
+  delta: Vec3,
+  origin = controls.getOrigin(),
+): boolean {
+  const bounds = quakeMoverBoundsAtOffset(state, offset);
+  if (
+    origin[0] < bounds.minX - PLAYER_RADIUS ||
+    origin[0] > bounds.maxX + PLAYER_RADIUS ||
+    origin[1] < bounds.minY - PLAYER_RADIUS ||
+    origin[1] > bounds.maxY + PLAYER_RADIUS
+  ) return false;
+
+  const footZ = origin[2] - getPlayer().eyeHeight();
+  const contactWindow = Math.abs(delta[2]) + GROUND_SNAP;
+  return footZ >= bounds.maxZ - contactWindow &&
+    footZ <= bounds.maxZ + contactWindow;
+}
+
+function quakeMoverBoundsAtOffset(
+  state: QuakeMoverState,
+  offset: Vec3,
+): { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number } {
+  return {
+    minX: (state.model.mins.x - quakeModelPivot.x) * QUAKE_COLLISION_UNIT_SCALE + offset[0],
+    maxX: (state.model.maxs.x - quakeModelPivot.x) * QUAKE_COLLISION_UNIT_SCALE + offset[0],
+    minY: (state.model.mins.y - quakeModelPivot.y) * QUAKE_COLLISION_UNIT_SCALE + offset[1],
+    maxY: (state.model.maxs.y - quakeModelPivot.y) * QUAKE_COLLISION_UNIT_SCALE + offset[1],
+    minZ: (state.model.mins.z - quakeModelPivot.z) * QUAKE_COLLISION_UNIT_SCALE + offset[2],
+    maxZ: (state.model.maxs.z - quakeModelPivot.z) * QUAKE_COLLISION_UNIT_SCALE + offset[2],
+  };
 }
 
 function carryPlayerWithMover(state: QuakeMoverState, delta: Vec3): void {
@@ -2312,6 +2610,7 @@ function applyQuakeButtonLeafVisual(leaf: QuakeFaceLeaf, pressed: boolean): void
       leaf.element.style.removeProperty("animation-name");
       syncQuakeTextureAnimationLeafAnimationClock(leaf.element);
     }
+    syncQuakeRenderBundleDebugOutlineLeaves(leaf.element, [leaf.element]);
     return;
   }
   setQuakeTextureAnimationLeafActive(leaf.element, false);
@@ -2320,6 +2619,7 @@ function applyQuakeButtonLeafVisual(leaf: QuakeFaceLeaf, pressed: boolean): void
   leaf.element.style.backgroundPosition = leaf.baseBackgroundPosition;
   leaf.element.style.backgroundSize = leaf.baseBackgroundSize;
   leaf.element.style.removeProperty("background-repeat");
+  syncQuakeRenderBundleDebugOutlineLeaves(leaf.element, [leaf.element]);
 }
 
 function handleQuakeUsePointerDown(event: PointerEvent): void {
@@ -2420,6 +2720,7 @@ function setupQuakeMobileControls(): void {
     position: { left: "72px", top: "72px" },
     size: 108,
     threshold: QUAKE_MOBILE_MOVE_DEADZONE,
+    dynamicPage: true,
     restOpacity: 0.58,
     fadeTime: 80,
     color: {
@@ -2427,9 +2728,7 @@ function setupQuakeMobileControls(): void {
       back: "rgba(10, 9, 7, 0.34)",
     },
   });
-  quakeMobileMoveStick.on("move", (event) => {
-    setQuakeMobileMoveInput(event.data.vector.x, event.data.vector.y);
-  });
+  quakeMobileMoveStick.on("move", handleQuakeMobileMoveStickMove);
   quakeMobileMoveStick.on("end", clearQuakeMobileMoveInput);
   fireButton.addEventListener("pointerdown", handleQuakeMobileFirePointerDown);
 }
@@ -2451,6 +2750,29 @@ function syncQuakeMobileControlsAvailability(): void {
   } else {
     destroyQuakeMobileControls();
   }
+  syncQuakeStatsOverlayAvailability();
+}
+
+function handleQuakeMobileMoveStickMove(event: QuakeMobileMoveStickEvent): void {
+  const zone = quakeMobileMoveZone;
+  const rawPosition = event.data.raw?.position;
+  if (zone && rawPosition && Number.isFinite(rawPosition.x) && Number.isFinite(rawPosition.y)) {
+    const rect = zone.getBoundingClientRect();
+    const radius = Math.min(rect.width, rect.height) / 2;
+    if (radius > 0) {
+      const centerX = rect.left + window.scrollX + rect.width / 2;
+      const centerY = rect.top + window.scrollY + rect.height / 2;
+      setQuakeMobileMoveInput((rawPosition.x - centerX) / radius, (centerY - rawPosition.y) / radius);
+      return;
+    }
+  }
+
+  const vector = event.data.vector;
+  if (!vector) {
+    clearQuakeMobileMoveInput();
+    return;
+  }
+  setQuakeMobileMoveInput(vector.x, vector.y);
 }
 
 function setQuakeMobileMoveInput(x: number, y: number): void {
@@ -2462,13 +2784,18 @@ function setQuakeMobileMoveInput(x: number, y: number): void {
   const scale = length > 1 ? 1 / length : 1;
   quakeMobileMoveX = x * scale;
   quakeMobileMoveY = y * scale;
-  scheduleQuakeMobileMoveFrame();
+  if (isQuakeDebugFlyModeActive()) {
+    scheduleQuakeMobileMoveFrame();
+  } else {
+    player?.setAnalogMove(quakeMobileMoveX, quakeMobileMoveY);
+  }
 }
 
 function clearQuakeMobileMoveInput(): void {
   quakeMobileMoveX = 0;
   quakeMobileMoveY = 0;
   quakeMobileMoveTime = 0;
+  player?.setAnalogMove(0, 0);
   if (!quakeMobileMoveFrame) return;
   window.cancelAnimationFrame(quakeMobileMoveFrame);
   quakeMobileMoveFrame = 0;
@@ -2496,17 +2823,24 @@ function runQuakeMobileMoveFrame(now: number): void {
 
 function moveQuakePlayerFromMobileStick(dt: number): void {
   const origin = controls.getOrigin();
+  const rotX = isQuakeDebugFlyModeActive() ? scene.camera.state.rotX ?? 88 : 90;
   const rotY = scene.camera.state.rotY ?? 270;
-  const forward = forwardDirection(90, rotY);
-  const right: Vec3 = [forward[1], -forward[0], 0];
+  const forward = forwardDirection(rotX, rotY);
+  const horizontalForward = forwardDirection(90, rotY);
+  const right: Vec3 = [horizontalForward[1], -horizontalForward[0], 0];
   const step = QUAKE_MOBILE_MOVE_SPEED * dt;
   const nextOrigin: [number, number, number] = [
     origin[0] + (forward[0] * quakeMobileMoveY + right[0] * quakeMobileMoveX) * step,
     origin[1] + (forward[1] * quakeMobileMoveY + right[1] * quakeMobileMoveX) * step,
-    origin[2],
+    origin[2] + (isQuakeDebugFlyModeActive() ? forward[2] * quakeMobileMoveY * step : 0),
   ];
-  controls.setOrigin(nextOrigin);
-  getPlayer().syncCollision();
+  if (isQuakeDebugFlyModeActive()) {
+    getPlayer().setDebugOrigin(nextOrigin);
+    controls.update({ moveEnabled: false, jumpEnabled: false, crouchEnabled: false, gravity: 0 });
+    syncQuakeDebugFlyView(nextOrigin);
+  } else {
+    getPlayer().setAnalogMove(quakeMobileMoveX, quakeMobileMoveY);
+  }
 }
 
 function handleQuakeMobileFirePointerDown(event: PointerEvent): void {
@@ -2629,10 +2963,6 @@ function handleQuakeDisableDamageOptionChange(event: Event): void {
   setQuakeDamageDisabled((event.currentTarget as HTMLInputElement).checked);
 }
 
-function handleQuakeDebugModeOptionChange(event: Event): void {
-  setQuakeDebugMode((event.currentTarget as HTMLInputElement).checked);
-}
-
 function exitQuakeDebugToMainMenu(): void {
   setQuakeDebugMode(false);
   menu.showMainMenu();
@@ -2656,6 +2986,10 @@ function handleQuakeDebugHideTexturesOptionChange(event: Event): void {
 
 function handleQuakeDebugStaticLightingOptionChange(event: Event): void {
   setQuakeDebugStaticLighting((event.currentTarget as HTMLInputElement).checked);
+}
+
+function handleQuakeDebugFlyModeOptionChange(event: Event): void {
+  setQuakeDebugFlyMode((event.currentTarget as HTMLInputElement).checked);
 }
 
 function handleQuakeDebugShowOutlinesOptionChange(event: Event): void {
@@ -2751,13 +3085,21 @@ function applyQuakeUrlView(view: QuakeUrlView): void {
 }
 
 function showQuakeStatsOverlay(): void {
-  if (disposeStatsOverlay || quakeAppDisposed) return;
+  if (disposeStatsOverlay || quakeAppDisposed || quakeMobileControlsMedia.matches) return;
   disposeStatsOverlay = mountStatsOverlay();
 }
 
 function hideQuakeStatsOverlay(): void {
   disposeStatsOverlay?.();
   disposeStatsOverlay = null;
+}
+
+function syncQuakeStatsOverlayAvailability(): void {
+  if (quakeAppDisposed || quakeAppLoading || quakeMobileControlsMedia.matches) {
+    hideQuakeStatsOverlay();
+    return;
+  }
+  showQuakeStatsOverlay();
 }
 
 function mountStatsOverlay(): () => void {
@@ -2919,6 +3261,7 @@ async function loadQuakeMap(mapName: string, options: QuakeMapLoadOptions = {}):
     if (quakeAppDisposed) return;
     progress.setStatus(`Loading ${nextMapName.toUpperCase()} models`);
     await preloadQuakeMapModelRenderBundleAssets(nextMapName, progress);
+    await preloadQuakeSceneModelRenderBundleAssets(result, progress);
     if (quakeAppDisposed) return;
     currentMapName = nextMapName;
     menu.setCurrentLevel(nextMapName);
@@ -3107,6 +3450,7 @@ function installQuakeAppDebugHooks(): void {
     loadMap: loadQuakeMap,
     mapExists: (mapName) => Boolean(quakeSceneUrl(mapName)),
     playerEyeHeight: () => getPlayer().eyeHeight(),
+    playerMoveDebug: () => getPlayer().debugMovement(),
     pointToPoly: quakePointToPoly,
     setCollisionBypassUntil: (until) => {
       quakeDebugCollisionBypassUntil = until;
@@ -3147,6 +3491,45 @@ async function preloadQuakeMapModelRenderBundleAssets(
     return;
   }
   await preloadQuakePickupModelRenderBundleAssets(library, modelPaths, progress);
+}
+
+async function preloadQuakeSceneModelRenderBundleAssets(
+  result: QuakeScene,
+  progress?: QuakeLoadingProgressTracker,
+): Promise<void> {
+  const library = currentPickupModelLibrary;
+  if (!library) return;
+  const modelPaths = new Set<string>();
+  const runtime = result.entityManifest.runtime;
+  const entitiesByIndex = new Map(result.entities.map((entity) => [entity.index, entity]));
+  const pickupEntities = quakeSceneEntitiesForIndexes(entitiesByIndex, runtime.pickupEntityIndexes);
+  for (const entity of pickupEntities) {
+    if (!shouldSpawnQuakeEntityForCurrentGame(entity)) continue;
+    const modelPath = quakePickupModelPath(entity, currentProgramMetadata);
+    if (modelPath) modelPaths.add(modelPath);
+  }
+  const shootableEntities = quakeSceneEntitiesForIndexes(entitiesByIndex, runtime.shootableEntityIndexes);
+  for (const entity of shootableEntities) {
+    if (!shouldSpawnQuakeEntityForCurrentGame(entity)) continue;
+    const modelPath = quakeShootableModelPath(entity, currentProgramMetadata);
+    if (modelPath) modelPaths.add(modelPath);
+  }
+  await preloadQuakePickupModelRenderBundleAssets(library, modelPaths, progress);
+}
+
+function quakeSceneEntitiesForIndexes(
+  entitiesByIndex: ReadonlyMap<number, QuakeEntity>,
+  indexes: readonly number[],
+): QuakeEntity[] {
+  const out: QuakeEntity[] = [];
+  const seen = new Set<number>();
+  for (const index of indexes) {
+    if (seen.has(index)) continue;
+    seen.add(index);
+    const entity = entitiesByIndex.get(index);
+    if (entity) out.push(entity);
+  }
+  return out;
 }
 
 async function preloadQuakePickupModelRenderBundleAssets(
@@ -3321,6 +3704,7 @@ async function loadQuake(): Promise<void> {
   if (quakeAppDisposed) return;
   progress.setStatus(`Loading ${startMap.toUpperCase()} models`);
   await preloadQuakeMapModelRenderBundleAssets(startMap, progress);
+  await preloadQuakeSceneModelRenderBundleAssets(result, progress);
   if (quakeAppDisposed) return;
   currentMapName = startMap;
   menu.setCurrentLevel(currentMapName);
@@ -3395,13 +3779,18 @@ function handleWindowKeyDown(event: KeyboardEvent): void {
     return;
   }
   if (menu.handleKeyDown(event)) {
+    clearQuakeMoveInput();
     clearQuakeCrouchInput();
     clearQuakeAttackInput();
+    return;
+  }
+  if (handleQuakeDebugFlyKey(event, true)) {
     return;
   }
   if (shouldPreventQuakeGameplayKeyDefault(event)) {
     event.preventDefault();
   }
+  handleQuakeMoveKey(event, true);
   handleQuakeCrouchKey(event, true);
   if (event.code === "KeyF") {
     event.preventDefault();
@@ -3410,9 +3799,13 @@ function handleWindowKeyDown(event: KeyboardEvent): void {
 }
 
 function handleWindowKeyUp(event: KeyboardEvent): void {
+  if (handleQuakeDebugFlyKey(event, false)) {
+    return;
+  }
   if (shouldPreventQuakeGameplayKeyDefault(event)) {
     event.preventDefault();
   }
+  handleQuakeMoveKey(event, false);
   handleQuakeCrouchKey(event, false);
   if (QUAKE_MOVE_KEY_CODES.has(event.code) && !isEditableKeyboardTarget(event.target)) {
     viewmodel.syncTransform();
@@ -3421,6 +3814,8 @@ function handleWindowKeyUp(event: KeyboardEvent): void {
 
 function handleWindowBlur(): void {
   clearQuakeAttackInput();
+  clearQuakeDebugFlyInput();
+  clearQuakeMoveInput();
   clearQuakeMobileMoveInput();
   clearQuakeWeaponViewPunch();
   clearQuakeCrouchInput();
@@ -3432,6 +3827,7 @@ function handleViewportResize(): void {
 
 function syncPlayerCollision(): void {
   if (import.meta.env.DEV && performance.now() < quakeDebugCollisionBypassUntil) return;
+  if (isQuakeDebugFlyModeActive()) return;
   getPlayer().syncCollision();
 }
 
@@ -3447,7 +3843,9 @@ function disposeQuakeApp(): void {
   window.visualViewport?.removeEventListener("resize", handleViewportResize);
   quakeMobileControlsMedia.removeEventListener("change", syncQuakeMobileControlsAvailability);
   host.removeEventListener("pointerdown", handleQuakeUsePointerDown, { capture: true });
+  clearQuakeMoveInput();
   clearQuakeAttackInput();
+  clearQuakeDebugFlyInput();
   clearQuakeWeaponViewPunch(false);
   clearQuakeBonusOverlay();
   destroyQuakeMobileControls();
@@ -3459,10 +3857,10 @@ function disposeQuakeApp(): void {
   disableSoundOption?.removeEventListener("change", handleQuakeDisableSoundOptionChange);
   disableEnemiesOption?.removeEventListener("change", handleQuakeDisableEnemiesOptionChange);
   disableDamageOption?.removeEventListener("change", handleQuakeDisableDamageOptionChange);
-  debugModeOption?.removeEventListener("change", handleQuakeDebugModeOptionChange);
   debugPanelClose?.removeEventListener("click", handleQuakeDebugCloseClick);
   debugHideTexturesOption?.removeEventListener("change", handleQuakeDebugHideTexturesOptionChange);
   debugStaticLightingOption?.removeEventListener("change", handleQuakeDebugStaticLightingOptionChange);
+  debugFlyModeOption?.removeEventListener("change", handleQuakeDebugFlyModeOptionChange);
   debugShowOutlinesOption?.removeEventListener("change", handleQuakeDebugShowOutlinesOptionChange);
   debugShowLabelsOption?.removeEventListener("change", handleQuakeDebugShowLabelsOptionChange);
   invertMouseOption?.removeEventListener("change", handleQuakeInvertMouseOptionChange);
@@ -3493,10 +3891,10 @@ host.addEventListener("pointerdown", handleQuakeUsePointerDown, { capture: true 
 disableSoundOption?.addEventListener("change", handleQuakeDisableSoundOptionChange);
 disableEnemiesOption?.addEventListener("change", handleQuakeDisableEnemiesOptionChange);
 disableDamageOption?.addEventListener("change", handleQuakeDisableDamageOptionChange);
-debugModeOption?.addEventListener("change", handleQuakeDebugModeOptionChange);
 debugPanelClose?.addEventListener("click", handleQuakeDebugCloseClick);
 debugHideTexturesOption?.addEventListener("change", handleQuakeDebugHideTexturesOptionChange);
 debugStaticLightingOption?.addEventListener("change", handleQuakeDebugStaticLightingOptionChange);
+debugFlyModeOption?.addEventListener("change", handleQuakeDebugFlyModeOptionChange);
 debugShowOutlinesOption?.addEventListener("change", handleQuakeDebugShowOutlinesOptionChange);
 debugShowLabelsOption?.addEventListener("change", handleQuakeDebugShowLabelsOptionChange);
 invertMouseOption?.addEventListener("change", handleQuakeInvertMouseOptionChange);

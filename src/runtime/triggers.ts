@@ -89,6 +89,10 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
       options.activateEntity(entity.index);
       return false;
     }
+    if (trigger.contact === "plat-trigger" && entity.classname === "func_plat") {
+      options.activateEntity(entity.index);
+      return false;
+    }
     if (usedTriggers.has(entity.index)) return false;
     if (!triggerFacingMatches(entity, movement)) return false;
     if (isShootableTrigger(entity)) return false;
@@ -120,7 +124,7 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
   };
 
   const isContinuousTouchTrigger = (trigger: QuakeTouchedTrigger): boolean => {
-    return trigger.classname === "trigger_push";
+    return trigger.classname === "trigger_push" || trigger.contact === "plat-trigger";
   };
 
   const activateCounterEntity = (entity: QuakeEntity): void => {

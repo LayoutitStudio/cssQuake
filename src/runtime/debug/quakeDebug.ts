@@ -80,6 +80,7 @@ export interface QuakeDebugRuntime {
   loadMap(mapName: string): Promise<void>;
   mapExists(mapName: string): boolean;
   playerEyeHeight(): number;
+  playerMoveDebug(): Record<string, unknown>;
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
   setCollisionBypassUntil(until: number): void;
   shootablesStats(): QuakeShootablesDebugStats;
@@ -311,6 +312,7 @@ function buildQuakeDebugStats(runtime: QuakeDebugRuntime): Record<string, unknow
     fireballs: runtime.fireballsCount(),
     playerHealth: inventory.health,
     playerArmor: inventory.armor,
+    playerMove: runtime.playerMoveDebug(),
     playerShells: inventory.shells,
     playerNails: inventory.nails,
     playerRockets: inventory.rockets,

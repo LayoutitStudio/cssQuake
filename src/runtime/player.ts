@@ -14,6 +14,15 @@ import type { QuakeHazardDamage } from "./hazards";
 import { markQuakeTrace } from "./debug/traceMarks";
 import { createInitialInventory, type QuakePlayerInventory } from "./hud";
 import { distanceSq3, subtractVec3 } from "./math";
+import {
+  QUAKE_PMOVE_BACK_SPEED,
+  QUAKE_PMOVE_DT_CLAMP,
+  QUAKE_PMOVE_FORWARD_SPEED,
+  QUAKE_PMOVE_MAX_SPEED,
+  QUAKE_PMOVE_SIDE_SPEED,
+  updateQuakePlayerPhysics,
+  type QuakePlayerMoveCommand,
+} from "./playerPhysics";
 
 const FALL_DT_CLAMP = 0.05;
 const PUSH_DT_CLAMP = 0.035;
@@ -24,11 +33,40 @@ const PUSH_MAX_SPEED = 2000 * QUAKE_COLLISION_UNIT_SCALE;
 const PUSH_STOP_SPEED = 16 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_DAMAGE_INTERVAL_MS = 1000;
 const QUAKE_DAMAGE_FLASH_MS = 260;
+const PLAYER_MOVE_STOP_SPEED = 1 * QUAKE_COLLISION_UNIT_SCALE;
+const PLAYER_MOVE_STOP_SPEED_SQ = PLAYER_MOVE_STOP_SPEED * PLAYER_MOVE_STOP_SPEED;
+const PLAYER_MOVE_ANALOG_DEADZONE = 0.001;
+const QUAKE_FORWARD_KEY_CODES = new Set(["ArrowUp", "KeyW"]);
+const QUAKE_BACK_KEY_CODES = new Set(["ArrowDown", "KeyS"]);
+const QUAKE_LEFT_KEY_CODES = new Set(["ArrowLeft", "KeyA"]);
+const QUAKE_RIGHT_KEY_CODES = new Set(["ArrowRight", "KeyD"]);
+const QUAKE_JUMP_KEY_CODES = new Set(["Space"]);
+const QUAKE_MOVE_FORWARD_BIT = 1 << 0;
+const QUAKE_MOVE_BACK_BIT = 1 << 1;
+const QUAKE_MOVE_LEFT_BIT = 1 << 2;
+const QUAKE_MOVE_RIGHT_BIT = 1 << 3;
+const QUAKE_MOVE_JUMP_BIT = 1 << 4;
+const QUAKE_MOVE_DIRECTION_BITS =
+  QUAKE_MOVE_FORWARD_BIT |
+  QUAKE_MOVE_BACK_BIT |
+  QUAKE_MOVE_LEFT_BIT |
+  QUAKE_MOVE_RIGHT_BIT;
+
+function quakeMoveKeyBit(code: string): number {
+  if (QUAKE_FORWARD_KEY_CODES.has(code)) return QUAKE_MOVE_FORWARD_BIT;
+  if (QUAKE_BACK_KEY_CODES.has(code)) return QUAKE_MOVE_BACK_BIT;
+  if (QUAKE_LEFT_KEY_CODES.has(code)) return QUAKE_MOVE_LEFT_BIT;
+  if (QUAKE_RIGHT_KEY_CODES.has(code)) return QUAKE_MOVE_RIGHT_BIT;
+  if (QUAKE_JUMP_KEY_CODES.has(code)) return QUAKE_MOVE_JUMP_BIT;
+  return 0;
+}
 
 export interface QuakePlayerControllerOptions {
   activateSolidTouch: (touch: QuakeTouchedTrigger) => void;
+  canUseGameplayInput: () => boolean;
   canTakeDamage: () => boolean;
   controls: PolyFirstPersonControlsHandle;
+  getYaw: () => number;
   getCollisionWorld: () => QuakeCollisionWorld | null;
   getCurrentScene: () => QuakeScene | null;
   gravity: number;
@@ -55,11 +93,14 @@ export interface QuakePlayerControllerOptions {
 
 export interface QuakePlayerController {
   carryWithMover: (delta: Vec3, entityIndex: number) => void;
+  clearMoveInput: () => void;
   clearLevelState: () => void;
   currentGroundEntity: () => number | null;
   currentOrigin: () => [number, number, number];
   damage: (amount: number) => boolean;
+  debugMovement: () => QuakePlayerMovementDebug;
   eyeHeight: () => number;
+  handleMoveKey: (code: string, pressed: boolean) => boolean;
   inventory: () => QuakePlayerInventory;
   isCrouching: () => boolean;
   isDead: () => boolean;
@@ -68,6 +109,7 @@ export interface QuakePlayerController {
   resetForSceneDispose: () => void;
   respawn: () => void;
   spawn: (spawn: QuakeScene["spawn"]) => void;
+  setAnalogMove: (x: number, y: number) => void;
   setCrouching: (crouching: boolean) => void;
   setDebugOrigin: (origin: [number, number, number]) => void;
   syncCollision: () => void;
@@ -77,6 +119,19 @@ export interface QuakePlayerController {
 
 export interface QuakePlayerDamageFeedback {
   amount: number;
+}
+
+export interface QuakePlayerMovementDebug {
+  analogX: number;
+  analogY: number;
+  grounded: boolean;
+  groundZ: number;
+  jumpQueued: boolean;
+  jumpReleased: boolean;
+  keys: string[];
+  lastStep: Record<string, unknown> | null;
+  moveFrameActive: boolean;
+  velocity: Vec3;
 }
 
 export function createQuakePlayerController(options: QuakePlayerControllerOptions): QuakePlayerController {
@@ -93,6 +148,33 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   let pushFrame: number | null = null;
   let pushTime = 0;
   let pushVelocity: Vec3 = [0, 0, 0];
+  let moveFrame: number | null = null;
+  let moveTime = 0;
+  let moveVelocity: Vec3 = [0, 0, 0];
+  let moveKeyBits = 0;
+  let moveKeyCodesDown = new Set<string>();
+  let moveAnalogX = 0;
+  let moveAnalogY = 0;
+  let jumpQueued = false;
+  let jumpReleased = true;
+  let currentGrounded = true;
+  let lastMoveStepDebug: Record<string, unknown> | null = null;
+  const moveCommand: QuakePlayerMoveCommand = {
+    forwardMove: 0,
+    jump: false,
+    sideMove: 0,
+    yawDegrees: 270,
+  };
+  const moveStepDebug: Record<string, unknown> = {};
+  const playerControlUpdate: Parameters<typeof options.controls.update>[0] = {
+    groundZ: currentGroundZ,
+    eyeHeight: currentEyeHeight,
+    moveEnabled: false,
+    jumpEnabled: false,
+    crouchEnabled: false,
+    jumpVelocity: options.jumpVelocity,
+    gravity: 0,
+  };
   let inventory = createInitialInventory();
   let nextDamageAt = 0;
   let hazardTimer: number | null = null;
@@ -152,12 +234,16 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     dead = false;
     clearHazardTimer();
     clearDamageFlash();
+    clearMoveInput();
+    stopMoveFrame();
     stopFalling();
     stopPush();
     inventory = createInitialInventory();
     standingEyeHeight = 1.72;
     currentEyeHeight = standingEyeHeight;
     currentCrouching = false;
+    currentGrounded = true;
+    moveVelocity = [0, 0, 0];
     nextDamageAt = 0;
     lastGroundEntityIndex = null;
     lastValidOrigin = [0, 0, 1.72];
@@ -168,6 +254,9 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
 
   const spawn = (spawn: QuakeScene["spawn"]): void => {
     dead = false;
+    clearMoveInput();
+    stopMoveFrame();
+    moveVelocity = [0, 0, 0];
     const collisionWorld = options.getCollisionWorld();
     standingEyeHeight = spawn.eyeHeight;
     currentEyeHeight = standingEyeHeight;
@@ -175,7 +264,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     currentGroundZ = collisionWorld?.floorAt(
       spawn.origin[0],
       spawn.origin[1],
-      spawn.groundZ + STEP_HEIGHT,
+      spawn.groundZ + STEP_HEIGHT + GROUND_SNAP,
       -Infinity,
     ) ?? spawn.groundZ;
     const origin: [number, number, number] = [
@@ -194,6 +283,9 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     clearDamageFlash();
     nextDamageAt = 0;
     options.onHazardState(null);
+    clearMoveInput();
+    stopMoveFrame();
+    moveVelocity = [0, 0, 0];
     stopFalling();
     stopPush();
 
@@ -207,7 +299,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     const groundZ = collisionWorld?.floorAt(
       eyeOrigin[0],
       eyeOrigin[1],
-      eyeOrigin[2] - currentEyeHeight + STEP_HEIGHT,
+      eyeOrigin[2] - currentEyeHeight + STEP_HEIGHT + GROUND_SNAP,
       eyeOrigin[2] - currentEyeHeight - STEP_HEIGHT,
     ) ?? eyeOrigin[2] - currentEyeHeight;
     setOrigin([eyeOrigin[0], eyeOrigin[1], groundZ + currentEyeHeight], groundZ);
@@ -215,6 +307,9 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   };
 
   const setDebugOrigin = (origin: [number, number, number]): void => {
+    clearMoveInput();
+    stopMoveFrame();
+    moveVelocity = [0, 0, 0];
     stopFalling();
     stopPush();
     setOrigin(origin, origin[2] - currentEyeHeight);
@@ -256,6 +351,19 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     options.syncCrosshairTarget();
   };
 
+  const debugMovement = (): QuakePlayerMovementDebug => ({
+    analogX: moveAnalogX,
+    analogY: moveAnalogY,
+    grounded: currentGrounded,
+    groundZ: currentGroundZ,
+    jumpQueued,
+    jumpReleased,
+    keys: [...moveKeyCodesDown],
+    moveFrameActive: moveFrame !== null,
+    lastStep: lastMoveStepDebug,
+    velocity: [...moveVelocity] as Vec3,
+  });
+
   const applyDamage = (amount: number): boolean => {
     if (amount <= 0 || dead || !options.canTakeDamage()) return false;
     const damage = Math.round(amount);
@@ -272,10 +380,13 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     if (dead) return;
     dead = true;
     clearHazardTimer();
+    clearMoveInput();
+    stopMoveFrame();
+    moveVelocity = [0, 0, 0];
     stopFalling();
     stopPush();
     options.onHazardState(null);
-    options.controls.update({ lookEnabled: false, moveEnabled: false, jumpEnabled: false });
+    options.controls.update({ lookEnabled: false, moveEnabled: false, jumpEnabled: false, gravity: 0 });
     markQuakeTrace("player-death", { health: inventory.health });
     options.onDeath();
   };
@@ -286,6 +397,9 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     dead = false;
     clearHazardTimer();
     clearDamageFlash();
+    clearMoveInput();
+    stopMoveFrame();
+    moveVelocity = [0, 0, 0];
     nextDamageAt = performance.now() + QUAKE_DAMAGE_INTERVAL_MS;
     stopFalling();
     stopPush();
@@ -303,32 +417,223 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     markQuakeTrace("player-respawn", { x: origin[0], y: origin[1], z: origin[2] });
   };
 
+  const handleMoveKey = (code: string, pressed: boolean): boolean => {
+    const keyBit = quakeMoveKeyBit(code);
+    if (!keyBit) return false;
+    if (pressed) {
+      if (keyBit === QUAKE_MOVE_JUMP_BIT) {
+        if (jumpReleased) {
+          jumpQueued = true;
+          jumpReleased = false;
+        }
+      }
+      moveKeyBits |= keyBit;
+      moveKeyCodesDown.add(code);
+      scheduleMoveFrame();
+    } else {
+      moveKeyBits &= ~keyBit;
+      moveKeyCodesDown.delete(code);
+      if (keyBit === QUAKE_MOVE_JUMP_BIT) jumpReleased = true;
+    }
+    return true;
+  };
+
+  const clearMoveInput = (): void => {
+    if (
+      moveKeyBits === 0 &&
+      Math.abs(moveAnalogX) <= PLAYER_MOVE_ANALOG_DEADZONE &&
+      Math.abs(moveAnalogY) <= PLAYER_MOVE_ANALOG_DEADZONE &&
+      !jumpQueued &&
+      jumpReleased
+    ) return;
+    moveKeyBits = 0;
+    moveKeyCodesDown.clear();
+    moveAnalogX = 0;
+    moveAnalogY = 0;
+    jumpQueued = false;
+    jumpReleased = true;
+  };
+
+  const setAnalogMove = (x: number, y: number): void => {
+    const clampedX = Math.max(-1, Math.min(1, Number.isFinite(x) ? x : 0));
+    const clampedY = Math.max(-1, Math.min(1, Number.isFinite(y) ? y : 0));
+    moveAnalogX = Math.abs(clampedX) <= PLAYER_MOVE_ANALOG_DEADZONE ? 0 : clampedX;
+    moveAnalogY = Math.abs(clampedY) <= PLAYER_MOVE_ANALOG_DEADZONE ? 0 : clampedY;
+    if (moveAnalogX || moveAnalogY) scheduleMoveFrame();
+  };
+
+  function stopMoveFrame(): void {
+    if (moveFrame !== null) {
+      window.cancelAnimationFrame(moveFrame);
+      moveFrame = null;
+    }
+    moveTime = 0;
+  }
+
+  function scheduleMoveFrame(): void {
+    if (moveFrame !== null || dead || pushFrame !== null || !options.getCollisionWorld()) return;
+    moveFrame = window.requestAnimationFrame(tickMove);
+  }
+
+  function hasMoveInput(): boolean {
+    return hasDirectionalMoveInput() ||
+      Math.abs(moveAnalogX) > PLAYER_MOVE_ANALOG_DEADZONE ||
+      Math.abs(moveAnalogY) > PLAYER_MOVE_ANALOG_DEADZONE ||
+      jumpQueued;
+  }
+
+  function hasDirectionalMoveInput(): boolean {
+    return (moveKeyBits & QUAKE_MOVE_DIRECTION_BITS) !== 0;
+  }
+
+  function hasMoveMotion(): boolean {
+    return !currentGrounded ||
+      moveVelocity[0] * moveVelocity[0] + moveVelocity[1] * moveVelocity[1] > PLAYER_MOVE_STOP_SPEED_SQ ||
+      Math.abs(moveVelocity[2]) > PLAYER_MOVE_STOP_SPEED ||
+      hasMoveInput();
+  }
+
+  function updateCurrentMoveCommand(): QuakePlayerMoveCommand {
+    let forwardMove = 0;
+    let sideMove = 0;
+    if (moveKeyBits & QUAKE_MOVE_FORWARD_BIT) forwardMove += QUAKE_PMOVE_FORWARD_SPEED;
+    if (moveKeyBits & QUAKE_MOVE_BACK_BIT) forwardMove -= QUAKE_PMOVE_BACK_SPEED;
+    if (moveKeyBits & QUAKE_MOVE_RIGHT_BIT) sideMove += QUAKE_PMOVE_SIDE_SPEED;
+    if (moveKeyBits & QUAKE_MOVE_LEFT_BIT) sideMove -= QUAKE_PMOVE_SIDE_SPEED;
+    forwardMove += moveAnalogY * QUAKE_PMOVE_MAX_SPEED;
+    sideMove += moveAnalogX * QUAKE_PMOVE_MAX_SPEED;
+    moveCommand.forwardMove = forwardMove;
+    moveCommand.jump = jumpQueued;
+    moveCommand.sideMove = sideMove;
+    moveCommand.yawDegrees = options.getYaw();
+    return moveCommand;
+  }
+
+  const tickMove = (frameNow: number): void => {
+    moveFrame = null;
+    const collisionWorld = options.getCollisionWorld();
+    if (dead || pushFrame !== null || !collisionWorld || !options.canUseGameplayInput()) {
+      moveTime = 0;
+      return;
+    }
+    if (!hasMoveMotion()) {
+      moveTime = 0;
+      moveVelocity[0] = 0;
+      moveVelocity[1] = 0;
+      moveVelocity[2] = 0;
+      return;
+    }
+
+    const dt = Math.min(QUAKE_PMOVE_DT_CLAMP, moveTime ? (frameNow - moveTime) / 1000 : 0.0167);
+    moveTime = frameNow;
+    const origin = options.controls.getOrigin();
+    const footZ = origin[2] - currentEyeHeight;
+    const snapGroundZ = !currentGrounded && moveVelocity[2] <= 0
+      ? collisionWorld.floorAt(origin[0], origin[1], footZ + GROUND_SNAP, footZ - GROUND_SNAP)
+      : null;
+    const groundedForPhysics = currentGrounded || snapGroundZ !== null;
+    if (snapGroundZ !== null) currentGroundZ = snapGroundZ;
+    currentGrounded = groundedForPhysics;
+    const command = updateCurrentMoveCommand();
+    jumpQueued = false;
+    const physicsGrounded = updateQuakePlayerPhysics(
+      moveVelocity,
+      command,
+      groundedForPhysics,
+      dt,
+      options.gravity,
+      options.jumpVelocity,
+    );
+    currentGrounded = physicsGrounded;
+
+    const target: [number, number, number] = [
+      origin[0] + moveVelocity[0] * dt,
+      origin[1] + moveVelocity[1] * dt,
+      origin[2] + moveVelocity[2] * dt,
+    ];
+    const collisionResolved = collisionWorld.resolve(target, origin, currentEyeHeight, currentGroundZ, !physicsGrounded);
+    let resolved = options.resolveShootablesCollision(
+      collisionResolved,
+      origin,
+      currentEyeHeight,
+    );
+    let upwardGroundSnapIgnored = false;
+    if (!physicsGrounded && moveVelocity[2] > 0 && resolved.grounded) {
+      upwardGroundSnapIgnored = true;
+      resolved = {
+        ...resolved,
+        grounded: false,
+        groundZ: currentGroundZ,
+        origin: target,
+        touches: resolved.touches?.filter((touch) => touch.contact !== "floor"),
+      };
+    }
+    moveStepDebug.commandJump = command.jump;
+    moveStepDebug.collisionGrounded = collisionResolved.grounded;
+    moveStepDebug.collisionZ = collisionResolved.origin[2];
+    moveStepDebug.dt = dt;
+    moveStepDebug.groundedForPhysics = groundedForPhysics;
+    moveStepDebug.groundSnapZ = snapGroundZ;
+    moveStepDebug.physicsGrounded = physicsGrounded;
+    moveStepDebug.physicsVelocityZ = moveVelocity[2];
+    moveStepDebug.resolvedGrounded = resolved.grounded;
+    moveStepDebug.resolvedZ = resolved.origin[2];
+    moveStepDebug.targetZ = target[2];
+    moveStepDebug.upwardGroundSnapIgnored = upwardGroundSnapIgnored;
+    lastMoveStepDebug = moveStepDebug;
+    const intendedDeltaZ = target[2] - origin[2];
+    const actualDeltaX = resolved.origin[0] - origin[0];
+    const actualDeltaY = resolved.origin[1] - origin[1];
+    const actualDeltaZ = resolved.origin[2] - origin[2];
+    if (dt > 0) {
+      moveVelocity[0] = actualDeltaX / dt;
+      moveVelocity[1] = actualDeltaY / dt;
+    }
+    if (resolved.grounded) {
+      moveVelocity[2] = 0;
+    } else if (moveVelocity[2] > 0 && actualDeltaZ < intendedDeltaZ * 0.25) {
+      moveVelocity[2] = 0;
+    }
+
+    applyCollisionResult(resolved, origin, false);
+    if (moveFrame === null && hasMoveMotion()) scheduleMoveFrame();
+  };
+
   const syncCollision = (): void => {
     if (dead) return;
     const collisionWorld = options.getCollisionWorld();
-    if (syncingCollision || !collisionWorld) return;
+    if (syncingCollision || moveFrame !== null || pushFrame !== null || fallingFrame !== null || !collisionWorld) return;
     const origin = options.controls.getOrigin();
     const resolved = options.resolveShootablesCollision(
-      collisionWorld.resolve(origin, lastValidOrigin, currentEyeHeight, currentGroundZ),
+      collisionWorld.resolve(origin, lastValidOrigin, currentEyeHeight, currentGroundZ, !currentGrounded),
       lastValidOrigin,
       currentEyeHeight,
     );
-    const moved = distanceSq3(origin, resolved.origin) > COLLISION_EPSILON;
+    applyCollisionResult(resolved, origin);
+  };
+
+  function applyCollisionResult(
+    resolved: { origin: [number, number, number]; groundZ: number; grounded: boolean; touches?: QuakeTouchedTrigger[] },
+    previousOrigin: [number, number, number],
+    jumpEnabled = false,
+  ): void {
+    const moved = distanceSq3(previousOrigin, resolved.origin) > COLLISION_EPSILON;
     const groundChanged = Math.abs(resolved.groundZ - currentGroundZ) > COLLISION_EPSILON;
+    const groundedChanged = currentGrounded !== resolved.grounded;
 
-    if (pushFrame === null) {
-      if (resolved.grounded) {
-        stopFalling();
-      } else if (origin[2] - currentEyeHeight <= currentGroundZ + GROUND_SNAP) {
-        startFalling();
-      }
+    currentGrounded = resolved.grounded;
+    if (resolved.grounded) {
+      stopFalling();
+    } else if (pushFrame === null) {
+      scheduleMoveFrame();
     }
 
-    if (moved || groundChanged) {
-      setOrigin(resolved.origin, resolved.groundZ);
+    if (moved || groundChanged || groundedChanged) {
+      setOrigin(resolved.origin, resolved.groundZ, jumpEnabled, resolved.grounded);
+    } else {
+      lastValidOrigin = resolved.origin;
     }
 
-    lastValidOrigin = resolved.origin;
     if (resolved.grounded) lastSafeOrigin = resolved.origin;
     lastGroundEntityIndex = resolved.touches?.find((touch) => touch.contact === "floor")?.entityIndex ?? null;
     for (const touch of resolved.touches ?? []) {
@@ -342,7 +647,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     options.syncViewmodel();
     options.syncWorldVisibility();
     options.syncCrosshairTarget();
-  };
+  }
 
   const scheduleHazardTick = (delay: number): void => {
     if (hazardTimer !== null) return;
@@ -386,9 +691,12 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     clearHazardTimer();
     clearDamageFlash();
     options.onHazardState(null);
+    clearMoveInput();
+    stopMoveFrame();
+    moveVelocity = [0, 0, 0];
     stopFalling();
     stopPush();
-    options.controls.update({ moveEnabled: false, jumpEnabled: false });
+    options.controls.update({ moveEnabled: false, jumpEnabled: false, crouchEnabled: false, gravity: 0 });
     options.controls.unlock();
   };
 
@@ -404,9 +712,10 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
       velocity[2] * scale,
     ];
     pushTime = 0;
+    stopMoveFrame();
     stopFalling();
     syncingCollision = true;
-    options.controls.update({ jumpEnabled: false });
+    options.controls.update({ moveEnabled: false, jumpEnabled: false, crouchEnabled: false, gravity: 0 });
     syncingCollision = false;
     if (pushFrame === null) {
       pushFrame = window.requestAnimationFrame(tickPush);
@@ -422,8 +731,9 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     pushTime = 0;
     pushVelocity = [0, 0, 0];
     syncingCollision = true;
-    options.controls.update({ jumpEnabled: true, jumpVelocity: options.jumpVelocity, gravity: options.gravity });
+    options.controls.update({ moveEnabled: false, jumpEnabled: false, crouchEnabled: false, gravity: 0 });
     syncingCollision = false;
+    if (hasMoveMotion()) scheduleMoveFrame();
   }
 
   const startFalling = (): void => {
@@ -431,7 +741,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     fallingTime = 0;
     fallingVelocity = 0;
     syncingCollision = true;
-    options.controls.update({ jumpEnabled: false });
+    options.controls.update({ moveEnabled: false, jumpEnabled: false, crouchEnabled: false, gravity: 0 });
     syncingCollision = false;
     fallingFrame = window.requestAnimationFrame(tickFalling);
   };
@@ -444,7 +754,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     fallingTime = 0;
     fallingVelocity = 0;
     syncingCollision = true;
-    options.controls.update({ jumpEnabled: true, jumpVelocity: options.jumpVelocity, gravity: options.gravity });
+    options.controls.update({ moveEnabled: false, jumpEnabled: false, crouchEnabled: false, gravity: 0 });
     syncingCollision = false;
   }
 
@@ -572,13 +882,12 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     const previousGroundZ = currentGroundZ;
     syncingCollision = true;
     currentGroundZ = groundZ;
-    options.controls.update({
-      groundZ: currentGroundZ,
-      eyeHeight: currentEyeHeight,
-      jumpEnabled,
-      jumpVelocity: options.jumpVelocity,
-      gravity: options.gravity,
-    });
+    currentGrounded = landed;
+    const controlsGroundZ = landed ? currentGroundZ : origin[2] - currentEyeHeight;
+    playerControlUpdate.groundZ = controlsGroundZ;
+    playerControlUpdate.eyeHeight = currentEyeHeight;
+    playerControlUpdate.jumpVelocity = options.jumpVelocity;
+    options.controls.update(playerControlUpdate);
     options.controls.setOrigin(origin);
     syncingCollision = false;
     lastValidOrigin = origin;
@@ -619,11 +928,14 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
 
   return {
     carryWithMover,
+    clearMoveInput,
     clearLevelState,
     currentGroundEntity: () => lastGroundEntityIndex,
     currentOrigin: () => lastValidOrigin,
     damage: applyDamage,
+    debugMovement,
     eyeHeight: () => currentEyeHeight,
+    handleMoveKey,
     inventory: () => inventory,
     isCrouching: () => currentCrouching,
     isDead: () => dead,
@@ -632,6 +944,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     resetForSceneDispose,
     respawn,
     spawn,
+    setAnalogMove,
     setCrouching,
     setDebugOrigin,
     syncCollision,

@@ -49,6 +49,7 @@ export interface QuakeCollisionWorld {
     previous: [number, number, number],
     eyeHeight: number,
     currentGroundZ: number,
+    forceAir?: boolean,
   ): QuakeCollisionResult;
 }
 
@@ -121,7 +122,7 @@ export interface QuakeTouchedTrigger {
   entityIndex: number;
   modelIndex: number;
   classname: string;
-  contact?: "trigger" | "door-trigger" | "solid" | "floor";
+  contact?: "trigger" | "door-trigger" | "plat-trigger" | "solid" | "floor";
   target?: string;
   targetname?: string;
 }
@@ -522,6 +523,7 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
     previous: [number, number, number],
     eyeHeight: number,
     currentGroundZ: number,
+    forceAir = false,
   ): QuakeCollisionResult {
     currentTouches = new Map();
     const previousHull = eyeToHullOrigin(previous, eyeHeight);
@@ -533,7 +535,7 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
     const steps = Math.max(1, Math.ceil(distance / COLLISION_MAX_STEP));
     let hullOrigin = previousHull;
     let groundZ = currentGroundZ;
-    let grounded = Math.abs(hullOriginToFootZ(hullOrigin) - currentGroundZ) <= GROUND_SNAP;
+    let grounded = !forceAir && Math.abs(hullOriginToFootZ(hullOrigin) - currentGroundZ) <= GROUND_SNAP;
 
     for (let step = 1; step <= steps; step++) {
       const target = lerpVec3(previousHull, targetHull, step / steps);
@@ -595,15 +597,6 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
       currentGroundZ - STEP_HEIGHT - GROUND_SNAP,
     );
     if (!floor) {
-      const lowerFloor = floorTraceAt(
-        hullOrigin[0],
-        hullOrigin[1],
-        currentGroundZ + STEP_HEIGHT + GROUND_SNAP,
-        -Infinity,
-      );
-      if (!lowerFloor) {
-        return { hullOrigin: fallbackHullOrigin, groundZ: currentGroundZ, grounded: true };
-      }
       return { hullOrigin, groundZ: currentGroundZ, grounded: false };
     }
     recordSolidTouch(floor.brush, "floor");
@@ -648,7 +641,7 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
     const moved = slideMove(start, target).position;
     const footZ = hullOriginToFootZ(moved);
     const floor = floorTraceAt(moved[0], moved[1], footZ + GROUND_SNAP, footZ - GROUND_SNAP);
-    if (floor && target[2] <= start[2] + COLLISION_EPSILON) {
+    if (floor && target[2] < start[2] - COLLISION_EPSILON) {
       recordSolidTouch(floor.brush, "floor");
       return {
         hullOrigin: [moved[0], moved[1], footZToHullOriginZ(floor.z)],
@@ -770,6 +763,7 @@ export function buildQuakeCollisionWorld(polygons: Polygon[]): QuakeCollisionWor
     previous: [number, number, number],
     eyeHeight: number,
     currentGroundZ: number,
+    _forceAir = false,
   ): QuakeCollisionResult {
     const dx = origin[0] - previous[0];
     const dy = origin[1] - previous[1];

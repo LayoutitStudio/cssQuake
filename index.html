@@ -370,12 +370,16 @@
                 <span class="quake-main-menu-item-cursor"></span>
                 <span class="quake-main-menu-label quake-main-menu-label-single-player"></span>
               </span>
+              <span class="quake-main-menu-item quake-main-menu-item-selectable">
+                <span class="quake-main-menu-item-cursor"></span>
+                <span class="quake-main-menu-label quake-main-menu-label-level-select"></span>
+              </span>
               <span class="quake-main-menu-item quake-main-menu-item-disabled">
                 <span class="quake-main-menu-label quake-main-menu-label-multiplayer"></span>
               </span>
               <span class="quake-main-menu-item quake-main-menu-item-selectable">
                 <span class="quake-main-menu-item-cursor"></span>
-                <span class="quake-main-menu-label quake-main-menu-label-level-select"></span>
+                <span class="quake-main-menu-label quake-main-menu-label-debug"></span>
               </span>
               <span class="quake-main-menu-item quake-main-menu-item-selectable">
                 <span class="quake-main-menu-item-cursor"></span>
@@ -457,15 +461,6 @@
             </header>
             <div id="quake-options-sections" class="quake-menu-panel-sections">
               <div class="quake-options-list">
-                <label class="quake-option-toggle quake-option-debug-toggle">
-                  <input id="quake-option-debug-mode" type="checkbox" />
-                  <span class="quake-option-checkbox" aria-hidden="true"></span>
-                  <span class="quake-option-debug-copy">
-                    <span class="quake-option-text quake-bm-label">Debug mode</span>
-                    <span class="quake-option-note quake-bm-label">Stats and render toggles.</span>
-                  </span>
-                </label>
-                <div class="quake-option-separator" aria-hidden="true"></div>
                 <label class="quake-option-toggle">
                   <input id="quake-option-disable-sound" type="checkbox" checked />
                   <span class="quake-option-checkbox" aria-hidden="true"></span>
@@ -519,6 +514,11 @@
                   <input id="quake-debug-static-lighting" type="checkbox" />
                   <span class="quake-option-checkbox" aria-hidden="true"></span>
                   <span class="quake-option-text quake-bm-label">Static lighting</span>
+                </label>
+                <label class="quake-option-toggle">
+                  <input id="quake-debug-fly-mode" type="checkbox" />
+                  <span class="quake-option-checkbox" aria-hidden="true"></span>
+                  <span class="quake-option-text quake-bm-label">Fly mode</span>
                 </label>
                 <label class="quake-option-toggle">
                   <input id="quake-debug-show-labels" type="checkbox" />

@@ -36,46 +36,44 @@ body {
 #quake-app .polycss-mesh s {
   background-repeat: no-repeat !important;
 }
-body.quake-debug-no-textures #quake-app .polycss-mesh s {
+body.quake-debug-no-textures #quake-app .polycss-mesh:not(.quake-debug-outline-atlas-ready) s {
   background: none !important;
 }
 body.quake-debug-static-lighting #quake-app .quake-lightstyle-mesh {
   display: none;
 }
 body.quake-debug-outlines #quake-app .polycss-mesh s {
-  --quake-debug-outline-color: green;
-  outline: 0.5px solid var(--quake-debug-outline-color);
-  outline-offset: -0.5px;
+  --quake-debug-label-color: green;
 }
 body.quake-debug-outlines #quake-app .polycss-mesh s[data-quake-debug-outline="sky"] {
-  --quake-debug-outline-color: cyan;
+  --quake-debug-label-color: cyan;
 }
 body.quake-debug-outlines #quake-app .polycss-mesh s[data-quake-debug-outline="special"] {
-  --quake-debug-outline-color: cyan;
+  --quake-debug-label-color: cyan;
 }
 body.quake-debug-outlines #quake-app .polycss-mesh s[data-quake-debug-outline="animated"] {
-  --quake-debug-outline-color: cyan;
+  --quake-debug-label-color: cyan;
 }
 body.quake-debug-outlines #quake-app .polycss-mesh s[data-quake-debug-outline="brush"] {
-  --quake-debug-outline-color: yellow;
+  --quake-debug-label-color: yellow;
 }
 body.quake-debug-outlines #quake-app .polycss-mesh s[data-quake-debug-outline="entity"] {
-  --quake-debug-outline-color: yellow;
+  --quake-debug-label-color: yellow;
 }
 body.quake-debug-outlines #quake-app .polycss-mesh s[data-quake-debug-outline="lightstyle"] {
-  --quake-debug-outline-color: cyan;
+  --quake-debug-label-color: cyan;
 }
 body.quake-debug-outlines #quake-app .polycss-mesh.pickup s {
-  --quake-debug-outline-color: yellow;
+  --quake-debug-label-color: yellow;
 }
 body.quake-debug-outlines #quake-app .polycss-mesh.shootable:not(.enemy) s {
-  --quake-debug-outline-color: yellow;
+  --quake-debug-label-color: yellow;
 }
 body.quake-debug-outlines #quake-viewmodel-layer .polycss-mesh.viewmodel s {
-  --quake-debug-outline-color: yellow;
+  --quake-debug-label-color: yellow;
 }
 body.quake-debug-outlines #quake-app .polycss-mesh.shootable.enemy s {
-  --quake-debug-outline-color: red;
+  --quake-debug-label-color: red;
 }
 body.quake-debug-labels #quake-app .polycss-mesh s[data-quake-poly-id]::after {
   content: attr(data-quake-poly-id);
@@ -83,7 +81,7 @@ body.quake-debug-labels #quake-app .polycss-mesh s[data-quake-poly-id]::after {
   left: 2px;
   top: 2px;
   z-index: 1;
-  color: var(--quake-debug-outline-color, green);
+  color: var(--quake-debug-label-color, green);
   font: 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   text-decoration: none;
   text-shadow: none;
@@ -662,6 +660,11 @@ body.quake-menu-open #quake-main-menu-logo-shimmer::before {
   --quake-main-menu-label-height: 20;
   background-image: url("/q/main-menu-active-level-select.png");
 }
+.quake-main-menu-label-debug {
+  --quake-main-menu-label-width: 111;
+  --quake-main-menu-label-height: 22;
+  background-image: url("/src/assets/main-menu-active-debug.png");
+}
 .quake-main-menu-label-options {
   --quake-main-menu-label-width: 123;
   --quake-main-menu-label-height: 18;
@@ -1167,27 +1170,6 @@ body.quake-menu-open #quake-main-menu-logo-shimmer::before {
   outline: 2px solid rgba(240, 173, 92, 0.62);
   outline-offset: 3px;
 }
-.quake-option-debug-toggle {
-  align-items: start;
-  min-height: 0;
-  padding-top: 0;
-}
-#quake-options-panel .quake-option-debug-toggle .quake-option-checkbox {
-  margin-top: 1px;
-}
-.quake-option-debug-copy {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-  padding-top: 0;
-}
-.quake-option-debug-copy .quake-option-text .quake-bitmap-text {
-  --quake-bitmap-glyph-size: 20px;
-  --quake-bitmap-sheet-size: 320px;
-  --quake-bitmap-space-size: 14px;
-  gap: 5px var(--quake-bitmap-space-size);
-  filter: brightness(1.12) contrast(1.08) drop-shadow(0 1px 0 #000000);
-}
 .quake-options-list .quake-option-note {
   display: block;
   max-width: 100%;
@@ -1627,6 +1609,7 @@ body.quake-menu-open #quake-crosshair,
 body.quake-menu-open #quake-classic-hud {
   display: none;
 }
+body.quake-debug-pointer-free #quake-crosshair,
 body.quake-dead #quake-crosshair {
   display: none;
 }

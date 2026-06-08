@@ -26,12 +26,13 @@ export interface QuakeMenuControllerOptions {
   aboutPanel: HTMLElement | null;
   optionsPanel: HTMLElement | null;
   onSelectLevel?(mapName: string): void | Promise<void>;
+  onSelectDebug?(): void;
   shouldOpenMainMenuOnControlsEnd?(): boolean;
   clearCrosshairTarget(): void;
   syncCrosshairTarget(): void;
 }
 
-const QUAKE_MAIN_MENU_ROWS = [0, 1, 2, 3];
+const QUAKE_MAIN_MENU_ROWS = [0, 1, 2, 3, 4];
 
 export function createQuakeMenuController({
   enabled,
@@ -43,6 +44,7 @@ export function createQuakeMenuController({
   aboutPanel,
   optionsPanel,
   onSelectLevel,
+  onSelectDebug,
   shouldOpenMainMenuOnControlsEnd,
   clearCrosshairTarget,
   syncCrosshairTarget,
@@ -139,6 +141,11 @@ export function createQuakeMenuController({
     showMenuPanel(optionsPanel);
   }
 
+  function showDebugPanel(): void {
+    if (!enabled || !onSelectDebug) return;
+    onSelectDebug();
+  }
+
   function closeMenuPanel(): void {
     if (!isMenuPanelOpen()) return;
     showMainMenu();
@@ -203,8 +210,9 @@ export function createQuakeMenuController({
     const row = QUAKE_MAIN_MENU_ROWS[mainMenuSelectionIndex] ?? 0;
     if (row === 0) startFromMainMenu();
     if (row === 1) showLevelPanel();
-    if (row === 2) showOptionsPanel();
-    if (row === 3) showAboutPanel();
+    if (row === 2) showDebugPanel();
+    if (row === 3) showOptionsPanel();
+    if (row === 4) showAboutPanel();
   }
 
   function levelButtons(): HTMLButtonElement[] {

@@ -412,7 +412,7 @@ export function createQuakeShootablesController({
     currentModelLibrary = modelLibrary;
     for (const entity of entities) {
       if (!entity.origin || !shouldSpawn(entity)) continue;
-      const modelPath = shootableModelPath(entity, programMetadata);
+      const modelPath = quakeShootableModelPath(entity, programMetadata);
       if (!modelPath) continue;
       const model = modelLibrary?.models[modelPath];
       if (!model && !canUseShootableFallback(entity)) continue;
@@ -3136,7 +3136,10 @@ function quakeEnemySeed(entityIndex: number): number {
   return (Math.imul(entityIndex + 0x9e3779b9, 0x85ebca6b) ^ 0xc2b2ae35) >>> 0;
 }
 
-function shootableModelPath(entity: QuakeEntity, programMetadata: QuakeProgramMetadata | null = null): string | null {
+export function quakeShootableModelPath(
+  entity: QuakeEntity,
+  programMetadata: QuakeProgramMetadata | null = null,
+): string | null {
   if (entity.classname === "misc_explobox") return "maps/b_explob.bsp";
   if (entity.classname === "misc_explobox2") return "maps/b_exbox2.bsp";
   if (entity.classname.startsWith("monster_")) {
