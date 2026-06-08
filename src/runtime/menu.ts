@@ -28,6 +28,7 @@ export interface QuakeMenuControllerOptions {
   onSelectNewGame?(): void | Promise<void>;
   onSelectLevel?(mapName: string): void | Promise<void>;
   onSelectDebug?(): void;
+  shouldResumeMainMenuOnEscape?(): boolean;
   shouldOpenMainMenuOnControlsEnd?(): boolean;
   clearCrosshairTarget(): void;
   syncCrosshairTarget(): void;
@@ -47,6 +48,7 @@ export function createQuakeMenuController({
   onSelectNewGame,
   onSelectLevel,
   onSelectDebug,
+  shouldResumeMainMenuOnEscape,
   shouldOpenMainMenuOnControlsEnd,
   clearCrosshairTarget,
   syncCrosshairTarget,
@@ -450,6 +452,7 @@ export function createQuakeMenuController({
       case "Escape":
         event.preventDefault();
         event.stopPropagation();
+        if (shouldResumeMainMenuOnEscape?.()) startFromMainMenu();
         return true;
       default:
         return false;

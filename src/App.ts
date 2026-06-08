@@ -753,6 +753,7 @@ const menu = createQuakeMenuController({
   onSelectNewGame: startQuakeNewGame,
   onSelectLevel: loadQuakeMap,
   onSelectDebug: () => setQuakeDebugMode(true),
+  shouldResumeMainMenuOnEscape: shouldResumeQuakeMainMenuOnEscape,
   shouldOpenMainMenuOnControlsEnd: shouldOpenQuakeMainMenuOnControlsEnd,
   clearCrosshairTarget: clearQuakeCrosshairTarget,
   syncCrosshairTarget: syncQuakeCrosshairTarget,
@@ -910,6 +911,7 @@ let currentPickupModelLibrary: QuakePickupModelLibrary | null = null;
 let currentProgramMetadata: QuakeProgramMetadata | null = null;
 let currentCollisionWorld: QuakeCollisionWorld | null = null;
 let currentResult: QuakeScene | null = null;
+let quakeGameplayStarted = false;
 let entityByIndex = new Map<number, QuakeEntity>();
 let quakeDamageableBrushHealth = new Map<number, number>();
 let quakeDamageableBrushResetTimers: number[] = [];
@@ -1381,6 +1383,7 @@ function startQuakeNewGame(): void {
   clearQuakeMobileMoveInput();
   clearQuakeLevelComplete();
   getPlayer().respawn();
+  quakeGameplayStarted = true;
 }
 
 function isQuakeLevelTransitionActive(): boolean {
@@ -1394,6 +1397,15 @@ function canUseQuakeGameplayInput(): boolean {
     !isQuakeLevelTransitionActive() &&
     !quakePlayerDead &&
     currentCollisionWorld !== null;
+}
+
+function shouldResumeQuakeMainMenuOnEscape(): boolean {
+  return quakeGameplayStarted &&
+    !quakeAppLoading &&
+    currentResult !== null &&
+    currentCollisionWorld !== null &&
+    !isQuakeLevelTransitionActive() &&
+    !quakePlayerDead;
 }
 
 function isQuakeDebugFlyModeActive(): boolean {
@@ -3281,6 +3293,7 @@ async function loadQuakeMap(mapName: string, options: QuakeMapLoadOptions = {}):
     if (quakeAppDisposed) return;
     progress.setStatus("Preparing view");
     await completeQuakeSceneReadiness(weaponPromise, progress);
+    quakeGameplayStarted = true;
   } catch (error) {
     if (!quakeAppDisposed) setQuakeLoading(false);
     throw error;
@@ -3732,6 +3745,7 @@ function syncQuakeRoutePresentation(route: QuakeUrlRoute): void {
   if (QUAKE_MENU_ENABLED && !quakeUrlRouteIsDirect(route)) {
     menu.showMainMenu();
   } else {
+    quakeGameplayStarted = true;
     menu.hideMainMenu();
   }
 }
