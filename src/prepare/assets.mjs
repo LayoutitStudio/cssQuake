@@ -991,7 +991,7 @@ async function addQuakeRenderBundleDebugOutlineAssets(renderBundle, options = {}
     const extension = path.extname(sourcePath);
     const basename = sourcePath.slice(0, -extension.length);
     const outlinePath = `${basename}-outline${extension}`;
-    await sharp({
+    const outlineImage = sharp({
       create: {
         width,
         height,
@@ -999,8 +999,8 @@ async function addQuakeRenderBundleDebugOutlineAssets(renderBundle, options = {}
         background: { r: 0, g: 0, b: 0, alpha: 0 },
       },
     })
-      .composite([{ input: overlay, blend: "over" }])
-      .toFile(outlinePath);
+      .composite([{ input: overlay, blend: "over" }]);
+    await writeQuakeRenderBundleOutlineAsset(outlineImage, outlinePath);
 
     debugOutlineAssetUrls[index] = quakeOutputPathPublicUrl(outlinePath);
     debugTransparentOutlineAssetUrls[index] = debugOutlineAssetUrls[index];
@@ -1010,6 +1010,20 @@ async function addQuakeRenderBundleDebugOutlineAssets(renderBundle, options = {}
     renderBundle.debugOutlineAssetUrls = debugOutlineAssetUrls;
     renderBundle.debugTransparentOutlineAssetUrls = debugTransparentOutlineAssetUrls;
   }
+}
+
+async function writeQuakeRenderBundleOutlineAsset(image, outputPath) {
+  if (path.extname(outputPath).toLowerCase() === ".avif") {
+    await image
+      .avif({
+        quality: normalizedQuakeRenderBundleAvifQuality(),
+        effort: normalizedQuakeRenderBundleAvifEffort(),
+        chromaSubsampling: "4:4:4",
+      })
+      .toFile(outputPath);
+    return;
+  }
+  await image.toFile(outputPath);
 }
 
 function quakeRenderBundleOutlineLeaves(renderBundle, options) {

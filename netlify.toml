@@ -1,0 +1,3 @@
+[build.environment]
+  # Keep render quality and debug outline atlases; reduce AVIF encoder search time on CI.
+  QUAKE_RENDER_BUNDLE_AVIF_EFFORT = "0"
