@@ -75,6 +75,9 @@ export function createQuakeViewmodelController({
   const stage = layer ? createQuakeViewmodelStage(layer) : null;
   let handle: PolyMeshHandle | null = null;
   let viewportSyncFrame = 0;
+  let cachedLayerScale = 1;
+  let layerViewportDirty = true;
+  let hostResizeObserver: ResizeObserver | null = null;
   let fireForwardKick = 0;
   let fireUpKick = 0;
   let fireAnimationTimer: number | null = null;
@@ -83,9 +86,18 @@ export function createQuakeViewmodelController({
   let walkBobOrigin: Vec3 | null = null;
   let walkBobAt = 0;
 
+  if (typeof ResizeObserver !== "undefined") {
+    hostResizeObserver = new ResizeObserver(() => {
+      invalidateViewportLayer();
+      queueViewportSync();
+    });
+    hostResizeObserver.observe(host);
+  }
+
   function mount(model: QuakeViewmodelModel): void {
     clearFireAnimation();
     resetWalkBob();
+    invalidateViewportLayer();
     handle?.remove();
     if (!stage) throw new Error("Quake viewmodel render bundle mount requires a viewmodel stage.");
     handle = mountQuakeRenderBundleMesh(stage, model.renderBundle);
@@ -135,6 +147,7 @@ export function createQuakeViewmodelController({
   }
 
   function queueViewportSync(): void {
+    invalidateViewportLayer();
     if (viewportSyncFrame) return;
     viewportSyncFrame = window.requestAnimationFrame(() => {
       viewportSyncFrame = 0;
@@ -269,8 +282,16 @@ export function createQuakeViewmodelController({
 
   function syncLayer(): void {
     if (!layer || !stage) return;
-    const mainSceneElement = scene.cameraEl.querySelector<HTMLElement>(".polycss-scene");
-    const layerScale = weaponLayerScale();
+    const sceneElement = scene.cameraEl.querySelector<HTMLElement>(".polycss-scene");
+    syncViewportLayer();
+    setStyleValue(stage, "transform", weaponStageTransform(sceneElement?.style.transform ?? ""));
+    const zoom = sceneElement?.style.getPropertyValue("zoom") ?? "";
+    setStyleValue(stage, "zoom", zoom);
+  }
+
+  function syncViewportLayer(): void {
+    if (!layerViewportDirty || !layer || !stage) return;
+    const layerScale = refreshWeaponLayerScale();
     setStyleValue(
       layer,
       "left",
@@ -290,9 +311,11 @@ export function createQuakeViewmodelController({
       `${QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX / 2}px ${QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX / 2}px`,
     );
     setStyleValue(stage, "top", `calc(50% + ${QUAKE_WEAPON_REFERENCE_STAGE_OFFSET_PX}px)`);
-    setStyleValue(stage, "transform", weaponStageTransform(mainSceneElement?.style.transform ?? ""));
-    const zoom = mainSceneElement?.style.getPropertyValue("zoom") ?? "";
-    setStyleValue(stage, "zoom", zoom);
+    layerViewportDirty = false;
+  }
+
+  function invalidateViewportLayer(): void {
+    layerViewportDirty = true;
   }
 
   function setStyleValue(element: HTMLElement, property: string, value: string): void {
@@ -316,15 +339,17 @@ export function createQuakeViewmodelController({
     return `${QUAKE_WEAPON_REFERENCE_SCENE_PERSPECTIVE_PX * QUAKE_WEAPON_PERSPECTIVE_SCALE}px`;
   }
 
-  function weaponLayerScale(): number {
+  function refreshWeaponLayerScale(): number {
     const hostRect = host.getBoundingClientRect();
     const viewportWidth = hostRect.width || window.innerWidth;
     const viewportHeight = hostRect.height || window.innerHeight;
     const heightScale = viewportHeight / QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX;
     if (viewportWidth <= viewportHeight || viewportHeight > QUAKE_WEAPON_SHORT_LANDSCAPE_MAX_HEIGHT_PX) {
-      return heightScale;
+      cachedLayerScale = heightScale;
+      return cachedLayerScale;
     }
-    return Math.max(heightScale, viewportWidth / QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX);
+    cachedLayerScale = Math.max(heightScale, viewportWidth / QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX);
+    return cachedLayerScale;
   }
 
   function weaponLayerTransform(scale: number): string {
