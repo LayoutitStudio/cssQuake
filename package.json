@@ -23,8 +23,10 @@
   },
   "devDependencies": {
     "7z-bin": "^0.0.8",
+    "@napi-rs/canvas": "^1.0.0",
     "@types/node": "^25.5.0",
     "esbuild": "^0.28.0",
+    "happy-dom": "^20.10.2",
     "playwright": "^1.58.2",
     "sharp": "^0.34.5",
     "vite": "^7.3.1"

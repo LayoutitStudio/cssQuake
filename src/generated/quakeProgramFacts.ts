@@ -6,6 +6,8 @@
 
 export type QuakeProgramEntityKind = "misc" | "monster" | "mover" | "pickup" | "shootable" | "trigger";
 
+export type QuakeProgramAssetKind = "bsp" | "model" | "sound" | "sprite" | "unknown";
+
 export type QuakeProgramFactValue = number | string | readonly [number, number, number];
 
 export interface QuakeProgramLogicSourceMetadata {
@@ -25,6 +27,13 @@ export interface QuakeProgramSourceRef {
 
 export interface QuakeProgramDependencyRef {
   call: string;
+  path: string;
+  sourceRef: QuakeProgramSourceRef;
+}
+
+export interface QuakeProgramAssetRef {
+  call: string;
+  kind: QuakeProgramAssetKind;
   path: string;
   sourceRef: QuakeProgramSourceRef;
 }
@@ -58,6 +67,8 @@ export interface QuakeProgramSpawnflagCheck {
 }
 
 export interface QuakeProgramEntityFact {
+  assetRefs: readonly QuakeProgramAssetRef[];
+  callbackFacts?: Readonly<Record<string, QuakeProgramCallbackFact>>;
   callbacks: Readonly<Record<string, string>>;
   calls: readonly string[];
   classname: string;
@@ -74,6 +85,19 @@ export interface QuakeProgramEntityFact {
   source: QuakeProgramLogicSourceMetadata;
   sourceRefs: readonly QuakeProgramSourceRef[];
   spawnflagChecks: readonly QuakeProgramSpawnflagCheck[];
+}
+
+export interface QuakeProgramCallbackClassnameBranchFact {
+  assignments: readonly QuakeProgramFieldAssignment[];
+  classname: string;
+  sourceRef: QuakeProgramSourceRef;
+}
+
+export interface QuakeProgramCallbackFact {
+  assignments?: readonly QuakeProgramFieldAssignment[];
+  calls?: readonly string[];
+  classnameBranches?: readonly QuakeProgramCallbackClassnameBranchFact[];
+  sourceRefs: readonly QuakeProgramSourceRef[];
 }
 
 export interface QuakeProgramFacts {
@@ -93,6 +117,138 @@ export const QUAKE_PROGRAM_FACTS = {
   },
   "entities": {
     "monster_army": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/soldier.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 270
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/h_guard.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 271
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/gib1.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 272
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/gib2.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 273
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/gib3.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 274
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/soldier.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 289
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "soldier/death1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 276
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "soldier/idle.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 277
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "soldier/pain1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 278
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "soldier/pain2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 279
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "soldier/sattck1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 280
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "soldier/sight1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 281
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "player/udeath.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/soldier.qc",
+            "functionName": "monster_army",
+            "line": 283
+          }
+        }
+      ],
       "callbacks": {
         "th_stand": "army_stand1",
         "th_walk": "army_walk1",
@@ -371,7 +527,537 @@ export const QUAKE_PROGRAM_FACTS = {
       },
       "spawnflagChecks": []
     },
+    "monster_dog": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/h_dog.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 355
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/dog.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 356
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/dog.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 367
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "dog/dattack1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 358
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "dog/ddeath.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 359
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "dog/dpain1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 360
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "dog/dsight.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 361
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "dog/idle.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 362
+          }
+        }
+      ],
+      "callbacks": {
+        "th_stand": "dog_stand1",
+        "th_walk": "dog_walk1",
+        "th_run": "dog_run1",
+        "th_pain": "dog_pain",
+        "th_die": "dog_die",
+        "th_melee": "dog_atta1",
+        "th_missile": "dog_leap1"
+      },
+      "calls": [
+        "remove",
+        "precache_model",
+        "precache_sound",
+        "setmodel",
+        "setsize",
+        "walkmonster_start"
+      ],
+      "classname": "monster_dog",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/h_dog.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/dog.qc",
+              "functionName": "monster_dog",
+              "line": 355
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "progs/dog.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/dog.qc",
+              "functionName": "monster_dog",
+              "line": 356
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/dog.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/dog.qc",
+              "functionName": "monster_dog",
+              "line": 367
+            }
+          }
+        ],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "dog/dattack1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/dog.qc",
+              "functionName": "monster_dog",
+              "line": 358
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "dog/ddeath.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/dog.qc",
+              "functionName": "monster_dog",
+              "line": 359
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "dog/dpain1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/dog.qc",
+              "functionName": "monster_dog",
+              "line": 360
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "dog/dsight.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/dog.qc",
+              "functionName": "monster_dog",
+              "line": 361
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "dog/idle.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/dog.qc",
+              "functionName": "monster_dog",
+              "line": 362
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "solid",
+          "expression": "SOLID_SLIDEBOX",
+          "value": 3,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 364
+          }
+        },
+        {
+          "field": "movetype",
+          "expression": "MOVETYPE_STEP",
+          "value": 4,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 365
+          }
+        },
+        {
+          "field": "health",
+          "expression": "25",
+          "value": 25,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 370
+          }
+        },
+        {
+          "field": "th_stand",
+          "expression": "dog_stand1",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 372
+          }
+        },
+        {
+          "field": "th_walk",
+          "expression": "dog_walk1",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 373
+          }
+        },
+        {
+          "field": "th_run",
+          "expression": "dog_run1",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 374
+          }
+        },
+        {
+          "field": "th_pain",
+          "expression": "dog_pain",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 375
+          }
+        },
+        {
+          "field": "th_die",
+          "expression": "dog_die",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 376
+          }
+        },
+        {
+          "field": "th_melee",
+          "expression": "dog_atta1",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 377
+          }
+        },
+        {
+          "field": "th_missile",
+          "expression": "dog_leap1",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 378
+          }
+        }
+      ],
+      "functionName": "monster_dog",
+      "kind": "monster",
+      "setmodels": [
+        {
+          "expression": "\"progs/dog.mdl\"",
+          "value": "progs/dog.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 367
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-32 -32 -24'",
+          "min": [
+            -32,
+            -32,
+            -24
+          ],
+          "maxExpression": "'32 32 40'",
+          "max": [
+            32,
+            32,
+            40
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/dog.qc",
+            "functionName": "monster_dog",
+            "line": 369
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/dog.qc",
+          "functionName": "monster_dog",
+          "line": 349
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/dog.qc",
+        "sourceSha256": "e9c433cf3d7803dafcaee11efae700c9b9b5fa94ac6645e0fd97fa5cbbb90d82",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/dog.qc"
+      },
+      "spawnflagChecks": []
+    },
     "item_health": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_bh10.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 136
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_bh100.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 147
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_bh25.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 156
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_bh10.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 139
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_bh100.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 149
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_bh25.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 158
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "items/r_item1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 138
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "items/r_item2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 148
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "items/health1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_health",
+            "line": 157
+          }
+        }
+      ],
+      "callbackFacts": {
+        "health_touch": {
+          "assignments": [
+            {
+              "field": "s",
+              "expression": "ftos(self.healamount)",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "health_touch",
+                "line": 190
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "health_touch",
+                "line": 199
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "health_touch",
+                "line": 200
+              }
+            },
+            {
+              "field": "Megahealth",
+              "expression": "rot down the player's super health if (self.healtype == 2) { other.items = other.items | IT_SUPERHEALTH",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "health_touch",
+                "line": 202
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "health_touch",
+                "line": 206
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "item_megahealth_rot",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "health_touch",
+                "line": 207
+              }
+            },
+            {
+              "field": "self.owner",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "health_touch",
+                "line": 208
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 20",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "health_touch",
+                "line": 215
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "health_touch",
+                "line": 216
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "health_touch",
+                "line": 220
+              }
+            }
+          ],
+          "calls": [
+            "T_Heal",
+            "sprint",
+            "ftos",
+            "sound",
+            "stuffcmd",
+            "SUB_UseTargets"
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "health_touch",
+              "line": 169
+            }
+          ]
+        }
+      },
       "callbacks": {
         "touch": "health_touch"
       },
@@ -396,15 +1082,6 @@ export const QUAKE_PROGRAM_FACTS = {
             }
           },
           {
-            "call": "setmodel",
-            "path": "maps/b_bh10.bsp",
-            "sourceRef": {
-              "sourceFile": "qcc/v101qc/items.qc",
-              "functionName": "item_health",
-              "line": 139
-            }
-          },
-          {
             "call": "precache_model",
             "path": "maps/b_bh100.bsp",
             "sourceRef": {
@@ -414,21 +1091,30 @@ export const QUAKE_PROGRAM_FACTS = {
             }
           },
           {
-            "call": "setmodel",
-            "path": "maps/b_bh100.bsp",
-            "sourceRef": {
-              "sourceFile": "qcc/v101qc/items.qc",
-              "functionName": "item_health",
-              "line": 149
-            }
-          },
-          {
             "call": "precache_model",
             "path": "maps/b_bh25.bsp",
             "sourceRef": {
               "sourceFile": "qcc/v101qc/items.qc",
               "functionName": "item_health",
               "line": 156
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_bh10.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_health",
+              "line": 139
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_bh100.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_health",
+              "line": 149
             }
           },
           {
@@ -660,7 +1346,10998 @@ export const QUAKE_PROGRAM_FACTS = {
         }
       ]
     },
+    "item_armor1": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/armor.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armor1",
+            "line": 312
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/armor.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armor1",
+            "line": 313
+          }
+        }
+      ],
+      "callbackFacts": {
+        "armor_touch": {
+          "assignments": [
+            {
+              "field": "type",
+              "expression": "0.3",
+              "value": 0.3,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 267
+              }
+            },
+            {
+              "field": "value",
+              "expression": "100",
+              "value": 100,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 268
+              }
+            },
+            {
+              "field": "bit",
+              "expression": "IT_ARMOR1",
+              "value": 8192,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 269
+              }
+            },
+            {
+              "field": "type",
+              "expression": "0.6",
+              "value": 0.6,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 273
+              }
+            },
+            {
+              "field": "value",
+              "expression": "150",
+              "value": 150,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 274
+              }
+            },
+            {
+              "field": "bit",
+              "expression": "IT_ARMOR2",
+              "value": 16384,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 275
+              }
+            },
+            {
+              "field": "type",
+              "expression": "0.8",
+              "value": 0.8,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 279
+              }
+            },
+            {
+              "field": "value",
+              "expression": "200",
+              "value": 200,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 280
+              }
+            },
+            {
+              "field": "bit",
+              "expression": "IT_ARMOR3",
+              "value": 32768,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 281
+              }
+            },
+            {
+              "field": "other.armortype",
+              "expression": "type",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 286
+              }
+            },
+            {
+              "field": "other.armorvalue",
+              "expression": "value",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 287
+              }
+            },
+            {
+              "field": "other.items",
+              "expression": "other.items - (other.items & (IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + bit",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 288
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 290
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 291
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 20",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 293
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 294
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 301
+              }
+            }
+          ],
+          "calls": [
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "SUB_UseTargets"
+          ],
+          "classnameBranches": [
+            {
+              "classname": "item_armor1",
+              "assignments": [
+                {
+                  "field": "type",
+                  "expression": "0.3",
+                  "value": 0.3,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 267
+                  }
+                },
+                {
+                  "field": "value",
+                  "expression": "100",
+                  "value": 100,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 268
+                  }
+                },
+                {
+                  "field": "bit",
+                  "expression": "IT_ARMOR1",
+                  "value": 8192,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 269
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 265
+              }
+            },
+            {
+              "classname": "item_armor2",
+              "assignments": [
+                {
+                  "field": "type",
+                  "expression": "0.6",
+                  "value": 0.6,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 273
+                  }
+                },
+                {
+                  "field": "value",
+                  "expression": "150",
+                  "value": 150,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 274
+                  }
+                },
+                {
+                  "field": "bit",
+                  "expression": "IT_ARMOR2",
+                  "value": 16384,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 275
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 271
+              }
+            },
+            {
+              "classname": "item_armorInv",
+              "assignments": [
+                {
+                  "field": "type",
+                  "expression": "0.8",
+                  "value": 0.8,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 279
+                  }
+                },
+                {
+                  "field": "value",
+                  "expression": "200",
+                  "value": 200,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 280
+                  }
+                },
+                {
+                  "field": "bit",
+                  "expression": "IT_ARMOR3",
+                  "value": 32768,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 281
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 277
+              }
+            }
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "armor_touch",
+              "line": 257
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "armor_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_armor1",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/armor.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_armor1",
+              "line": 312
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/armor.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_armor1",
+              "line": 313
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "armor_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armor1",
+            "line": 311
+          }
+        },
+        {
+          "field": "skin",
+          "expression": "0",
+          "value": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armor1",
+            "line": 314
+          }
+        }
+      ],
+      "functionName": "item_armor1",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/armor.mdl\"",
+          "value": "progs/armor.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armor1",
+            "line": 313
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 0'",
+          "min": [
+            -16,
+            -16,
+            0
+          ],
+          "maxExpression": "'16 16 56'",
+          "max": [
+            16,
+            16,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armor1",
+            "line": 315
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_armor1",
+          "line": 310
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "item_armor2": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/armor.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armor2",
+            "line": 325
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/armor.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armor2",
+            "line": 326
+          }
+        }
+      ],
+      "callbackFacts": {
+        "armor_touch": {
+          "assignments": [
+            {
+              "field": "type",
+              "expression": "0.3",
+              "value": 0.3,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 267
+              }
+            },
+            {
+              "field": "value",
+              "expression": "100",
+              "value": 100,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 268
+              }
+            },
+            {
+              "field": "bit",
+              "expression": "IT_ARMOR1",
+              "value": 8192,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 269
+              }
+            },
+            {
+              "field": "type",
+              "expression": "0.6",
+              "value": 0.6,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 273
+              }
+            },
+            {
+              "field": "value",
+              "expression": "150",
+              "value": 150,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 274
+              }
+            },
+            {
+              "field": "bit",
+              "expression": "IT_ARMOR2",
+              "value": 16384,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 275
+              }
+            },
+            {
+              "field": "type",
+              "expression": "0.8",
+              "value": 0.8,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 279
+              }
+            },
+            {
+              "field": "value",
+              "expression": "200",
+              "value": 200,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 280
+              }
+            },
+            {
+              "field": "bit",
+              "expression": "IT_ARMOR3",
+              "value": 32768,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 281
+              }
+            },
+            {
+              "field": "other.armortype",
+              "expression": "type",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 286
+              }
+            },
+            {
+              "field": "other.armorvalue",
+              "expression": "value",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 287
+              }
+            },
+            {
+              "field": "other.items",
+              "expression": "other.items - (other.items & (IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + bit",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 288
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 290
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 291
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 20",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 293
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 294
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 301
+              }
+            }
+          ],
+          "calls": [
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "SUB_UseTargets"
+          ],
+          "classnameBranches": [
+            {
+              "classname": "item_armor1",
+              "assignments": [
+                {
+                  "field": "type",
+                  "expression": "0.3",
+                  "value": 0.3,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 267
+                  }
+                },
+                {
+                  "field": "value",
+                  "expression": "100",
+                  "value": 100,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 268
+                  }
+                },
+                {
+                  "field": "bit",
+                  "expression": "IT_ARMOR1",
+                  "value": 8192,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 269
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 265
+              }
+            },
+            {
+              "classname": "item_armor2",
+              "assignments": [
+                {
+                  "field": "type",
+                  "expression": "0.6",
+                  "value": 0.6,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 273
+                  }
+                },
+                {
+                  "field": "value",
+                  "expression": "150",
+                  "value": 150,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 274
+                  }
+                },
+                {
+                  "field": "bit",
+                  "expression": "IT_ARMOR2",
+                  "value": 16384,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 275
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 271
+              }
+            },
+            {
+              "classname": "item_armorInv",
+              "assignments": [
+                {
+                  "field": "type",
+                  "expression": "0.8",
+                  "value": 0.8,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 279
+                  }
+                },
+                {
+                  "field": "value",
+                  "expression": "200",
+                  "value": 200,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 280
+                  }
+                },
+                {
+                  "field": "bit",
+                  "expression": "IT_ARMOR3",
+                  "value": 32768,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 281
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 277
+              }
+            }
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "armor_touch",
+              "line": 257
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "armor_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_armor2",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/armor.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_armor2",
+              "line": 325
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/armor.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_armor2",
+              "line": 326
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "armor_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armor2",
+            "line": 324
+          }
+        },
+        {
+          "field": "skin",
+          "expression": "1",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armor2",
+            "line": 327
+          }
+        }
+      ],
+      "functionName": "item_armor2",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/armor.mdl\"",
+          "value": "progs/armor.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armor2",
+            "line": 326
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 0'",
+          "min": [
+            -16,
+            -16,
+            0
+          ],
+          "maxExpression": "'16 16 56'",
+          "max": [
+            16,
+            16,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armor2",
+            "line": 328
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_armor2",
+          "line": 323
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "item_armorInv": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/armor.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armorInv",
+            "line": 338
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/armor.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armorInv",
+            "line": 339
+          }
+        }
+      ],
+      "callbackFacts": {
+        "armor_touch": {
+          "assignments": [
+            {
+              "field": "type",
+              "expression": "0.3",
+              "value": 0.3,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 267
+              }
+            },
+            {
+              "field": "value",
+              "expression": "100",
+              "value": 100,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 268
+              }
+            },
+            {
+              "field": "bit",
+              "expression": "IT_ARMOR1",
+              "value": 8192,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 269
+              }
+            },
+            {
+              "field": "type",
+              "expression": "0.6",
+              "value": 0.6,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 273
+              }
+            },
+            {
+              "field": "value",
+              "expression": "150",
+              "value": 150,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 274
+              }
+            },
+            {
+              "field": "bit",
+              "expression": "IT_ARMOR2",
+              "value": 16384,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 275
+              }
+            },
+            {
+              "field": "type",
+              "expression": "0.8",
+              "value": 0.8,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 279
+              }
+            },
+            {
+              "field": "value",
+              "expression": "200",
+              "value": 200,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 280
+              }
+            },
+            {
+              "field": "bit",
+              "expression": "IT_ARMOR3",
+              "value": 32768,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 281
+              }
+            },
+            {
+              "field": "other.armortype",
+              "expression": "type",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 286
+              }
+            },
+            {
+              "field": "other.armorvalue",
+              "expression": "value",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 287
+              }
+            },
+            {
+              "field": "other.items",
+              "expression": "other.items - (other.items & (IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + bit",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 288
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 290
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 291
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 20",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 293
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 294
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 301
+              }
+            }
+          ],
+          "calls": [
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "SUB_UseTargets"
+          ],
+          "classnameBranches": [
+            {
+              "classname": "item_armor1",
+              "assignments": [
+                {
+                  "field": "type",
+                  "expression": "0.3",
+                  "value": 0.3,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 267
+                  }
+                },
+                {
+                  "field": "value",
+                  "expression": "100",
+                  "value": 100,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 268
+                  }
+                },
+                {
+                  "field": "bit",
+                  "expression": "IT_ARMOR1",
+                  "value": 8192,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 269
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 265
+              }
+            },
+            {
+              "classname": "item_armor2",
+              "assignments": [
+                {
+                  "field": "type",
+                  "expression": "0.6",
+                  "value": 0.6,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 273
+                  }
+                },
+                {
+                  "field": "value",
+                  "expression": "150",
+                  "value": 150,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 274
+                  }
+                },
+                {
+                  "field": "bit",
+                  "expression": "IT_ARMOR2",
+                  "value": 16384,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 275
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 271
+              }
+            },
+            {
+              "classname": "item_armorInv",
+              "assignments": [
+                {
+                  "field": "type",
+                  "expression": "0.8",
+                  "value": 0.8,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 279
+                  }
+                },
+                {
+                  "field": "value",
+                  "expression": "200",
+                  "value": 200,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 280
+                  }
+                },
+                {
+                  "field": "bit",
+                  "expression": "IT_ARMOR3",
+                  "value": 32768,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "armor_touch",
+                    "line": 281
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "armor_touch",
+                "line": 277
+              }
+            }
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "armor_touch",
+              "line": 257
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "armor_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_armorInv",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/armor.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_armorInv",
+              "line": 338
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/armor.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_armorInv",
+              "line": 339
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "armor_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armorInv",
+            "line": 337
+          }
+        },
+        {
+          "field": "skin",
+          "expression": "2",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armorInv",
+            "line": 340
+          }
+        }
+      ],
+      "functionName": "item_armorInv",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/armor.mdl\"",
+          "value": "progs/armor.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armorInv",
+            "line": 339
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 0'",
+          "min": [
+            -16,
+            -16,
+            0
+          ],
+          "maxExpression": "'16 16 56'",
+          "max": [
+            16,
+            16,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_armorInv",
+            "line": 341
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_armorInv",
+          "line": 336
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "weapon_supershotgun": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/g_shot.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_supershotgun",
+            "line": 526
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/g_shot.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_supershotgun",
+            "line": 527
+          }
+        }
+      ],
+      "callbackFacts": {
+        "weapon_touch": {
+          "assignments": [
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 420
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 421
+              }
+            },
+            {
+              "field": "best",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 422
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 423
+              }
+            },
+            {
+              "field": "leave",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 426
+              }
+            },
+            {
+              "field": "leave",
+              "expression": "0",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 428
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_nails",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 434
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_NAILGUN",
+              "value": 4,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 435
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 436
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 442
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_SUPER_NAILGUN",
+              "value": 8,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 443
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 444
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 450
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_SUPER_SHOTGUN",
+              "value": 2,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 451
+              }
+            },
+            {
+              "field": "other.ammo_shells",
+              "expression": "other.ammo_shells + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 452
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 458
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_ROCKET_LAUNCHER",
+              "value": 32,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 459
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 460
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 466
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_GRENADE_LAUNCHER",
+              "value": 16,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 467
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 468
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 474
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_LIGHTNING",
+              "value": 64,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 475
+              }
+            },
+            {
+              "field": "other.ammo_cells",
+              "expression": "other.ammo_cells + 15",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 476
+              }
+            },
+            {
+              "field": "old",
+              "expression": "other.items",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 491
+              }
+            },
+            {
+              "field": "other.items",
+              "expression": "other.items | new",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 492
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 494
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 495
+              }
+            },
+            {
+              "field": "self.weapon",
+              "expression": "new",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 498
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 504
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 510
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 511
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 513
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 514
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 516
+              }
+            }
+          ],
+          "calls": [
+            "W_BestWeapon",
+            "objerror",
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "bound_other_ammo",
+            "Deathmatch_Weapon",
+            "W_SetCurrentAmmo",
+            "SUB_UseTargets"
+          ],
+          "classnameBranches": [
+            {
+              "classname": "weapon_nailgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_nails",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 434
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_NAILGUN",
+                  "value": 4,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 435
+                  }
+                },
+                {
+                  "field": "other.ammo_nails",
+                  "expression": "other.ammo_nails + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 436
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 430
+              }
+            },
+            {
+              "classname": "weapon_supernailgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 442
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_SUPER_NAILGUN",
+                  "value": 8,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 443
+                  }
+                },
+                {
+                  "field": "other.ammo_nails",
+                  "expression": "other.ammo_nails + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 444
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 438
+              }
+            },
+            {
+              "classname": "weapon_supershotgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 450
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_SUPER_SHOTGUN",
+                  "value": 2,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 451
+                  }
+                },
+                {
+                  "field": "other.ammo_shells",
+                  "expression": "other.ammo_shells + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 452
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 446
+              }
+            },
+            {
+              "classname": "weapon_rocketlauncher",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 458
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_ROCKET_LAUNCHER",
+                  "value": 32,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 459
+                  }
+                },
+                {
+                  "field": "other.ammo_rockets",
+                  "expression": "other.ammo_rockets + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 460
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 454
+              }
+            },
+            {
+              "classname": "weapon_grenadelauncher",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 466
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_GRENADE_LAUNCHER",
+                  "value": 16,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 467
+                  }
+                },
+                {
+                  "field": "other.ammo_rockets",
+                  "expression": "other.ammo_rockets + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 468
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 462
+              }
+            },
+            {
+              "classname": "weapon_lightning",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 474
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_LIGHTNING",
+                  "value": 64,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 475
+                  }
+                },
+                {
+                  "field": "other.ammo_cells",
+                  "expression": "other.ammo_cells + 15",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 476
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 470
+              }
+            }
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_touch",
+              "line": 411
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "weapon_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "weapon_supershotgun",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/g_shot.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_supershotgun",
+              "line": 526
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/g_shot.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_supershotgun",
+              "line": 527
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "weapon",
+          "expression": "IT_SUPER_SHOTGUN",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_supershotgun",
+            "line": 528
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"Double-barrelled Shotgun\"",
+          "value": "Double-barrelled Shotgun",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_supershotgun",
+            "line": 529
+          }
+        },
+        {
+          "field": "touch",
+          "expression": "weapon_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_supershotgun",
+            "line": 530
+          }
+        }
+      ],
+      "functionName": "weapon_supershotgun",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/g_shot.mdl\"",
+          "value": "progs/g_shot.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_supershotgun",
+            "line": 527
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 0'",
+          "min": [
+            -16,
+            -16,
+            0
+          ],
+          "maxExpression": "'16 16 56'",
+          "max": [
+            16,
+            16,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_supershotgun",
+            "line": 531
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "weapon_supershotgun",
+          "line": 525
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "weapon_nailgun": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/g_nail.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_nailgun",
+            "line": 540
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/g_nail.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_nailgun",
+            "line": 541
+          }
+        }
+      ],
+      "callbackFacts": {
+        "weapon_touch": {
+          "assignments": [
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 420
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 421
+              }
+            },
+            {
+              "field": "best",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 422
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 423
+              }
+            },
+            {
+              "field": "leave",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 426
+              }
+            },
+            {
+              "field": "leave",
+              "expression": "0",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 428
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_nails",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 434
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_NAILGUN",
+              "value": 4,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 435
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 436
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 442
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_SUPER_NAILGUN",
+              "value": 8,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 443
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 444
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 450
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_SUPER_SHOTGUN",
+              "value": 2,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 451
+              }
+            },
+            {
+              "field": "other.ammo_shells",
+              "expression": "other.ammo_shells + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 452
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 458
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_ROCKET_LAUNCHER",
+              "value": 32,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 459
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 460
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 466
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_GRENADE_LAUNCHER",
+              "value": 16,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 467
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 468
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 474
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_LIGHTNING",
+              "value": 64,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 475
+              }
+            },
+            {
+              "field": "other.ammo_cells",
+              "expression": "other.ammo_cells + 15",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 476
+              }
+            },
+            {
+              "field": "old",
+              "expression": "other.items",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 491
+              }
+            },
+            {
+              "field": "other.items",
+              "expression": "other.items | new",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 492
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 494
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 495
+              }
+            },
+            {
+              "field": "self.weapon",
+              "expression": "new",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 498
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 504
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 510
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 511
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 513
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 514
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 516
+              }
+            }
+          ],
+          "calls": [
+            "W_BestWeapon",
+            "objerror",
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "bound_other_ammo",
+            "Deathmatch_Weapon",
+            "W_SetCurrentAmmo",
+            "SUB_UseTargets"
+          ],
+          "classnameBranches": [
+            {
+              "classname": "weapon_nailgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_nails",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 434
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_NAILGUN",
+                  "value": 4,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 435
+                  }
+                },
+                {
+                  "field": "other.ammo_nails",
+                  "expression": "other.ammo_nails + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 436
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 430
+              }
+            },
+            {
+              "classname": "weapon_supernailgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 442
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_SUPER_NAILGUN",
+                  "value": 8,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 443
+                  }
+                },
+                {
+                  "field": "other.ammo_nails",
+                  "expression": "other.ammo_nails + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 444
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 438
+              }
+            },
+            {
+              "classname": "weapon_supershotgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 450
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_SUPER_SHOTGUN",
+                  "value": 2,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 451
+                  }
+                },
+                {
+                  "field": "other.ammo_shells",
+                  "expression": "other.ammo_shells + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 452
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 446
+              }
+            },
+            {
+              "classname": "weapon_rocketlauncher",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 458
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_ROCKET_LAUNCHER",
+                  "value": 32,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 459
+                  }
+                },
+                {
+                  "field": "other.ammo_rockets",
+                  "expression": "other.ammo_rockets + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 460
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 454
+              }
+            },
+            {
+              "classname": "weapon_grenadelauncher",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 466
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_GRENADE_LAUNCHER",
+                  "value": 16,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 467
+                  }
+                },
+                {
+                  "field": "other.ammo_rockets",
+                  "expression": "other.ammo_rockets + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 468
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 462
+              }
+            },
+            {
+              "classname": "weapon_lightning",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 474
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_LIGHTNING",
+                  "value": 64,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 475
+                  }
+                },
+                {
+                  "field": "other.ammo_cells",
+                  "expression": "other.ammo_cells + 15",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 476
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 470
+              }
+            }
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_touch",
+              "line": 411
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "weapon_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "weapon_nailgun",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/g_nail.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_nailgun",
+              "line": 540
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/g_nail.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_nailgun",
+              "line": 541
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "weapon",
+          "expression": "IT_NAILGUN",
+          "value": 4,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_nailgun",
+            "line": 542
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"nailgun\"",
+          "value": "nailgun",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_nailgun",
+            "line": 543
+          }
+        },
+        {
+          "field": "touch",
+          "expression": "weapon_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_nailgun",
+            "line": 544
+          }
+        }
+      ],
+      "functionName": "weapon_nailgun",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/g_nail.mdl\"",
+          "value": "progs/g_nail.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_nailgun",
+            "line": 541
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 0'",
+          "min": [
+            -16,
+            -16,
+            0
+          ],
+          "maxExpression": "'16 16 56'",
+          "max": [
+            16,
+            16,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_nailgun",
+            "line": 545
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "weapon_nailgun",
+          "line": 539
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "weapon_supernailgun": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/g_nail2.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_supernailgun",
+            "line": 554
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/g_nail2.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_supernailgun",
+            "line": 555
+          }
+        }
+      ],
+      "callbackFacts": {
+        "weapon_touch": {
+          "assignments": [
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 420
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 421
+              }
+            },
+            {
+              "field": "best",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 422
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 423
+              }
+            },
+            {
+              "field": "leave",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 426
+              }
+            },
+            {
+              "field": "leave",
+              "expression": "0",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 428
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_nails",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 434
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_NAILGUN",
+              "value": 4,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 435
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 436
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 442
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_SUPER_NAILGUN",
+              "value": 8,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 443
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 444
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 450
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_SUPER_SHOTGUN",
+              "value": 2,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 451
+              }
+            },
+            {
+              "field": "other.ammo_shells",
+              "expression": "other.ammo_shells + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 452
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 458
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_ROCKET_LAUNCHER",
+              "value": 32,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 459
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 460
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 466
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_GRENADE_LAUNCHER",
+              "value": 16,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 467
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 468
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 474
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_LIGHTNING",
+              "value": 64,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 475
+              }
+            },
+            {
+              "field": "other.ammo_cells",
+              "expression": "other.ammo_cells + 15",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 476
+              }
+            },
+            {
+              "field": "old",
+              "expression": "other.items",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 491
+              }
+            },
+            {
+              "field": "other.items",
+              "expression": "other.items | new",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 492
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 494
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 495
+              }
+            },
+            {
+              "field": "self.weapon",
+              "expression": "new",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 498
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 504
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 510
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 511
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 513
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 514
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 516
+              }
+            }
+          ],
+          "calls": [
+            "W_BestWeapon",
+            "objerror",
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "bound_other_ammo",
+            "Deathmatch_Weapon",
+            "W_SetCurrentAmmo",
+            "SUB_UseTargets"
+          ],
+          "classnameBranches": [
+            {
+              "classname": "weapon_nailgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_nails",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 434
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_NAILGUN",
+                  "value": 4,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 435
+                  }
+                },
+                {
+                  "field": "other.ammo_nails",
+                  "expression": "other.ammo_nails + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 436
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 430
+              }
+            },
+            {
+              "classname": "weapon_supernailgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 442
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_SUPER_NAILGUN",
+                  "value": 8,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 443
+                  }
+                },
+                {
+                  "field": "other.ammo_nails",
+                  "expression": "other.ammo_nails + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 444
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 438
+              }
+            },
+            {
+              "classname": "weapon_supershotgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 450
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_SUPER_SHOTGUN",
+                  "value": 2,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 451
+                  }
+                },
+                {
+                  "field": "other.ammo_shells",
+                  "expression": "other.ammo_shells + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 452
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 446
+              }
+            },
+            {
+              "classname": "weapon_rocketlauncher",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 458
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_ROCKET_LAUNCHER",
+                  "value": 32,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 459
+                  }
+                },
+                {
+                  "field": "other.ammo_rockets",
+                  "expression": "other.ammo_rockets + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 460
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 454
+              }
+            },
+            {
+              "classname": "weapon_grenadelauncher",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 466
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_GRENADE_LAUNCHER",
+                  "value": 16,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 467
+                  }
+                },
+                {
+                  "field": "other.ammo_rockets",
+                  "expression": "other.ammo_rockets + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 468
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 462
+              }
+            },
+            {
+              "classname": "weapon_lightning",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 474
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_LIGHTNING",
+                  "value": 64,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 475
+                  }
+                },
+                {
+                  "field": "other.ammo_cells",
+                  "expression": "other.ammo_cells + 15",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 476
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 470
+              }
+            }
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_touch",
+              "line": 411
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "weapon_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "weapon_supernailgun",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/g_nail2.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_supernailgun",
+              "line": 554
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/g_nail2.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_supernailgun",
+              "line": 555
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "weapon",
+          "expression": "IT_SUPER_NAILGUN",
+          "value": 8,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_supernailgun",
+            "line": 556
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"Super Nailgun\"",
+          "value": "Super Nailgun",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_supernailgun",
+            "line": 557
+          }
+        },
+        {
+          "field": "touch",
+          "expression": "weapon_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_supernailgun",
+            "line": 558
+          }
+        }
+      ],
+      "functionName": "weapon_supernailgun",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/g_nail2.mdl\"",
+          "value": "progs/g_nail2.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_supernailgun",
+            "line": 555
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 0'",
+          "min": [
+            -16,
+            -16,
+            0
+          ],
+          "maxExpression": "'16 16 56'",
+          "max": [
+            16,
+            16,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_supernailgun",
+            "line": 559
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "weapon_supernailgun",
+          "line": 553
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "weapon_grenadelauncher": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/g_rock.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_grenadelauncher",
+            "line": 568
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/g_rock.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_grenadelauncher",
+            "line": 569
+          }
+        }
+      ],
+      "callbackFacts": {
+        "weapon_touch": {
+          "assignments": [
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 420
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 421
+              }
+            },
+            {
+              "field": "best",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 422
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 423
+              }
+            },
+            {
+              "field": "leave",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 426
+              }
+            },
+            {
+              "field": "leave",
+              "expression": "0",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 428
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_nails",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 434
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_NAILGUN",
+              "value": 4,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 435
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 436
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 442
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_SUPER_NAILGUN",
+              "value": 8,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 443
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 444
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 450
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_SUPER_SHOTGUN",
+              "value": 2,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 451
+              }
+            },
+            {
+              "field": "other.ammo_shells",
+              "expression": "other.ammo_shells + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 452
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 458
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_ROCKET_LAUNCHER",
+              "value": 32,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 459
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 460
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 466
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_GRENADE_LAUNCHER",
+              "value": 16,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 467
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 468
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 474
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_LIGHTNING",
+              "value": 64,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 475
+              }
+            },
+            {
+              "field": "other.ammo_cells",
+              "expression": "other.ammo_cells + 15",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 476
+              }
+            },
+            {
+              "field": "old",
+              "expression": "other.items",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 491
+              }
+            },
+            {
+              "field": "other.items",
+              "expression": "other.items | new",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 492
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 494
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 495
+              }
+            },
+            {
+              "field": "self.weapon",
+              "expression": "new",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 498
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 504
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 510
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 511
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 513
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 514
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 516
+              }
+            }
+          ],
+          "calls": [
+            "W_BestWeapon",
+            "objerror",
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "bound_other_ammo",
+            "Deathmatch_Weapon",
+            "W_SetCurrentAmmo",
+            "SUB_UseTargets"
+          ],
+          "classnameBranches": [
+            {
+              "classname": "weapon_nailgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_nails",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 434
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_NAILGUN",
+                  "value": 4,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 435
+                  }
+                },
+                {
+                  "field": "other.ammo_nails",
+                  "expression": "other.ammo_nails + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 436
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 430
+              }
+            },
+            {
+              "classname": "weapon_supernailgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 442
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_SUPER_NAILGUN",
+                  "value": 8,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 443
+                  }
+                },
+                {
+                  "field": "other.ammo_nails",
+                  "expression": "other.ammo_nails + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 444
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 438
+              }
+            },
+            {
+              "classname": "weapon_supershotgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 450
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_SUPER_SHOTGUN",
+                  "value": 2,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 451
+                  }
+                },
+                {
+                  "field": "other.ammo_shells",
+                  "expression": "other.ammo_shells + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 452
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 446
+              }
+            },
+            {
+              "classname": "weapon_rocketlauncher",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 458
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_ROCKET_LAUNCHER",
+                  "value": 32,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 459
+                  }
+                },
+                {
+                  "field": "other.ammo_rockets",
+                  "expression": "other.ammo_rockets + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 460
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 454
+              }
+            },
+            {
+              "classname": "weapon_grenadelauncher",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 466
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_GRENADE_LAUNCHER",
+                  "value": 16,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 467
+                  }
+                },
+                {
+                  "field": "other.ammo_rockets",
+                  "expression": "other.ammo_rockets + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 468
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 462
+              }
+            },
+            {
+              "classname": "weapon_lightning",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 474
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_LIGHTNING",
+                  "value": 64,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 475
+                  }
+                },
+                {
+                  "field": "other.ammo_cells",
+                  "expression": "other.ammo_cells + 15",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 476
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 470
+              }
+            }
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_touch",
+              "line": 411
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "weapon_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "weapon_grenadelauncher",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/g_rock.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_grenadelauncher",
+              "line": 568
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/g_rock.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_grenadelauncher",
+              "line": 569
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "weapon",
+          "expression": "3",
+          "value": 3,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_grenadelauncher",
+            "line": 570
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"Grenade Launcher\"",
+          "value": "Grenade Launcher",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_grenadelauncher",
+            "line": 571
+          }
+        },
+        {
+          "field": "touch",
+          "expression": "weapon_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_grenadelauncher",
+            "line": 572
+          }
+        }
+      ],
+      "functionName": "weapon_grenadelauncher",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/g_rock.mdl\"",
+          "value": "progs/g_rock.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_grenadelauncher",
+            "line": 569
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 0'",
+          "min": [
+            -16,
+            -16,
+            0
+          ],
+          "maxExpression": "'16 16 56'",
+          "max": [
+            16,
+            16,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_grenadelauncher",
+            "line": 573
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "weapon_grenadelauncher",
+          "line": 567
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "weapon_rocketlauncher": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/g_rock2.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_rocketlauncher",
+            "line": 582
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/g_rock2.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_rocketlauncher",
+            "line": 583
+          }
+        }
+      ],
+      "callbackFacts": {
+        "weapon_touch": {
+          "assignments": [
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 420
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 421
+              }
+            },
+            {
+              "field": "best",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 422
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 423
+              }
+            },
+            {
+              "field": "leave",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 426
+              }
+            },
+            {
+              "field": "leave",
+              "expression": "0",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 428
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_nails",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 434
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_NAILGUN",
+              "value": 4,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 435
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 436
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 442
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_SUPER_NAILGUN",
+              "value": 8,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 443
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 444
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 450
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_SUPER_SHOTGUN",
+              "value": 2,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 451
+              }
+            },
+            {
+              "field": "other.ammo_shells",
+              "expression": "other.ammo_shells + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 452
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 458
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_ROCKET_LAUNCHER",
+              "value": 32,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 459
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 460
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 466
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_GRENADE_LAUNCHER",
+              "value": 16,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 467
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 468
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 474
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_LIGHTNING",
+              "value": 64,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 475
+              }
+            },
+            {
+              "field": "other.ammo_cells",
+              "expression": "other.ammo_cells + 15",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 476
+              }
+            },
+            {
+              "field": "old",
+              "expression": "other.items",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 491
+              }
+            },
+            {
+              "field": "other.items",
+              "expression": "other.items | new",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 492
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 494
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 495
+              }
+            },
+            {
+              "field": "self.weapon",
+              "expression": "new",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 498
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 504
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 510
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 511
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 513
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 514
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 516
+              }
+            }
+          ],
+          "calls": [
+            "W_BestWeapon",
+            "objerror",
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "bound_other_ammo",
+            "Deathmatch_Weapon",
+            "W_SetCurrentAmmo",
+            "SUB_UseTargets"
+          ],
+          "classnameBranches": [
+            {
+              "classname": "weapon_nailgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_nails",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 434
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_NAILGUN",
+                  "value": 4,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 435
+                  }
+                },
+                {
+                  "field": "other.ammo_nails",
+                  "expression": "other.ammo_nails + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 436
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 430
+              }
+            },
+            {
+              "classname": "weapon_supernailgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 442
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_SUPER_NAILGUN",
+                  "value": 8,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 443
+                  }
+                },
+                {
+                  "field": "other.ammo_nails",
+                  "expression": "other.ammo_nails + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 444
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 438
+              }
+            },
+            {
+              "classname": "weapon_supershotgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 450
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_SUPER_SHOTGUN",
+                  "value": 2,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 451
+                  }
+                },
+                {
+                  "field": "other.ammo_shells",
+                  "expression": "other.ammo_shells + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 452
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 446
+              }
+            },
+            {
+              "classname": "weapon_rocketlauncher",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 458
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_ROCKET_LAUNCHER",
+                  "value": 32,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 459
+                  }
+                },
+                {
+                  "field": "other.ammo_rockets",
+                  "expression": "other.ammo_rockets + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 460
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 454
+              }
+            },
+            {
+              "classname": "weapon_grenadelauncher",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 466
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_GRENADE_LAUNCHER",
+                  "value": 16,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 467
+                  }
+                },
+                {
+                  "field": "other.ammo_rockets",
+                  "expression": "other.ammo_rockets + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 468
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 462
+              }
+            },
+            {
+              "classname": "weapon_lightning",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 474
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_LIGHTNING",
+                  "value": 64,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 475
+                  }
+                },
+                {
+                  "field": "other.ammo_cells",
+                  "expression": "other.ammo_cells + 15",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 476
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 470
+              }
+            }
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_touch",
+              "line": 411
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "weapon_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "weapon_rocketlauncher",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/g_rock2.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_rocketlauncher",
+              "line": 582
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/g_rock2.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_rocketlauncher",
+              "line": 583
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "weapon",
+          "expression": "3",
+          "value": 3,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_rocketlauncher",
+            "line": 584
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"Rocket Launcher\"",
+          "value": "Rocket Launcher",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_rocketlauncher",
+            "line": 585
+          }
+        },
+        {
+          "field": "touch",
+          "expression": "weapon_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_rocketlauncher",
+            "line": 586
+          }
+        }
+      ],
+      "functionName": "weapon_rocketlauncher",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/g_rock2.mdl\"",
+          "value": "progs/g_rock2.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_rocketlauncher",
+            "line": 583
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 0'",
+          "min": [
+            -16,
+            -16,
+            0
+          ],
+          "maxExpression": "'16 16 56'",
+          "max": [
+            16,
+            16,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_rocketlauncher",
+            "line": 587
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "weapon_rocketlauncher",
+          "line": 581
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "weapon_lightning": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/g_light.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_lightning",
+            "line": 597
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/g_light.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_lightning",
+            "line": 598
+          }
+        }
+      ],
+      "callbackFacts": {
+        "weapon_touch": {
+          "assignments": [
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 420
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 421
+              }
+            },
+            {
+              "field": "best",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 422
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 423
+              }
+            },
+            {
+              "field": "leave",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 426
+              }
+            },
+            {
+              "field": "leave",
+              "expression": "0",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 428
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_nails",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 434
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_NAILGUN",
+              "value": 4,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 435
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 436
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 442
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_SUPER_NAILGUN",
+              "value": 8,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 443
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 444
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 450
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_SUPER_SHOTGUN",
+              "value": 2,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 451
+              }
+            },
+            {
+              "field": "other.ammo_shells",
+              "expression": "other.ammo_shells + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 452
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 458
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_ROCKET_LAUNCHER",
+              "value": 32,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 459
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 460
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 466
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_GRENADE_LAUNCHER",
+              "value": 16,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 467
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + 5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 468
+              }
+            },
+            {
+              "field": "hadammo",
+              "expression": "other.ammo_rockets",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 474
+              }
+            },
+            {
+              "field": "new",
+              "expression": "IT_LIGHTNING",
+              "value": 64,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 475
+              }
+            },
+            {
+              "field": "other.ammo_cells",
+              "expression": "other.ammo_cells + 15",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 476
+              }
+            },
+            {
+              "field": "old",
+              "expression": "other.items",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 491
+              }
+            },
+            {
+              "field": "other.items",
+              "expression": "other.items | new",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 492
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 494
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 495
+              }
+            },
+            {
+              "field": "self.weapon",
+              "expression": "new",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 498
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 504
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 510
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 511
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 513
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 514
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 516
+              }
+            }
+          ],
+          "calls": [
+            "W_BestWeapon",
+            "objerror",
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "bound_other_ammo",
+            "Deathmatch_Weapon",
+            "W_SetCurrentAmmo",
+            "SUB_UseTargets"
+          ],
+          "classnameBranches": [
+            {
+              "classname": "weapon_nailgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_nails",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 434
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_NAILGUN",
+                  "value": 4,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 435
+                  }
+                },
+                {
+                  "field": "other.ammo_nails",
+                  "expression": "other.ammo_nails + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 436
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 430
+              }
+            },
+            {
+              "classname": "weapon_supernailgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 442
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_SUPER_NAILGUN",
+                  "value": 8,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 443
+                  }
+                },
+                {
+                  "field": "other.ammo_nails",
+                  "expression": "other.ammo_nails + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 444
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 438
+              }
+            },
+            {
+              "classname": "weapon_supershotgun",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 450
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_SUPER_SHOTGUN",
+                  "value": 2,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 451
+                  }
+                },
+                {
+                  "field": "other.ammo_shells",
+                  "expression": "other.ammo_shells + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 452
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 446
+              }
+            },
+            {
+              "classname": "weapon_rocketlauncher",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 458
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_ROCKET_LAUNCHER",
+                  "value": 32,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 459
+                  }
+                },
+                {
+                  "field": "other.ammo_rockets",
+                  "expression": "other.ammo_rockets + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 460
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 454
+              }
+            },
+            {
+              "classname": "weapon_grenadelauncher",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 466
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_GRENADE_LAUNCHER",
+                  "value": 16,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 467
+                  }
+                },
+                {
+                  "field": "other.ammo_rockets",
+                  "expression": "other.ammo_rockets + 5",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 468
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 462
+              }
+            },
+            {
+              "classname": "weapon_lightning",
+              "assignments": [
+                {
+                  "field": "hadammo",
+                  "expression": "other.ammo_rockets",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 474
+                  }
+                },
+                {
+                  "field": "new",
+                  "expression": "IT_LIGHTNING",
+                  "value": 64,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 475
+                  }
+                },
+                {
+                  "field": "other.ammo_cells",
+                  "expression": "other.ammo_cells + 15",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "weapon_touch",
+                    "line": 476
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "weapon_touch",
+                "line": 470
+              }
+            }
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_touch",
+              "line": 411
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "weapon_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "weapon_lightning",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/g_light.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_lightning",
+              "line": 597
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/g_light.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "weapon_lightning",
+              "line": 598
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "weapon",
+          "expression": "3",
+          "value": 3,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_lightning",
+            "line": 599
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"Thunderbolt\"",
+          "value": "Thunderbolt",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_lightning",
+            "line": 600
+          }
+        },
+        {
+          "field": "touch",
+          "expression": "weapon_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_lightning",
+            "line": 601
+          }
+        }
+      ],
+      "functionName": "weapon_lightning",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/g_light.mdl\"",
+          "value": "progs/g_light.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_lightning",
+            "line": 598
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 0'",
+          "min": [
+            -16,
+            -16,
+            0
+          ],
+          "maxExpression": "'16 16 56'",
+          "max": [
+            16,
+            16,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "weapon_lightning",
+            "line": 602
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "weapon_lightning",
+          "line": 596
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "item_shells": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_shell1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_shells",
+            "line": 716
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_shell0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_shells",
+            "line": 722
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_shell1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_shells",
+            "line": 717
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_shell0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_shells",
+            "line": 723
+          }
+        }
+      ],
+      "callbackFacts": {
+        "ammo_touch": {
+          "assignments": [
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 626
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 627
+              }
+            },
+            {
+              "field": "best",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 628
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 629
+              }
+            },
+            {
+              "field": "other.ammo_shells",
+              "expression": "other.ammo_shells + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 637
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 645
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 653
+              }
+            },
+            {
+              "field": "other.ammo_cells",
+              "expression": "other.ammo_cells + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 661
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 677
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 678
+              }
+            },
+            {
+              "field": "self.weapon",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 679
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 681
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 685
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 686
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 688
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 691
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 692
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 694
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 696
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 698
+              }
+            }
+          ],
+          "calls": [
+            "W_BestWeapon",
+            "bound_other_ammo",
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "W_SetCurrentAmmo",
+            "SUB_UseTargets"
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "ammo_touch",
+              "line": 616
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "ammo_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_shells",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "maps/b_shell1.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_shells",
+              "line": 716
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "maps/b_shell0.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_shells",
+              "line": 722
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_shell1.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_shells",
+              "line": 717
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_shell0.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_shells",
+              "line": 723
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "ammo_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_shells",
+            "line": 712
+          }
+        },
+        {
+          "field": "aflag",
+          "expression": "40",
+          "value": 40,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_shells",
+            "line": 718
+          }
+        },
+        {
+          "field": "aflag",
+          "expression": "20",
+          "value": 20,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_shells",
+            "line": 724
+          }
+        },
+        {
+          "field": "weapon",
+          "expression": "1",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_shells",
+            "line": 726
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"shells\"",
+          "value": "shells",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_shells",
+            "line": 727
+          }
+        }
+      ],
+      "functionName": "item_shells",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"maps/b_shell1.bsp\"",
+          "value": "maps/b_shell1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_shells",
+            "line": 717
+          }
+        },
+        {
+          "expression": "\"maps/b_shell0.bsp\"",
+          "value": "maps/b_shell0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_shells",
+            "line": 723
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'0 0 0'",
+          "min": [
+            0,
+            0,
+            0
+          ],
+          "maxExpression": "'32 32 56'",
+          "max": [
+            32,
+            32,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_shells",
+            "line": 728
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_shells",
+          "line": 711
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": [
+        {
+          "name": "WEAPON_BIG2",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_shells",
+            "line": 714
+          }
+        }
+      ]
+    },
+    "item_spikes": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_nail1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_spikes",
+            "line": 741
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_nail0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_spikes",
+            "line": 747
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_nail1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_spikes",
+            "line": 742
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_nail0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_spikes",
+            "line": 748
+          }
+        }
+      ],
+      "callbackFacts": {
+        "ammo_touch": {
+          "assignments": [
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 626
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 627
+              }
+            },
+            {
+              "field": "best",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 628
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 629
+              }
+            },
+            {
+              "field": "other.ammo_shells",
+              "expression": "other.ammo_shells + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 637
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 645
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 653
+              }
+            },
+            {
+              "field": "other.ammo_cells",
+              "expression": "other.ammo_cells + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 661
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 677
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 678
+              }
+            },
+            {
+              "field": "self.weapon",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 679
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 681
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 685
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 686
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 688
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 691
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 692
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 694
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 696
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 698
+              }
+            }
+          ],
+          "calls": [
+            "W_BestWeapon",
+            "bound_other_ammo",
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "W_SetCurrentAmmo",
+            "SUB_UseTargets"
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "ammo_touch",
+              "line": 616
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "ammo_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_spikes",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "maps/b_nail1.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_spikes",
+              "line": 741
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "maps/b_nail0.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_spikes",
+              "line": 747
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_nail1.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_spikes",
+              "line": 742
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_nail0.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_spikes",
+              "line": 748
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "ammo_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_spikes",
+            "line": 737
+          }
+        },
+        {
+          "field": "aflag",
+          "expression": "50",
+          "value": 50,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_spikes",
+            "line": 743
+          }
+        },
+        {
+          "field": "aflag",
+          "expression": "25",
+          "value": 25,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_spikes",
+            "line": 749
+          }
+        },
+        {
+          "field": "weapon",
+          "expression": "2",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_spikes",
+            "line": 751
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"nails\"",
+          "value": "nails",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_spikes",
+            "line": 752
+          }
+        }
+      ],
+      "functionName": "item_spikes",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"maps/b_nail1.bsp\"",
+          "value": "maps/b_nail1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_spikes",
+            "line": 742
+          }
+        },
+        {
+          "expression": "\"maps/b_nail0.bsp\"",
+          "value": "maps/b_nail0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_spikes",
+            "line": 748
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'0 0 0'",
+          "min": [
+            0,
+            0,
+            0
+          ],
+          "maxExpression": "'32 32 56'",
+          "max": [
+            32,
+            32,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_spikes",
+            "line": 753
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_spikes",
+          "line": 736
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": [
+        {
+          "name": "WEAPON_BIG2",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_spikes",
+            "line": 739
+          }
+        }
+      ]
+    },
+    "item_rockets": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_rock1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_rockets",
+            "line": 766
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_rock0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_rockets",
+            "line": 772
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_rock1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_rockets",
+            "line": 767
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_rock0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_rockets",
+            "line": 773
+          }
+        }
+      ],
+      "callbackFacts": {
+        "ammo_touch": {
+          "assignments": [
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 626
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 627
+              }
+            },
+            {
+              "field": "best",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 628
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 629
+              }
+            },
+            {
+              "field": "other.ammo_shells",
+              "expression": "other.ammo_shells + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 637
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 645
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 653
+              }
+            },
+            {
+              "field": "other.ammo_cells",
+              "expression": "other.ammo_cells + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 661
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 677
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 678
+              }
+            },
+            {
+              "field": "self.weapon",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 679
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 681
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 685
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 686
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 688
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 691
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 692
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 694
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 696
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 698
+              }
+            }
+          ],
+          "calls": [
+            "W_BestWeapon",
+            "bound_other_ammo",
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "W_SetCurrentAmmo",
+            "SUB_UseTargets"
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "ammo_touch",
+              "line": 616
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "ammo_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_rockets",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "maps/b_rock1.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_rockets",
+              "line": 766
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "maps/b_rock0.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_rockets",
+              "line": 772
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_rock1.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_rockets",
+              "line": 767
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_rock0.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_rockets",
+              "line": 773
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "ammo_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_rockets",
+            "line": 762
+          }
+        },
+        {
+          "field": "aflag",
+          "expression": "10",
+          "value": 10,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_rockets",
+            "line": 768
+          }
+        },
+        {
+          "field": "aflag",
+          "expression": "5",
+          "value": 5,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_rockets",
+            "line": 774
+          }
+        },
+        {
+          "field": "weapon",
+          "expression": "3",
+          "value": 3,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_rockets",
+            "line": 776
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"rockets\"",
+          "value": "rockets",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_rockets",
+            "line": 777
+          }
+        }
+      ],
+      "functionName": "item_rockets",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"maps/b_rock1.bsp\"",
+          "value": "maps/b_rock1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_rockets",
+            "line": 767
+          }
+        },
+        {
+          "expression": "\"maps/b_rock0.bsp\"",
+          "value": "maps/b_rock0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_rockets",
+            "line": 773
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'0 0 0'",
+          "min": [
+            0,
+            0,
+            0
+          ],
+          "maxExpression": "'32 32 56'",
+          "max": [
+            32,
+            32,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_rockets",
+            "line": 778
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_rockets",
+          "line": 761
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": [
+        {
+          "name": "WEAPON_BIG2",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_rockets",
+            "line": 764
+          }
+        }
+      ]
+    },
+    "item_cells": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_batt1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_cells",
+            "line": 792
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_batt0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_cells",
+            "line": 798
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_batt1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_cells",
+            "line": 793
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_batt0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_cells",
+            "line": 799
+          }
+        }
+      ],
+      "callbackFacts": {
+        "ammo_touch": {
+          "assignments": [
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 626
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 627
+              }
+            },
+            {
+              "field": "best",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 628
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 629
+              }
+            },
+            {
+              "field": "other.ammo_shells",
+              "expression": "other.ammo_shells + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 637
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 645
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 653
+              }
+            },
+            {
+              "field": "other.ammo_cells",
+              "expression": "other.ammo_cells + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 661
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 677
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 678
+              }
+            },
+            {
+              "field": "self.weapon",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 679
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 681
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 685
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 686
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 688
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 691
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 692
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 694
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 696
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 698
+              }
+            }
+          ],
+          "calls": [
+            "W_BestWeapon",
+            "bound_other_ammo",
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "W_SetCurrentAmmo",
+            "SUB_UseTargets"
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "ammo_touch",
+              "line": 616
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "ammo_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_cells",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "maps/b_batt1.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_cells",
+              "line": 792
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "maps/b_batt0.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_cells",
+              "line": 798
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_batt1.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_cells",
+              "line": 793
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_batt0.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_cells",
+              "line": 799
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "ammo_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_cells",
+            "line": 788
+          }
+        },
+        {
+          "field": "aflag",
+          "expression": "12",
+          "value": 12,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_cells",
+            "line": 794
+          }
+        },
+        {
+          "field": "aflag",
+          "expression": "6",
+          "value": 6,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_cells",
+            "line": 800
+          }
+        },
+        {
+          "field": "weapon",
+          "expression": "4",
+          "value": 4,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_cells",
+            "line": 802
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"cells\"",
+          "value": "cells",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_cells",
+            "line": 803
+          }
+        }
+      ],
+      "functionName": "item_cells",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"maps/b_batt1.bsp\"",
+          "value": "maps/b_batt1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_cells",
+            "line": 793
+          }
+        },
+        {
+          "expression": "\"maps/b_batt0.bsp\"",
+          "value": "maps/b_batt0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_cells",
+            "line": 799
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'0 0 0'",
+          "min": [
+            0,
+            0,
+            0
+          ],
+          "maxExpression": "'32 32 56'",
+          "max": [
+            32,
+            32,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_cells",
+            "line": 804
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_cells",
+          "line": 787
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": [
+        {
+          "name": "WEAPON_BIG2",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_cells",
+            "line": 790
+          }
+        }
+      ]
+    },
+    "item_weapon": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_shell1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 825
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_shell0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 831
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_nail1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 843
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_nail0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 849
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_rock1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 861
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "bsp",
+          "path": "maps/b_rock0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 867
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_shell1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 826
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_shell0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 832
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_nail1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 844
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_nail0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 850
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_rock1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 862
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "bsp",
+          "path": "maps/b_rock0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 868
+          }
+        }
+      ],
+      "callbackFacts": {
+        "ammo_touch": {
+          "assignments": [
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 626
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 627
+              }
+            },
+            {
+              "field": "best",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 628
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 629
+              }
+            },
+            {
+              "field": "other.ammo_shells",
+              "expression": "other.ammo_shells + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 637
+              }
+            },
+            {
+              "field": "other.ammo_nails",
+              "expression": "other.ammo_nails + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 645
+              }
+            },
+            {
+              "field": "other.ammo_rockets",
+              "expression": "other.ammo_rockets + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 653
+              }
+            },
+            {
+              "field": "other.ammo_cells",
+              "expression": "other.ammo_cells + self.aflag",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 661
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 677
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 678
+              }
+            },
+            {
+              "field": "self.weapon",
+              "expression": "W_BestWeapon()",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 679
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 681
+              }
+            },
+            {
+              "field": "stemp",
+              "expression": "self",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 685
+              }
+            },
+            {
+              "field": "self",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 686
+              }
+            },
+            {
+              "field": "self",
+              "expression": "stemp",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 688
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 691
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 692
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 694
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 696
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "ammo_touch",
+                "line": 698
+              }
+            }
+          ],
+          "calls": [
+            "W_BestWeapon",
+            "bound_other_ammo",
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "W_SetCurrentAmmo",
+            "SUB_UseTargets"
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "ammo_touch",
+              "line": 616
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "ammo_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_weapon",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "maps/b_shell1.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_weapon",
+              "line": 825
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "maps/b_shell0.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_weapon",
+              "line": 831
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "maps/b_nail1.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_weapon",
+              "line": 843
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "maps/b_nail0.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_weapon",
+              "line": 849
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "maps/b_rock1.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_weapon",
+              "line": 861
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "maps/b_rock0.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_weapon",
+              "line": 867
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_shell1.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_weapon",
+              "line": 826
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_shell0.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_weapon",
+              "line": 832
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_nail1.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_weapon",
+              "line": 844
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_nail0.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_weapon",
+              "line": 850
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_rock1.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_weapon",
+              "line": 862
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "maps/b_rock0.bsp",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_weapon",
+              "line": 868
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "ammo_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 819
+          }
+        },
+        {
+          "field": "aflag",
+          "expression": "40",
+          "value": 40,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 827
+          }
+        },
+        {
+          "field": "aflag",
+          "expression": "20",
+          "value": 20,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 833
+          }
+        },
+        {
+          "field": "weapon",
+          "expression": "1",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 835
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"shells\"",
+          "value": "shells",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 836
+          }
+        },
+        {
+          "field": "aflag",
+          "expression": "40",
+          "value": 40,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 845
+          }
+        },
+        {
+          "field": "aflag",
+          "expression": "20",
+          "value": 20,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 851
+          }
+        },
+        {
+          "field": "weapon",
+          "expression": "2",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 853
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"spikes\"",
+          "value": "spikes",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 854
+          }
+        },
+        {
+          "field": "aflag",
+          "expression": "10",
+          "value": 10,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 863
+          }
+        },
+        {
+          "field": "aflag",
+          "expression": "5",
+          "value": 5,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 869
+          }
+        },
+        {
+          "field": "weapon",
+          "expression": "3",
+          "value": 3,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 871
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"rockets\"",
+          "value": "rockets",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 872
+          }
+        }
+      ],
+      "functionName": "item_weapon",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"maps/b_shell1.bsp\"",
+          "value": "maps/b_shell1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 826
+          }
+        },
+        {
+          "expression": "\"maps/b_shell0.bsp\"",
+          "value": "maps/b_shell0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 832
+          }
+        },
+        {
+          "expression": "\"maps/b_nail1.bsp\"",
+          "value": "maps/b_nail1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 844
+          }
+        },
+        {
+          "expression": "\"maps/b_nail0.bsp\"",
+          "value": "maps/b_nail0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 850
+          }
+        },
+        {
+          "expression": "\"maps/b_rock1.bsp\"",
+          "value": "maps/b_rock1.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 862
+          }
+        },
+        {
+          "expression": "\"maps/b_rock0.bsp\"",
+          "value": "maps/b_rock0.bsp",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 868
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'0 0 0'",
+          "min": [
+            0,
+            0,
+            0
+          ],
+          "maxExpression": "'32 32 56'",
+          "max": [
+            32,
+            32,
+            56
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 875
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_weapon",
+          "line": 818
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": [
+        {
+          "name": "WEAPON_SHOTGUN",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 821
+          }
+        },
+        {
+          "name": "WEAPON_BIG",
+          "value": 8,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 823
+          }
+        },
+        {
+          "name": "WEAPON_SPIKES",
+          "value": 4,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 839
+          }
+        },
+        {
+          "name": "WEAPON_ROCKET",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_weapon",
+            "line": 857
+          }
+        }
+      ]
+    },
+    "item_key1": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/w_s_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 953
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/m_s_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 959
+          }
+        },
+        {
+          "call": "precache_model2",
+          "kind": "model",
+          "path": "progs/b_s_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 965
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/w_s_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 954
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/m_s_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 960
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/b_s_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 966
+          }
+        }
+      ],
+      "callbackFacts": {
+        "key_touch": {
+          "assignments": [
+            {
+              "field": "other.items",
+              "expression": "other.items | self.items",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "key_touch",
+                "line": 906
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "key_touch",
+                "line": 910
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "key_touch",
+                "line": 911
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "key_touch",
+                "line": 914
+              }
+            }
+          ],
+          "calls": [
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "SUB_UseTargets"
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "key_touch",
+              "line": 889
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "key_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "precache_model2",
+        "key_setsounds",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_key1",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/w_s_key.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_key1",
+              "line": 953
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "progs/m_s_key.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_key1",
+              "line": 959
+            }
+          },
+          {
+            "call": "precache_model2",
+            "path": "progs/b_s_key.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_key1",
+              "line": 965
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/w_s_key.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_key1",
+              "line": 954
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/m_s_key.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_key1",
+              "line": 960
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/b_s_key.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_key1",
+              "line": 966
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "netname",
+          "expression": "\"silver key\"",
+          "value": "silver key",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 955
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"silver runekey\"",
+          "value": "silver runekey",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 961
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"silver keycard\"",
+          "value": "silver keycard",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 967
+          }
+        },
+        {
+          "field": "touch",
+          "expression": "key_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 970
+          }
+        },
+        {
+          "field": "items",
+          "expression": "IT_KEY1",
+          "value": 131072,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 971
+          }
+        }
+      ],
+      "functionName": "item_key1",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/w_s_key.mdl\"",
+          "value": "progs/w_s_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 954
+          }
+        },
+        {
+          "expression": "\"progs/m_s_key.mdl\"",
+          "value": "progs/m_s_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 960
+          }
+        },
+        {
+          "expression": "\"progs/b_s_key.mdl\"",
+          "value": "progs/b_s_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 966
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 -24'",
+          "min": [
+            -16,
+            -16,
+            -24
+          ],
+          "maxExpression": "'16 16 32'",
+          "max": [
+            16,
+            16,
+            32
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key1",
+            "line": 972
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_key1",
+          "line": 950
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "item_key2": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/w_g_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 991
+          }
+        },
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/m_g_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 997
+          }
+        },
+        {
+          "call": "precache_model2",
+          "kind": "model",
+          "path": "progs/b_g_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 1003
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/w_g_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 992
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/m_g_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 998
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/b_g_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 1004
+          }
+        }
+      ],
+      "callbackFacts": {
+        "key_touch": {
+          "assignments": [
+            {
+              "field": "other.items",
+              "expression": "other.items | self.items",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "key_touch",
+                "line": 906
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "key_touch",
+                "line": 910
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "key_touch",
+                "line": 911
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "key_touch",
+                "line": 914
+              }
+            }
+          ],
+          "calls": [
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "SUB_UseTargets"
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "key_touch",
+              "line": 889
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "key_touch"
+      },
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "precache_model2",
+        "key_setsounds",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_key2",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/w_g_key.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_key2",
+              "line": 991
+            }
+          },
+          {
+            "call": "precache_model",
+            "path": "progs/m_g_key.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_key2",
+              "line": 997
+            }
+          },
+          {
+            "call": "precache_model2",
+            "path": "progs/b_g_key.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_key2",
+              "line": 1003
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/w_g_key.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_key2",
+              "line": 992
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/m_g_key.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_key2",
+              "line": 998
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/b_g_key.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_key2",
+              "line": 1004
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "netname",
+          "expression": "\"gold key\"",
+          "value": "gold key",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 993
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"gold runekey\"",
+          "value": "gold runekey",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 999
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"gold keycard\"",
+          "value": "gold keycard",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 1005
+          }
+        },
+        {
+          "field": "touch",
+          "expression": "key_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 1008
+          }
+        },
+        {
+          "field": "items",
+          "expression": "IT_KEY2",
+          "value": 262144,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 1009
+          }
+        }
+      ],
+      "functionName": "item_key2",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/w_g_key.mdl\"",
+          "value": "progs/w_g_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 992
+          }
+        },
+        {
+          "expression": "\"progs/m_g_key.mdl\"",
+          "value": "progs/m_g_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 998
+          }
+        },
+        {
+          "expression": "\"progs/b_g_key.mdl\"",
+          "value": "progs/b_g_key.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 1004
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 -24'",
+          "min": [
+            -16,
+            -16,
+            -24
+          ],
+          "maxExpression": "'16 16 32'",
+          "max": [
+            16,
+            16,
+            32
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_key2",
+            "line": 1010
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_key2",
+          "line": 988
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "item_sigil": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/end1.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1062
+          }
+        },
+        {
+          "call": "precache_model2",
+          "kind": "model",
+          "path": "progs/end2.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1067
+          }
+        },
+        {
+          "call": "precache_model2",
+          "kind": "model",
+          "path": "progs/end3.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1072
+          }
+        },
+        {
+          "call": "precache_model2",
+          "kind": "model",
+          "path": "progs/end4.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1077
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/end1.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1063
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/end2.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1068
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/end3.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1073
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/end4.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1078
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "misc/runekey.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1057
+          }
+        }
+      ],
+      "callbacks": {
+        "touch": "sigil_touch"
+      },
+      "calls": [
+        "objerror",
+        "precache_sound",
+        "precache_model",
+        "setmodel",
+        "precache_model2",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_sigil",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/end1.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_sigil",
+              "line": 1062
+            }
+          },
+          {
+            "call": "precache_model2",
+            "path": "progs/end2.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_sigil",
+              "line": 1067
+            }
+          },
+          {
+            "call": "precache_model2",
+            "path": "progs/end3.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_sigil",
+              "line": 1072
+            }
+          },
+          {
+            "call": "precache_model2",
+            "path": "progs/end4.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_sigil",
+              "line": 1077
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/end1.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_sigil",
+              "line": 1063
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/end2.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_sigil",
+              "line": 1068
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/end3.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_sigil",
+              "line": 1073
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/end4.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_sigil",
+              "line": 1078
+            }
+          }
+        ],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "misc/runekey.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_sigil",
+              "line": 1057
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "noise",
+          "expression": "\"misc/runekey.wav\"",
+          "value": "misc/runekey.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1058
+          }
+        },
+        {
+          "field": "touch",
+          "expression": "sigil_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1081
+          }
+        }
+      ],
+      "functionName": "item_sigil",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/end1.mdl\"",
+          "value": "progs/end1.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1063
+          }
+        },
+        {
+          "expression": "\"progs/end2.mdl\"",
+          "value": "progs/end2.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1068
+          }
+        },
+        {
+          "expression": "\"progs/end3.mdl\"",
+          "value": "progs/end3.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1073
+          }
+        },
+        {
+          "expression": "\"progs/end4.mdl\"",
+          "value": "progs/end4.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1078
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 -24'",
+          "min": [
+            -16,
+            -16,
+            -24
+          ],
+          "maxExpression": "'16 16 32'",
+          "max": [
+            16,
+            16,
+            32
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_sigil",
+            "line": 1082
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_sigil",
+          "line": 1053
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "item_artifact_invulnerability": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/invulner.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invulnerability",
+            "line": 1168
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/invulner.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invulnerability",
+            "line": 1173
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "items/protect.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invulnerability",
+            "line": 1169
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "items/protect2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invulnerability",
+            "line": 1170
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "items/protect3.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invulnerability",
+            "line": 1171
+          }
+        }
+      ],
+      "callbackFacts": {
+        "powerup_touch": {
+          "assignments": [
+            {
+              "field": "self.mdl",
+              "expression": "self.model",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1113
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 60*5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1117
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 60",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1119
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1121
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1126
+              }
+            },
+            {
+              "field": "other.items",
+              "expression": "other.items | self.items",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1127
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1128
+              }
+            },
+            {
+              "field": "other.rad_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1133
+              }
+            },
+            {
+              "field": "other.radsuit_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1134
+              }
+            },
+            {
+              "field": "other.invincible_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1139
+              }
+            },
+            {
+              "field": "other.invincible_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1140
+              }
+            },
+            {
+              "field": "other.invisible_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1145
+              }
+            },
+            {
+              "field": "other.invisible_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1146
+              }
+            },
+            {
+              "field": "other.super_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1151
+              }
+            },
+            {
+              "field": "other.super_damage_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1152
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1155
+              }
+            }
+          ],
+          "calls": [
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "SUB_UseTargets"
+          ],
+          "classnameBranches": [
+            {
+              "classname": "item_artifact_envirosuit",
+              "assignments": [
+                {
+                  "field": "other.rad_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1133
+                  }
+                },
+                {
+                  "field": "other.radsuit_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1134
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1131
+              }
+            },
+            {
+              "classname": "item_artifact_invulnerability",
+              "assignments": [
+                {
+                  "field": "other.invincible_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1139
+                  }
+                },
+                {
+                  "field": "other.invincible_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1140
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1137
+              }
+            },
+            {
+              "classname": "item_artifact_invisibility",
+              "assignments": [
+                {
+                  "field": "other.invisible_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1145
+                  }
+                },
+                {
+                  "field": "other.invisible_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1146
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1143
+              }
+            },
+            {
+              "classname": "item_artifact_super_damage",
+              "assignments": [
+                {
+                  "field": "other.super_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1151
+                  }
+                },
+                {
+                  "field": "other.super_damage_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1152
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1149
+              }
+            }
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "powerup_touch",
+              "line": 1098
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "powerup_touch"
+      },
+      "calls": [
+        "precache_model",
+        "precache_sound",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_artifact_invulnerability",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/invulner.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_invulnerability",
+              "line": 1168
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/invulner.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_invulnerability",
+              "line": 1173
+            }
+          }
+        ],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "items/protect.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_invulnerability",
+              "line": 1169
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "items/protect2.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_invulnerability",
+              "line": 1170
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "items/protect3.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_invulnerability",
+              "line": 1171
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "powerup_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invulnerability",
+            "line": 1166
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"items/protect.wav\"",
+          "value": "items/protect.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invulnerability",
+            "line": 1172
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"Pentagram of Protection\"",
+          "value": "Pentagram of Protection",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invulnerability",
+            "line": 1174
+          }
+        },
+        {
+          "field": "items",
+          "expression": "IT_INVULNERABILITY",
+          "value": 1048576,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invulnerability",
+            "line": 1175
+          }
+        }
+      ],
+      "functionName": "item_artifact_invulnerability",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/invulner.mdl\"",
+          "value": "progs/invulner.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invulnerability",
+            "line": 1173
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 -24'",
+          "min": [
+            -16,
+            -16,
+            -24
+          ],
+          "maxExpression": "'16 16 32'",
+          "max": [
+            16,
+            16,
+            32
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invulnerability",
+            "line": 1176
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_artifact_invulnerability",
+          "line": 1165
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "item_artifact_envirosuit": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/suit.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_envirosuit",
+            "line": 1187
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/suit.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_envirosuit",
+            "line": 1191
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "items/suit.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_envirosuit",
+            "line": 1188
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "items/suit2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_envirosuit",
+            "line": 1189
+          }
+        }
+      ],
+      "callbackFacts": {
+        "powerup_touch": {
+          "assignments": [
+            {
+              "field": "self.mdl",
+              "expression": "self.model",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1113
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 60*5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1117
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 60",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1119
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1121
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1126
+              }
+            },
+            {
+              "field": "other.items",
+              "expression": "other.items | self.items",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1127
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1128
+              }
+            },
+            {
+              "field": "other.rad_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1133
+              }
+            },
+            {
+              "field": "other.radsuit_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1134
+              }
+            },
+            {
+              "field": "other.invincible_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1139
+              }
+            },
+            {
+              "field": "other.invincible_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1140
+              }
+            },
+            {
+              "field": "other.invisible_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1145
+              }
+            },
+            {
+              "field": "other.invisible_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1146
+              }
+            },
+            {
+              "field": "other.super_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1151
+              }
+            },
+            {
+              "field": "other.super_damage_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1152
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1155
+              }
+            }
+          ],
+          "calls": [
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "SUB_UseTargets"
+          ],
+          "classnameBranches": [
+            {
+              "classname": "item_artifact_envirosuit",
+              "assignments": [
+                {
+                  "field": "other.rad_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1133
+                  }
+                },
+                {
+                  "field": "other.radsuit_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1134
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1131
+              }
+            },
+            {
+              "classname": "item_artifact_invulnerability",
+              "assignments": [
+                {
+                  "field": "other.invincible_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1139
+                  }
+                },
+                {
+                  "field": "other.invincible_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1140
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1137
+              }
+            },
+            {
+              "classname": "item_artifact_invisibility",
+              "assignments": [
+                {
+                  "field": "other.invisible_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1145
+                  }
+                },
+                {
+                  "field": "other.invisible_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1146
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1143
+              }
+            },
+            {
+              "classname": "item_artifact_super_damage",
+              "assignments": [
+                {
+                  "field": "other.super_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1151
+                  }
+                },
+                {
+                  "field": "other.super_damage_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1152
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1149
+              }
+            }
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "powerup_touch",
+              "line": 1098
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "powerup_touch"
+      },
+      "calls": [
+        "precache_model",
+        "precache_sound",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_artifact_envirosuit",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/suit.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_envirosuit",
+              "line": 1187
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/suit.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_envirosuit",
+              "line": 1191
+            }
+          }
+        ],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "items/suit.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_envirosuit",
+              "line": 1188
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "items/suit2.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_envirosuit",
+              "line": 1189
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "powerup_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_envirosuit",
+            "line": 1185
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"items/suit.wav\"",
+          "value": "items/suit.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_envirosuit",
+            "line": 1190
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"Biosuit\"",
+          "value": "Biosuit",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_envirosuit",
+            "line": 1192
+          }
+        },
+        {
+          "field": "items",
+          "expression": "IT_SUIT",
+          "value": 2097152,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_envirosuit",
+            "line": 1193
+          }
+        }
+      ],
+      "functionName": "item_artifact_envirosuit",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/suit.mdl\"",
+          "value": "progs/suit.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_envirosuit",
+            "line": 1191
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 -24'",
+          "min": [
+            -16,
+            -16,
+            -24
+          ],
+          "maxExpression": "'16 16 32'",
+          "max": [
+            16,
+            16,
+            32
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_envirosuit",
+            "line": 1194
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_artifact_envirosuit",
+          "line": 1184
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "item_artifact_invisibility": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/invisibl.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invisibility",
+            "line": 1206
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/invisibl.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invisibility",
+            "line": 1211
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "items/inv1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invisibility",
+            "line": 1207
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "items/inv2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invisibility",
+            "line": 1208
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "items/inv3.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invisibility",
+            "line": 1209
+          }
+        }
+      ],
+      "callbackFacts": {
+        "powerup_touch": {
+          "assignments": [
+            {
+              "field": "self.mdl",
+              "expression": "self.model",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1113
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 60*5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1117
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 60",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1119
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1121
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1126
+              }
+            },
+            {
+              "field": "other.items",
+              "expression": "other.items | self.items",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1127
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1128
+              }
+            },
+            {
+              "field": "other.rad_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1133
+              }
+            },
+            {
+              "field": "other.radsuit_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1134
+              }
+            },
+            {
+              "field": "other.invincible_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1139
+              }
+            },
+            {
+              "field": "other.invincible_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1140
+              }
+            },
+            {
+              "field": "other.invisible_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1145
+              }
+            },
+            {
+              "field": "other.invisible_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1146
+              }
+            },
+            {
+              "field": "other.super_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1151
+              }
+            },
+            {
+              "field": "other.super_damage_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1152
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1155
+              }
+            }
+          ],
+          "calls": [
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "SUB_UseTargets"
+          ],
+          "classnameBranches": [
+            {
+              "classname": "item_artifact_envirosuit",
+              "assignments": [
+                {
+                  "field": "other.rad_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1133
+                  }
+                },
+                {
+                  "field": "other.radsuit_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1134
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1131
+              }
+            },
+            {
+              "classname": "item_artifact_invulnerability",
+              "assignments": [
+                {
+                  "field": "other.invincible_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1139
+                  }
+                },
+                {
+                  "field": "other.invincible_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1140
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1137
+              }
+            },
+            {
+              "classname": "item_artifact_invisibility",
+              "assignments": [
+                {
+                  "field": "other.invisible_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1145
+                  }
+                },
+                {
+                  "field": "other.invisible_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1146
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1143
+              }
+            },
+            {
+              "classname": "item_artifact_super_damage",
+              "assignments": [
+                {
+                  "field": "other.super_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1151
+                  }
+                },
+                {
+                  "field": "other.super_damage_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1152
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1149
+              }
+            }
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "powerup_touch",
+              "line": 1098
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "powerup_touch"
+      },
+      "calls": [
+        "precache_model",
+        "precache_sound",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_artifact_invisibility",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/invisibl.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_invisibility",
+              "line": 1206
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/invisibl.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_invisibility",
+              "line": 1211
+            }
+          }
+        ],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "items/inv1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_invisibility",
+              "line": 1207
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "items/inv2.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_invisibility",
+              "line": 1208
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "items/inv3.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_invisibility",
+              "line": 1209
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "powerup_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invisibility",
+            "line": 1204
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"items/inv1.wav\"",
+          "value": "items/inv1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invisibility",
+            "line": 1210
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"Ring of Shadows\"",
+          "value": "Ring of Shadows",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invisibility",
+            "line": 1212
+          }
+        },
+        {
+          "field": "items",
+          "expression": "IT_INVISIBILITY",
+          "value": 524288,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invisibility",
+            "line": 1213
+          }
+        }
+      ],
+      "functionName": "item_artifact_invisibility",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/invisibl.mdl\"",
+          "value": "progs/invisibl.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invisibility",
+            "line": 1211
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 -24'",
+          "min": [
+            -16,
+            -16,
+            -24
+          ],
+          "maxExpression": "'16 16 32'",
+          "max": [
+            16,
+            16,
+            32
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_invisibility",
+            "line": 1214
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_artifact_invisibility",
+          "line": 1203
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "item_artifact_super_damage": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "model",
+          "path": "progs/quaddama.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_super_damage",
+            "line": 1226
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "model",
+          "path": "progs/quaddama.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_super_damage",
+            "line": 1231
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "items/damage.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_super_damage",
+            "line": 1227
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "items/damage2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_super_damage",
+            "line": 1228
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "items/damage3.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_super_damage",
+            "line": 1229
+          }
+        }
+      ],
+      "callbackFacts": {
+        "powerup_touch": {
+          "assignments": [
+            {
+              "field": "self.mdl",
+              "expression": "self.model",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1113
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 60*5",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1117
+              }
+            },
+            {
+              "field": "self.nextthink",
+              "expression": "time + 60",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1119
+              }
+            },
+            {
+              "field": "self.think",
+              "expression": "SUB_regen",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1121
+              }
+            },
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1126
+              }
+            },
+            {
+              "field": "other.items",
+              "expression": "other.items | self.items",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1127
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1128
+              }
+            },
+            {
+              "field": "other.rad_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1133
+              }
+            },
+            {
+              "field": "other.radsuit_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1134
+              }
+            },
+            {
+              "field": "other.invincible_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1139
+              }
+            },
+            {
+              "field": "other.invincible_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1140
+              }
+            },
+            {
+              "field": "other.invisible_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1145
+              }
+            },
+            {
+              "field": "other.invisible_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1146
+              }
+            },
+            {
+              "field": "other.super_time",
+              "expression": "1",
+              "value": 1,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1151
+              }
+            },
+            {
+              "field": "other.super_damage_finished",
+              "expression": "time + 30",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1152
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1155
+              }
+            }
+          ],
+          "calls": [
+            "sprint",
+            "sound",
+            "stuffcmd",
+            "SUB_UseTargets"
+          ],
+          "classnameBranches": [
+            {
+              "classname": "item_artifact_envirosuit",
+              "assignments": [
+                {
+                  "field": "other.rad_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1133
+                  }
+                },
+                {
+                  "field": "other.radsuit_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1134
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1131
+              }
+            },
+            {
+              "classname": "item_artifact_invulnerability",
+              "assignments": [
+                {
+                  "field": "other.invincible_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1139
+                  }
+                },
+                {
+                  "field": "other.invincible_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1140
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1137
+              }
+            },
+            {
+              "classname": "item_artifact_invisibility",
+              "assignments": [
+                {
+                  "field": "other.invisible_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1145
+                  }
+                },
+                {
+                  "field": "other.invisible_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1146
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1143
+              }
+            },
+            {
+              "classname": "item_artifact_super_damage",
+              "assignments": [
+                {
+                  "field": "other.super_time",
+                  "expression": "1",
+                  "value": 1,
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1151
+                  }
+                },
+                {
+                  "field": "other.super_damage_finished",
+                  "expression": "time + 30",
+                  "sourceRef": {
+                    "sourceFile": "qcc/v101qc/items.qc",
+                    "functionName": "powerup_touch",
+                    "line": 1152
+                  }
+                }
+              ],
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "powerup_touch",
+                "line": 1149
+              }
+            }
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "powerup_touch",
+              "line": 1098
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "touch": "powerup_touch"
+      },
+      "calls": [
+        "precache_model",
+        "precache_sound",
+        "setmodel",
+        "setsize",
+        "StartItem"
+      ],
+      "classname": "item_artifact_super_damage",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/quaddama.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_super_damage",
+              "line": 1226
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/quaddama.mdl",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_super_damage",
+              "line": 1231
+            }
+          }
+        ],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "items/damage.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_super_damage",
+              "line": 1227
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "items/damage2.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_super_damage",
+              "line": 1228
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "items/damage3.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "item_artifact_super_damage",
+              "line": 1229
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "powerup_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_super_damage",
+            "line": 1224
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"items/damage.wav\"",
+          "value": "items/damage.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_super_damage",
+            "line": 1230
+          }
+        },
+        {
+          "field": "netname",
+          "expression": "\"Quad Damage\"",
+          "value": "Quad Damage",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_super_damage",
+            "line": 1232
+          }
+        },
+        {
+          "field": "items",
+          "expression": "IT_QUAD",
+          "value": 4194304,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_super_damage",
+            "line": 1233
+          }
+        }
+      ],
+      "functionName": "item_artifact_super_damage",
+      "kind": "pickup",
+      "setmodels": [
+        {
+          "expression": "\"progs/quaddama.mdl\"",
+          "value": "progs/quaddama.mdl",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_super_damage",
+            "line": 1231
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "'-16 -16 -24'",
+          "min": [
+            -16,
+            -16,
+            -24
+          ],
+          "maxExpression": "'16 16 32'",
+          "max": [
+            16,
+            16,
+            32
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/items.qc",
+            "functionName": "item_artifact_super_damage",
+            "line": 1234
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/items.qc",
+          "functionName": "item_artifact_super_damage",
+          "line": 1223
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/items.qc",
+        "sourceSha256": "8cfbf0a7c7c340cd9c4c82c476fe34a95714be42bca4f7e5529c719ef7dc627b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/items.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "light_globe": {
+      "assetRefs": [
+        {
+          "call": "precache_model",
+          "kind": "sprite",
+          "path": "progs/s_light.spr",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/misc.qc",
+            "functionName": "light_globe",
+            "line": 121
+          }
+        },
+        {
+          "call": "setmodel",
+          "kind": "sprite",
+          "path": "progs/s_light.spr",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/misc.qc",
+            "functionName": "light_globe",
+            "line": 122
+          }
+        }
+      ],
+      "callbacks": {},
+      "calls": [
+        "precache_model",
+        "setmodel",
+        "makestatic"
+      ],
+      "classname": "light_globe",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [
+          {
+            "call": "precache_model",
+            "path": "progs/s_light.spr",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/misc.qc",
+              "functionName": "light_globe",
+              "line": 121
+            }
+          },
+          {
+            "call": "setmodel",
+            "path": "progs/s_light.spr",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/misc.qc",
+              "functionName": "light_globe",
+              "line": 122
+            }
+          }
+        ],
+        "sounds": []
+      },
+      "fieldAssignments": [],
+      "functionName": "light_globe",
+      "kind": "misc",
+      "setmodels": [
+        {
+          "expression": "\"progs/s_light.spr\"",
+          "value": "progs/s_light.spr",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/misc.qc",
+            "functionName": "light_globe",
+            "line": 122
+          }
+        }
+      ],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/misc.qc",
+          "functionName": "light_globe",
+          "line": 120
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/misc.qc",
+        "sourceSha256": "b0c2be9a311df55c919699f4701063f36d0e0e2a6b767b22f9e7947932d9eea5",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/misc.qc"
+      },
+      "spawnflagChecks": []
+    },
     "func_plat": {
+      "assetRefs": [
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "plats/plat1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 181
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "plats/plat2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 182
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "plats/medplat1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 189
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "plats/medplat2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_plat",
+            "line": 190
+          }
+        }
+      ],
       "callbacks": {
         "blocked": "plat_crush",
         "use": "plat_use"
@@ -1019,6 +12696,222 @@ export const QUAKE_PROGRAM_FACTS = {
       "spawnflagChecks": []
     },
     "func_door": {
+      "assetRefs": [
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "doors/medtry.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 443
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "doors/meduse.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 444
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "doors/runetry.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 450
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "doors/runeuse.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 451
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "doors/basetry.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 457
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "doors/baseuse.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 458
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "misc/null.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 468
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "misc/null.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 469
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "doors/drclos4.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 475
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "doors/doormv1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 476
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "doors/hydro1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 482
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "doors/hydro2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 483
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "doors/stndr1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 489
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "doors/stndr2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 490
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "doors/ddoor1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 496
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "doors/ddoor2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/doors.qc",
+            "functionName": "func_door",
+            "line": 497
+          }
+        }
+      ],
+      "callbackFacts": {
+        "door_touch": {
+          "assignments": [
+            {
+              "field": "attack_finished",
+              "expression": "time + 2",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/doors.qc",
+                "functionName": "door_touch",
+                "line": 221
+              }
+            },
+            {
+              "field": "other.items",
+              "expression": "other.items - self.items",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/doors.qc",
+                "functionName": "door_touch",
+                "line": 275
+              }
+            },
+            {
+              "field": "self.touch",
+              "expression": "SUB_Null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/doors.qc",
+                "functionName": "door_touch",
+                "line": 276
+              }
+            },
+            {
+              "field": "touch",
+              "expression": "SUB_Null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/doors.qc",
+                "functionName": "door_touch",
+                "line": 278
+              }
+            }
+          ],
+          "calls": [
+            "centerprint",
+            "sound",
+            "door_use"
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/doors.qc",
+              "functionName": "door_touch",
+              "line": 215
+            }
+          ]
+        }
+      },
       "callbacks": {
         "blocked": "door_blocked",
         "use": "door_use",
@@ -1670,6 +13563,48 @@ export const QUAKE_PROGRAM_FACTS = {
       ]
     },
     "func_button": {
+      "assetRefs": [
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "buttons/airbut1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 110
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "buttons/switch21.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 115
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "buttons/switch02.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 120
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "buttons/switch04.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/buttons.qc",
+            "functionName": "func_button",
+            "line": 125
+          }
+        }
+      ],
       "callbacks": {
         "blocked": "button_blocked",
         "use": "button_use",
@@ -1964,7 +13899,334 @@ export const QUAKE_PROGRAM_FACTS = {
       },
       "spawnflagChecks": []
     },
+    "func_train": {
+      "assetRefs": [
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "misc/null.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 320
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "misc/null.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 322
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "plats/train2.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 328
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "plats/train1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 330
+          }
+        }
+      ],
+      "callbacks": {
+        "blocked": "train_blocked",
+        "use": "train_use",
+        "think": "func_train_find"
+      },
+      "calls": [
+        "objerror",
+        "precache_sound",
+        "setmodel",
+        "setsize",
+        "setorigin"
+      ],
+      "classname": "func_train",
+      "defaultAssignments": [
+        {
+          "condition": "if (!self.speed)",
+          "field": "speed",
+          "expression": "100",
+          "value": 100,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 310
+          }
+        },
+        {
+          "condition": "if (!self.dmg)",
+          "field": "dmg",
+          "expression": "2",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 314
+          }
+        }
+      ],
+      "dependencies": {
+        "models": [],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "misc/null.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/plats.qc",
+              "functionName": "func_train",
+              "line": 320
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "misc/null.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/plats.qc",
+              "functionName": "func_train",
+              "line": 322
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "plats/train2.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/plats.qc",
+              "functionName": "func_train",
+              "line": 328
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "plats/train1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/plats.qc",
+              "functionName": "func_train",
+              "line": 330
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "speed",
+          "expression": "100",
+          "value": 100,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 311
+          }
+        },
+        {
+          "field": "dmg",
+          "expression": "2",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 315
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "(\"misc/null.wav\")",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 319
+          }
+        },
+        {
+          "field": "noise1",
+          "expression": "(\"misc/null.wav\")",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 321
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "(\"plats/train2.wav\")",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 327
+          }
+        },
+        {
+          "field": "noise1",
+          "expression": "(\"plats/train1.wav\")",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 329
+          }
+        },
+        {
+          "field": "cnt",
+          "expression": "1",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 333
+          }
+        },
+        {
+          "field": "solid",
+          "expression": "SOLID_BSP",
+          "value": 4,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 334
+          }
+        },
+        {
+          "field": "movetype",
+          "expression": "MOVETYPE_PUSH",
+          "value": 7,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 335
+          }
+        },
+        {
+          "field": "blocked",
+          "expression": "train_blocked",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 336
+          }
+        },
+        {
+          "field": "use",
+          "expression": "train_use",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 337
+          }
+        },
+        {
+          "field": "classname",
+          "expression": "\"train\"",
+          "value": "train",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 338
+          }
+        },
+        {
+          "field": "nextthink",
+          "expression": "self.ltime + 0.1",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 346
+          }
+        },
+        {
+          "field": "think",
+          "expression": "func_train_find",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 347
+          }
+        }
+      ],
+      "functionName": "func_train",
+      "kind": "mover",
+      "setmodels": [
+        {
+          "expression": "self.model",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 340
+          }
+        }
+      ],
+      "setsizes": [
+        {
+          "minExpression": "self.mins",
+          "maxExpression": "self.maxs",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/plats.qc",
+            "functionName": "func_train",
+            "line": 341
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/plats.qc",
+          "functionName": "func_train",
+          "line": 309
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/plats.qc",
+        "sourceSha256": "bd8d79dbcc7db94462db3a9a04e9368b99dfdd8e736f1fac775246a258249d76",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/plats.qc"
+      },
+      "spawnflagChecks": []
+    },
     "trigger_multiple": {
+      "assetRefs": [
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "misc/secret.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 133
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "misc/talk.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 138
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "misc/trigger1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_multiple",
+            "line": 143
+          }
+        }
+      ],
       "callbacks": {
         "use": "multi_use",
         "th_die": "multi_killed",
@@ -2150,6 +14412,867 @@ export const QUAKE_PROGRAM_FACTS = {
           }
         }
       ]
+    },
+    "trigger_once": {
+      "assetRefs": [],
+      "callbacks": {},
+      "calls": [
+        "trigger_multiple"
+      ],
+      "classname": "trigger_once",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "wait",
+          "expression": "-1",
+          "value": -1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_once",
+            "line": 188
+          }
+        }
+      ],
+      "functionName": "trigger_once",
+      "kind": "trigger",
+      "setmodels": [],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/triggers.qc",
+          "functionName": "trigger_once",
+          "line": 187
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/triggers.qc",
+        "sourceSha256": "4bd82bfde06a285907582d9292fe2aca391d1ee9c1aec3178e242d9ad5fa3ae6",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/triggers.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "trigger_secret": {
+      "assetRefs": [
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "misc/secret.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_secret",
+            "line": 225
+          }
+        },
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "misc/talk.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_secret",
+            "line": 230
+          }
+        }
+      ],
+      "callbacks": {},
+      "calls": [
+        "precache_sound",
+        "trigger_multiple"
+      ],
+      "classname": "trigger_secret",
+      "defaultAssignments": [
+        {
+          "condition": "if (!self.message)",
+          "field": "message",
+          "expression": "\"You found a secret area!\"",
+          "value": "You found a secret area!",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_secret",
+            "line": 218
+          }
+        },
+        {
+          "condition": "if (!self.sounds)",
+          "field": "sounds",
+          "expression": "1",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_secret",
+            "line": 220
+          }
+        }
+      ],
+      "dependencies": {
+        "models": [],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "misc/secret.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/triggers.qc",
+              "functionName": "trigger_secret",
+              "line": 225
+            }
+          },
+          {
+            "call": "precache_sound",
+            "path": "misc/talk.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/triggers.qc",
+              "functionName": "trigger_secret",
+              "line": 230
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "wait",
+          "expression": "-1",
+          "value": -1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_secret",
+            "line": 217
+          }
+        },
+        {
+          "field": "message",
+          "expression": "\"You found a secret area!\"",
+          "value": "You found a secret area!",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_secret",
+            "line": 219
+          }
+        },
+        {
+          "field": "sounds",
+          "expression": "1",
+          "value": 1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_secret",
+            "line": 221
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"misc/secret.wav\"",
+          "value": "misc/secret.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_secret",
+            "line": 226
+          }
+        },
+        {
+          "field": "noise",
+          "expression": "\"misc/talk.wav\"",
+          "value": "misc/talk.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_secret",
+            "line": 231
+          }
+        }
+      ],
+      "functionName": "trigger_secret",
+      "kind": "trigger",
+      "setmodels": [],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/triggers.qc",
+          "functionName": "trigger_secret",
+          "line": 215
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/triggers.qc",
+        "sourceSha256": "4bd82bfde06a285907582d9292fe2aca391d1ee9c1aec3178e242d9ad5fa3ae6",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/triggers.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "trigger_counter": {
+      "assetRefs": [],
+      "callbackFacts": {
+        "counter_use": {
+          "assignments": [
+            {
+              "field": "self.count",
+              "expression": "self.count - 1",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/triggers.qc",
+                "functionName": "counter_use",
+                "line": 244
+              }
+            },
+            {
+              "field": "self.enemy",
+              "expression": "activator",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/triggers.qc",
+                "functionName": "counter_use",
+                "line": 268
+              }
+            }
+          ],
+          "calls": [
+            "centerprint",
+            "multi_trigger"
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/triggers.qc",
+              "functionName": "counter_use",
+              "line": 241
+            }
+          ]
+        }
+      },
+      "callbacks": {
+        "use": "counter_use"
+      },
+      "calls": [],
+      "classname": "trigger_counter",
+      "defaultAssignments": [
+        {
+          "condition": "if (!self.count)",
+          "field": "count",
+          "expression": "2",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_counter",
+            "line": 282
+          }
+        }
+      ],
+      "dependencies": {
+        "models": [],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "wait",
+          "expression": "-1",
+          "value": -1,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_counter",
+            "line": 281
+          }
+        },
+        {
+          "field": "count",
+          "expression": "2",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_counter",
+            "line": 283
+          }
+        },
+        {
+          "field": "use",
+          "expression": "counter_use",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_counter",
+            "line": 285
+          }
+        }
+      ],
+      "functionName": "trigger_counter",
+      "kind": "trigger",
+      "setmodels": [],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/triggers.qc",
+          "functionName": "trigger_counter",
+          "line": 280
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/triggers.qc",
+        "sourceSha256": "4bd82bfde06a285907582d9292fe2aca391d1ee9c1aec3178e242d9ad5fa3ae6",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/triggers.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "trigger_relay": {
+      "assetRefs": [],
+      "callbacks": {
+        "use": "SUB_UseTargets"
+      },
+      "calls": [],
+      "classname": "trigger_relay",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "use",
+          "expression": "SUB_UseTargets",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_relay",
+            "line": 199
+          }
+        }
+      ],
+      "functionName": "trigger_relay",
+      "kind": "trigger",
+      "setmodels": [],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/triggers.qc",
+          "functionName": "trigger_relay",
+          "line": 198
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/triggers.qc",
+        "sourceSha256": "4bd82bfde06a285907582d9292fe2aca391d1ee9c1aec3178e242d9ad5fa3ae6",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/triggers.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "trigger_onlyregistered": {
+      "assetRefs": [
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "misc/talk.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_onlyregistered",
+            "line": 549
+          }
+        }
+      ],
+      "callbacks": {
+        "touch": "trigger_onlyregistered_touch"
+      },
+      "calls": [
+        "precache_sound",
+        "InitTrigger"
+      ],
+      "classname": "trigger_onlyregistered",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "misc/talk.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/triggers.qc",
+              "functionName": "trigger_onlyregistered",
+              "line": 549
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "trigger_onlyregistered_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_onlyregistered",
+            "line": 551
+          }
+        }
+      ],
+      "functionName": "trigger_onlyregistered",
+      "kind": "trigger",
+      "setmodels": [],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/triggers.qc",
+          "functionName": "trigger_onlyregistered",
+          "line": 548
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/triggers.qc",
+        "sourceSha256": "4bd82bfde06a285907582d9292fe2aca391d1ee9c1aec3178e242d9ad5fa3ae6",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/triggers.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "trigger_setskill": {
+      "assetRefs": [],
+      "callbacks": {
+        "touch": "trigger_skill_touch"
+      },
+      "calls": [
+        "InitTrigger"
+      ],
+      "classname": "trigger_setskill",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "trigger_skill_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_setskill",
+            "line": 508
+          }
+        }
+      ],
+      "functionName": "trigger_setskill",
+      "kind": "trigger",
+      "setmodels": [],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/triggers.qc",
+          "functionName": "trigger_setskill",
+          "line": 506
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/triggers.qc",
+        "sourceSha256": "4bd82bfde06a285907582d9292fe2aca391d1ee9c1aec3178e242d9ad5fa3ae6",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/triggers.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "trigger_hurt": {
+      "assetRefs": [],
+      "callbacks": {
+        "touch": "hurt_touch"
+      },
+      "calls": [
+        "InitTrigger"
+      ],
+      "classname": "trigger_hurt",
+      "defaultAssignments": [
+        {
+          "condition": "if (!self.dmg)",
+          "field": "dmg",
+          "expression": "5",
+          "value": 5,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_hurt",
+            "line": 584
+          }
+        }
+      ],
+      "dependencies": {
+        "models": [],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "hurt_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_hurt",
+            "line": 583
+          }
+        },
+        {
+          "field": "dmg",
+          "expression": "5",
+          "value": 5,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_hurt",
+            "line": 585
+          }
+        }
+      ],
+      "functionName": "trigger_hurt",
+      "kind": "trigger",
+      "setmodels": [],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/triggers.qc",
+          "functionName": "trigger_hurt",
+          "line": 581
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/triggers.qc",
+        "sourceSha256": "4bd82bfde06a285907582d9292fe2aca391d1ee9c1aec3178e242d9ad5fa3ae6",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/triggers.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "trigger_teleport": {
+      "assetRefs": [
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "ambience/hum1.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_teleport",
+            "line": 479
+          }
+        }
+      ],
+      "callbacks": {
+        "touch": "teleport_touch",
+        "use": "teleport_use"
+      },
+      "calls": [
+        "InitTrigger",
+        "objerror",
+        "precache_sound",
+        "ambientsound"
+      ],
+      "classname": "trigger_teleport",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "ambience/hum1.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/triggers.qc",
+              "functionName": "trigger_teleport",
+              "line": 479
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "teleport_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_teleport",
+            "line": 471
+          }
+        },
+        {
+          "field": "use",
+          "expression": "teleport_use",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_teleport",
+            "line": 475
+          }
+        }
+      ],
+      "functionName": "trigger_teleport",
+      "kind": "trigger",
+      "setmodels": [],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/triggers.qc",
+          "functionName": "trigger_teleport",
+          "line": 467
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/triggers.qc",
+        "sourceSha256": "4bd82bfde06a285907582d9292fe2aca391d1ee9c1aec3178e242d9ad5fa3ae6",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/triggers.qc"
+      },
+      "spawnflagChecks": [
+        {
+          "name": "SILENT",
+          "value": 2,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_teleport",
+            "line": 477
+          }
+        }
+      ]
+    },
+    "trigger_push": {
+      "assetRefs": [
+        {
+          "call": "precache_sound",
+          "kind": "sound",
+          "path": "ambience/windfly.wav",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_push",
+            "line": 619
+          }
+        }
+      ],
+      "callbacks": {
+        "touch": "trigger_push_touch"
+      },
+      "calls": [
+        "InitTrigger",
+        "precache_sound"
+      ],
+      "classname": "trigger_push",
+      "defaultAssignments": [
+        {
+          "condition": "if (!self.speed)",
+          "field": "speed",
+          "expression": "1000",
+          "value": 1000,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_push",
+            "line": 621
+          }
+        }
+      ],
+      "dependencies": {
+        "models": [],
+        "sounds": [
+          {
+            "call": "precache_sound",
+            "path": "ambience/windfly.wav",
+            "sourceRef": {
+              "sourceFile": "qcc/v101qc/triggers.qc",
+              "functionName": "trigger_push",
+              "line": 619
+            }
+          }
+        ]
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "trigger_push_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_push",
+            "line": 620
+          }
+        },
+        {
+          "field": "speed",
+          "expression": "1000",
+          "value": 1000,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_push",
+            "line": 622
+          }
+        }
+      ],
+      "functionName": "trigger_push",
+      "kind": "trigger",
+      "setmodels": [],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/triggers.qc",
+          "functionName": "trigger_push",
+          "line": 617
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/triggers.qc",
+        "sourceSha256": "4bd82bfde06a285907582d9292fe2aca391d1ee9c1aec3178e242d9ad5fa3ae6",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/triggers.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "trigger_monsterjump": {
+      "assetRefs": [],
+      "callbacks": {
+        "touch": "trigger_monsterjump_touch"
+      },
+      "calls": [
+        "InitTrigger"
+      ],
+      "classname": "trigger_monsterjump",
+      "defaultAssignments": [
+        {
+          "condition": "if (!self.speed)",
+          "field": "speed",
+          "expression": "200",
+          "value": 200,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_monsterjump",
+            "line": 651
+          }
+        },
+        {
+          "condition": "if (!self.height)",
+          "field": "height",
+          "expression": "200",
+          "value": 200,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_monsterjump",
+            "line": 653
+          }
+        }
+      ],
+      "dependencies": {
+        "models": [],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "speed",
+          "expression": "200",
+          "value": 200,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_monsterjump",
+            "line": 652
+          }
+        },
+        {
+          "field": "height",
+          "expression": "200",
+          "value": 200,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_monsterjump",
+            "line": 654
+          }
+        },
+        {
+          "field": "angles",
+          "expression": "'0 360 0'",
+          "value": [
+            0,
+            360,
+            0
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_monsterjump",
+            "line": 656
+          }
+        },
+        {
+          "field": "touch",
+          "expression": "trigger_monsterjump_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/triggers.qc",
+            "functionName": "trigger_monsterjump",
+            "line": 658
+          }
+        }
+      ],
+      "functionName": "trigger_monsterjump",
+      "kind": "trigger",
+      "setmodels": [],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/triggers.qc",
+          "functionName": "trigger_monsterjump",
+          "line": 650
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/triggers.qc",
+        "sourceSha256": "4bd82bfde06a285907582d9292fe2aca391d1ee9c1aec3178e242d9ad5fa3ae6",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/triggers.qc"
+      },
+      "spawnflagChecks": []
+    },
+    "trigger_changelevel": {
+      "assetRefs": [],
+      "callbacks": {
+        "touch": "changelevel_touch"
+      },
+      "calls": [
+        "objerror",
+        "InitTrigger"
+      ],
+      "classname": "trigger_changelevel",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [],
+        "sounds": []
+      },
+      "fieldAssignments": [
+        {
+          "field": "touch",
+          "expression": "changelevel_touch",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/client.qc",
+            "functionName": "trigger_changelevel",
+            "line": 344
+          }
+        }
+      ],
+      "functionName": "trigger_changelevel",
+      "kind": "trigger",
+      "setmodels": [],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/client.qc",
+          "functionName": "trigger_changelevel",
+          "line": 339
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/client.qc",
+        "sourceSha256": "74e40b4f74b129b9df736f3e098dfe36267335feda3ce48891cee7460f53edd6",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/client.qc"
+      },
+      "spawnflagChecks": []
     }
   }
 } as const satisfies QuakeProgramFacts;

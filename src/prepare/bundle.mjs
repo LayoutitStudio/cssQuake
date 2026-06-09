@@ -16,7 +16,7 @@ const QUAKE_RENDER_BUNDLE_TIMEOUT_MS = 30000;
 const QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_MIN = 1;
 const QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_STEP = 1;
 const QUAKE_MATRIX_LINEAR_SNAP_EPSILON = 0.0015;
-const QUAKE_MATRIX_TRANSLATION_SNAP_EPSILON = 0.006;
+const QUAKE_MATRIX_TRANSLATION_SNAP_EPSILON = 0.012;
 const QUAKE_MATRIX_TRANSLATION_SNAP_GRID = 0.125;
 const QUAKE_MATRIX_LINEAR_SNAP_TARGETS = [-1, -0.5, -0.25, -0.125, 0, 0.125, 0.25, 0.5, 1];
 const QUAKE_ATLAS_HOMOGRAPHY_AREA_PAD = 1.04;
@@ -47,65 +47,104 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
   adaptiveAtlasLeafSize = false,
   optimizeAtlasLeafBasis = false,
   optimizeAtlasLeafHomography = false,
+  skipAssetPayloads = false,
+  layoutOnly = false,
 }) {
-  const host = createQuakeRenderHost();
+  const timing = createQuakeRenderBundleTiming();
+  const host = timeQuakeRenderBundlePhase(timing, "host-create", () => createQuakeRenderHost());
 
   try {
-    const scene = createQuakeRenderScene(host, textureQuality);
-    const atlasLeafBasisOptimization = optimizeAtlasLeafBasis
-      ? optimizeQuakeAtlasLeafBasisPolygons(polygons)
-      : null;
+    const scene = timeQuakeRenderBundlePhase(timing, "scene-create", () =>
+      createQuakeRenderScene(host, textureQuality)
+    );
+    const atlasLeafBasisOptimization = timeQuakeRenderBundlePhase(timing, "basis-optimize", () =>
+      optimizeAtlasLeafBasis ? optimizeQuakeAtlasLeafBasisPolygons(polygons) : null
+    );
     let renderPolygons = atlasLeafBasisOptimization?.polygons ?? polygons;
-    const handle = scene.add(
-      {
-        polygons: renderPolygons,
-        objectUrls: [],
-        warnings: [],
-        dispose: () => undefined,
-      },
-      {
-        merge,
-        meshResolution: "lossless",
-        excludeFromAutoCenter: true,
-      },
+    const handle = timeQuakeRenderBundlePhase(timing, "scene-add-polygons", () =>
+      scene.add(
+        {
+          polygons: renderPolygons,
+          objectUrls: [],
+          warnings: [],
+          dispose: () => undefined,
+        },
+        {
+          merge,
+          meshResolution: "lossless",
+          excludeFromAutoCenter: true,
+        },
+      )
     );
 
-    await waitForBakedTextureLeaves(handle.element);
-    const atlasLeafHomographyOptimizationStats = optimizeAtlasLeafHomography
-      ? await optimizeQuakeAtlasLeafHomography(handle.element, renderPolygons)
-      : null;
-    if (tightenAtlasLeaves) await tightenQuakeAtlasLeaves(handle.element);
-    const adaptiveAtlasLeafSizeStats = adaptiveAtlasLeafSize
-      ? applyAdaptiveQuakeAtlasLeafSizes(handle.element)
-      : null;
-    const transformSnapStats = snapQuakeLeafTransformsToStableGrid(handle.element);
-    const atlasBackgroundSnapStats = snapQuakeAtlasLeafBackgroundsToIntegerPx(handle.element);
-    const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await serializeMeshWithAssets(handle.element, {
+    const canOptimizeAtlasLeafHomography = optimizeAtlasLeafHomography && !layoutOnly;
+    const needsTextureLeaves = !layoutOnly || canOptimizeAtlasLeafHomography;
+    if (needsTextureLeaves) {
+      await timeQuakeRenderBundlePhaseAsync(timing, "texture-wait", () =>
+        waitForBakedTextureLeaves(handle.element, timing, "texture-wait")
+      );
+    } else {
+      addQuakeRenderBundleTimingPhase(timing, "texture-wait-skipped", 0);
+    }
+    const atlasLeafHomographyOptimizationStats = await timeQuakeRenderBundlePhaseAsync(timing, "homography-optimize", () =>
+      canOptimizeAtlasLeafHomography
+        ? optimizeQuakeAtlasLeafHomography(handle.element, renderPolygons)
+        : null
+    );
+    await timeQuakeRenderBundlePhaseAsync(timing, "tighten-atlas", () =>
+      tightenAtlasLeaves && !layoutOnly ? tightenQuakeAtlasLeaves(handle.element) : null
+    );
+    const adaptiveAtlasLeafSizeStats = timeQuakeRenderBundlePhase(timing, "adaptive-atlas-size", () =>
+      adaptiveAtlasLeafSize ? applyAdaptiveQuakeAtlasLeafSizes(handle.element) : null
+    );
+    const transformSnapStats = timeQuakeRenderBundlePhase(timing, "snap-transforms", () =>
+      snapQuakeLeafTransformsToStableGrid(handle.element)
+    );
+    const atlasBackgroundSnapStats = timeQuakeRenderBundlePhase(timing, "snap-backgrounds", () =>
+      layoutOnly ? null : snapQuakeAtlasLeafBackgroundsToIntegerPx(handle.element)
+    );
+    const layoutOnlyPendingStyleStats = timeQuakeRenderBundlePhase(timing, "clear-layout-only-pending-styles", () =>
+      layoutOnly ? clearQuakeLayoutOnlyPendingLeafStyles(handle.element) : null
+    );
+    const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await timeQuakeRenderBundlePhaseAsync(
+      timing,
+      "serialize",
+      () => serializeMeshWithAssets(handle.element, {
       extractLeafStyles,
+      skipBackgroundAssetExtraction: layoutOnly,
+      skipAssetPayloads: skipAssetPayloads || layoutOnly,
       styleClassName,
       mutateOriginal: true,
-    });
+      timing,
+    }));
+    const leafCount = handle.element.querySelectorAll("b,i,s,u").length;
+    const atlasLeafCount = handle.element.querySelectorAll("s").length;
+    if (layoutOnly) {
+      timeQuakeRenderBundlePhase(timing, "dispose-layout-only-handle", () => handle.dispose?.());
+    }
     return {
       meshHtml,
       meshCss,
       assets,
       leafMetadata,
       leafFrameStyles,
-      leafCount: handle.element.querySelectorAll("b,i,s,u").length,
-      atlasLeafCount: handle.element.querySelectorAll("s").length,
+      leafCount,
+      atlasLeafCount,
       polygonCount: renderPolygons.length,
       ...(adaptiveAtlasLeafSizeStats ? { adaptiveAtlasLeafSizeStats } : {}),
       ...(transformSnapStats.snappedLeaves || transformSnapStats.precisionLeaves ? { transformSnapStats } : {}),
-      ...(atlasBackgroundSnapStats.snappedLeaves ? { atlasBackgroundSnapStats } : {}),
+      ...(atlasBackgroundSnapStats?.snappedLeaves ? { atlasBackgroundSnapStats } : {}),
+      ...(layoutOnlyPendingStyleStats?.clearedOpacityLeaves ? { layoutOnlyPendingStyleStats } : {}),
       ...(atlasLeafBasisOptimization?.stats?.rotatedPolygons
         ? { atlasLeafBasisOptimizationStats: atlasLeafBasisOptimization.stats }
         : {}),
       ...(atlasLeafHomographyOptimizationStats?.optimizedLeaves
         ? { atlasLeafHomographyOptimizationStats }
         : {}),
+      timing: summarizeQuakeRenderBundleTiming(timing),
     };
   } finally {
-    host.remove();
+    timeQuakeRenderBundlePhase(timing, "host-remove", () => host.remove());
   }
 };
 
@@ -115,6 +154,7 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
   extractLeafStyles = true,
   tightenAtlasLeaves = false,
   adaptiveAtlasLeafSize = false,
+  fastFrameStyles = false,
   optimizeAtlasLeafBasis = false,
   optimizeAtlasLeafHomography = false,
   optimizeAtlasTriangleBasis = false,
@@ -127,78 +167,120 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
     throw new Error("Animated render bundle first frame has no polygons.");
   }
   const host = createQuakeRenderHost();
+  const timing = createQuakeRenderBundleTiming();
 
   try {
-    const atlasLeafBasisRotationPlan = optimizeAtlasLeafBasis
-      ? quakeAtlasLeafBasisRotationPlan(firstFrame.polygons)
-      : null;
-    const renderFramePolygons = frames.map((frame) =>
-      atlasLeafBasisRotationPlan
-        ? applyQuakeAtlasLeafBasisRotationPlan(frame.polygons, atlasLeafBasisRotationPlan)
-        : frame.polygons
+    const atlasLeafBasisRotationPlan = timeQuakeRenderBundlePhase(timing, "basis-plan", () =>
+      optimizeAtlasLeafBasis
+        ? quakeAtlasLeafBasisRotationPlan(firstFrame.polygons)
+        : null
     );
-    const scene = createQuakeRenderScene(host, textureQuality);
-    const handle = scene.add(
-      {
-        polygons: renderFramePolygons[0],
-        objectUrls: [],
-        warnings: [],
-        dispose: () => undefined,
-      },
-      {
-        merge: false,
-        meshResolution: "lossless",
-        stableDom: true,
-        excludeFromAutoCenter: true,
-      },
+    const renderFramePolygons = timeQuakeRenderBundlePhase(timing, "prepare-frame-polygons", () =>
+      frames.map((frame) =>
+        atlasLeafBasisRotationPlan
+          ? applyQuakeAtlasLeafBasisRotationPlan(frame.polygons, atlasLeafBasisRotationPlan)
+          : frame.polygons
+      )
+    );
+    const scene = timeQuakeRenderBundlePhase(timing, "scene-create", () =>
+      createQuakeRenderScene(host, textureQuality)
+    );
+    const handle = timeQuakeRenderBundlePhase(timing, "scene-add-first-frame", () =>
+      scene.add(
+        {
+          polygons: renderFramePolygons[0],
+          objectUrls: [],
+          warnings: [],
+          dispose: () => undefined,
+        },
+        {
+          merge: false,
+          meshResolution: "lossless",
+          stableDom: true,
+          excludeFromAutoCenter: true,
+        },
+      )
     );
     const outFrames = [];
     let baseLeafFrameStylesByClass = new Map();
     let baseTightAtlasBoundsByKey = null;
-    await waitForBakedTextureLeaves(handle.element);
-    const animatedAtlasLeafHomographyPlan = optimizeAtlasLeafHomography
-      ? await createQuakeAnimatedAtlasLeafHomographyPlan(handle, renderFramePolygons)
-      : null;
-    const animatedTriangleAtlasBasisPlan = optimizeAtlasTriangleBasis
-      ? await createQuakeAnimatedTriangleAtlasBasisPlan(handle.element, renderFramePolygons[0])
-      : null;
+    await timeQuakeRenderBundlePhaseAsync(timing, "initial-texture-wait", () =>
+      waitForBakedTextureLeaves(handle.element, timing, "initial-texture-wait")
+    );
+    const animatedAtlasLeafHomographyPlan = await timeQuakeRenderBundlePhaseAsync(timing, "homography-plan", () =>
+      optimizeAtlasLeafHomography
+        ? createQuakeAnimatedAtlasLeafHomographyPlan(handle, renderFramePolygons)
+        : null
+    );
+    const animatedTriangleAtlasBasisPlan = await timeQuakeRenderBundlePhaseAsync(timing, "triangle-basis-plan", () =>
+      optimizeAtlasTriangleBasis
+        ? createQuakeAnimatedTriangleAtlasBasisPlan(handle.element, renderFramePolygons[0])
+        : null
+    );
     for (let index = 0; index < frames.length; index++) {
+      const frameStartedAt = performance.now();
       const frame = frames[index];
       if (!frame?.polygons?.length) {
         throw new Error(`Animated render bundle frame ${index} has no polygons.`);
       }
       if (index > 0) {
-        handle.setPolygons(
-          renderFramePolygons[index],
-          {
-            merge: false,
-            stableDom: true,
-            recomputeAutoCenter: false,
-          },
+        timeQuakeRenderBundlePhase(timing, "frame-set-polygons", () =>
+          handle.setPolygons(
+            renderFramePolygons[index],
+            {
+              merge: false,
+              stableDom: true,
+              recomputeAutoCenter: false,
+            },
+          )
         );
-        await waitForRenderBundleFrameUpdate();
       }
       const name = frame.name ?? `frame-${index}`;
-      await waitForBakedTextureLeaves(handle.element);
+      await timeQuakeRenderBundlePhaseAsync(timing, "frame-texture-wait", () =>
+        waitForBakedTextureLeaves(handle.element, timing, index === 0 ? "frame0-texture-wait" : "frame-texture-wait")
+      );
       if (animatedAtlasLeafHomographyPlan) {
-        applyQuakeAnimatedAtlasLeafHomographyPlan(handle.element, animatedAtlasLeafHomographyPlan, index);
+        timeQuakeRenderBundlePhase(timing, "frame-apply-homography", () =>
+          applyQuakeAnimatedAtlasLeafHomographyPlan(handle.element, animatedAtlasLeafHomographyPlan, index)
+        );
       }
       if (animatedTriangleAtlasBasisPlan) {
-        applyQuakeAnimatedTriangleAtlasBasisPlan(handle.element, animatedTriangleAtlasBasisPlan);
+        timeQuakeRenderBundlePhase(timing, "frame-apply-triangle-basis", () =>
+          applyQuakeAnimatedTriangleAtlasBasisPlan(handle.element, animatedTriangleAtlasBasisPlan)
+        );
       }
       if (tightenAtlasLeaves) {
-        baseTightAtlasBoundsByKey = await tightenQuakeAtlasLeaves(handle.element, baseTightAtlasBoundsByKey);
+        baseTightAtlasBoundsByKey = await timeQuakeRenderBundlePhaseAsync(timing, "frame-tighten-atlas", () =>
+          tightenQuakeAtlasLeaves(handle.element, baseTightAtlasBoundsByKey)
+        );
       }
-      const adaptiveAtlasLeafSizeStats = adaptiveAtlasLeafSize
-        ? applyAdaptiveQuakeAtlasLeafSizes(handle.element)
-        : null;
-      const transformSnapStats = snapQuakeLeafTransformsToStableGrid(handle.element);
-      const atlasBackgroundSnapStats = snapQuakeAtlasLeafBackgroundsToIntegerPx(handle.element);
+      const adaptiveAtlasLeafSizeStats = timeQuakeRenderBundlePhase(timing, "frame-adaptive-atlas-size", () =>
+        adaptiveAtlasLeafSize
+          ? applyAdaptiveQuakeAtlasLeafSizes(handle.element)
+          : null
+      );
+      const transformSnapStats = timeQuakeRenderBundlePhase(timing, "frame-snap-transforms", () =>
+        snapQuakeLeafTransformsToStableGrid(handle.element)
+      );
+      const inheritedFrameStyleResult = timeQuakeRenderBundlePhase(timing, "frame-inherited-style-probe", () =>
+        index > 0 && fastFrameStyles
+          ? extractRenderBundleFrameStylesFromInheritedBase(handle.element, baseLeafFrameStylesByClass)
+          : null
+      );
+      const atlasBackgroundSnapStats = timeQuakeRenderBundlePhase(timing, "frame-snap-backgrounds", () =>
+        inheritedFrameStyleResult
+          ? null
+          : snapQuakeAtlasLeafBackgroundsToIntegerPx(handle.element)
+      );
       if (index === 0) {
-        const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await serializeMeshWithAssets(handle.element, {
-          extractLeafStyles,
-          styleClassName: frame.styleClassName,
-        });
+        const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await timeQuakeRenderBundlePhaseAsync(
+          timing,
+          "frame-serialize-first",
+          () => serializeMeshWithAssets(handle.element, {
+            extractLeafStyles,
+            styleClassName: frame.styleClassName,
+          }),
+        );
         baseLeafFrameStylesByClass = new Map(leafFrameStyles);
         outFrames.push({
           name,
@@ -224,29 +306,154 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
             ? { triangleAtlasBasisOptimizationStats: animatedTriangleAtlasBasisPlan.stats }
             : {}),
         });
+        recordQuakeRenderBundleFrameTiming(timing, index, frameStartedAt);
         continue;
       }
-      const { leafFrameStyles } = extractRenderBundleFrameStyles(handle.element, {
-        styleClassName: frame.styleClassName,
-        baseLeafFrameStylesByClass,
-      });
+      const frameStyleResult = inheritedFrameStyleResult ?? timeQuakeRenderBundlePhase(timing, "frame-extract-styles", () =>
+        (fastFrameStyles
+          ? extractRenderBundleFrameStylesReadOnly
+          : extractRenderBundleFrameStyles)(handle.element, {
+          styleClassName: frame.styleClassName,
+          baseLeafFrameStylesByClass,
+        })
+      );
+      const { leafFrameStyles } = frameStyleResult;
       outFrames.push({
         name,
         styleClassName: frame.styleClassName,
         leafFrameStyles,
-        leafCount: handle.element.querySelectorAll("b,i,s,u").length,
-        atlasLeafCount: handle.element.querySelectorAll("s").length,
+        leafCount: frameStyleResult.leafCount ?? handle.element.querySelectorAll("b,i,s,u").length,
+        atlasLeafCount: frameStyleResult.atlasLeafCount ?? handle.element.querySelectorAll("s").length,
         polygonCount: frame.polygons.length,
       });
+      recordQuakeRenderBundleFrameTiming(timing, index, frameStartedAt);
     }
-    return { frames: outFrames };
+    return { frames: outFrames, timing: summarizeQuakeRenderBundleTiming(timing) };
   } finally {
     host.remove();
   }
 };
 
+function createQuakeRenderBundleTiming() {
+  return {
+    startedAt: performance.now(),
+    phases: new Map(),
+    frames: [],
+    bakeStatsStarted: snapshotQuakeRenderBundleBakeStats(),
+    bakeWaits: [],
+  };
+}
+
+async function timeQuakeRenderBundlePhaseAsync(timing, label, callback) {
+  const startedAt = performance.now();
+  try {
+    return await callback();
+  } finally {
+    addQuakeRenderBundleTimingPhase(timing, label, performance.now() - startedAt);
+  }
+}
+
+function timeQuakeRenderBundlePhase(timing, label, callback) {
+  const startedAt = performance.now();
+  try {
+    return callback();
+  } finally {
+    addQuakeRenderBundleTimingPhase(timing, label, performance.now() - startedAt);
+  }
+}
+
+function addQuakeRenderBundleTimingPhase(timing, label, elapsedMs) {
+  if (!timing) return;
+  const entry = timing.phases.get(label) ?? { label, elapsedMs: 0, count: 0 };
+  entry.elapsedMs += elapsedMs;
+  entry.count++;
+  timing.phases.set(label, entry);
+}
+
+function recordQuakeRenderBundleFrameTiming(timing, frameIndex, startedAt) {
+  timing.frames.push({
+    frame: frameIndex,
+    elapsedMs: Math.round(performance.now() - startedAt),
+  });
+}
+
+function recordQuakeRenderBundleBakeWait(timing, waitStats) {
+  if (!timing || !waitStats) return;
+  timing.bakeWaits.push(waitStats);
+}
+
+function summarizeQuakeRenderBundleTiming(timing) {
+  return {
+    totalMs: Math.round(performance.now() - timing.startedAt),
+    phases: [...timing.phases.values()]
+      .map((entry) => ({
+        label: entry.label,
+        elapsedMs: Math.round(entry.elapsedMs),
+        count: entry.count,
+      }))
+      .sort((a, b) => b.elapsedMs - a.elapsedMs),
+    slowFrames: [...timing.frames]
+      .sort((a, b) => b.elapsedMs - a.elapsedMs)
+      .slice(0, 5),
+    bakeWaits: [...timing.bakeWaits]
+      .sort((a, b) => b.elapsedMs - a.elapsedMs)
+      .slice(0, 5),
+    bakeStats: diffQuakeRenderBundleBakeStats(
+      timing.bakeStatsStarted,
+      snapshotQuakeRenderBundleBakeStats(),
+    ),
+  };
+}
+
+function snapshotQuakeRenderBundleBakeStats() {
+  const stats = window.__quakeRenderBundleBakeStats;
+  if (!stats) return { counts: {}, timings: {}, bytes: {} };
+  return {
+    counts: { ...(stats.counts ?? {}) },
+    timings: Object.fromEntries(
+      Object.entries(stats.timings ?? {}).map(([label, entry]) => [
+        label,
+        {
+          elapsedMs: Number(entry?.elapsedMs) || 0,
+          count: Number(entry?.count) || 0,
+        },
+      ]),
+    ),
+    bytes: { ...(stats.bytes ?? {}) },
+  };
+}
+
+function diffQuakeRenderBundleBakeStats(before, after) {
+  const counts = diffNumberRecords(before?.counts, after?.counts);
+  const bytes = diffNumberRecords(before?.bytes, after?.bytes);
+  const timings = {};
+  const labels = new Set([
+    ...Object.keys(before?.timings ?? {}),
+    ...Object.keys(after?.timings ?? {}),
+  ]);
+  for (const label of labels) {
+    const beforeEntry = before?.timings?.[label] ?? {};
+    const afterEntry = after?.timings?.[label] ?? {};
+    const elapsedMs = (Number(afterEntry.elapsedMs) || 0) - (Number(beforeEntry.elapsedMs) || 0);
+    const count = (Number(afterEntry.count) || 0) - (Number(beforeEntry.count) || 0);
+    if (elapsedMs || count) timings[label] = { elapsedMs: Math.round(elapsedMs), count };
+  }
+  return { counts, timings, bytes };
+}
+
+function diffNumberRecords(before = {}, after = {}) {
+  const diff = {};
+  const labels = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for (const label of labels) {
+    const value = (Number(after[label]) || 0) - (Number(before[label]) || 0);
+    if (value) diff[label] = Math.round(value);
+  }
+  return diff;
+}
+
 function createQuakeRenderHost() {
   window.__polycssProjectiveQuadGuards = QUAKE_POLYCSS_PROJECTIVE_QUAD_GUARDS;
+  patchQuakeCanvas2dDefaults();
   const host = document.createElement("main");
   host.style.position = "absolute";
   host.style.left = "-100000px";
@@ -255,6 +462,20 @@ function createQuakeRenderHost() {
   host.style.height = "720px";
   document.body.appendChild(host);
   return host;
+}
+
+function patchQuakeCanvas2dDefaults() {
+  const canvasPrototype = window.HTMLCanvasElement?.prototype;
+  if (!canvasPrototype || canvasPrototype.__quakeCanvas2dDefaultsPatched) return;
+  const getContext = canvasPrototype.getContext;
+  canvasPrototype.getContext = function getQuakeCanvasContext(type, ...args) {
+    const context = getContext.call(this, type, ...args);
+    if (type === "2d" && context) {
+      context.imageSmoothingEnabled = false;
+    }
+    return context;
+  };
+  canvasPrototype.__quakeCanvas2dDefaultsPatched = true;
 }
 
 function createQuakeRenderScene(host, textureQuality) {
@@ -277,24 +498,74 @@ function createQuakeRenderScene(host, textureQuality) {
 
 function waitForRenderBundleFrameUpdate() {
   return new Promise((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(resolve));
+    requestAnimationFrame(resolve);
   });
 }
 
-async function waitForBakedTextureLeaves(mesh) {
+async function waitForBakedTextureLeaves(mesh, timing = null, label = "texture-wait") {
   const startedAt = performance.now();
+  const startedBakeStats = snapshotQuakeRenderBundleBakeStats();
+  let pollCount = 0;
+  let totalLeaves = 0;
+  let maxPending = 0;
+  let lastPending = null;
+  let queryMs = 0;
+  let frameWaitMs = 0;
+  const pendingTransitions = [];
   while (true) {
+    pollCount++;
+    const queryStartedAt = performance.now();
     const leaves = [...mesh.querySelectorAll("s")];
+    totalLeaves = Math.max(totalLeaves, leaves.length);
     const pending = leaves.filter((leaf) => {
       const style = leaf.getAttribute("style") ?? "";
       return !/background(?:-image)?\s*:/.test(style);
     });
-    if (leaves.length === 0 || pending.length === 0) return;
+    const queryElapsed = performance.now() - queryStartedAt;
+    queryMs += queryElapsed;
+    addQuakeRenderBundleTimingPhase(timing, `${label}-query`, queryElapsed);
+    maxPending = Math.max(maxPending, pending.length);
+    if (pending.length !== lastPending) {
+      lastPending = pending.length;
+      pendingTransitions.push({
+        elapsedMs: Math.round(performance.now() - startedAt),
+        pending: pending.length,
+        ready: leaves.length - pending.length,
+        total: leaves.length,
+      });
+    }
+    if (leaves.length === 0 || pending.length === 0) {
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      recordQuakeRenderBundleBakeWait(timing, {
+        label,
+        elapsedMs,
+        pollCount,
+        totalLeaves,
+        maxPending,
+        queryMs: Math.round(queryMs),
+        frameWaitMs: Math.round(frameWaitMs),
+        pendingTransitions: compactQuakeRenderBundlePendingTransitions(pendingTransitions),
+        bakeStats: diffQuakeRenderBundleBakeStats(startedBakeStats, snapshotQuakeRenderBundleBakeStats()),
+      });
+      return;
+    }
     if (performance.now() - startedAt > QUAKE_RENDER_BUNDLE_TIMEOUT_MS) {
       throw new Error(`Timed out waiting for ${pending.length}/${leaves.length} baked texture leaves.`);
     }
-    await new Promise((resolve) => setTimeout(resolve, 16));
+    const frameStartedAt = performance.now();
+    await waitForRenderBundleFrameUpdate();
+    const frameElapsed = performance.now() - frameStartedAt;
+    frameWaitMs += frameElapsed;
+    addQuakeRenderBundleTimingPhase(timing, `${label}-frame`, frameElapsed);
   }
+}
+
+function compactQuakeRenderBundlePendingTransitions(transitions) {
+  if (transitions.length <= 8) return transitions;
+  return [
+    ...transitions.slice(0, 4),
+    ...transitions.slice(-4),
+  ];
 }
 
 function optimizeQuakeAtlasLeafBasisPolygons(polygons) {
@@ -1342,41 +1613,63 @@ async function tightenQuakeAtlasLeaves(mesh, boundsByKey = null) {
   const leaves = [...mesh.querySelectorAll("s")];
   if (!leaves.length) return boundsByKey ?? new Map();
   const outBoundsByKey = boundsByKey ?? new Map();
+  if (boundsByKey) {
+    for (const leaf of leaves) {
+      tightenQuakeAtlasLeaf(leaf, outBoundsByKey, true);
+    }
+    return outBoundsByKey;
+  }
   await Promise.all(leaves.map((leaf) => tightenQuakeAtlasLeaf(leaf, outBoundsByKey, Boolean(boundsByKey))));
   return outBoundsByKey;
 }
 
 async function tightenQuakeAtlasLeaf(leaf, boundsByKey, useExistingBounds) {
-  const win = leaf.ownerDocument.defaultView ?? window;
-  const style = win.getComputedStyle(leaf);
-  const atlasSize = cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
-    cssPixelValue(style.width) ||
-    64;
-  const position = cssPixelPair(style.backgroundPosition, style.backgroundPositionX, style.backgroundPositionY);
-  const size = cssPixelPair(style.backgroundSize);
-  const matrix = parseMatrix3d(leaf.style.transform || style.transform);
-  if (!position || !size || !matrix || atlasSize <= 0 || size[0] <= 0 || size[1] <= 0) return;
   const key = quakeAtlasLeafKey(leaf);
   let bounds = key ? boundsByKey.get(key) : null;
+  if (useExistingBounds && !bounds) return;
+
+  const win = leaf.ownerDocument.defaultView ?? window;
+  let computedStyle = null;
+  const style = () => {
+    computedStyle ??= win.getComputedStyle(leaf);
+    return computedStyle;
+  };
+  const atlasSize = cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
+    cssPixelValue(leaf.style.width) ||
+    cssPixelValue(style().width) ||
+    64;
+  const position = cssPixelPair(
+    leaf.style.backgroundPosition,
+    leaf.style.backgroundPositionX,
+    leaf.style.backgroundPositionY,
+  ) ?? cssPixelPair(style().backgroundPosition, style().backgroundPositionX, style().backgroundPositionY);
+  const size = cssPixelPair(leaf.style.backgroundSize) ?? cssPixelPair(style().backgroundSize);
+  const matrix = parseMatrix3d(leaf.style.transform || style().transform);
+  if (!position || !size || !matrix || atlasSize <= 0 || size[0] <= 0 || size[1] <= 0) return;
   if (!bounds && !useExistingBounds) {
-    const imageUrl = cssUrlValue(style.backgroundImage);
+    const imageUrl = cssUrlValue(leaf.style.backgroundImage || style().backgroundImage);
     if (!imageUrl) return;
     const atlas = await loadQuakeAtlasImageData(imageUrl);
     if (!atlas) return;
     bounds = atlasLeafAlphaBounds(atlas, atlasSize, position, size);
-    if (bounds && key) boundsByKey.set(key, bounds);
+    if (bounds && key && quakeAtlasLeafBoundsAreTight(bounds, atlasSize)) boundsByKey.set(key, bounds);
   }
   if (!bounds) return;
-  const fullArea = atlasSize * atlasSize;
-  const tightArea = bounds.width * bounds.height;
-  if (tightArea <= 0 || tightArea >= fullArea * 0.985) return;
+  if (!quakeAtlasLeafBoundsAreTight(bounds, atlasSize)) return;
   const nextMatrix = translateMatrix3d(matrix, bounds.x, bounds.y);
   if (!quakeProjectiveMatrixHasStableCornerW(nextMatrix, bounds.width, bounds.height)) return;
   leaf.style.transform = formatMatrix3d(nextMatrix);
   leaf.style.width = `${roundCssPx(bounds.width)}px`;
   leaf.style.height = `${roundCssPx(bounds.height)}px`;
-  leaf.style.background = `${style.backgroundImage} ${roundCssPx(position[0] - bounds.x)}px ` +
+  leaf.style.background = `${leaf.style.backgroundImage || style().backgroundImage} ` +
+    `${roundCssPx(position[0] - bounds.x)}px ` +
     `${roundCssPx(position[1] - bounds.y)}px / ${roundCssPx(size[0])}px ${roundCssPx(size[1])}px no-repeat`;
+}
+
+function quakeAtlasLeafBoundsAreTight(bounds, atlasSize) {
+  const fullArea = atlasSize * atlasSize;
+  const tightArea = bounds.width * bounds.height;
+  return tightArea > 0 && tightArea < fullArea * 0.985;
 }
 
 function applyAdaptiveQuakeAtlasLeafSizes(mesh) {
@@ -1403,17 +1696,21 @@ function applyAdaptiveQuakeAtlasLeafSizes(mesh) {
 
 function applyAdaptiveQuakeAtlasLeafSize(leaf) {
   const win = leaf.ownerDocument.defaultView ?? window;
-  const style = win.getComputedStyle(leaf);
-  const matrix = parseMatrix3d(leaf.style.transform || style.transform);
+  let computedStyle = null;
+  const style = () => {
+    computedStyle ??= win.getComputedStyle(leaf);
+    return computedStyle;
+  };
+  const matrix = parseMatrix3d(leaf.style.transform || style().transform);
   if (!matrix) return null;
 
   const beforeWidth = cssPixelValue(leaf.style.width) ||
     cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
-    cssPixelValue(style.width) ||
+    cssPixelValue(style().width) ||
     64;
   const beforeHeight = cssPixelValue(leaf.style.height) ||
     cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
-    cssPixelValue(style.height) ||
+    cssPixelValue(style().height) ||
     64;
   if (beforeWidth <= 0 || beforeHeight <= 0) return null;
 
@@ -1425,7 +1722,7 @@ function applyAdaptiveQuakeAtlasLeafSize(leaf) {
     return { beforeWidth, beforeHeight, afterWidth, afterHeight, resized: false };
   }
 
-  const background = adaptiveQuakeAtlasLeafBackground(leaf, style, afterWidth / beforeWidth, afterHeight / beforeHeight);
+  const background = adaptiveQuakeAtlasLeafBackground(leaf, style(), afterWidth / beforeWidth, afterHeight / beforeHeight);
   if (!background) return null;
 
   const nextMatrix = [...matrix];
@@ -1479,8 +1776,10 @@ function snapQuakeLeafTransformsToStableGrid(mesh) {
 
 function snapQuakeLeafTransformToStableGrid(leaf) {
   const win = leaf.ownerDocument.defaultView ?? window;
-  const style = win.getComputedStyle(leaf);
-  const matrix = parseMatrix3d(leaf.style.transform || style.transform);
+  const inlineTransform = leaf.style.transform;
+  const computedTransform = inlineTransform ? "" : win.getComputedStyle(leaf).transform;
+  const sourceTransform = inlineTransform || computedTransform;
+  const matrix = parseMatrix3d(sourceTransform);
   if (!matrix) return null;
 
   let snappedValues = 0;
@@ -1492,7 +1791,7 @@ function snapQuakeLeafTransformToStableGrid(leaf) {
       return snapped;
     });
     const formatted = formatMatrix3d(next);
-    const precisionChanged = compactCssTransform(leaf.style.transform || style.transform) !==
+    const precisionChanged = compactCssTransform(sourceTransform) !==
       compactCssTransform(formatted);
     if (!snappedValues && !precisionChanged) return null;
     leaf.style.transform = formatted;
@@ -1532,11 +1831,19 @@ function snapQuakeAtlasLeafBackgroundsToIntegerPx(mesh) {
 
 function snapQuakeAtlasLeafBackgroundToIntegerPx(leaf) {
   const win = leaf.ownerDocument.defaultView ?? window;
-  const style = win.getComputedStyle(leaf);
-  const backgroundImage = style.backgroundImage;
+  let computedStyle = null;
+  const style = () => {
+    computedStyle ??= win.getComputedStyle(leaf);
+    return computedStyle;
+  };
+  const backgroundImage = leaf.style.backgroundImage || style().backgroundImage;
   if (!backgroundImage || backgroundImage === "none") return false;
-  const position = cssPixelPair(style.backgroundPosition, style.backgroundPositionX, style.backgroundPositionY);
-  const size = cssPixelPair(style.backgroundSize);
+  const position = cssPixelPair(
+    leaf.style.backgroundPosition,
+    leaf.style.backgroundPositionX,
+    leaf.style.backgroundPositionY,
+  ) ?? cssPixelPair(style().backgroundPosition, style().backgroundPositionX, style().backgroundPositionY);
+  const size = cssPixelPair(leaf.style.backgroundSize) ?? cssPixelPair(style().backgroundSize);
   if (!position || !size || size[0] <= 0 || size[1] <= 0) return false;
 
   const snapped = [
@@ -1553,6 +1860,21 @@ function snapQuakeAtlasLeafBackgroundToIntegerPx(leaf) {
   leaf.style.background = `${backgroundImage} ${snapped[0]}px ${snapped[1]}px / ` +
     `${snapped[2]}px ${snapped[3]}px no-repeat`;
   return changed;
+}
+
+function clearQuakeLayoutOnlyPendingLeafStyles(mesh) {
+  const stats = {
+    totalLeaves: 0,
+    clearedOpacityLeaves: 0,
+  };
+  for (const leaf of mesh.querySelectorAll("s")) {
+    stats.totalLeaves++;
+    const opacity = leaf.style.opacity;
+    if (opacity === "" || Number(opacity) !== 0) continue;
+    leaf.style.removeProperty("opacity");
+    stats.clearedOpacityLeaves++;
+  }
+  return stats;
 }
 
 function quakeAtlasLeafKey(leaf) {
@@ -1681,47 +2003,82 @@ function roundCssIntegerPx(value) {
 }
 
 async function serializeMeshWithAssets(mesh, options = {}) {
-  const serializableMesh = options.mutateOriginal ? mesh : mesh.cloneNode(true);
-  const leafMetadata = extractRenderBundleLeafMetadata(serializableMesh);
-  stripRenderBundleMeshMetadata(serializableMesh, {
-    preserveLeafPolyIndex: Boolean(options.extractLeafStyles),
-  });
+  const timing = options.timing ?? null;
+  const serializableMesh = timeQuakeRenderBundlePhase(timing, "serialize-clone", () =>
+    options.mutateOriginal ? mesh : mesh.cloneNode(true)
+  );
+  const leafMetadata = timeQuakeRenderBundlePhase(timing, "serialize-metadata", () =>
+    extractRenderBundleLeafMetadata(serializableMesh)
+  );
+  timeQuakeRenderBundlePhase(timing, "serialize-strip-metadata", () =>
+    stripRenderBundleMeshMetadata(serializableMesh, {
+      preserveLeafPolyIndex: Boolean(options.extractLeafStyles),
+    })
+  );
   const assetByBlobUrl = new Map();
-  const styleElements = [serializableMesh, ...serializableMesh.querySelectorAll("[style]")];
-  for (const element of styleElements) {
-    const style = element.getAttribute("style");
-    if (!style || !style.includes("blob:")) continue;
-    const nextStyle = style.replace(/url\((['\"]?)(blob:[^)'\"]+)\1\)/g, (_match, _quote, blobUrl) => {
-      let asset = assetByBlobUrl.get(blobUrl);
-      if (!asset) {
-        asset = {
-          blobUrl,
-          placeholder: `__QUAKE_RENDER_BUNDLE_ASSET_${assetByBlobUrl.size}__`,
-        };
-        assetByBlobUrl.set(blobUrl, asset);
+  if (!options.skipBackgroundAssetExtraction) {
+    const styleElements = timeQuakeRenderBundlePhase(timing, "serialize-query-styles", () => [
+      serializableMesh,
+      ...serializableMesh.querySelectorAll("[style]"),
+    ]);
+    timeQuakeRenderBundlePhase(timing, "serialize-replace-blob-urls", () => {
+      for (const element of styleElements) {
+        const style = element.getAttribute("style");
+        if (!style || !style.includes("blob:")) continue;
+        const nextStyle = style.replace(/url\((['\"]?)(blob:[^)'\"]+)\1\)/g, (_match, _quote, blobUrl) => {
+          let asset = assetByBlobUrl.get(blobUrl);
+          if (!asset) {
+            asset = {
+              blobUrl,
+              placeholder: `__QUAKE_RENDER_BUNDLE_ASSET_${assetByBlobUrl.size}__`,
+            };
+            assetByBlobUrl.set(blobUrl, asset);
+          }
+          return `url("${asset.placeholder}")`;
+        });
+        element.setAttribute("style", nextStyle);
       }
-      return `url("${asset.placeholder}")`;
     });
-    element.setAttribute("style", nextStyle);
+    timeQuakeRenderBundlePhase(timing, "serialize-hoist-backgrounds", () =>
+      hoistRenderBundleBackgroundImages(serializableMesh)
+    );
   }
-  hoistRenderBundleBackgroundImages(serializableMesh);
-  const { meshCss, leafFrameStyles } = options.extractLeafStyles
-    ? extractRenderBundleLeafStyles(serializableMesh, options.styleClassName)
-    : { meshCss: "", leafFrameStyles: [] };
+  const { meshCss, leafFrameStyles } = timeQuakeRenderBundlePhase(timing, "serialize-extract-styles", () =>
+    options.extractLeafStyles
+      ? extractRenderBundleLeafStyles(serializableMesh, options.styleClassName)
+      : { meshCss: "", leafFrameStyles: [] }
+  );
 
   const assets = [];
-  for (const asset of assetByBlobUrl.values()) {
-    const response = await fetch(asset.blobUrl);
-    const blob = await response.blob();
-    assets.push({
-      placeholder: asset.placeholder,
-      mime: blob.type || "image/png",
-      base64: await blobToBase64(blob),
-    });
-  }
+  await timeQuakeRenderBundlePhaseAsync(timing, "serialize-assets", async () => {
+    for (const asset of assetByBlobUrl.values()) {
+      if (options.skipAssetPayloads) {
+        assets.push({
+          placeholder: asset.placeholder,
+          mime: "image/png",
+          skippedPayload: true,
+        });
+        continue;
+      }
+      const response = await timeQuakeRenderBundlePhaseAsync(timing, "serialize-fetch-asset", () =>
+        fetch(asset.blobUrl)
+      );
+      const blob = await timeQuakeRenderBundlePhaseAsync(timing, "serialize-asset-blob", () =>
+        response.blob()
+      );
+      const base64 = await timeQuakeRenderBundlePhaseAsync(timing, "serialize-asset-base64", () =>
+        blobToBase64(blob)
+      );
+      assets.push({
+        placeholder: asset.placeholder,
+        mime: blob.type || "image/png",
+        base64,
+      });
+    }
+  });
 
   return {
-    meshHtml: serializableMesh.outerHTML,
+    meshHtml: timeQuakeRenderBundlePhase(timing, "serialize-outer-html", () => serializableMesh.outerHTML),
     meshCss,
     assets,
     leafMetadata,
@@ -1742,6 +2099,116 @@ function extractRenderBundleFrameStyles(mesh, options = {}) {
       options.baseLeafFrameStylesByClass ?? new Map(),
     ),
   };
+}
+
+function extractRenderBundleFrameStylesReadOnly(mesh, options = {}) {
+  const baseLeafFrameStylesByClass = options.baseLeafFrameStylesByClass ?? new Map();
+  const inheritedBaseResult = extractRenderBundleFrameStylesFromInheritedBase(mesh, baseLeafFrameStylesByClass);
+  if (inheritedBaseResult) return inheritedBaseResult;
+
+  const stylesByElement = renderBundleHoistedStylesByElement(mesh);
+  const leafFrameStyles = [];
+  const usedLeafClasses = new Set();
+  let fallbackLeafIndex = 0;
+  let leafCount = 0;
+  let atlasLeafCount = 0;
+  for (const leaf of mesh.querySelectorAll("b,i,s,u")) {
+    leafCount++;
+    if (leaf.tagName?.toLowerCase() === "s") atlasLeafCount++;
+    const style = stylesByElement.get(leaf) ?? leaf.getAttribute("style") ?? "";
+    if (!style) continue;
+    let leafClass = renderBundleLeafClass(leaf, usedLeafClasses);
+    if (!leafClass) {
+      do {
+        leafClass = `qf${fallbackLeafIndex.toString(36)}`;
+        fallbackLeafIndex++;
+      } while (usedLeafClasses.has(leafClass));
+      usedLeafClasses.add(leafClass);
+    }
+    leafFrameStyles.push([leafClass, compactRenderBundleLeafFrameStyle(style)]);
+  }
+  return {
+    atlasLeafCount,
+    leafCount,
+    leafFrameStyles: inheritRenderBundleFrameStyleBackgrounds(
+      leafFrameStyles,
+      baseLeafFrameStylesByClass,
+    ),
+  };
+}
+
+function extractRenderBundleFrameStylesFromInheritedBase(mesh, baseLeafFrameStylesByClass) {
+  if (!baseLeafFrameStylesByClass?.size) return null;
+  const leafFrameStyles = [];
+  const usedLeafClasses = new Set();
+  let fallbackLeafIndex = 0;
+  let leafCount = 0;
+  let atlasLeafCount = 0;
+  for (const leaf of mesh.querySelectorAll("b,i,s,u")) {
+    leafCount++;
+    if (leaf.tagName?.toLowerCase() === "s") atlasLeafCount++;
+    const rawStyle = leaf.getAttribute("style") ?? "";
+    if (!rawStyle) continue;
+    let leafClass = renderBundleLeafClass(leaf, usedLeafClasses);
+    if (!leafClass) {
+      do {
+        leafClass = `qf${fallbackLeafIndex.toString(36)}`;
+        fallbackLeafIndex++;
+      } while (usedLeafClasses.has(leafClass));
+      usedLeafClasses.add(leafClass);
+    }
+    if (!baseLeafFrameStylesByClass.has(leafClass)) return null;
+    const style = (
+      rawStyle.includes("--pn") ||
+      rawStyle.includes("--polycss-atlas-size") ||
+      rawStyle.includes("background-repeat")
+    )
+      ? stripRenderBundleStyleMetadata(rawStyle)
+      : rawStyle;
+    leafFrameStyles.push([leafClass, compactRenderBundleInheritedLeafFrameStyle(style)]);
+  }
+  return {
+    atlasLeafCount,
+    leafCount,
+    leafFrameStyles: inheritRenderBundleFrameStyleBackgrounds(
+      leafFrameStyles,
+      baseLeafFrameStylesByClass,
+    ),
+  };
+}
+
+function renderBundleHoistedStylesByElement(mesh) {
+  const stylesByElement = new Map();
+  const varByImage = new Map();
+  const elements = [...mesh.querySelectorAll("[style]")];
+  const imageUseCounts = renderBundleBackgroundImageUseCounts(elements);
+  for (const element of elements) {
+    const rawStyle = element.getAttribute("style") ?? "";
+    const style = (
+      rawStyle.includes("--pn") ||
+      rawStyle.includes("--polycss-atlas-size") ||
+      rawStyle.includes("background-repeat")
+    )
+      ? stripRenderBundleStyleMetadata(rawStyle)
+      : rawStyle;
+    if (!style.includes("background")) {
+      stylesByElement.set(element, style);
+      continue;
+    }
+    const nextStyle = compactRenderBundleBackgroundStyle(
+      style.replace(/(background(?:-image)?):\s*url\(([^)]+)\)/g, (_match, property, image) => {
+        if ((imageUseCounts.get(image) ?? 0) <= 1) return _match;
+        let varName = varByImage.get(image);
+        if (!varName) {
+          varName = `--bg${varByImage.size}`;
+          varByImage.set(image, varName);
+        }
+        return `${property}:var(${varName})`;
+      }),
+    );
+    stylesByElement.set(element, nextStyle);
+  }
+  return stylesByElement;
 }
 
 function inheritRenderBundleFrameStyleBackgrounds(leafFrameStyles, baseLeafFrameStylesByClass) {
@@ -1828,6 +2295,17 @@ function compactRenderBundleLeafFrameStyle(style) {
     ...(backgroundValue ? [backgroundValue] : []),
     ...(extras ? [extras] : []),
   ];
+}
+
+function compactRenderBundleInheritedLeafFrameStyle(style) {
+  const declarations = renderBundleStyleDeclarations(style);
+  const transform = declarations.find((part) => part.name === "transform");
+  const extras = declarations
+    .filter((part) => part.name !== "transform" && part.name !== "background" && !part.name.startsWith("background-"))
+    .map((part) => `${part.name}:${part.value}`)
+    .join(";");
+  const matrix = transform?.value?.match(/^matrix3d\((.*)\)$/)?.[1] ?? transform?.value ?? "";
+  return [matrix, "", extras];
 }
 
 function renderBundleLeafClass(leaf, usedLeafClasses) {

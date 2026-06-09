@@ -279,7 +279,8 @@ function isQuakeMoverClassname(classname: string): boolean {
   return classname === "func_button" ||
     classname === "func_door" ||
     classname === "func_door_secret" ||
-    classname === "func_plat";
+    classname === "func_plat" ||
+    classname === "func_train";
 }
 
 function isQuakeActiveTriggerClassname(classname: string): boolean {

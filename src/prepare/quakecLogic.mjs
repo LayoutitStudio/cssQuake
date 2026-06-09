@@ -140,10 +140,169 @@ const programFactTargets = [
     sourcePath: "qcc/v101qc/soldier.qc",
   },
   {
+    classname: "monster_dog",
+    functionName: "monster_dog",
+    kind: "monster",
+    sourcePath: "qcc/v101qc/dog.qc",
+  },
+  {
+    callbackFactFunctions: ["health_touch"],
     classname: "item_health",
     functionName: "item_health",
     kind: "pickup",
     sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    classname: "item_armor1",
+    callbackFactFunctions: ["armor_touch"],
+    functionName: "item_armor1",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    classname: "item_armor2",
+    callbackFactFunctions: ["armor_touch"],
+    functionName: "item_armor2",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    classname: "item_armorInv",
+    callbackFactFunctions: ["armor_touch"],
+    functionName: "item_armorInv",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["weapon_touch"],
+    classname: "weapon_supershotgun",
+    functionName: "weapon_supershotgun",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["weapon_touch"],
+    classname: "weapon_nailgun",
+    functionName: "weapon_nailgun",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["weapon_touch"],
+    classname: "weapon_supernailgun",
+    functionName: "weapon_supernailgun",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["weapon_touch"],
+    classname: "weapon_grenadelauncher",
+    functionName: "weapon_grenadelauncher",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["weapon_touch"],
+    classname: "weapon_rocketlauncher",
+    functionName: "weapon_rocketlauncher",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["weapon_touch"],
+    classname: "weapon_lightning",
+    functionName: "weapon_lightning",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["ammo_touch"],
+    classname: "item_shells",
+    functionName: "item_shells",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["ammo_touch"],
+    classname: "item_spikes",
+    functionName: "item_spikes",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["ammo_touch"],
+    classname: "item_rockets",
+    functionName: "item_rockets",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["ammo_touch"],
+    classname: "item_cells",
+    functionName: "item_cells",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["ammo_touch"],
+    classname: "item_weapon",
+    functionName: "item_weapon",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["key_touch"],
+    classname: "item_key1",
+    functionName: "item_key1",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["key_touch"],
+    classname: "item_key2",
+    functionName: "item_key2",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    classname: "item_sigil",
+    functionName: "item_sigil",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["powerup_touch"],
+    classname: "item_artifact_invulnerability",
+    functionName: "item_artifact_invulnerability",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["powerup_touch"],
+    classname: "item_artifact_envirosuit",
+    functionName: "item_artifact_envirosuit",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["powerup_touch"],
+    classname: "item_artifact_invisibility",
+    functionName: "item_artifact_invisibility",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    callbackFactFunctions: ["powerup_touch"],
+    classname: "item_artifact_super_damage",
+    functionName: "item_artifact_super_damage",
+    kind: "pickup",
+    sourcePath: "qcc/v101qc/items.qc",
+  },
+  {
+    classname: "light_globe",
+    functionName: "light_globe",
+    kind: "misc",
+    sourcePath: "qcc/v101qc/misc.qc",
   },
   {
     classname: "func_plat",
@@ -152,6 +311,7 @@ const programFactTargets = [
     sourcePath: "qcc/v101qc/plats.qc",
   },
   {
+    callbackFactFunctions: ["door_touch"],
     classname: "func_door",
     functionName: "func_door",
     kind: "mover",
@@ -164,10 +324,83 @@ const programFactTargets = [
     sourcePath: "qcc/v101qc/buttons.qc",
   },
   {
+    classname: "func_train",
+    functionName: "func_train",
+    kind: "mover",
+    sourcePath: "qcc/v101qc/plats.qc",
+  },
+  {
     classname: "trigger_multiple",
     functionName: "trigger_multiple",
     kind: "trigger",
     sourcePath: "qcc/v101qc/triggers.qc",
+  },
+  {
+    classname: "trigger_once",
+    functionName: "trigger_once",
+    kind: "trigger",
+    sourcePath: "qcc/v101qc/triggers.qc",
+  },
+  {
+    classname: "trigger_secret",
+    functionName: "trigger_secret",
+    kind: "trigger",
+    sourcePath: "qcc/v101qc/triggers.qc",
+  },
+  {
+    callbackFactFunctions: ["counter_use"],
+    classname: "trigger_counter",
+    functionName: "trigger_counter",
+    kind: "trigger",
+    sourcePath: "qcc/v101qc/triggers.qc",
+  },
+  {
+    classname: "trigger_relay",
+    functionName: "trigger_relay",
+    kind: "trigger",
+    sourcePath: "qcc/v101qc/triggers.qc",
+  },
+  {
+    classname: "trigger_onlyregistered",
+    functionName: "trigger_onlyregistered",
+    kind: "trigger",
+    sourcePath: "qcc/v101qc/triggers.qc",
+  },
+  {
+    classname: "trigger_setskill",
+    functionName: "trigger_setskill",
+    kind: "trigger",
+    sourcePath: "qcc/v101qc/triggers.qc",
+  },
+  {
+    classname: "trigger_hurt",
+    functionName: "trigger_hurt",
+    kind: "trigger",
+    sourcePath: "qcc/v101qc/triggers.qc",
+  },
+  {
+    classname: "trigger_teleport",
+    functionName: "trigger_teleport",
+    kind: "trigger",
+    sourcePath: "qcc/v101qc/triggers.qc",
+  },
+  {
+    classname: "trigger_push",
+    functionName: "trigger_push",
+    kind: "trigger",
+    sourcePath: "qcc/v101qc/triggers.qc",
+  },
+  {
+    classname: "trigger_monsterjump",
+    functionName: "trigger_monsterjump",
+    kind: "trigger",
+    sourcePath: "qcc/v101qc/triggers.qc",
+  },
+  {
+    classname: "trigger_changelevel",
+    functionName: "trigger_changelevel",
+    kind: "trigger",
+    sourcePath: "qcc/v101qc/client.qc",
   },
 ];
 
@@ -244,14 +477,19 @@ async function extractProgramEntityFact(target, sharedConstants) {
   ]);
   const body = functionDefinition.body;
   const assignments = extractSelfAssignments(body, functionDefinition, target, constants);
+  const callbacks = extractCallbackAssignments(assignments);
+  const assetRefs = extractProgramAssetRefs(body, functionDefinition, target);
+  const callbackFacts = extractProgramCallbackFacts(source, target, constants, callbacks);
   return {
-    callbacks: extractCallbackAssignments(assignments),
+    assetRefs,
+    ...(Object.keys(callbackFacts).length ? { callbackFacts } : {}),
+    callbacks,
     calls: extractCalls(body),
     classname: target.classname,
     defaultAssignments: extractDefaultAssignments(body, functionDefinition, target, constants),
     dependencies: {
-      models: extractProgramDependencyRefs(body, functionDefinition, target, "model"),
-      sounds: extractProgramDependencyRefs(body, functionDefinition, target, "sound"),
+      models: legacyProgramDependencyRefs(assetRefs, "model"),
+      sounds: legacyProgramDependencyRefs(assetRefs, "sound"),
     },
     fieldAssignments: assignments,
     functionName: target.functionName,
@@ -415,26 +653,50 @@ function parseQuakeConstants(sourceText) {
   return constants;
 }
 
-function extractProgramDependencyRefs(body, functionDefinition, target, kind) {
+function extractProgramAssetRefs(body, functionDefinition, target) {
   const refs = [];
-  const pattern = kind === "model"
-    ? /\b(precache_model|setmodel)\s*\(\s*(?:self\s*,\s*)?"([^"]+)"\s*\)/g
-    : /\b(precache_sound)\s*\(\s*"([^"]+)"\s*\)/g;
-  for (const match of body.matchAll(pattern)) {
-    refs.push({
-      call: match[1],
-      path: match[2].toLowerCase(),
-      sourceRef: sourceRefForBodyIndex(functionDefinition, target, match.index ?? 0),
-    });
+  const patterns = [
+    /\b(precache_model2?)\s*\(\s*"([^"]+)"\s*\)/g,
+    /\b(setmodel)\s*\(\s*[^,]+,\s*"([^"]+)"\s*\)/g,
+    /\b(precache_sound2?)\s*\(\s*"([^"]+)"\s*\)/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of body.matchAll(pattern)) {
+      const call = match[1];
+      const path = match[2].toLowerCase();
+      refs.push({
+        call,
+        kind: quakeProgramAssetKind(path, call),
+        path,
+        sourceRef: sourceRefForBodyIndex(functionDefinition, target, match.index ?? 0),
+      });
+    }
   }
   return dedupeProgramRefs(refs);
+}
+
+function legacyProgramDependencyRefs(assetRefs, kind) {
+  return assetRefs
+    .filter((ref) => kind === "sound" ? ref.kind === "sound" : ref.call === "setmodel" || ref.call.startsWith("precache_model"))
+    .map(({ call, path, sourceRef }) => ({ call, path, sourceRef }));
+}
+
+function quakeProgramAssetKind(assetPath, call) {
+  if (call.startsWith("precache_sound") || assetPath.endsWith(".wav")) return "sound";
+  if (assetPath.startsWith("maps/") && assetPath.endsWith(".bsp")) return "bsp";
+  if (assetPath.startsWith("progs/") && assetPath.endsWith(".spr")) return "sprite";
+  if (assetPath.endsWith(".mdl")) return "model";
+  if (assetPath.endsWith(".bsp")) return "bsp";
+  if (assetPath.endsWith(".spr")) return "sprite";
+  if (call === "setmodel" || call.startsWith("precache_model")) return "model";
+  return "unknown";
 }
 
 function dedupeProgramRefs(refs) {
   const out = [];
   const seen = new Set();
   for (const ref of refs) {
-    const key = `${ref.call}:${ref.path}:${ref.sourceRef.line}`;
+    const key = `${ref.kind}:${ref.call}:${ref.path}:${ref.sourceRef.line}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(ref);
@@ -464,6 +726,63 @@ function extractCallbackAssignments(assignments) {
     callbacks[assignment.field] = assignment.expression;
   }
   return callbacks;
+}
+
+function extractProgramCallbackFacts(source, target, constants, callbacks) {
+  const facts = {};
+  const allowedCallbacks = target.callbackFactFunctions ? new Set(target.callbackFactFunctions) : null;
+  for (const callbackName of [...new Set(Object.values(callbacks))].sort()) {
+    if (!allowedCallbacks?.has(callbackName)) continue;
+    const functionDefinition = extractFunctionDefinition(source, callbackName);
+    if (!functionDefinition) continue;
+    const callbackTarget = { ...target, functionName: callbackName };
+    const assignments = extractLocalAssignments(functionDefinition.body, functionDefinition, callbackTarget, constants);
+    const calls = extractCalls(functionDefinition.body);
+    const classnameBranches = extractClassnameBranchAssignments(functionDefinition, callbackTarget, constants);
+    if (!assignments.length && !calls.length && !classnameBranches.length) continue;
+    facts[callbackName] = {
+      assignments,
+      calls,
+      ...(classnameBranches.length ? { classnameBranches } : {}),
+      sourceRefs: [sourceRefForBodyIndex(functionDefinition, callbackTarget, 0)],
+    };
+  }
+  return facts;
+}
+
+function extractClassnameBranchAssignments(functionDefinition, target, constants) {
+  const branches = [];
+  const pattern = /if\s*\(\s*self\.classname\s*==\s*"([^"]+)"\s*\)\s*\{/g;
+  for (const match of functionDefinition.body.matchAll(pattern)) {
+    const bodyStart = (match.index ?? 0) + match[0].lastIndexOf("{");
+    const bodyEnd = findMatchingBrace(functionDefinition.body, bodyStart);
+    if (bodyEnd < 0) continue;
+    const branchBody = functionDefinition.body.slice(bodyStart + 1, bodyEnd);
+    const assignments = extractLocalAssignments(branchBody, functionDefinition, target, constants, bodyStart + 1);
+    if (!assignments.length) continue;
+    branches.push({
+      classname: match[1],
+      assignments,
+      sourceRef: sourceRefForBodyIndex(functionDefinition, target, match.index ?? 0),
+    });
+  }
+  return branches;
+}
+
+function extractLocalAssignments(body, functionDefinition, target, constants, bodyOffset = 0) {
+  const assignments = [];
+  for (const match of body.matchAll(/\b(?:(self|other)\.)?([A-Za-z_]\w*)\s*=(?!=)\s*([^;]+);/g)) {
+    const owner = match[1];
+    const field = owner ? `${owner}.${match[2]}` : match[2];
+    const expression = normalizeQuakeExpression(match[3]);
+    assignments.push({
+      field,
+      expression,
+      ...parsedProgramValueField(expression, constants),
+      sourceRef: sourceRefForBodyIndex(functionDefinition, target, bodyOffset + (match.index ?? 0)),
+    });
+  }
+  return dedupeProgramAssignments(assignments);
 }
 
 function isQuakeCallbackField(field) {
@@ -1063,6 +1382,7 @@ function renderProgramFactsReport(programFacts) {
     `\`${entity.classname}\``,
     entity.kind,
     `\`${entity.source.sourceFile}:${entity.sourceRefs[0]?.line ?? ""}\``,
+    entity.assetRefs.length,
     entity.dependencies.models.length,
     entity.dependencies.sounds.length,
     Object.keys(entity.callbacks).map((callback) => `\`${callback}\``).join(", "),
@@ -1092,7 +1412,9 @@ Parsed for representative entities:
 - direct \`self.*\` assignments
 - callback assignments such as \`self.touch\`, \`self.use\`, \`self.blocked\`, and \`self.th_*\`
 - guarded defaults such as \`if (!self.speed) self.speed = 150\`
-- \`precache_model\`, \`precache_sound\`, \`setmodel\`, and \`setsize\`
+- normalized asset refs from \`precache_model\`, \`precache_sound\`, and \`setmodel\`, including BSPs, MDLs, sprites, and sounds
+- legacy model/sound dependency arrays preserved for current consumers
+- \`setsize\`
 - spawnflag checks with constant values when available in the same source or shared \`defs.qc\`
 
 Not parsed as executable semantics yet:
@@ -1105,8 +1427,8 @@ Not parsed as executable semantics yet:
 
 ## Extracted Entities
 
-| Classname | Kind | Source | Models | Sounds | Callbacks | Defaults | Spawnflags |
-| --- | --- | --- | ---: | ---: | --- | --- | --- |
+| Classname | Kind | Source | Assets | Models | Sounds | Callbacks | Defaults | Spawnflags |
+| --- | --- | --- | ---: | ---: | ---: | --- | --- | --- |
 ${rows.map((row) => `| ${row.join(" | ")} |`).join("\n")}
 
 ## Runtime Implication
@@ -1379,6 +1701,8 @@ function renderGeneratedProgramFacts(programFacts) {
 
 export type QuakeProgramEntityKind = "misc" | "monster" | "mover" | "pickup" | "shootable" | "trigger";
 
+export type QuakeProgramAssetKind = "bsp" | "model" | "sound" | "sprite" | "unknown";
+
 export type QuakeProgramFactValue = number | string | readonly [number, number, number];
 
 export interface QuakeProgramLogicSourceMetadata {
@@ -1398,6 +1722,13 @@ export interface QuakeProgramSourceRef {
 
 export interface QuakeProgramDependencyRef {
   call: string;
+  path: string;
+  sourceRef: QuakeProgramSourceRef;
+}
+
+export interface QuakeProgramAssetRef {
+  call: string;
+  kind: QuakeProgramAssetKind;
   path: string;
   sourceRef: QuakeProgramSourceRef;
 }
@@ -1431,6 +1762,8 @@ export interface QuakeProgramSpawnflagCheck {
 }
 
 export interface QuakeProgramEntityFact {
+  assetRefs: readonly QuakeProgramAssetRef[];
+  callbackFacts?: Readonly<Record<string, QuakeProgramCallbackFact>>;
   callbacks: Readonly<Record<string, string>>;
   calls: readonly string[];
   classname: string;
@@ -1447,6 +1780,19 @@ export interface QuakeProgramEntityFact {
   source: QuakeProgramLogicSourceMetadata;
   sourceRefs: readonly QuakeProgramSourceRef[];
   spawnflagChecks: readonly QuakeProgramSpawnflagCheck[];
+}
+
+export interface QuakeProgramCallbackClassnameBranchFact {
+  assignments: readonly QuakeProgramFieldAssignment[];
+  classname: string;
+  sourceRef: QuakeProgramSourceRef;
+}
+
+export interface QuakeProgramCallbackFact {
+  assignments?: readonly QuakeProgramFieldAssignment[];
+  calls?: readonly string[];
+  classnameBranches?: readonly QuakeProgramCallbackClassnameBranchFact[];
+  sourceRefs: readonly QuakeProgramSourceRef[];
 }
 
 export interface QuakeProgramFacts {

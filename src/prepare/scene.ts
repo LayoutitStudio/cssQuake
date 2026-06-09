@@ -10,6 +10,12 @@ import {
 
 import { QUAKE_RENDER_SUPERSAMPLE, QUAKE_UNIT_SCALE } from "../quakeScale.js";
 import { buildEntityManifest, cloneEntityManifest } from "./entities";
+import {
+  buildQuakeGameLogicFacts,
+  cloneQuakeGameLogicFacts,
+  type QuakeGameLogicFacts,
+  type QuakeGameLogicProgramFactsInput,
+} from "./gameLogicFacts";
 import { parseQuakePakDirectory, quakePakEntryBytes, readFixedAscii, type QuakePakEntry } from "./pak";
 import { buildSourceFaceVisibilityKeys, buildVisibility } from "./visibility";
 export { parseQuakePakDirectory, quakePakEntryBytes, type QuakePakEntry } from "./pak";
@@ -28,6 +34,7 @@ export interface QuakeTextureEncodeInput {
 }
 
 export type QuakeTextureUrlEncoder = (input: QuakeTextureEncodeInput) => Promise<string>;
+export type QuakePrepareSceneTimingSink = (label: string, elapsedMs: number) => void;
 
 export interface QuakePreparedSceneCreateOptions {
   encodeTextureUrl?: QuakeTextureUrlEncoder;
@@ -42,6 +49,7 @@ export interface QuakePreparedSceneCreateOptions {
   lightmapBakeTextureFallbackOverlay?: boolean;
   lightmapBakeTextureFallbackOverlayMaxExtraRatio?: number;
   lightmapBakeTextureFallbackOverlayMaxSide?: number;
+  lightmapBakeTextureEncoding?: boolean;
   lightmapBakeMergedOverlay?: boolean;
   lightmapBakeMergedOverlayMaxExtraRatio?: number;
   lightmapBakeMergedOverlayMaxSide?: number;
@@ -50,12 +58,20 @@ export interface QuakePreparedSceneCreateOptions {
   lightmapOverlayMaxExtraRatio?: number;
   lightmapOverlayMaxSide?: number;
   lightmapOverlayMinRange?: number;
+  litTextureEncoding?: boolean;
+  litTextureEncodingTextureNames?: string[];
+  gameLogicProgramFacts?: QuakeGameLogicProgramFactsInput | null;
   mapPath?: string;
+  timing?: QuakePrepareSceneTimingSink;
 }
 
 interface QuakeBspPrepareOptions {
+  gameLogicProgramFacts?: QuakeGameLogicProgramFactsInput | null;
   lightmapBake: QuakeLightmapBakeOptions;
   lightmapOverlay: QuakeLightmapOverlayOptions;
+  litTextureEncoding: boolean;
+  litTextureEncodingTextureNames?: ReadonlySet<string>;
+  timing?: QuakePrepareSceneTimingSink;
 }
 
 interface QuakeLightmapBakeOptions {
@@ -68,6 +84,7 @@ interface QuakeLightmapBakeOptions {
   minDisplaySide: number;
   minTextureScale: number;
   minTextureSide: number;
+  textureEncoding: boolean;
   textureFallbackOverlay: boolean;
   textureFallbackOverlayMaxExtraRatio: number;
   textureFallbackOverlayMaxTextureSide: number;
@@ -615,6 +632,7 @@ export interface QuakePreparedScene {
   warnings: string[];
   entities: QuakeEntity[];
   entityManifest: QuakeEntityManifest;
+  gameLogic?: QuakeGameLogicFacts;
   models?: QuakePreparedModel[];
   spawn: {
     origin: Vec3;
@@ -639,6 +657,7 @@ export interface QuakeScene {
   warnings: string[];
   entities: QuakeEntity[];
   entityManifest: QuakeEntityManifest;
+  gameLogic?: QuakeGameLogicFacts;
   models: QuakePreparedModel[];
   spawn: {
     origin: Vec3;
@@ -727,6 +746,7 @@ const QUAKE_LIGHT_SMOOTHING_NORMAL_DOT = 0.999;
 const QUAKE_LIGHT_SMOOTHING_PLANE_EPS = 0.5;
 const QUAKE_LIGHT_SMOOTHING_TOUCH_EPS = 1.5;
 const QUAKE_RENDER_COLLINEAR_EPS = 1e-6;
+const QUAKE_FACE_NORMAL_AREA_EPS = 1e-4;
 const QUAKE_LIGHTMAP_BAKE_DEFAULT_MAX_TEXTURE_SIDE = 384;
 const QUAKE_LIGHTMAP_BAKE_MIN_TEXTURE_SIDE = 4;
 const QUAKE_LIGHTMAP_BAKE_MAX_TEXTURE_SIDE = 512;
@@ -808,23 +828,51 @@ export async function createQuakePreparedSceneFromPakBuffer(
   buffer: ArrayBuffer,
   options: QuakePreparedSceneCreateOptions = {},
 ): Promise<QuakePreparedScene> {
-  const entries = parseQuakePakDirectory(buffer);
-  const palette = paletteFromPak(buffer, entries);
-  const mapEntry = options.mapPath
-    ? entries.find((entry) => entry.name === options.mapPath)
-    : selectMapEntry(entries);
+  const timer = createQuakePrepareSceneTimer(options.timing);
+  const entries = timer.sync("prepare-scene.pak-directory", () => parseQuakePakDirectory(buffer));
+  const palette = timer.sync("prepare-scene.palette", () => paletteFromPak(buffer, entries));
+  const mapEntry = timer.sync("prepare-scene.select-map", () =>
+    options.mapPath
+      ? entries.find((entry) => entry.name === options.mapPath)
+      : selectMapEntry(entries)
+  );
   if (!mapEntry) throw new Error(options.mapPath ? `No ${options.mapPath} entry found in this PAK.` : "No maps/*.bsp entry found in this PAK.");
-  const bsp = quakePakEntryBytes(buffer, mapEntry).slice().buffer;
-  return createQuakePreparedSceneFromBsp(
+  const bsp = timer.sync("prepare-scene.read-bsp", () => quakePakEntryBytes(buffer, mapEntry).slice().buffer);
+  return timer.asyncPhase("prepare-scene.bsp-total", () => createQuakePreparedSceneFromBsp(
     bsp,
     palette,
     mapEntry.name,
     options.encodeTextureUrl ?? browserTextureUrlEncoder,
     {
+      gameLogicProgramFacts: options.gameLogicProgramFacts ?? null,
       lightmapBake: normalizeQuakeLightmapBakeOptions(options),
       lightmapOverlay: normalizeQuakeLightmapOverlayOptions(options),
+      litTextureEncoding: options.litTextureEncoding !== false,
+      litTextureEncodingTextureNames: normalizeQuakeTextureNameSet(options.litTextureEncodingTextureNames),
+      timing: options.timing,
     },
-  );
+  ));
+}
+
+function createQuakePrepareSceneTimer(timing?: QuakePrepareSceneTimingSink) {
+  return {
+    sync<T>(label: string, callback: () => T): T {
+      const startedAt = Date.now();
+      try {
+        return callback();
+      } finally {
+        timing?.(label, Date.now() - startedAt);
+      }
+    },
+    async asyncPhase<T>(label: string, callback: () => Promise<T>): Promise<T> {
+      const startedAt = Date.now();
+      try {
+        return await callback();
+      } finally {
+        timing?.(label, Date.now() - startedAt);
+      }
+    },
+  };
 }
 
 export function createQuakeSceneFromPreparedScene(prepared: QuakePreparedScene): QuakeScene {
@@ -849,6 +897,7 @@ export function createQuakeSceneFromPreparedScene(prepared: QuakePreparedScene):
     warnings: [...prepared.warnings],
     entities,
     entityManifest: cloneEntityManifest(prepared.entityManifest),
+    ...(prepared.gameLogic ? { gameLogic: cloneQuakeGameLogicFacts(prepared.gameLogic) } : {}),
     models: clonePreparedModels(prepared.models ?? prepared.collision?.models ?? []),
     spawn: {
       origin: [...prepared.spawn.origin],
@@ -954,46 +1003,69 @@ async function createQuakePreparedSceneFromBsp(
   options: QuakeBspPrepareOptions = {
     lightmapBake: normalizeQuakeLightmapBakeOptions(),
     lightmapOverlay: normalizeQuakeLightmapOverlayOptions(),
+    litTextureEncoding: true,
   },
 ): Promise<QuakePreparedScene> {
-  const view = new DataView(buffer);
-  assertValidBspHeader(view);
-  const version = view.getInt32(0, true);
-  if (version !== QUAKE_BSP_VERSION) {
-    throw new Error(`Unsupported BSP version ${version}; expected Quake BSP ${QUAKE_BSP_VERSION}.`);
-  }
-  validateBspLumps(view);
+  const timer = createQuakePrepareSceneTimer(options.timing);
+  const view = timer.sync("prepare-scene.bsp-view", () => new DataView(buffer));
+  timer.sync("prepare-scene.bsp-header", () => {
+    assertValidBspHeader(view);
+    const version = view.getInt32(0, true);
+    if (version !== QUAKE_BSP_VERSION) {
+      throw new Error(`Unsupported BSP version ${version}; expected Quake BSP ${QUAKE_BSP_VERSION}.`);
+    }
+    validateBspLumps(view);
+  });
 
-  const entitiesText = readLumpText(view, buffer, BSP_LUMP_ENTITIES);
-  const entities = parseEntities(entitiesText);
-  const sourceSpawn = parseSpawn(entities);
-  const spawn = quakeGameplaySpawn(label, sourceSpawn);
-  const rawVertices = parseVertices(view);
-  const bounds = vertexBounds(rawVertices);
+  const { entities, sourceSpawn, spawn } = timer.sync("prepare-scene.entities", () => {
+    const entitiesText = readLumpText(view, buffer, BSP_LUMP_ENTITIES);
+    const parsedEntities = parseEntities(entitiesText);
+    const parsedSpawn = parseSpawn(parsedEntities);
+    return {
+      entities: parsedEntities,
+      sourceSpawn: parsedSpawn,
+      spawn: quakeGameplaySpawn(label, parsedSpawn),
+    };
+  });
+  const rawVertices = timer.sync("prepare-scene.vertices", () => parseVertices(view));
+  const bounds = timer.sync("prepare-scene.bounds", () => vertexBounds(rawVertices));
   const floorZ = sourceSpawn ? sourceSpawn.origin.z + QUAKE_PLAYER_MINS_Z : bounds.min.z;
   const pivot = sourceSpawn ? { x: sourceSpawn.origin.x, y: sourceSpawn.origin.y, z: floorZ } : {
     x: (bounds.min.x + bounds.max.x) * 0.5,
     y: (bounds.min.y + bounds.max.y) * 0.5,
     z: bounds.min.z,
   };
-  const planes = parsePlanes(view);
+  const planes = timer.sync("prepare-scene.planes", () => parsePlanes(view));
   const textureUrls: string[] = [];
-  const textures = await parseMipTextures(view, buffer, palette, textureUrls, encodeTextureUrl);
-  const texInfos = parseTexInfos(view);
-  const edges = parseEdges(view);
-  const surfEdges = parseSurfEdges(view);
-  const faces = parseFaces(view);
-  const clipNodes = parseClipNodes(view);
-  const nodes = parseNodes(view);
-  const leaves = parseLeaves(view);
-  const markSurfaces = parseMarkSurfaces(view);
-  const visData = parseVisibility(view, buffer);
-  const lighting = parseLighting(view, buffer);
-  const models = parseModels(view);
-  const preparedModels = buildPreparedModels(models);
-  const faceModels = buildFaceModelIndices(models, faces.length);
-  const entityByModel = buildEntityByModelIndex(entities);
-  const entityByIndex = new Map(entities.map((entity) => [entity.index, entity]));
+  const textures = await timer.asyncPhase("prepare-scene.textures", () =>
+    parseMipTextures(view, buffer, palette, textureUrls, encodeTextureUrl)
+  );
+  const { texInfos, edges, surfEdges, faces, clipNodes } = timer.sync("prepare-scene.face-lumps", () => ({
+    texInfos: parseTexInfos(view),
+    edges: parseEdges(view),
+    surfEdges: parseSurfEdges(view),
+    faces: parseFaces(view),
+    clipNodes: parseClipNodes(view),
+  }));
+  const { nodes, leaves, markSurfaces, visData } = timer.sync("prepare-scene.visibility-lumps", () => ({
+    nodes: parseNodes(view),
+    leaves: parseLeaves(view),
+    markSurfaces: parseMarkSurfaces(view),
+    visData: parseVisibility(view, buffer),
+  }));
+  const lighting = timer.sync("prepare-scene.lighting", () => parseLighting(view, buffer));
+  const { models, preparedModels, faceModels } = timer.sync("prepare-scene.models", () => {
+    const parsedModels = parseModels(view);
+    return {
+      models: parsedModels,
+      preparedModels: buildPreparedModels(parsedModels),
+      faceModels: buildFaceModelIndices(parsedModels, faces.length),
+    };
+  });
+  const { entityByModel, entityByIndex } = timer.sync("prepare-scene.entity-indexes", () => ({
+    entityByModel: buildEntityByModelIndex(entities),
+    entityByIndex: new Map(entities.map((entity) => [entity.index, entity])),
+  }));
   const model = models[0] ?? {
     mins: bounds.min,
     maxs: bounds.max,
@@ -1002,7 +1074,7 @@ async function createQuakePreparedSceneFromBsp(
     firstFace: 0,
     faceCount: faces.length,
   };
-  const brushModels = visibleBrushModels(entities, models);
+  const brushModels = timer.sync("prepare-scene.brush-models", () => visibleBrushModels(entities, models));
   const candidates: QuakeFaceCandidate[] = [];
   const buildCandidates: QuakeFaceBuildCandidate[] = [];
   const fallbackColorCache = new Map<string, string>();
@@ -1011,62 +1083,67 @@ async function createQuakePreparedSceneFromBsp(
   const textureAnimationSpriteCache = new Map<string, Promise<string> | string>();
   let skyTextureUrl: string | undefined;
   const faceIndices = new Set<number>();
-  const endFace = Math.min(faces.length, model.firstFace + model.faceCount);
-  for (let faceIndex = model.firstFace; faceIndex < endFace; faceIndex++) {
-    faceIndices.add(faceIndex);
-  }
-  for (const brushModel of brushModels) {
-    for (const faceIndex of brushModel.faceIndices) faceIndices.add(faceIndex);
-  }
-
-  for (const faceIndex of [...faceIndices].sort((a, b) => a - b)) {
-    const face = faces[faceIndex];
-    if (!face) continue;
-    const texInfo = texInfos[face.texInfo];
-    if (!texInfo || texInfo.miptex < 0) continue;
-    const texture = textures[texInfo.miptex];
-    if (!texture) continue;
-
-    const qPoints: QuakeVertex[] = [];
-    for (let i = 0; i < face.edgeCount; i++) {
-      const surfEdge = surfEdges[face.firstEdge + i];
-      if (surfEdge === undefined) continue;
-      const edge = edges[Math.abs(surfEdge)];
-      if (!edge) continue;
-      const vertexIndex = surfEdge >= 0 ? edge[0] : edge[1];
-      const point = rawVertices[vertexIndex];
-      if (point) qPoints.push(point);
+  timer.sync("prepare-scene.face-indexes", () => {
+    const endFace = Math.min(faces.length, model.firstFace + model.faceCount);
+    for (let faceIndex = model.firstFace; faceIndex < endFace; faceIndex++) {
+      faceIndices.add(faceIndex);
     }
+    for (const brushModel of brushModels) {
+      for (const faceIndex of brushModel.faceIndices) faceIndices.add(faceIndex);
+    }
+  });
 
-    const deduped = stabilizeFacePoints(dedupeFacePoints(qPoints));
-    if (deduped.length < 3) continue;
-    const oriented = stabilizeFacePoints(orientFacePoints(deduped, face, planes));
-    if (oriented.length < 3) continue;
-    const lightStyles = activeLightStyles(face.styles);
-    const lightstyleAnimation = animatedLightStyle(lightStyles);
-    const lightstyleFrameBrightnesses = lightstyleAnimation === undefined
-      ? undefined
-      : faceLightstyleFrameBrightnesses(face, oriented, texInfo, lighting, lightstyleAnimation);
-    buildCandidates.push({
-      faceIndex,
-      modelIndex: faceModels[faceIndex] ?? 0,
-      ...(entityByModel.get(faceModels[faceIndex] ?? 0) !== undefined
-        ? { entityIndex: entityByModel.get(faceModels[faceIndex] ?? 0) }
-        : {}),
-      face,
-      points: oriented,
-      texture,
-      texInfo,
-      lightStyles,
-      brightness: lightstyleFrameBrightnesses
-        ? Math.max(...lightstyleFrameBrightnesses, QUAKE_LIGHT_MIN)
-        : faceLightBrightness(face, oriented, texInfo, lighting),
-      ...(lightstyleAnimation !== undefined ? { lightstyleAnimation } : {}),
-      ...(lightstyleFrameBrightnesses ? { lightstyleFrameBrightnesses } : {}),
-    });
-  }
+  timer.sync("prepare-scene.build-face-candidates", () => {
+    for (const faceIndex of [...faceIndices].sort((a, b) => a - b)) {
+      const face = faces[faceIndex];
+      if (!face) continue;
+      const texInfo = texInfos[face.texInfo];
+      if (!texInfo || texInfo.miptex < 0) continue;
+      const texture = textures[texInfo.miptex];
+      if (!texture) continue;
 
-  const smoothedBrightness = smoothFaceBrightness(buildCandidates);
+      const qPoints: QuakeVertex[] = [];
+      for (let i = 0; i < face.edgeCount; i++) {
+        const surfEdge = surfEdges[face.firstEdge + i];
+        if (surfEdge === undefined) continue;
+        const edge = edges[Math.abs(surfEdge)];
+        if (!edge) continue;
+        const vertexIndex = surfEdge >= 0 ? edge[0] : edge[1];
+        const point = rawVertices[vertexIndex];
+        if (point) qPoints.push(point);
+      }
+
+      const deduped = stabilizeFacePoints(dedupeFacePoints(qPoints));
+      if (deduped.length < 3) continue;
+      const oriented = stabilizeFacePoints(orientFacePoints(deduped, face, planes));
+      if (oriented.length < 3) continue;
+      const lightStyles = activeLightStyles(face.styles);
+      const lightstyleAnimation = animatedLightStyle(lightStyles);
+      const lightstyleFrameBrightnesses = lightstyleAnimation === undefined
+        ? undefined
+        : faceLightstyleFrameBrightnesses(face, oriented, texInfo, lighting, lightstyleAnimation);
+      buildCandidates.push({
+        faceIndex,
+        modelIndex: faceModels[faceIndex] ?? 0,
+        ...(entityByModel.get(faceModels[faceIndex] ?? 0) !== undefined
+          ? { entityIndex: entityByModel.get(faceModels[faceIndex] ?? 0) }
+          : {}),
+        face,
+        points: oriented,
+        texture,
+        texInfo,
+        lightStyles,
+        brightness: lightstyleFrameBrightnesses
+          ? Math.max(...lightstyleFrameBrightnesses, QUAKE_LIGHT_MIN)
+          : faceLightBrightness(face, oriented, texInfo, lighting),
+        ...(lightstyleAnimation !== undefined ? { lightstyleAnimation } : {}),
+        ...(lightstyleFrameBrightnesses ? { lightstyleFrameBrightnesses } : {}),
+      });
+    }
+  });
+
+  const smoothedBrightness = timer.sync("prepare-scene.smooth-brightness", () => smoothFaceBrightness(buildCandidates));
+  await timer.asyncPhase("prepare-scene.render-candidates", async () => {
   for (const candidate of buildCandidates) {
     const texture = candidate.texture;
     const texInfo = candidate.texInfo;
@@ -1098,7 +1175,16 @@ async function createQuakePreparedSceneFromBsp(
     }
     const brightness = smoothedBrightness.get(candidate.faceIndex) ?? candidate.brightness;
     const fallbackColor = litTextureFallbackColor(texture, brightness, palette, fallbackColorCache);
-    const textureUrl = await litTextureUrlFor(texture, brightness, palette, textureUrls, litTextureCache, encodeTextureUrl);
+    const encodeLitTexture = options.litTextureEncoding ||
+      shouldEncodeLitTextureForRenderCandidate(
+        candidate,
+        texture,
+        entityByIndex,
+        options.litTextureEncodingTextureNames,
+      );
+    const textureUrl = encodeLitTexture
+      ? await litTextureUrlFor(texture, brightness, palette, textureUrls, litTextureCache, encodeTextureUrl)
+      : texture.url;
     const vertices = candidate.points.map((point) => quakeToPoly(point, pivot));
     const uvs = candidate.points.map((point) => textureUv(point, texInfo, texture));
     const buttonPressedTextureUrl =
@@ -1143,62 +1229,86 @@ async function createQuakePreparedSceneFromBsp(
       polygon,
     });
   }
+  });
 
-  const sourceFaceCount = uniqueSorted(candidates.flatMap((candidate) => candidate.sourceFaceIndices)).length;
-  const visibilityKeys = buildSourceFaceVisibilityKeys(planes, nodes, leaves, markSurfaces, visData, candidates, brushModels);
-  const renderCandidates = mergeQuakeFaceCandidates(candidates, visibilityKeys);
-  const buildCandidateByFaceIndex = new Map(buildCandidates.map((candidate) => [candidate.faceIndex, candidate]));
-  const lightmapOverlaySourceFaceIndices = await applyFaceLightmapOverlayBudgetToRenderCandidates(
-    renderCandidates,
-    buildCandidateByFaceIndex,
-    lighting,
-    textures,
-    palette,
-    textureUrls,
-    litTextureCache,
-    encodeTextureUrl,
-    options.lightmapOverlay,
+  const sourceFaceCount = timer.sync(
+    "prepare-scene.source-face-count",
+    () => uniqueSorted(candidates.flatMap((candidate) => candidate.sourceFaceIndices)).length,
   );
-  const mergedLightmapOverlayStats = await applyMergedLightmapOverlayPrototypeToRenderCandidates(
-    renderCandidates,
-    buildCandidateByFaceIndex,
-    lighting,
-    textures,
-    palette,
-    textureUrls,
-    litTextureCache,
-    encodeTextureUrl,
-    options.lightmapBake,
-    pivot,
-    lightmapOverlaySourceFaceIndices,
+  const visibilityKeys = timer.sync("prepare-scene.visibility-keys", () =>
+    buildSourceFaceVisibilityKeys(planes, nodes, leaves, markSurfaces, visData, candidates, brushModels)
+  );
+  const renderCandidates = timer.sync("prepare-scene.merge-candidates", () =>
+    mergeQuakeFaceCandidates(candidates, visibilityKeys)
+  );
+  const buildCandidateByFaceIndex = timer.sync("prepare-scene.build-candidate-index", () =>
+    new Map(buildCandidates.map((candidate) => [candidate.faceIndex, candidate]))
+  );
+  const lightmapOverlaySourceFaceIndices = await timer.asyncPhase(
+    "prepare-scene.lightmap-overlay",
+    () => applyFaceLightmapOverlayBudgetToRenderCandidates(
+      renderCandidates,
+      buildCandidateByFaceIndex,
+      lighting,
+      textures,
+      palette,
+      textureUrls,
+      litTextureCache,
+      encodeTextureUrl,
+      options.lightmapOverlay,
+    ),
+  );
+  const mergedLightmapOverlayStats = await timer.asyncPhase(
+    "prepare-scene.merged-lightmap-overlay",
+    () => applyMergedLightmapOverlayPrototypeToRenderCandidates(
+      renderCandidates,
+      buildCandidateByFaceIndex,
+      lighting,
+      textures,
+      palette,
+      textureUrls,
+      litTextureCache,
+      encodeTextureUrl,
+      options.lightmapBake,
+      pivot,
+      lightmapOverlaySourceFaceIndices,
+    ),
   );
   for (const sourceFaceIndex of mergedLightmapOverlayStats.selectedSourceFaceIndices) {
     lightmapOverlaySourceFaceIndices.add(sourceFaceIndex);
   }
-  const lightmapBakeStats = await applyFaceLightmapBakeToRenderCandidates(
-    renderCandidates,
-    buildCandidateByFaceIndex,
-    lighting,
-    textures,
-    palette,
-    textureUrls,
-    litTextureCache,
-    encodeTextureUrl,
-    options.lightmapBake,
-    pivot,
-    lightmapOverlaySourceFaceIndices,
+  const lightmapBakeStats = await timer.asyncPhase(
+    "prepare-scene.lightmap-bake",
+    () => applyFaceLightmapBakeToRenderCandidates(
+      renderCandidates,
+      buildCandidateByFaceIndex,
+      lighting,
+      textures,
+      palette,
+      textureUrls,
+      litTextureCache,
+      encodeTextureUrl,
+      options.lightmapBake,
+      pivot,
+      lightmapOverlaySourceFaceIndices,
+    ),
   );
-  applyQuakeWallRenderBleedToCandidates(renderCandidates);
-  await addTextureAnimationSpritesToRenderCandidates(
-    renderCandidates,
-    textures,
-    palette,
-    textureAnimationSpriteCache,
-    encodeTextureUrl,
+  timer.sync("prepare-scene.wall-bleed", () => applyQuakeWallRenderBleedToCandidates(renderCandidates));
+  await timer.asyncPhase(
+    "prepare-scene.texture-animation-sprites",
+    () => addTextureAnimationSpritesToRenderCandidates(
+      renderCandidates,
+      textures,
+      palette,
+      textureAnimationSpriteCache,
+      encodeTextureUrl,
+    ),
   );
-  const polygons = renderCandidates.map((candidate) => candidate.polygon);
-  const serialized = serializePreparedPolygons(polygons, textureUrls);
-  const skyTexture = skyTextureUrl ? serialized.textures.indexOf(skyTextureUrl) : -1;
+  const polygons = timer.sync("prepare-scene.polygons", () => renderCandidates.map((candidate) => candidate.polygon));
+  const serialized = timer.sync("prepare-scene.serialize-polygons", () => serializePreparedPolygons(polygons, textureUrls));
+  const skyTexture = timer.sync("prepare-scene.sky-texture-index", () =>
+    skyTextureUrl ? serialized.textures.indexOf(skyTextureUrl) : -1
+  );
   const warnings: string[] = [];
   if (polygons.length > 2500) {
     warnings.push(`Mounted ${polygons.length} merged BSP faces from ${sourceFaceCount} source faces; trigger brush volumes are excluded.`);
@@ -1217,6 +1327,33 @@ async function createQuakePreparedSceneFromBsp(
     rotX: 90,
     rotY: (180 + angle + 360) % 360,
   } satisfies QuakeScene["spawn"];
+  const entityManifest = timer.sync("prepare-scene.entity-manifest", () => buildEntityManifest(entities));
+  const collision = timer.sync("prepare-scene.collision", () =>
+    buildPreparedCollision(
+      planes,
+      nodes,
+      leaves,
+      clipNodes,
+      preparedModels,
+      entities,
+      model.headNodes,
+      pivot,
+      candidates.map((candidate) => candidate.polygon),
+    )
+  );
+  const gameLogic = timer.sync("prepare-scene.game-logic", () =>
+    buildQuakeGameLogicFacts({
+      label,
+      entities,
+      entityManifest,
+      models: preparedModels,
+      ...(collision ? { collision } : {}),
+      programFacts: options.gameLogicProgramFacts,
+    })
+  );
+  const preparedVisibility = timer.sync("prepare-scene.prepared-visibility", () =>
+    buildPreparedVisibility(planes, nodes, leaves, markSurfaces, visData, renderCandidates, brushModels, pivot)
+  );
   return {
     version: QUAKE_PREPARED_SCENE_VERSION,
     polygons: serialized.polygons,
@@ -1228,21 +1365,12 @@ async function createQuakePreparedSceneFromBsp(
     label,
     warnings,
     entities,
-    entityManifest: buildEntityManifest(entities),
+    entityManifest,
+    gameLogic,
     models: preparedModels,
     spawn: spawnState,
-    visibility: buildPreparedVisibility(planes, nodes, leaves, markSurfaces, visData, renderCandidates, brushModels, pivot),
-    collision: buildPreparedCollision(
-      planes,
-      nodes,
-      leaves,
-      clipNodes,
-      preparedModels,
-      entities,
-      model.headNodes,
-      pivot,
-      candidates.map((candidate) => candidate.polygon),
-    ),
+    visibility: preparedVisibility,
+    collision,
   };
 }
 
@@ -2101,12 +2229,18 @@ function dedupeFacePoints(points: QuakeVertex[]): QuakeVertex[] {
 }
 
 function stabilizeFacePoints(points: QuakeVertex[]): QuakeVertex[] {
-  if (points.length < 4 || faceFirstTripleAreaSq(points) > 0.000001) return points;
+  if (points.length < 4) return points;
+  let bestArea = faceFirstTripleAreaSq(points);
+  let best = points;
   for (let i = 1; i < points.length; i++) {
     const rotated = [...points.slice(i), ...points.slice(0, i)];
-    if (faceFirstTripleAreaSq(rotated) > 0.000001) return rotated;
+    const area = faceFirstTripleAreaSq(rotated);
+    if (area > bestArea) {
+      bestArea = area;
+      best = rotated;
+    }
   }
-  return points;
+  return bestArea > QUAKE_FACE_NORMAL_AREA_EPS ? best : points;
 }
 
 function mergeQuakeFaceCandidates(
@@ -3026,26 +3160,39 @@ function orientFacePoints(points: QuakeVertex[], face: QuakeFace, planes: QuakeP
 }
 
 function faceNormal(points: QuakeVertex[]): QuakeVertex {
+  let bestNormal = { x: 0, y: 0, z: 0 };
+  let bestArea = 0;
   for (let i = 0; i < points.length - 2; i++) {
     const a = points[i];
-    const b = points[i + 1];
-    const c = points[i + 2];
-    if (!a || !b || !c) continue;
-    const ab = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
-    const ac = { x: c.x - a.x, y: c.y - a.y, z: c.z - a.z };
-    const normal = {
-      x: ab.y * ac.z - ab.z * ac.y,
-      y: ab.z * ac.x - ab.x * ac.z,
-      z: ab.x * ac.y - ab.y * ac.x,
-    };
-    const length = Math.hypot(normal.x, normal.y, normal.z);
-    if (length > 0.000001) {
-      return {
-        x: normal.x / length,
-        y: normal.y / length,
-        z: normal.z / length,
-      };
+    if (!a) continue;
+    for (let j = i + 1; j < points.length - 1; j++) {
+      const b = points[j];
+      if (!b) continue;
+      for (let k = j + 1; k < points.length; k++) {
+        const c = points[k];
+        if (!c) continue;
+        const ab = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
+        const ac = { x: c.x - a.x, y: c.y - a.y, z: c.z - a.z };
+        const normal = {
+          x: ab.y * ac.z - ab.z * ac.y,
+          y: ab.z * ac.x - ab.x * ac.z,
+          z: ab.x * ac.y - ab.y * ac.x,
+        };
+        const area = normal.x * normal.x + normal.y * normal.y + normal.z * normal.z;
+        if (area > bestArea) {
+          bestArea = area;
+          bestNormal = normal;
+        }
+      }
     }
+  }
+  if (bestArea > QUAKE_FACE_NORMAL_AREA_EPS) {
+    const length = Math.hypot(bestNormal.x, bestNormal.y, bestNormal.z);
+    return {
+      x: bestNormal.x / length,
+      y: bestNormal.y / length,
+      z: bestNormal.z / length,
+    };
   }
   return { x: 0, y: 0, z: 0 };
 }
@@ -4423,6 +4570,7 @@ function normalizeQuakeLightmapBakeOptions(
     | "lightmapBakeMinDisplaySide"
     | "lightmapBakeMinTextureScale"
     | "lightmapBakeMinTextureSide"
+    | "lightmapBakeTextureEncoding"
     | "lightmapBakeTextureFallbackOverlay"
     | "lightmapBakeTextureFallbackOverlayMaxExtraRatio"
     | "lightmapBakeTextureFallbackOverlayMaxSide"
@@ -4552,6 +4700,7 @@ function normalizeQuakeLightmapBakeOptions(
     minDisplaySide,
     minTextureScale,
     minTextureSide,
+    textureEncoding: options.lightmapBakeTextureEncoding !== false,
     textureFallbackOverlay: options.lightmapBakeTextureFallbackOverlay === true,
     textureFallbackOverlayMaxExtraRatio,
     textureFallbackOverlayMaxTextureSide,
@@ -4597,6 +4746,26 @@ function normalizeQuakeLightmapOverlayOptions(
     maxTextureSide,
     minDisplayRange,
   };
+}
+
+function normalizeQuakeTextureNameSet(names?: string[]): ReadonlySet<string> | undefined {
+  const normalized = (names ?? [])
+    .map((name) => String(name ?? "").trim().toLowerCase())
+    .filter(Boolean);
+  return normalized.length ? new Set(normalized) : undefined;
+}
+
+function shouldEncodeLitTextureForRenderCandidate(
+  candidate: QuakeFaceBuildCandidate,
+  texture: QuakeMipTexture,
+  entityByIndex: Map<number, QuakeEntity>,
+  preservedTextureNames?: ReadonlySet<string>,
+): boolean {
+  const textureName = texture.name.toLowerCase();
+  if (textureName.startsWith("*") || textureName.startsWith("+")) return true;
+  if (preservedTextureNames?.has(textureName)) return true;
+  return candidate.entityIndex !== undefined &&
+    entityByIndex.get(candidate.entityIndex)?.classname === "func_button";
 }
 
 async function faceLightmapOverlaySelectionFor(
@@ -4803,6 +4972,7 @@ async function encodeFaceLightmapBakeSelection(
   options: QuakeLightmapBakeOptions,
 ): Promise<{ url: string } | undefined> {
   const { bounds, dimensions, sourceCandidate } = selection;
+  if (!options.textureEncoding) return { url: sourceCandidate.texture.url };
   const key = [
     "lightmap-bake",
     sourceCandidate.faceIndex,

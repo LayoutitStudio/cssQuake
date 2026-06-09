@@ -1,13 +1,18 @@
 import { build } from "esbuild";
 import { execSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { availableParallelism, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 import sharp from "sharp";
 
+import {
+  deriveQuakeGameLogicModelPreloads,
+  deriveQuakeGameLogicSoundPreloads,
+} from "./gameLogicPreloads.mjs";
 import { replaceQuakeRenderBundleWorldAtlas } from "./deterministicAtlas.mjs";
 import { QUAKE_UNIT_SCALE } from "../quakeScale.js";
 
@@ -20,7 +25,14 @@ const generatedPublicDir = process.env.QUAKE_GENERATED_PUBLIC_DIR?.trim()
   : path.join(projectRoot, "build/generated/public");
 const quakePublicPath = "/q";
 const quakeOutputDir = path.join(generatedPublicDir, quakePublicPath.slice(1));
-const quakeAssetVersion = cssQuakeAssetVersion();
+const quakePrepareKeepLiveManifestRequested =
+  normalizeOptionalEnvFlag(process.env.QUAKE_PREPARE_KEEP_LIVE_MANIFEST) ?? !isCiPrepareEnvironment();
+const quakePreparePublishRegeneratingManifest =
+  normalizeOptionalEnvFlag(process.env.QUAKE_PREPARE_PUBLISH_REGENERATING_MANIFEST) ??
+  !quakePrepareKeepLiveManifestRequested;
+const quakePrepareKeepLiveManifest = quakePrepareKeepLiveManifestRequested && !quakePreparePublishRegeneratingManifest;
+const quakeAssetVersion = normalizeQuakeAssetVersion(process.env.QUAKE_ASSET_VERSION) ||
+  cssQuakeAssetVersion({ unique: quakePrepareKeepLiveManifest });
 const quakeAssetPublicPath = `${quakePublicPath}/${quakeAssetVersion}`;
 const quakeTexturePublicPath = `${quakeAssetPublicPath}/t`;
 const quakeRenderBundlePublicPath = `${quakeAssetPublicPath}/b`;
@@ -28,6 +40,14 @@ const quakeAssetOutputDir = path.join(quakeOutputDir, quakeAssetVersion);
 const legacyQuakeOutputDir = path.join(generatedPublicDir, "local/quake");
 const socialImageSourcePath = path.join(projectRoot, "src/assets/cssquake-social.webp");
 const socialImageOutputPath = path.join(generatedPublicDir, "assets/cssquake-social.webp");
+const staticPublicAssets = [
+  [socialImageSourcePath, socialImageOutputPath],
+  [path.join(projectRoot, "src/assets/apple-touch-icon.png"), path.join(generatedPublicDir, "assets/apple-touch-icon.png")],
+  [path.join(projectRoot, "src/assets/app-icon-192.png"), path.join(generatedPublicDir, "assets/app-icon-192.png")],
+  [path.join(projectRoot, "src/assets/app-icon-512.png"), path.join(generatedPublicDir, "assets/app-icon-512.png")],
+  [path.join(projectRoot, "src/assets/maskable-icon-512.png"), path.join(generatedPublicDir, "assets/maskable-icon-512.png")],
+  [path.join(projectRoot, "src/assets/site.webmanifest"), path.join(generatedPublicDir, "manifest.webmanifest")],
+];
 const menuTitleLevelSelectSourcePath = path.join(projectRoot, "src/assets/menu-title-level-select-source.png");
 const quakeMapNames = ["start", "e1m1", "e1m2", "e1m3", "e1m4", "e1m5", "e1m6", "e1m7", "e1m8"];
 const quakeRenderBundleDefaultMapNames = quakeMapNames;
@@ -51,6 +71,8 @@ const mapOutputPaths = new Map(quakeMapNames.map((mapName) => [
 const manifestOutputPath = path.join(quakeOutputDir, "manifest.json");
 const hudOutputPath = path.join(quakeOutputDir, "hud.png");
 const hudBaseOutputPath = path.join(quakeOutputDir, "hud-base.png");
+const hudInventoryOutputPath = path.join(quakeOutputDir, "hud-inventory.png");
+const hudIconsOutputPath = path.join(quakeOutputDir, "hud-icons.png");
 const hudNumbersOutputPath = path.join(quakeOutputDir, "hud-numbers.png");
 const hudDamageNumbersOutputPath = path.join(quakeOutputDir, "hud-numbers-damage.png");
 const mainMenuOutputPath = path.join(quakeOutputDir, "main-menu.png");
@@ -65,6 +87,12 @@ const mainMenuActiveOutputPaths = [
 const mainMenuCursorOutputPath = path.join(quakeOutputDir, "main-menu-cursor.png");
 const aboutOutputPath = path.join(quakeOutputDir, "about.png");
 const menuPanelTextureOutputPath = path.join(quakeOutputDir, "menu-panel-texture.png");
+const QUAKE_MENU_PANEL_TEXTURE_NAMES = [
+  "wbrick1_5",
+  "wiz1_4",
+  "stone1_3",
+  "wizmet1_2",
+];
 const menuTitleLevelSelectOutputPath = path.join(quakeOutputDir, "menu-title-level-select.png");
 const menuTitleOptionsOutputPath = path.join(quakeOutputDir, "menu-title-options.png");
 const menuTitleHelpOutputPath = path.join(quakeOutputDir, "menu-title-help.png");
@@ -77,18 +105,24 @@ const sourceProgramFactsInputPath = path.join(projectRoot, "src/generated/quakeP
 const sourcePath = path.join(projectRoot, "src/prepare/scene.ts");
 const textureOutputDir = path.join(quakeAssetOutputDir, "t");
 const soundOutputDir = path.join(quakeOutputDir, "s");
-const renderBundleScriptPath = path.join(scriptDir, "bundle.mjs");
 const renderBundleOutputDir = path.join(quakeAssetOutputDir, "b");
 const quakeRenderBundleAvifQuality = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_AVIF_QUALITY ?? "70", 10);
 const quakeRenderBundleAvifEffort = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_AVIF_EFFORT ?? "4", 10);
 const quakeRenderBundleConcurrency = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_CONCURRENCY ?? "", 10);
+const quakeRenderBundleModelConcurrency = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_MODEL_CONCURRENCY ?? "", 10);
+const quakeRenderBundleEngine = normalizeQuakeRenderBundleEngine(process.env.QUAKE_RENDER_BUNDLE_ENGINE ?? "happy-dom");
+const quakeRenderBundleFastFrameStyles = process.env.QUAKE_RENDER_BUNDLE_FAST_FRAME_STYLES !== "0";
 const quakePrepareMapOnly = process.env.QUAKE_PREPARE_MAP_ONLY === "1";
+const quakePrepareOnly = normalizeQuakePrepareOnly(process.env.QUAKE_PREPARE_ONLY ?? "");
+const quakePrepareModelsOnly = quakePrepareOnly === "models";
+const quakePrepareModelOnly = parseQuakePrepareModelOnly(process.env.QUAKE_PREPARE_MODEL_ONLY ?? "");
+const quakePrepareReferencedModelsOnly = process.env.QUAKE_PREPARE_REFERENCED_MODELS_ONLY !== "0";
 const quakeRenderBundleAdaptiveAtlasLeafSize = process.env.QUAKE_RENDER_BUNDLE_ADAPTIVE_ATLAS_LEAF_SIZE === "1";
 const quakePrepareMapOnlyAllowNewManifest = process.env.QUAKE_PREPARE_MAP_ONLY_ALLOW_NEW_MANIFEST === "1";
 const quakeDomTighteningTargets = parseQuakeDomTighteningTargets(process.env.QUAKE_DOM_TIGHTENING ?? "all");
-const quakeDomHomography = process.env.QUAKE_DOM_HOMOGRAPHY === "1";
 const quakeTriangleAtlasBasis = process.env.QUAKE_TRIANGLE_ATLAS_BASIS === "1";
 const quakeDeterministicWorldAtlas = process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS !== "0";
+const quakeDeferDeterministicWorldAtlasWrites = process.env.QUAKE_DEFER_DETERMINISTIC_WORLD_ATLAS_WRITES !== "0";
 const quakeDeterministicWorldAtlasImagePolicy =
   process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS_IMAGE_POLICY?.trim().toLowerCase() ?? "atlas";
 const quakeAliasRebakeMerge = process.env.QUAKE_ALIAS_REBAKE_MERGE === "1";
@@ -139,6 +173,27 @@ const EXPECTED_RESOURCE_SHA256 = "c192c9c71bee41750dd7d14c99378766d61e077977b9d1
 const QUAKE_HUD_TRANSPARENT = 255;
 const QUAKE_HUD_WIDTH = 320;
 const QUAKE_HUD_HEIGHT = 24;
+const QUAKE_HUD_ICON_SLOT_SIZE = 24;
+const QUAKE_HUD_ICON_QPICS = [
+  "sb_armor1",
+  "sb_armor2",
+  "sb_armor3",
+  "face1",
+  "face_invis",
+  "face_invul2",
+  "face_inv2",
+  "face_quad",
+  "sb_shells",
+  "sb_nails",
+  "sb_rocket",
+  "sb_cells",
+  "sb_key1",
+  "sb_key2",
+  "sb_invis",
+  "sb_invuln",
+  "sb_suit",
+  "sb_quad",
+];
 const QUAKE_MENU_WIDTH = 320;
 const QUAKE_MENU_HEIGHT = 200;
 const QUAKE_ABOUT_WIDTH = 320;
@@ -155,7 +210,6 @@ const QUAKE_MAIN_MENU_LEVEL_LABEL_SCALE = 2;
 const QUAKE_PICKUP_MODEL_SCALE = QUAKE_UNIT_SCALE;
 const QUAKE_WEAPON_MODEL_PIVOT = [1.0, 0, 0];
 const QUAKE_ENEMY_ALIAS_MODEL_RENDER_SCALE = 4;
-const QUAKE_ANIMATION_FRAME_SET_MIN_COMMON_LEAF_RATIO = 0.95;
 const QUAKE_ALIAS_MERGE_MAX_NONPLANAR_DISTANCE = 0.03;
 const QUAKE_ALIAS_MERGE_UV_EPSILON = 1e-6;
 const QUAKE_ALIAS_MERGE_GEOMETRY_EPSILON = 1e-8;
@@ -260,31 +314,96 @@ const QUAKE_MONSTER_PROJECTILE_MODEL_PATHS = {
 
 const tempDir = await mkdtemp(path.join(tmpdir(), "polycss-quake-preparse-"));
 const bundlePath = path.join(tempDir, "quakePreparedScene.bundle.mjs");
-const renderBundleBuildPath = path.join(tempDir, "quakeRenderBundle.bundle.js");
 const sharewareDownloadPath = path.join(tempDir, "quake-shareware-download");
 const sharewareExtractDir = path.join(tempDir, "quake-shareware");
 const resourcePath = path.join(tempDir, "resource.1");
 const extractedPakPath = path.join(tempDir, "ID1/PAK0.PAK");
 let renderBundleBuilder = null;
-let nextTextureFileIndex = 0;
 const textureFileUrlByHash = new Map();
 const texturePngByPublicPath = new Map();
+const deferredRenderBundleAssetsSymbol = Symbol("deferredRenderBundleAssets");
+const prepareTimingStartedAt = Date.now();
+const prepareTimingEntries = [];
 
-function cssQuakeAssetVersion() {
+function normalizeOptionalEnvFlag(value) {
+  if (value === undefined) return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return null;
+  return !["0", "false", "no", "off"].includes(normalized);
+}
+
+function isCiPrepareEnvironment() {
+  return normalizeOptionalEnvFlag(process.env.CI) === true ||
+    normalizeOptionalEnvFlag(process.env.NETLIFY) === true;
+}
+
+function normalizeQuakeAssetVersion(value) {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return "";
+  if (!/^[a-zA-Z0-9._-]+$/.test(normalized)) {
+    throw new Error(`Unsafe QUAKE_ASSET_VERSION ${JSON.stringify(value)}.`);
+  }
+  return normalized;
+}
+
+function cssQuakeAssetVersion({ unique = false } = {}) {
+  let baseVersion = "0";
   try {
     const commitCount = execSync("git rev-list --count HEAD", {
       cwd: projectRoot,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
-    if (/^\d+$/.test(commitCount)) return commitCount;
+    if (/^\d+$/.test(commitCount)) baseVersion = commitCount;
   } catch {
     // Netlify invalidates each deploy, so a fixed local fallback is still cache-safe there.
   }
-  return "0";
+  return unique
+    ? `${baseVersion}-${process.pid.toString(36)}-${Date.now().toString(36)}`
+    : baseVersion;
+}
+
+function normalizeQuakeRenderBundleEngine(value) {
+  const normalized = String(value ?? "happy-dom").trim().toLowerCase();
+  if (!normalized || normalized === "happy-dom" || normalized === "happydom") return "happy-dom";
+  throw new Error(
+    `Unsupported QUAKE_RENDER_BUNDLE_ENGINE ${JSON.stringify(value)}. ` +
+    `Use "happy-dom".`,
+  );
+}
+
+function normalizeQuakePrepareOnly(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized || normalized === "all") return "";
+  if (normalized === "model") return "models";
+  if (normalized === "models") return "models";
+  throw new Error(
+    `Unsupported QUAKE_PREPARE_ONLY ${JSON.stringify(value)}. ` +
+    `Use "models" for focused model bundle runs, or leave it unset for the full prepare.`,
+  );
+}
+
+function parseQuakePrepareModelOnly(value) {
+  return new Set(
+    String(value ?? "")
+      .split(",")
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+function quakePrepareModelOnlyMatches(source) {
+  if (quakePrepareModelOnly.size === 0) return true;
+  const normalized = String(source ?? "").trim().toLowerCase();
+  const basename = path.basename(normalized);
+  const stem = basename.replace(/\.(?:mdl|bsp)$/i, "");
+  return quakePrepareModelOnly.has(normalized) ||
+    quakePrepareModelOnly.has(basename) ||
+    quakePrepareModelOnly.has(stem);
 }
 
 function selectedQuakeMapEntries() {
+  if (quakePrepareModelsOnly) return [];
   const entries = quakePrepareMapOnly
     ? [...mapOutputPaths].filter(([mapPath]) => shouldBuildRenderBundleForMap(mapNameFromPakPath(mapPath)))
     : [...mapOutputPaths];
@@ -374,37 +493,55 @@ try {
     ? await readStableQuakeAssetManifestForMapOnly()
     : "";
   const mapEntriesToPrepare = selectedQuakeMapEntries();
-  await writeQuakeAssetRegenerationManifest({
-    mode: quakePrepareMapOnly ? "map-only" : "full",
-    mapNames: mapEntriesToPrepare.map(([mapPath]) => mapNameFromPakPath(mapPath)),
-  });
-  if (process.env.QUAKE_PAK_PATH?.trim()) {
-    await copyQuakePakFromPath(process.env.QUAKE_PAK_PATH.trim());
-  } else {
-    await downloadQuakeResource();
-    await verifyQuakeResource();
-    await extractQuakePak();
+  if (!quakePrepareModelsOnly && quakePreparePublishRegeneratingManifest) {
+    await writeQuakeAssetRegenerationManifest({
+      mode: quakePrepareMapOnly ? "map-only" : "full",
+      mapNames: mapEntriesToPrepare.map(([mapPath]) => mapNameFromPakPath(mapPath)),
+    });
+  } else if (!quakePrepareModelsOnly && quakePrepareKeepLiveManifest) {
+    console.log(
+      `Keeping existing ${path.relative(projectRoot, manifestOutputPath)} live during prepare; ` +
+      `new assets will publish as version ${quakeAssetVersion}.`,
+    );
   }
+  await timedPrepareStep("pak", async () => {
+    if (process.env.QUAKE_PAK_PATH?.trim()) {
+      await copyQuakePakFromPath(process.env.QUAKE_PAK_PATH.trim());
+    } else {
+      await downloadQuakeResource();
+      await verifyQuakeResource();
+      await extractQuakePak();
+    }
+  });
   if (quakePrepareMapOnly) {
-    await removeSelectedQuakeMapOutputs(mapEntriesToPrepare);
+    if (!quakePrepareKeepLiveManifest) {
+      await removeSelectedQuakeMapOutputs(mapEntriesToPrepare);
+    }
     await rm(textureOutputDir, { recursive: true, force: true });
     console.log(
       `Preparing map-only Quake assets for ${mapEntriesToPrepare.map(([mapPath]) => mapNameFromPakPath(mapPath)).join(", ")}`,
     );
+  } else if (quakePrepareModelsOnly) {
+    console.log(
+      `Preparing model-only Quake assets` +
+      `${quakePrepareModelOnly.size ? ` for ${[...quakePrepareModelOnly].join(", ")}` : ""}`,
+    );
   } else {
-    await rm(legacyQuakeOutputDir, { recursive: true, force: true });
-    await removeLegacyQuakeJsonFiles();
-    await removeGeneratedQuakeAssetVersionDirs();
-    await rm(textureOutputDir, { recursive: true, force: true });
-    await rm(soundOutputDir, { recursive: true, force: true });
-    await rm(renderBundleOutputDir, { recursive: true, force: true });
-    await rm(path.join(quakeOutputDir, "t"), { recursive: true, force: true });
-    await rm(path.join(quakeOutputDir, "b"), { recursive: true, force: true });
-    await rm(path.join(quakeOutputDir, "p"), { recursive: true, force: true });
+    if (!quakePrepareKeepLiveManifest) {
+      await rm(legacyQuakeOutputDir, { recursive: true, force: true });
+      await removeLegacyQuakeJsonFiles();
+      await removeGeneratedQuakeAssetVersionDirs();
+      await rm(textureOutputDir, { recursive: true, force: true });
+      await rm(soundOutputDir, { recursive: true, force: true });
+      await rm(renderBundleOutputDir, { recursive: true, force: true });
+      await rm(path.join(quakeOutputDir, "t"), { recursive: true, force: true });
+      await rm(path.join(quakeOutputDir, "b"), { recursive: true, force: true });
+      await rm(path.join(quakeOutputDir, "p"), { recursive: true, force: true });
+    }
     await copyStaticPublicAssets();
   }
 
-  await build({
+  await timedPrepareStep("scene compiler bundle", () => build({
     entryPoints: [sourcePath],
     outfile: bundlePath,
     bundle: true,
@@ -412,19 +549,14 @@ try {
     format: "esm",
     absWorkingDir: projectRoot,
     logLevel: "silent",
-  });
+  }));
 
-  await build({
-    entryPoints: [renderBundleScriptPath],
-    outfile: renderBundleBuildPath,
-    bundle: true,
-    platform: "browser",
-    format: "iife",
-    globalName: "QuakeRenderBundleEntry",
-    absWorkingDir: projectRoot,
-    logLevel: "silent",
-  });
-  renderBundleBuilder = await createQuakeRenderBundleBuilder(renderBundleBuildPath);
+  renderBundleBuilder = await timedPrepareStep("render engine init", () => createQuakeRenderBundleBuilder({
+    concurrency: quakePrepareModelsOnly
+      ? normalizedQuakeRenderBundleModelConcurrency()
+      : normalizedQuakeRenderBundleConcurrency(),
+    engine: quakeRenderBundleEngine,
+  }));
 
   const {
     buildQuakeLightstyleOverlayPolygons,
@@ -434,136 +566,201 @@ try {
   } = await import(pathToFileURL(bundlePath).href);
   const pak = await readFile(extractedPakPath);
   const buffer = pak.buffer.slice(pak.byteOffset, pak.byteOffset + pak.byteLength);
+  const sourceProgramFacts = await loadQuakeSourceProgramFacts();
 
-  const preparedMaps = await mapConcurrently(
-    mapEntriesToPrepare,
-    normalizedQuakeRenderBundleConcurrency(),
-    async ([mapPath, outputPath]) => {
-      const prepared = await createQuakePreparedSceneFromPakBuffer(buffer, {
+  if (quakePrepareModelsOnly) {
+    const uiAssets = loadQuakeHudAssets(pak, parseQuakePakDirectory);
+    const programMetadata = buildQuakeProgramMetadata(uiAssets, sourceProgramFacts);
+    const pickupModels = await timedPrepareStep("model bundles", () => buildQuakePickupModels(
+      uiAssets,
+      async (mapPath) => createQuakeSceneFromPreparedScene(await createQuakePreparedSceneFromPakBuffer(buffer, {
         encodeTextureUrl: encodeTextureFileUrl,
-        lightmapBake: quakeLightmapBake,
-        ...(Number.isFinite(quakeLightmapBakeDetailTarget)
-          ? { lightmapBakeDetailTarget: quakeLightmapBakeDetailTarget }
-          : {}),
-        ...(Number.isFinite(quakeLightmapBakeLightSupersample)
-          ? { lightmapBakeLightSupersample: quakeLightmapBakeLightSupersample }
-          : {}),
-        ...(Number.isFinite(quakeLightmapBakeMaxSide) ? { lightmapBakeMaxSide: quakeLightmapBakeMaxSide } : {}),
-        ...(Number.isFinite(quakeLightmapBakeMaxTotalTexels)
-          ? { lightmapBakeMaxTotalTexels: quakeLightmapBakeMaxTotalTexels }
-          : {}),
-        ...(Number.isFinite(quakeLightmapBakeMinDisplaySide)
-          ? { lightmapBakeMinDisplaySide: quakeLightmapBakeMinDisplaySide }
-          : {}),
-        ...(Number.isFinite(quakeLightmapBakeMinTextureScale)
-          ? { lightmapBakeMinTextureScale: quakeLightmapBakeMinTextureScale }
-          : {}),
-        ...(Number.isFinite(quakeLightmapBakeMinTextureSide)
-          ? { lightmapBakeMinTextureSide: quakeLightmapBakeMinTextureSide }
-          : {}),
-        lightmapBakeTextureFallbackOverlay: quakeLightmapBakeTextureFallbackOverlay,
-        ...(Number.isFinite(quakeLightmapBakeTextureFallbackOverlayMaxExtraRatio)
-          ? { lightmapBakeTextureFallbackOverlayMaxExtraRatio: quakeLightmapBakeTextureFallbackOverlayMaxExtraRatio }
-          : {}),
-        ...(Number.isFinite(quakeLightmapBakeTextureFallbackOverlayMaxSide)
-          ? { lightmapBakeTextureFallbackOverlayMaxSide: quakeLightmapBakeTextureFallbackOverlayMaxSide }
-          : {}),
-        lightmapBakeMergedOverlay: quakeLightmapBakeMergedOverlay,
-        ...(Number.isFinite(quakeLightmapBakeMergedOverlayMaxExtraRatio)
-          ? { lightmapBakeMergedOverlayMaxExtraRatio: quakeLightmapBakeMergedOverlayMaxExtraRatio }
-          : {}),
-        ...(Number.isFinite(quakeLightmapBakeMergedOverlayMaxSide)
-          ? { lightmapBakeMergedOverlayMaxSide: quakeLightmapBakeMergedOverlayMaxSide }
-          : {}),
-        ...(Number.isFinite(quakeLightmapBakeMinRange) ? { lightmapBakeMinRange: quakeLightmapBakeMinRange } : {}),
-        lightmapOverlay: quakeLightmapOverlay,
-        ...(Number.isFinite(quakeLightmapOverlayMaxExtraRatio)
-          ? { lightmapOverlayMaxExtraRatio: quakeLightmapOverlayMaxExtraRatio }
-          : {}),
-        ...(Number.isFinite(quakeLightmapOverlayMaxSide) ? { lightmapOverlayMaxSide: quakeLightmapOverlayMaxSide } : {}),
-        ...(Number.isFinite(quakeLightmapOverlayMinRange) ? { lightmapOverlayMinRange: quakeLightmapOverlayMinRange } : {}),
+        gameLogicProgramFacts: sourceProgramFacts,
         mapPath,
-      });
-      const menuPanelTextureMap = {
-        prepared: {
-          label: prepared.label,
-          textures: prepared.textures,
-          polygons: prepared.polygons,
-        },
-      };
-      const mapName = mapNameFromPakPath(mapPath);
-      if (shouldBuildRenderBundleForMap(mapName)) {
-        const scene = createQuakeSceneFromPreparedScene(prepared);
-        const lightstyleOverlayPolygons = buildQuakeLightstyleOverlayPolygons(scene.polygons);
-        const tightenWorldDom = quakeDomTighteningEnabled("world", false);
-        prepared.renderBundle = await renderBundleBuilder.build({
-          mapName,
-          polygons: scene.polygons,
-          tightenAtlasLeaves: tightenWorldDom,
-          optimizeAtlasLeafBasis: tightenWorldDom,
-          optimizeAtlasLeafHomography: tightenWorldDom && quakeDomHomography,
-        });
-        if (quakeDeterministicWorldAtlas) {
-          delete prepared.renderBundle.debugOutlineAssetUrls;
-          delete prepared.renderBundle.debugTransparentOutlineAssetUrls;
-          const deterministicAtlasStats = await replaceQuakeRenderBundleWorldAtlas({
-            imagePolicy: quakeDeterministicWorldAtlasImagePolicy,
-            mapPath,
-            name: mapName,
-            optimizeAtlasLeafBasis: tightenWorldDom,
-            outputDir: path.join(renderBundleOutputDir, mapName),
-            pakBuffer: pak,
-            polygons: scene.polygons,
-            publicPath: `${quakeRenderBundlePublicPath}/${mapName}`,
-            renderBundle: prepared.renderBundle,
-            visibility: prepared.visibility,
-          });
-          prepared.renderBundle.deterministicWorldAtlasStats = deterministicAtlasStats;
-          await addQuakeRenderBundleDebugOutlineAssets(prepared.renderBundle, {
-            outlineKind: quakeRenderBundleDebugOutlineKindForName(mapName),
-          });
-          console.log(
-            `Deterministic world atlas for ${mapName}: ` +
-            `${deterministicAtlasStats.replacedLeaves} replaced, ` +
-            `${deterministicAtlasStats.skippedLeaves} skipped, ` +
-            `${deterministicAtlasStats.pageCount ?? 0} png pages, ` +
-            `${deterministicAtlasStats.leafImageCount ?? 0} leaf images, ` +
-            `${formatBytes(deterministicAtlasStats.pageBytes ?? 0)} in ` +
-            `${deterministicAtlasStats.elapsedMs ?? 0}ms`,
+      })),
+      programMetadata,
+      renderBundleBuilder,
+      { concurrency: normalizedQuakeRenderBundleModelConcurrency() },
+    ));
+    const outputPickupModels = quakePrepareModelOnly.size > 0
+      ? await mergeQuakePickupModelOutput(pickupModels)
+      : pickupModels;
+    await mkdir(path.dirname(pickupOutputPath), { recursive: true });
+    await writeFile(pickupOutputPath, JSON.stringify(outputPickupModels));
+    const modelCount = Object.keys(pickupModels.models).length;
+    console.log(`Prepared ${modelCount} model bundle${modelCount === 1 ? "" : "s"}`);
+    console.log(`Wrote ${path.relative(projectRoot, pickupOutputPath)}`);
+  } else {
+    const preparedMaps = await timedPrepareStep("maps", () => mapConcurrently(
+      mapEntriesToPrepare,
+      normalizedQuakeRenderBundleConcurrency(),
+      async ([mapPath, outputPath]) => {
+        const mapName = mapNameFromPakPath(mapPath);
+        const mapTiming = createPrepareDetailTiming();
+        const deterministicRenderBundleMap = quakeDeterministicWorldAtlas && shouldBuildRenderBundleForMap(mapName);
+        return timedPrepareStep(`map ${mapName}`, async () => {
+          const prepared = await timePrepareDetail(mapTiming, "prepare-scene", () =>
+            createQuakePreparedSceneFromPakBuffer(buffer, {
+              encodeTextureUrl: encodeTextureFileUrl,
+              gameLogicProgramFacts: sourceProgramFacts,
+              lightmapBake: quakeLightmapBake,
+              ...(Number.isFinite(quakeLightmapBakeDetailTarget)
+                ? { lightmapBakeDetailTarget: quakeLightmapBakeDetailTarget }
+                : {}),
+              ...(Number.isFinite(quakeLightmapBakeLightSupersample)
+                ? { lightmapBakeLightSupersample: quakeLightmapBakeLightSupersample }
+                : {}),
+              ...(Number.isFinite(quakeLightmapBakeMaxSide) ? { lightmapBakeMaxSide: quakeLightmapBakeMaxSide } : {}),
+              ...(Number.isFinite(quakeLightmapBakeMaxTotalTexels)
+                ? { lightmapBakeMaxTotalTexels: quakeLightmapBakeMaxTotalTexels }
+                : {}),
+              ...(Number.isFinite(quakeLightmapBakeMinDisplaySide)
+                ? { lightmapBakeMinDisplaySide: quakeLightmapBakeMinDisplaySide }
+                : {}),
+              ...(Number.isFinite(quakeLightmapBakeMinTextureScale)
+                ? { lightmapBakeMinTextureScale: quakeLightmapBakeMinTextureScale }
+                : {}),
+              ...(Number.isFinite(quakeLightmapBakeMinTextureSide)
+                ? { lightmapBakeMinTextureSide: quakeLightmapBakeMinTextureSide }
+                : {}),
+              lightmapBakeTextureEncoding: !deterministicRenderBundleMap,
+              lightmapBakeTextureFallbackOverlay: quakeLightmapBakeTextureFallbackOverlay,
+              ...(Number.isFinite(quakeLightmapBakeTextureFallbackOverlayMaxExtraRatio)
+                ? { lightmapBakeTextureFallbackOverlayMaxExtraRatio: quakeLightmapBakeTextureFallbackOverlayMaxExtraRatio }
+                : {}),
+              ...(Number.isFinite(quakeLightmapBakeTextureFallbackOverlayMaxSide)
+                ? { lightmapBakeTextureFallbackOverlayMaxSide: quakeLightmapBakeTextureFallbackOverlayMaxSide }
+                : {}),
+              lightmapBakeMergedOverlay: quakeLightmapBakeMergedOverlay,
+              ...(Number.isFinite(quakeLightmapBakeMergedOverlayMaxExtraRatio)
+                ? { lightmapBakeMergedOverlayMaxExtraRatio: quakeLightmapBakeMergedOverlayMaxExtraRatio }
+                : {}),
+              ...(Number.isFinite(quakeLightmapBakeMergedOverlayMaxSide)
+                ? { lightmapBakeMergedOverlayMaxSide: quakeLightmapBakeMergedOverlayMaxSide }
+                : {}),
+              ...(Number.isFinite(quakeLightmapBakeMinRange) ? { lightmapBakeMinRange: quakeLightmapBakeMinRange } : {}),
+              lightmapOverlay: quakeLightmapOverlay,
+              ...(Number.isFinite(quakeLightmapOverlayMaxExtraRatio)
+                ? { lightmapOverlayMaxExtraRatio: quakeLightmapOverlayMaxExtraRatio }
+                : {}),
+              ...(Number.isFinite(quakeLightmapOverlayMaxSide) ? { lightmapOverlayMaxSide: quakeLightmapOverlayMaxSide } : {}),
+              ...(Number.isFinite(quakeLightmapOverlayMinRange) ? { lightmapOverlayMinRange: quakeLightmapOverlayMinRange } : {}),
+              litTextureEncoding: !deterministicRenderBundleMap,
+              litTextureEncodingTextureNames: QUAKE_MENU_PANEL_TEXTURE_NAMES,
+              mapPath,
+              timing: (label, elapsedMs) => addPrepareDetailTiming(mapTiming, label, elapsedMs),
+            })
           );
-        }
-        if (lightstyleOverlayPolygons.length) {
-          prepared.lightstyleRenderBundle = await renderBundleBuilder.build({
-            bundleName: `${mapName}l`,
-            polygons: lightstyleOverlayPolygons,
-            tightenAtlasLeaves: tightenWorldDom,
-            optimizeAtlasLeafBasis: tightenWorldDom,
-            optimizeAtlasLeafHomography: tightenWorldDom && quakeDomHomography,
+          const menuPanelTextureMap = await timePrepareDetail(mapTiming, "menu-panel-texture-data", () => ({
+            prepared: {
+              label: prepared.label,
+              textures: prepared.textures,
+              polygons: prepared.polygons,
+            },
+          }));
+          if (shouldBuildRenderBundleForMap(mapName)) {
+            const scene = await timePrepareDetail(mapTiming, "scene-convert", () =>
+              createQuakeSceneFromPreparedScene(prepared)
+            );
+            const lightstyleOverlayPolygons = await timePrepareDetail(mapTiming, "lightstyle-overlays", () =>
+              buildQuakeLightstyleOverlayPolygons(scene.polygons)
+            );
+            const tightenWorldDom = quakeDomTighteningEnabled("world", false);
+            const tightenWorldAtlasLeaves = tightenWorldDom && !quakeDeterministicWorldAtlas;
+            prepared.renderBundle = await timePrepareDetail(mapTiming, "world-render-bundle", () =>
+              renderBundleBuilder.build({
+                mapName,
+                polygons: scene.polygons,
+                deferAssetWrites: quakeDeterministicWorldAtlas && quakeDeferDeterministicWorldAtlasWrites,
+                layoutOnly: quakeDeterministicWorldAtlas,
+                tightenAtlasLeaves: tightenWorldAtlasLeaves,
+                optimizeAtlasLeafBasis: tightenWorldDom,
+                optimizeAtlasLeafHomography: tightenWorldDom,
+              })
+            );
+            if (quakeDeterministicWorldAtlas) {
+              delete prepared.renderBundle.debugOutlineAssetUrls;
+              delete prepared.renderBundle.debugTransparentOutlineAssetUrls;
+              const deterministicAtlasStats = await timePrepareDetail(mapTiming, "deterministic-world-atlas", () =>
+                replaceQuakeRenderBundleWorldAtlas({
+                  imagePolicy: quakeDeterministicWorldAtlasImagePolicy,
+                  mapPath,
+                  name: mapName,
+                  optimizeAtlasLeafBasis: tightenWorldDom,
+                  outputDir: path.join(renderBundleOutputDir, mapName),
+                  pakBuffer: pak,
+                  polygons: scene.polygons,
+                  publicPath: `${quakeRenderBundlePublicPath}/${mapName}`,
+                  readTextureUrl: readGeneratedPublicTextureFile,
+                  renderBundle: prepared.renderBundle,
+                  visibility: prepared.visibility,
+                })
+              );
+              prepared.renderBundle.deterministicWorldAtlasStats = deterministicAtlasStats;
+              await timePrepareDetail(mapTiming, "assert-no-deferred-assets", () =>
+                assertNoDeferredQuakeRenderBundleAssetReferences(prepared.renderBundle, deterministicAtlasStats)
+              );
+              await timePrepareDetail(mapTiming, "debug-outline-assets", () =>
+                addQuakeRenderBundleDebugOutlineAssets(prepared.renderBundle, {
+                  outlineKind: quakeRenderBundleDebugOutlineKindForName(mapName),
+                })
+              );
+              console.log(
+                `Deterministic world atlas for ${mapName}: ` +
+                `${deterministicAtlasStats.replacedLeaves} replaced, ` +
+                `${deterministicAtlasStats.skippedLeaves} skipped, ` +
+                `${deterministicAtlasStats.pageCount ?? 0} png pages, ` +
+                `${deterministicAtlasStats.leafImageCount ?? 0} leaf images, ` +
+                `${formatBytes(deterministicAtlasStats.pageBytes ?? 0)} in ` +
+                `${deterministicAtlasStats.elapsedMs ?? 0}ms`,
+              );
+              logDeterministicAtlasTiming(mapName, deterministicAtlasStats);
+            }
+            if (lightstyleOverlayPolygons.length) {
+              prepared.lightstyleRenderBundle = await timePrepareDetail(mapTiming, "lightstyle-render-bundle", () =>
+                renderBundleBuilder.build({
+                  bundleName: `${mapName}l`,
+                  polygons: lightstyleOverlayPolygons,
+                  tightenAtlasLeaves: tightenWorldDom,
+                  optimizeAtlasLeafBasis: tightenWorldDom,
+                  optimizeAtlasLeafHomography: tightenWorldDom,
+                })
+              );
+            } else {
+              delete prepared.lightstyleRenderBundle;
+            }
+            await timePrepareDetail(mapTiming, "strip-render-fallbacks", () =>
+              stripPreparedRenderBundleFallbackTextures(prepared)
+            );
+          }
+          const mapItem = { mapName, mapPath, outputPath, prepared, menuPanelTextureMap };
+          Object.defineProperty(mapItem, "mapTiming", {
+            enumerable: false,
+            value: mapTiming,
           });
-        } else {
-          delete prepared.lightstyleRenderBundle;
-        }
-        stripPreparedRenderBundleFallbackTextures(prepared);
-      }
-      return { mapName, mapPath, outputPath, prepared, menuPanelTextureMap };
-    },
-  );
+          return mapItem;
+        });
+      },
+    ));
   const menuPanelTextureMaps = preparedMaps.map((item) => item.menuPanelTextureMap);
 
   for (const item of preparedMaps) {
     const { outputPath, prepared } = item;
-    const preparedJson = JSON.stringify(prepared);
-    await mkdir(path.dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, preparedJson);
+    const preparedJson = await timePrepareDetail(item.mapTiming, "json-stringify", () => JSON.stringify(prepared));
+    await timePrepareDetail(item.mapTiming, "write-json", async () => {
+      await mkdir(path.dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, preparedJson);
+    });
     item.size = Buffer.byteLength(preparedJson);
   }
+  for (const item of preparedMaps) logPrepareDetailTiming(`Map timing for ${item.mapName}`, item.mapTiming);
 
   if (quakePrepareMapOnly) {
     await pruneUnreferencedTextureFiles(
       preparedMaps.map((item) => item.outputPath),
       { removeUnreferenced: false },
     );
-    await writeFile(
+    await writeFileAtomic(
       manifestOutputPath,
       stableManifestJson ?? JSON.stringify(buildQuakeAssetManifest(preparedMaps, {}, { models: {} })),
     );
@@ -577,12 +774,16 @@ try {
     );
   } else {
     const uiAssets = loadQuakeHudAssets(pak, parseQuakePakDirectory);
-    await writeFile(hudBaseOutputPath, await buildQuakeHudBasePng(uiAssets));
-    await writeFile(hudNumbersOutputPath, await buildQuakeHudNumbersPng(uiAssets));
-    await writeFile(hudDamageNumbersOutputPath, await buildQuakeHudNumbersPng(uiAssets, { damageTint: true }));
-    await writeFile(hudOutputPath, await buildQuakeHudPng(uiAssets));
-    await writeFile(mainMenuOutputPath, await buildQuakeMainMenuPng(uiAssets));
-    await writeFile(mainMenuMultiplayerOutputPath, await buildQuakeMainMenuMultiplayerPng(uiAssets));
+    await timedPrepareStep("ui assets", async () => {
+      await writeFile(hudBaseOutputPath, await buildQuakeHudBasePng(uiAssets));
+      await writeFile(hudInventoryOutputPath, await buildQuakeHudInventoryPng(uiAssets));
+      await writeFile(hudIconsOutputPath, await buildQuakeHudIconsPng(uiAssets));
+      await writeFile(hudNumbersOutputPath, await buildQuakeHudNumbersPng(uiAssets));
+      await writeFile(hudDamageNumbersOutputPath, await buildQuakeHudNumbersPng(uiAssets, { damageTint: true }));
+      await writeFile(hudOutputPath, await buildQuakeHudPng(uiAssets));
+      await writeFile(mainMenuOutputPath, await buildQuakeMainMenuPng(uiAssets));
+      await writeFile(mainMenuMultiplayerOutputPath, await buildQuakeMainMenuMultiplayerPng(uiAssets));
+    });
     const menuTitlePaletteColors = buildQuakeMenuTitlePaletteColors(uiAssets);
     const mainMenuActivePngs = await buildQuakeMainMenuActivePngs(uiAssets);
     mainMenuActivePngs[1] = await buildCustomMenuTitlePng(menuTitleLevelSelectSourcePath, {
@@ -602,26 +803,53 @@ try {
     await writeFile(menuTitleOptionsOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 0, 40, 124, 20));
     await writeFile(menuTitleHelpOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 1, 60, 75, 20));
     await writeFile(concharsOutputPath, await buildQuakeConcharsPng(uiAssets));
-    const sourceProgramFacts = await loadQuakeSourceProgramFacts();
     const programMetadata = buildQuakeProgramMetadata(uiAssets, sourceProgramFacts);
-    await writeFile(weaponOutputPath, JSON.stringify(await buildQuakeWeaponModel(uiAssets, renderBundleBuilder)));
+    await writeFile(weaponOutputPath, JSON.stringify(await timedPrepareStep(
+      "weapon model",
+      () => buildQuakeWeaponModel(uiAssets, renderBundleBuilder),
+    )));
     await writeFile(progsOutputPath, JSON.stringify(programMetadata));
-    const pickupModels = await buildQuakePickupModels(
+    const modelRenderBundleConcurrency = normalizedQuakeRenderBundleModelConcurrency();
+    if (modelRenderBundleConcurrency !== normalizedQuakeRenderBundleConcurrency()) {
+      await renderBundleBuilder?.close?.();
+      renderBundleBuilder = await timedPrepareStep("model render engine init", () => createQuakeRenderBundleBuilder({
+        concurrency: modelRenderBundleConcurrency,
+        engine: quakeRenderBundleEngine,
+      }));
+    }
+    let referencedModelPaths = quakePrepareReferencedModelsOnly
+      ? quakeReferencedModelPathsForPreparedMaps(
+          preparedMaps,
+          programMetadata,
+          quakePickupModelCandidatePaths(uiAssets, programMetadata),
+        )
+      : null;
+    if (quakePrepareReferencedModelsOnly && referencedModelPaths.size === 0) {
+      console.warn("Referenced model filter found no prepared map model paths; building all model bundles.");
+      referencedModelPaths = null;
+    }
+    const pickupModels = await timedPrepareStep("model bundles", () => buildQuakePickupModels(
       uiAssets,
       async (mapPath) => createQuakeSceneFromPreparedScene(await createQuakePreparedSceneFromPakBuffer(buffer, {
         encodeTextureUrl: encodeTextureFileUrl,
+        gameLogicProgramFacts: sourceProgramFacts,
         mapPath,
       })),
       programMetadata,
       renderBundleBuilder,
-    );
+      {
+        concurrency: modelRenderBundleConcurrency,
+        referencedModelPaths,
+      },
+    ));
     await writeFile(pickupOutputPath, JSON.stringify(pickupModels));
-    const soundManifest = await exportQuakeSounds(pak, parseQuakePakDirectory);
+    const soundManifest = await timedPrepareStep("sounds", () => exportQuakeSounds(pak, parseQuakePakDirectory));
     await writeFile(soundManifestOutputPath, JSON.stringify(soundManifest));
-    await writeFile(manifestOutputPath, JSON.stringify(buildQuakeAssetManifest(
+    await writeFileAtomic(manifestOutputPath, JSON.stringify(buildQuakeAssetManifest(
       preparedMaps,
       programMetadata,
       pickupModels,
+      soundManifest,
     )));
     await pruneUnreferencedTextureFiles([
       ...preparedMaps.map((item) => item.outputPath),
@@ -633,10 +861,14 @@ try {
       console.log(`${prepared.label}: ${prepared.faceCount}/${prepared.sourceFaceCount} faces, ${prepared.textureCount} textures`);
     }
     console.log(`Wrote ${path.relative(projectRoot, hudBaseOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, hudInventoryOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, hudIconsOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, hudNumbersOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, hudDamageNumbersOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, hudOutputPath)}`);
-    console.log(`Wrote ${path.relative(projectRoot, socialImageOutputPath)}`);
+    for (const [, outputPath] of staticPublicAssets) {
+      console.log(`Wrote ${path.relative(projectRoot, outputPath)}`);
+    }
     console.log(`Wrote ${path.relative(projectRoot, mainMenuOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, mainMenuMultiplayerOutputPath)}`);
     for (const outputPath of mainMenuActiveOutputPaths) {
@@ -655,44 +887,19 @@ try {
     console.log(`Wrote ${path.relative(projectRoot, soundManifestOutputPath)} (${Object.keys(soundManifest.sounds).length} sounds)`);
     console.log(`Wrote ${path.relative(projectRoot, manifestOutputPath)}`);
   }
+  }
 } finally {
+  logPrepareTimingSummary();
   await renderBundleBuilder?.close?.();
   await rm(tempDir, { recursive: true, force: true });
 }
 
-async function createQuakeRenderBundleBuilder(bundlePath) {
-  const { chromium } = await import("playwright");
-  const concurrency = normalizedQuakeRenderBundleConcurrency();
-  const browser = await chromium.launch({ headless: true });
-  const pages = await Promise.all(
-    Array.from({ length: concurrency }, () => createQuakeRenderBundlePage(browser, bundlePath)),
-  );
-  const availablePages = [...pages];
-  const pageWaiters = [];
-
-  async function withRenderBundlePage(callback) {
-    const page = await acquireRenderBundlePage();
-    try {
-      return await callback(page);
-    } finally {
-      releaseRenderBundlePage(page);
-    }
-  }
-
-  function acquireRenderBundlePage() {
-    const page = availablePages.pop();
-    if (page) return Promise.resolve(page);
-    return new Promise((resolve) => pageWaiters.push(resolve));
-  }
-
-  function releaseRenderBundlePage(page) {
-    const resolve = pageWaiters.shift();
-    if (resolve) {
-      resolve(page);
-    } else {
-      availablePages.push(page);
-    }
-  }
+async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
+  const workerCount = Number.isFinite(concurrency)
+    ? Math.max(1, Math.trunc(concurrency))
+    : normalizedQuakeRenderBundleConcurrency();
+  const renderBundleEngine = await createQuakeRenderBundleEngine({ concurrency: workerCount, engine });
+  console.log(`Using ${workerCount} render bundle worker${workerCount === 1 ? "" : "s"}`);
 
   async function writeRenderBundleResult({
     name,
@@ -703,6 +910,7 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
     writeStyle = true,
     includeLeafFrameStyles = false,
     outlineKind,
+    deferAssetWrites = false,
   }) {
     const assetDir = path.join(renderBundleOutputDir, name);
     await rm(assetDir, { recursive: true, force: true });
@@ -715,26 +923,48 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
       Array.isArray(frameStyle) ? [...frameStyle] : [],
     ]);
     const assetUrls = [];
+    const deferredAssets = [];
     let writtenAssetCount = 0;
     let reusedAssetCount = 0;
 
     for (let index = 0; index < result.assets.length; index++) {
       const asset = result.assets[index];
-      const buffer = Buffer.from(asset.base64, "base64");
-      const hash = createHash("sha256").update(buffer).digest("hex");
-      const assetKey = `${asset.mime}:${hash}`;
-      let sharedAsset = sharedAssets?.get(assetKey);
+      const buffer = typeof asset.base64 === "string" ? Buffer.from(asset.base64, "base64") : null;
+      if (!buffer && !deferAssetWrites) {
+        throw new Error(`Render bundle asset ${index} for ${name} is missing its payload.`);
+      }
+      if (!buffer && sharedAssets) {
+        throw new Error(`Shared render bundle asset ${index} for ${name} is missing its payload.`);
+      }
+      const hash = buffer ? createHash("sha256").update(buffer).digest("hex") : "";
+      const assetKey = buffer ? `${asset.mime}:${hash}` : "";
+      let sharedAsset = assetKey ? sharedAssets?.get(assetKey) : null;
 
       if (!sharedAsset) {
-        const primaryAsset = await encodeQuakeRenderBundlePrimaryAsset(buffer, asset.mime);
-        const extension = mimeExtension(primaryAsset.mime);
+        const primaryMime = deferAssetWrites
+          ? deferredQuakeRenderBundlePrimaryAssetMime(asset.mime)
+          : null;
+        const primaryAsset = deferAssetWrites || !buffer
+          ? null
+          : await encodeQuakeRenderBundlePrimaryAsset(buffer, asset.mime);
+        const extension = mimeExtension(primaryMime ?? primaryAsset.mime);
         const filename = `${index}.${extension}`;
         const outputPath = path.join(assetDir, filename);
-        await writeFile(outputPath, primaryAsset.buffer);
         const assetUrl = `${quakeRenderBundlePublicPath}/${name}/${filename}`;
+        if (deferAssetWrites) {
+          deferredAssets.push({
+            ...(buffer ? { buffer } : {}),
+            mime: asset.mime,
+            outputPath,
+            skippedPayload: Boolean(asset.skippedPayload || !buffer),
+            sourceUrl: assetUrl,
+          });
+        } else {
+          await writeFile(outputPath, primaryAsset.buffer);
+        }
 
         sharedAsset = { sourceUrl: assetUrl, variants: [] };
-        sharedAssets?.set(assetKey, sharedAsset);
+        if (assetKey) sharedAssets?.set(assetKey, sharedAsset);
         writtenAssetCount++;
       } else {
         reusedAssetCount++;
@@ -782,17 +1012,26 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
       leafCount: result.leafCount,
       atlasLeafCount: result.atlasLeafCount,
     };
-    await addQuakeRenderBundleDebugOutlineAssets(renderBundle, {
-      outlineKind: outlineKind ?? quakeRenderBundleDebugOutlineKindForName(name),
-      lightstyle: quakeRenderBundleNameIsLightstyle(name),
-      meshCss,
-    });
+    if (deferredAssets.length) {
+      Object.defineProperty(renderBundle, deferredRenderBundleAssetsSymbol, {
+        configurable: true,
+        value: deferredAssets,
+      });
+    }
+    if (!deferAssetWrites) {
+      await addQuakeRenderBundleDebugOutlineAssets(renderBundle, {
+        outlineKind: outlineKind ?? quakeRenderBundleDebugOutlineKindForName(name),
+        lightstyle: quakeRenderBundleNameIsLightstyle(name),
+        meshCss,
+      });
+    }
 
     return {
       renderBundle,
       meshCss,
       writtenAssetCount,
       reusedAssetCount,
+      deferredAssetCount: deferredAssets.length,
       elapsed: startedAt ? Date.now() - startedAt : 0,
     };
   }
@@ -809,43 +1048,52 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
       optimizeAtlasLeafHomography = false,
       optimizeAtlasTriangleBasis = false,
       outlineKind,
+      deferAssetWrites = false,
+      layoutOnly = false,
     }) {
       const name = bundleName ?? mapName;
       if (!name) throw new Error("Render bundle build requires a bundleName or mapName.");
       const styleClassName = extractLeafStyles ? quakeRenderBundleStyleClassName(name) : "";
       const adaptiveAtlasLeafSize = quakeRenderBundleAdaptiveAtlasLeafSize && Boolean(mapName);
       const startedAt = Date.now();
-      const result = await withRenderBundlePage((page) =>
-        page.evaluate(
-          async (input) => window.__buildQuakeRenderBundle(input),
-          {
-            polygons,
-            textureQuality,
-            extractLeafStyles,
-            styleClassName,
-            tightenAtlasLeaves,
-            adaptiveAtlasLeafSize,
-            optimizeAtlasLeafBasis,
-            optimizeAtlasLeafHomography,
-            optimizeAtlasTriangleBasis,
-          },
-        ),
-      );
+      const engineStartedAt = Date.now();
+      const result = await renderBundleEngine.build({
+        polygons,
+        textureQuality,
+        extractLeafStyles,
+        styleClassName,
+        tightenAtlasLeaves,
+        adaptiveAtlasLeafSize,
+        optimizeAtlasLeafBasis,
+        optimizeAtlasLeafHomography,
+        optimizeAtlasTriangleBasis,
+        layoutOnly,
+      });
+      const engineElapsed = Date.now() - engineStartedAt;
+      const writeStartedAt = Date.now();
       const written = await writeRenderBundleResult({
         name,
         result,
         styleClassName,
         startedAt,
         outlineKind,
+        deferAssetWrites,
       });
+      const writeElapsed = Date.now() - writeStartedAt;
       console.log(
         `Built render bundle for ${name}: ${result.leafCount} leaves, ` +
         `${written.writtenAssetCount} atlas assets` +
+        `${written.deferredAssetCount ? " deferred" : ""}` +
         `${renderBundleAtlasLeafBasisLog(result)}` +
         `${renderBundleAtlasLeafHomographyLog(result)}` +
         `${renderBundleAdaptiveAtlasLeafSizeLog(result)} in ` +
         `${written.elapsed}ms`,
       );
+      logStaticRenderBundleTiming(name, {
+        engineElapsed,
+        writeElapsed,
+        workerTiming: result.timing,
+      });
       return written.renderBundle;
     },
     async buildAnimatedFrameSet({
@@ -872,26 +1120,25 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
         };
       });
       const startedAt = Date.now();
-      const result = await withRenderBundlePage((page) =>
-        page.evaluate(
-          async (input) => window.__buildQuakeAnimatedRenderBundle(input),
-          {
-            frames: frameInputs,
-            textureQuality,
-            extractLeafStyles,
-            tightenAtlasLeaves,
-            adaptiveAtlasLeafSize: false,
-            optimizeAtlasLeafBasis,
-            optimizeAtlasLeafHomography,
-            optimizeAtlasTriangleBasis,
-          },
-        ),
-      );
+      const engineStartedAt = Date.now();
+      const result = await renderBundleEngine.buildAnimatedFrameSet({
+        frames: frameInputs,
+        textureQuality,
+        extractLeafStyles,
+        tightenAtlasLeaves,
+        adaptiveAtlasLeafSize: false,
+        fastFrameStyles: quakeRenderBundleFastFrameStyles,
+        optimizeAtlasLeafBasis,
+        optimizeAtlasLeafHomography,
+        optimizeAtlasTriangleBasis,
+      });
+      const engineElapsed = Date.now() - engineStartedAt;
       const sharedAssets = new Map();
       const frameBundles = [];
       let writtenAssetCount = 0;
       let reusedAssetCount = 0;
       const firstFrameResult = result.frames[0];
+      const writeStartedAt = Date.now();
       const firstWritten = await writeRenderBundleResult({
         name: firstFrameResult.name,
         result: firstFrameResult,
@@ -901,8 +1148,10 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
         includeLeafFrameStyles: true,
         outlineKind,
       });
+      const writeElapsed = Date.now() - writeStartedAt;
       writtenAssetCount += firstWritten.writtenAssetCount;
       frameBundles.push(firstWritten.renderBundle);
+      const assembleStartedAt = Date.now();
       for (const frameResult of result.frames.slice(1)) {
         reusedAssetCount += firstWritten.renderBundle.assetUrls.length;
         frameBundles.push(createQuakeRenderBundleFrameStyleBundle(
@@ -910,6 +1159,7 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
           frameResult,
         ));
       }
+      const assembleElapsed = Date.now() - assembleStartedAt;
       const elapsed = Date.now() - startedAt;
       const firstFrame = result.frames[0];
       console.log(
@@ -921,10 +1171,155 @@ async function createQuakeRenderBundleBuilder(bundlePath) {
         `${renderBundleAdaptiveAtlasLeafSizeLog(firstFrame)} ` +
         `(${reusedAssetCount} frame references reused) in ${elapsed}ms`,
       );
+      logAnimatedRenderBundleTiming(bundleName, {
+        engineElapsed,
+        writeElapsed,
+        assembleElapsed,
+        workerTiming: result.timing,
+      });
       return frameBundles;
     },
-    close: () => browser.close(),
+    close: () => renderBundleEngine.close(),
   };
+}
+
+async function createQuakeRenderBundleEngine({ concurrency, engine }) {
+  if (engine === "happy-dom") return createHappyDomQuakeRenderBundleEngine({ concurrency });
+  throw new Error(`Unsupported render bundle engine ${JSON.stringify(engine)}.`);
+}
+
+async function createHappyDomQuakeRenderBundleEngine({ concurrency }) {
+  const workerPath = path.join(scriptDir, "renderBundleHappyDomWorker.mjs");
+  const workerCount = Number.isFinite(concurrency)
+    ? Math.max(1, Math.trunc(concurrency))
+    : normalizedQuakeRenderBundleConcurrency();
+  const workers = Array.from({ length: workerCount }, () => createHappyDomRenderBundleWorker(workerPath));
+  const availableWorkers = [...workers];
+  const workerWaiters = [];
+  let closed = false;
+
+  return {
+    build: (input) => withHappyDomRenderBundleWorker(
+      availableWorkers,
+      workerWaiters,
+      () => closed,
+      (worker) => requestHappyDomRenderBundleWorker(worker, "static", input),
+    ),
+    buildAnimatedFrameSet: (input) => withHappyDomRenderBundleWorker(
+      availableWorkers,
+      workerWaiters,
+      () => closed,
+      (worker) => requestHappyDomRenderBundleWorker(worker, "animated", input),
+    ),
+    async close() {
+      closed = true;
+      for (const waiter of workerWaiters.splice(0)) {
+        waiter.reject(new Error("Happy-dom render bundle engine closed."));
+      }
+      await Promise.allSettled(workers.map((worker) => worker.thread.terminate()));
+    },
+  };
+
+  function createHappyDomRenderBundleWorker(filename) {
+    const thread = new Worker(pathToFileURL(filename), {
+      workerData: {
+        generatedPublicDir,
+        quakePublicPath,
+      },
+    });
+    const worker = {
+      broken: false,
+      nextRequestId: 0,
+      requests: new Map(),
+      thread,
+    };
+    thread.on("message", (message) => {
+      const request = worker.requests.get(message.id);
+      if (!request) return;
+      worker.requests.delete(message.id);
+      if (message.error) {
+        const error = new Error(message.error.message);
+        if (message.error.stack) error.stack = message.error.stack;
+        request.reject(error);
+      } else {
+        request.resolve(message.result);
+      }
+    });
+    thread.on("error", (error) => {
+      failHappyDomRenderBundleWorker(worker, error);
+    });
+    thread.on("exit", (code) => {
+      if (!closed && code !== 0) {
+        failHappyDomRenderBundleWorker(worker, new Error(`Happy-dom render worker exited with code ${code}.`));
+      }
+    });
+    return worker;
+  }
+}
+
+async function withHappyDomRenderBundleWorker(availableWorkers, workerWaiters, isClosed, callback) {
+  const worker = await acquireHappyDomRenderBundleWorker(availableWorkers, workerWaiters, isClosed);
+  try {
+    return await callback(worker);
+  } finally {
+    releaseHappyDomRenderBundleWorker(worker, availableWorkers, workerWaiters);
+  }
+}
+
+function acquireHappyDomRenderBundleWorker(availableWorkers, workerWaiters, isClosed) {
+  if (isClosed()) throw new Error("Happy-dom render bundle engine is closed.");
+  while (availableWorkers.length) {
+    const worker = availableWorkers.pop();
+    if (!worker.broken) return Promise.resolve(worker);
+  }
+  return new Promise((resolve, reject) => workerWaiters.push({ resolve, reject }));
+}
+
+function releaseHappyDomRenderBundleWorker(worker, availableWorkers, workerWaiters) {
+  if (worker.broken) return;
+  const waiter = workerWaiters.shift();
+  if (waiter) {
+    waiter.resolve(worker);
+  } else {
+    availableWorkers.push(worker);
+  }
+}
+
+function requestHappyDomRenderBundleWorker(worker, mode, input) {
+  if (worker.broken) throw new Error("Happy-dom render bundle worker is not available.");
+  const id = ++worker.nextRequestId;
+  const textures = renderBundleTexturePayload(input);
+  return new Promise((resolve, reject) => {
+    worker.requests.set(id, { resolve, reject });
+    worker.thread.postMessage({ id, input, mode, textures });
+  });
+}
+
+function failHappyDomRenderBundleWorker(worker, error) {
+  worker.broken = true;
+  for (const request of worker.requests.values()) {
+    request.reject(error);
+  }
+  worker.requests.clear();
+}
+
+function renderBundleTexturePayload(input) {
+  const urls = new Set();
+  for (const polygon of input?.polygons ?? []) collectRenderBundleTextureUrl(urls, polygon);
+  for (const frame of input?.frames ?? []) {
+    for (const polygon of frame?.polygons ?? []) collectRenderBundleTextureUrl(urls, polygon);
+  }
+  const payload = [];
+  for (const url of urls) {
+    const png = texturePngByPublicPath.get(url);
+    if (png) payload.push([url, png]);
+  }
+  return payload;
+}
+
+function collectRenderBundleTextureUrl(urls, polygon) {
+  const texture = polygon?.texture;
+  if (typeof texture === "string" && texture.startsWith(`${quakePublicPath}/`)) urls.add(texture);
 }
 
 function renderBundleAdaptiveAtlasLeafSizeLog(result) {
@@ -953,6 +1348,174 @@ function renderBundleTriangleAtlasBasisLog(result) {
   if (!stats?.optimizedLeaves) return "";
   return `, triangle-basis ${stats.optimizedLeaves}/${stats.triangleLeaves} leaves ` +
     `${stats.beforeArea}->${stats.afterArea} local px`;
+}
+
+function logStaticRenderBundleTiming(bundleName, timing) {
+  const workerTiming = timing.workerTiming;
+  const phaseLog = formatRenderBundleTimingPhases(workerTiming?.phases);
+  console.log(
+    `Static render timing for ${bundleName}: engine ${timing.engineElapsed}ms, ` +
+    `write ${timing.writeElapsed}ms` +
+    `${workerTiming?.totalMs ? `, worker ${workerTiming.totalMs}ms` : ""}` +
+    `${phaseLog ? `; phases ${phaseLog}` : ""}`,
+  );
+  const bakeStatsLog = formatRenderBundleBakeStats(workerTiming?.bakeStats);
+  if (bakeStatsLog) {
+    console.log(`Static render bake stats for ${bundleName}: ${bakeStatsLog}`);
+  }
+  const bakeWaitsLog = formatRenderBundleBakeWaits(workerTiming?.bakeWaits);
+  if (bakeWaitsLog) {
+    console.log(`Static render bake waits for ${bundleName}: ${bakeWaitsLog}`);
+  }
+}
+
+function logAnimatedRenderBundleTiming(bundleName, timing) {
+  const workerTiming = timing.workerTiming;
+  const phaseLog = formatRenderBundleTimingPhases(workerTiming?.phases);
+  console.log(
+    `Animated render timing for ${bundleName}: engine ${timing.engineElapsed}ms, ` +
+    `write-first ${timing.writeElapsed}ms, assemble ${timing.assembleElapsed}ms` +
+    `${workerTiming?.totalMs ? `, worker ${workerTiming.totalMs}ms` : ""}` +
+    `${phaseLog ? `; phases ${phaseLog}` : ""}`,
+  );
+  const slowFramesLog = formatRenderBundleSlowFrames(workerTiming?.slowFrames);
+  if (slowFramesLog) {
+    console.log(`Animated render slow frames for ${bundleName}: ${slowFramesLog}`);
+  }
+  const bakeStatsLog = formatRenderBundleBakeStats(workerTiming?.bakeStats);
+  if (bakeStatsLog) {
+    console.log(`Animated render bake stats for ${bundleName}: ${bakeStatsLog}`);
+  }
+  const bakeWaitsLog = formatRenderBundleBakeWaits(workerTiming?.bakeWaits);
+  if (bakeWaitsLog) {
+    console.log(`Animated render bake waits for ${bundleName}: ${bakeWaitsLog}`);
+  }
+}
+
+function formatRenderBundleTimingPhases(phases) {
+  if (!Array.isArray(phases) || phases.length === 0) return "";
+  return phases
+    .slice(0, 10)
+    .map((phase) => `${phase.label} ${phase.elapsedMs}ms${phase.count > 1 ? `/${phase.count}` : ""}`)
+    .join("; ");
+}
+
+function formatRenderBundleSlowFrames(frames) {
+  if (!Array.isArray(frames) || frames.length === 0) return "";
+  return frames
+    .map((frame) => `f${frame.frame} ${frame.elapsedMs}ms`)
+    .join("; ");
+}
+
+function formatRenderBundleBakeStats(stats) {
+  if (!stats) return "";
+  const timings = Object.entries(stats.timings ?? {})
+    .map(([label, entry]) => ({
+      label,
+      elapsedMs: Number(entry?.elapsedMs) || 0,
+      count: Number(entry?.count) || 0,
+    }))
+    .filter((entry) => entry.elapsedMs || entry.count)
+    .sort((a, b) => b.elapsedMs - a.elapsedMs)
+    .slice(0, 8)
+    .map((entry) => `${entry.label} ${entry.elapsedMs}ms${entry.count > 1 ? `/${entry.count}` : ""}`);
+  const counts = Object.entries(stats.counts ?? {})
+    .filter(([, count]) => Number(count) > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 5)
+    .map(([label, count]) => `${label}=${count}`);
+  const bytes = Object.entries(stats.bytes ?? {})
+    .filter(([, byteCount]) => Number(byteCount) > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 3)
+    .map(([label, byteCount]) => `${label}=${formatBytes(byteCount)}`);
+  return [
+    timings.length ? `timings ${timings.join("; ")}` : "",
+    counts.length ? `counts ${counts.join(", ")}` : "",
+    bytes.length ? `bytes ${bytes.join(", ")}` : "",
+  ].filter(Boolean).join("; ");
+}
+
+function logDeterministicAtlasTiming(mapName, stats) {
+  const timing = stats?.timing;
+  if (!timing) return;
+  const phases = formatDeterministicAtlasPhases(timing.phases);
+  if (phases) console.log(`Deterministic atlas timing for ${mapName}: ${phases}`);
+  const counts = formatDeterministicAtlasCounts(timing.counts);
+  const bytes = formatDeterministicAtlasBytes(timing.bytes);
+  const counters = [
+    counts ? `counts ${counts}` : "",
+    bytes ? `bytes ${bytes}` : "",
+  ].filter(Boolean).join("; ");
+  if (counters) console.log(`Deterministic atlas counters for ${mapName}: ${counters}`);
+}
+
+function formatDeterministicAtlasPhases(phases) {
+  return Object.entries(phases ?? {})
+    .map(([label, entry]) => ({
+      count: Number(entry?.count) || 0,
+      elapsedMs: Number(entry?.elapsedMs) || 0,
+      label,
+    }))
+    .filter((entry) => entry.elapsedMs || entry.count)
+    .sort((a, b) => b.elapsedMs - a.elapsedMs)
+    .slice(0, 20)
+    .map((entry) => `${entry.label} ${entry.elapsedMs}ms${entry.count > 1 ? `/${entry.count}` : ""}`)
+    .join("; ");
+}
+
+function formatDeterministicAtlasCounts(counts) {
+  return Object.entries(counts ?? {})
+    .filter(([, count]) => Number(count) > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 10)
+    .map(([label, count]) => `${label}=${formatInteger(count)}`)
+    .join(", ");
+}
+
+function formatDeterministicAtlasBytes(bytes) {
+  return Object.entries(bytes ?? {})
+    .filter(([, byteCount]) => Number(byteCount) > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 5)
+    .map(([label, byteCount]) => `${label}=${formatBytes(byteCount)}`)
+    .join(", ");
+}
+
+function formatRenderBundleBakeWaits(waits) {
+  if (!Array.isArray(waits) || waits.length === 0) return "";
+  return waits
+    .slice(0, 3)
+    .map((wait) => {
+      const transitions = formatRenderBundlePendingTransitions(wait.pendingTransitions);
+      const bakeStats = formatRenderBundleBakeStats(wait.bakeStats);
+      return `${wait.label} ${wait.elapsedMs}ms polls=${wait.pollCount} ` +
+        `pending=${wait.maxPending}/${wait.totalLeaves}` +
+        `${wait.frameWaitMs !== undefined ? ` frame=${wait.frameWaitMs}ms` : ""}` +
+        `${wait.queryMs !== undefined ? ` query=${wait.queryMs}ms` : ""}` +
+        `${transitions ? ` transitions=${transitions}` : ""}` +
+        `${bakeStats ? ` stats=[${bakeStats}]` : ""}`;
+    })
+    .join("; ");
+}
+
+function formatRenderBundlePendingTransitions(transitions) {
+  if (!Array.isArray(transitions) || transitions.length === 0) return "";
+  return transitions
+    .map((item) => `${item.elapsedMs}ms:${item.pending}/${item.total}`)
+    .join(">");
+}
+
+function formatBytes(value) {
+  const bytes = Number(value) || 0;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MiB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}KiB`;
+  return `${bytes}B`;
+}
+
+function formatInteger(value) {
+  const integer = Math.trunc(Number(value) || 0);
+  return String(integer).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 async function addQuakeRenderBundleDebugOutlineAssets(renderBundle, options = {}) {
@@ -1212,39 +1775,6 @@ function escapeXml(value) {
   })[char]);
 }
 
-async function createQuakeRenderBundlePage(browser, bundlePath) {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-  page.on("pageerror", (error) => {
-    console.error(error);
-  });
-  page.on("console", (message) => {
-    if (message.type() === "error") console.error(message.text());
-  });
-  await page.route("**/*", async (route) => {
-    const url = new URL(route.request().url());
-    if (route.request().resourceType() === "document") {
-      await route.fulfill({
-        status: 200,
-        contentType: "text/html",
-        body: "<!doctype html><html><head></head><body></body></html>",
-      });
-      return;
-    }
-    if (url.pathname.startsWith(`${quakeTexturePublicPath}/`)) {
-      await route.fulfill({
-        status: 200,
-        contentType: contentTypeForPath(url.pathname),
-        body: await readGeneratedPublicTextureFile(url.pathname),
-      });
-      return;
-    }
-    await route.fulfill({ status: 204, body: "" });
-  });
-  await page.goto("http://quake-render-bundle.local/");
-  await page.addScriptTag({ path: bundlePath });
-  return page;
-}
-
 function quakeRenderBundleStyleClassName(name) {
   const hash = createHash("sha256").update(name).digest("hex").slice(0, 8);
   return `r${hash}`;
@@ -1274,6 +1804,31 @@ function createQuakeRenderBundleFrameStyleBundle(baseRenderBundle, frameResult) 
     leafCount: frameResult.leafCount,
     atlasLeafCount: frameResult.atlasLeafCount,
   };
+}
+
+function assertNoDeferredQuakeRenderBundleAssetReferences(renderBundle, deterministicAtlasStats) {
+  const deferredAssets = renderBundle?.[deferredRenderBundleAssetsSymbol];
+  if (!Array.isArray(deferredAssets) || deferredAssets.length === 0) return 0;
+  const referencedUrls = new Set(renderBundle.assetUrls ?? []);
+  const referencedDeferredAssets = deferredAssets.filter((asset) => referencedUrls.has(asset.sourceUrl));
+  deferredAssets.length = 0;
+  if (referencedDeferredAssets.length) {
+    const skipped = deterministicAtlasStats?.skippedLeaves ?? "?";
+    const skippedKinds = JSON.stringify(deterministicAtlasStats?.skipped ?? {});
+    throw new Error(
+      `Deterministic atlas left ${referencedDeferredAssets.length} old render bundle atlas asset` +
+      `${referencedDeferredAssets.length === 1 ? "" : "s"} referenced ` +
+      `(${skipped} skipped leaves, skipped=${skippedKinds}). ` +
+      `The old atlas fallback is disabled; fix deterministic replacement instead.`,
+    );
+  }
+  return 0;
+}
+
+function deferredQuakeRenderBundlePrimaryAssetMime(mime) {
+  if (mime === "image/avif") return mime;
+  if (mime?.startsWith("image/")) return "image/avif";
+  return mime;
 }
 
 async function encodeQuakeRenderBundlePrimaryAsset(buffer, mime) {
@@ -1338,12 +1893,88 @@ async function mapConcurrently(items, concurrency, worker) {
   return output;
 }
 
-function normalizedQuakeRenderBundleConcurrency() {
+async function timedPrepareStep(label, callback) {
+  const startedAt = Date.now();
+  try {
+    return await callback();
+  } finally {
+    const elapsedMs = Date.now() - startedAt;
+    prepareTimingEntries.push({ label, elapsedMs });
+    console.log(`Prepare timing: ${label} ${elapsedMs}ms`);
+  }
+}
+
+function createPrepareDetailTiming() {
+  return new Map();
+}
+
+function addPrepareDetailTiming(timing, label, elapsedMs) {
+  if (!timing) return;
+  const current = timing.get(label) ?? { count: 0, elapsedMs: 0 };
+  current.count++;
+  current.elapsedMs += elapsedMs;
+  timing.set(label, current);
+}
+
+async function timePrepareDetail(timing, label, callback) {
+  const startedAt = Date.now();
+  try {
+    return await callback();
+  } finally {
+    addPrepareDetailTiming(timing, label, Date.now() - startedAt);
+  }
+}
+
+function logPrepareDetailTiming(label, timing) {
+  const detail = formatPrepareDetailTiming(timing);
+  if (detail) console.log(`${label}: ${detail}`);
+}
+
+function formatPrepareDetailTiming(timing) {
+  if (!timing?.size) return "";
+  return [...timing.entries()]
+    .map(([label, entry]) => ({
+      count: Number(entry.count) || 0,
+      elapsedMs: Number(entry.elapsedMs) || 0,
+      label,
+    }))
+    .filter((entry) => entry.elapsedMs || entry.count)
+    .sort((a, b) => b.elapsedMs - a.elapsedMs)
+    .slice(0, 12)
+    .map((entry) => `${entry.label} ${entry.elapsedMs}ms${entry.count > 1 ? `/${entry.count}` : ""}`)
+    .join("; ");
+}
+
+function logPrepareTimingSummary() {
+  if (!prepareTimingEntries.length) return;
+  const totalMs = Date.now() - prepareTimingStartedAt;
+  const slowest = [...prepareTimingEntries]
+    .sort((a, b) => b.elapsedMs - a.elapsedMs)
+    .slice(0, 8)
+    .map((entry) => `${entry.label} ${entry.elapsedMs}ms`)
+    .join("; ");
+  console.log(`Prepare timing summary: total ${totalMs}ms${slowest ? `; slowest ${slowest}` : ""}`);
+}
+
+function normalizedQuakeRenderBundleConcurrency(value = quakeRenderBundleConcurrency) {
   const maxParallelism = Math.max(1, availableParallelism());
-  if (Number.isFinite(quakeRenderBundleConcurrency)) {
-    return Math.max(1, Math.min(maxParallelism, quakeRenderBundleConcurrency));
+  if (Number.isFinite(value)) {
+    return Math.max(1, Math.min(maxParallelism, Math.trunc(value)));
   }
   return Math.min(3, maxParallelism);
+}
+
+function normalizedQuakeRenderBundleModelConcurrency() {
+  const maxParallelism = Math.max(1, availableParallelism());
+  if (Number.isFinite(quakeRenderBundleModelConcurrency)) {
+    return normalizedQuakeRenderBundleConcurrency(quakeRenderBundleModelConcurrency);
+  }
+  if (Number.isFinite(quakeRenderBundleConcurrency)) {
+    return normalizedQuakeRenderBundleConcurrency(quakeRenderBundleConcurrency);
+  }
+  if (maxParallelism >= 12) return Math.min(6, maxParallelism);
+  if (maxParallelism >= 8) return 4;
+  return normalizedQuakeRenderBundleConcurrency();
 }
 
 function normalizedQuakeRenderBundleAvifQuality() {
@@ -1405,17 +2036,27 @@ async function loadQuakeSourceProgramFacts() {
   }
 }
 
-function buildQuakeAssetManifest(preparedMaps, programMetadata, pickupModels) {
+function buildQuakeAssetManifest(preparedMaps, programMetadata, pickupModels, soundManifest) {
   const preparedModelPaths = new Set(Object.keys(pickupModels?.models ?? {}));
-  const maps = preparedMaps.map(({ mapName, mapPath, outputPath }) => ({
-    mapName,
-    title: quakeMapTitles.get(mapName) ?? mapName.toUpperCase(),
-    pakPath: mapPath,
-    sceneUrl: generatedPublicUrl(outputPath),
-    selectable: quakeSelectableMapNames.has(mapName),
-    modelPaths: quakeMapModelPaths(outputPath, preparedMaps, programMetadata)
-      .filter((modelPath) => preparedModelPaths.has(modelPath)),
-  }));
+  const preparedSoundPaths = new Set(Object.keys(soundManifest?.sounds ?? {}));
+  const maps = preparedMaps.map(({ mapName, mapPath, outputPath, prepared }) => {
+    const hasGameLogicFacts = Boolean(prepared?.gameLogic);
+    const gameLogicModelPaths = quakeGameLogicMapModelPaths(prepared, preparedModelPaths);
+    const gameLogicSoundPaths = quakeGameLogicMapSoundPaths(prepared, preparedSoundPaths);
+    const modelPaths = hasGameLogicFacts
+      ? gameLogicModelPaths
+      : quakeMapModelPaths(outputPath, preparedMaps, programMetadata)
+        .filter((modelPath) => preparedModelPaths.has(modelPath));
+    return {
+      mapName,
+      title: quakeMapTitles.get(mapName) ?? mapName.toUpperCase(),
+      pakPath: mapPath,
+      sceneUrl: generatedPublicUrl(outputPath),
+      selectable: quakeSelectableMapNames.has(mapName),
+      modelPaths,
+      ...(gameLogicSoundPaths.length ? { soundPaths: gameLogicSoundPaths } : {}),
+    };
+  });
   const mapNames = new Set(maps.map((map) => map.mapName));
   return {
     version: 1,
@@ -1431,9 +2072,60 @@ function buildQuakeAssetManifest(preparedMaps, programMetadata, pickupModels) {
   };
 }
 
+async function mergeQuakePickupModelOutput(pickupModels) {
+  let existing = { models: {} };
+  try {
+    existing = JSON.parse(await readFile(pickupOutputPath, "utf8"));
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  return {
+    ...existing,
+    models: {
+      ...(existing.models ?? {}),
+      ...(pickupModels.models ?? {}),
+    },
+  };
+}
+
+function quakeGameLogicMapModelPaths(prepared, preparedModelPaths) {
+  if (!prepared?.gameLogic) return [];
+  return deriveQuakeGameLogicModelPreloads(prepared.gameLogic, {
+    preparedModelPaths,
+  }).modelPaths;
+}
+
+function quakeGameLogicMapSoundPaths(prepared, preparedSoundPaths) {
+  if (!prepared?.gameLogic || preparedSoundPaths.size === 0) return [];
+  return deriveQuakeGameLogicSoundPreloads(prepared.gameLogic, {
+    preparedSoundPaths,
+  }).soundPaths;
+}
+
+function quakeReferencedModelPathsForPreparedMaps(preparedMaps, programMetadata, candidateModelPaths) {
+  const candidateByPath = new Map(
+    [...candidateModelPaths].map((modelPath) => [modelPath.toLowerCase(), modelPath]),
+  );
+  const preparedModelPaths = new Set(candidateByPath.keys());
+  const referencedModelPaths = new Set();
+  for (const { outputPath, prepared } of preparedMaps) {
+    const mapModelPaths = new Set(quakeMapModelPaths(outputPath, preparedMaps, programMetadata));
+    if (prepared?.gameLogic) {
+      for (const modelPath of quakeGameLogicMapModelPaths(prepared, preparedModelPaths)) {
+        mapModelPaths.add(modelPath);
+      }
+    }
+    for (const modelPath of mapModelPaths) {
+      const candidate = candidateByPath.get(modelPath.toLowerCase());
+      if (candidate) referencedModelPaths.add(candidate);
+    }
+  }
+  return referencedModelPaths;
+}
+
 async function writeQuakeAssetRegenerationManifest({ mode = "full", mapNames = [] } = {}) {
   await mkdir(quakeOutputDir, { recursive: true });
-  await writeFile(manifestOutputPath, JSON.stringify({
+  await writeFileAtomic(manifestOutputPath, JSON.stringify({
     version: 1,
     status: "regenerating",
     mode,
@@ -1444,6 +2136,16 @@ async function writeQuakeAssetRegenerationManifest({ mode = "full", mapNames = [
       : "Quake assets are regenerating. Wait for pnpm prepare:quake to finish, then reload.",
     startedAt: new Date().toISOString(),
   }));
+}
+
+async function writeFileAtomic(outputPath, contents) {
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  const tempPath = path.join(
+    path.dirname(outputPath),
+    `.${path.basename(outputPath)}.${process.pid}.${Date.now()}.tmp`,
+  );
+  await writeFile(tempPath, contents);
+  await rename(tempPath, outputPath);
 }
 
 function quakeMapModelPaths(outputPath, preparedMaps, programMetadata) {
@@ -1616,8 +2318,10 @@ function stripPreparedRenderBundleFallbackData(data) {
 }
 
 async function copyStaticPublicAssets() {
-  await mkdir(path.dirname(socialImageOutputPath), { recursive: true });
-  await copyFile(socialImageSourcePath, socialImageOutputPath);
+  for (const [sourcePath, outputPath] of staticPublicAssets) {
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await copyFile(sourcePath, outputPath);
+  }
 }
 
 async function removeLegacyQuakeJsonFiles() {
@@ -1836,6 +2540,34 @@ async function buildQuakeHudBasePng(assets) {
   drawQpic(rgba, assets, "sbar", 0, 0);
   return sharp(rgba, {
     raw: { width: QUAKE_HUD_WIDTH, height: QUAKE_HUD_HEIGHT, channels: 4 },
+  }).png().toBuffer();
+}
+
+async function buildQuakeHudInventoryPng(assets) {
+  const rgba = Buffer.alloc(QUAKE_HUD_WIDTH * QUAKE_HUD_HEIGHT * 4);
+  drawQpic(rgba, assets, "ibar", 0, 0);
+  return sharp(rgba, {
+    raw: { width: QUAKE_HUD_WIDTH, height: QUAKE_HUD_HEIGHT, channels: 4 },
+  }).png().toBuffer();
+}
+
+async function buildQuakeHudIconsPng(assets) {
+  const width = QUAKE_HUD_ICON_QPICS.length * QUAKE_HUD_ICON_SLOT_SIZE;
+  const rgba = Buffer.alloc(width * QUAKE_HUD_HEIGHT * 4);
+  for (let index = 0; index < QUAKE_HUD_ICON_QPICS.length; index++) {
+    drawWadQpicTo(
+      rgba,
+      assets,
+      QUAKE_HUD_ICON_QPICS[index],
+      index * QUAKE_HUD_ICON_SLOT_SIZE,
+      0,
+      width,
+      QUAKE_HUD_HEIGHT,
+      QUAKE_HUD_TRANSPARENT,
+    );
+  }
+  return sharp(rgba, {
+    raw: { width, height: QUAKE_HUD_HEIGHT, channels: 4 },
   }).png().toBuffer();
 }
 
@@ -2157,13 +2889,7 @@ async function buildQuakeAboutPng(assets) {
 }
 
 async function buildQuakeMenuPanelTexturePng(preparedMaps) {
-  const textureNames = [
-    "wbrick1_5",
-    "wiz1_4",
-    "stone1_3",
-    "wizmet1_2",
-  ];
-  for (const textureName of textureNames) {
+  for (const textureName of QUAKE_MENU_PANEL_TEXTURE_NAMES) {
     const textureBuffer = await findPreparedTextureBuffer(preparedMaps, textureName);
     if (!textureBuffer) continue;
     return sharp(textureBuffer)
@@ -2280,14 +3006,16 @@ async function buildQuakeWeaponModel(assets, renderBundleBuilder) {
     };
   });
 
+  const tightenWeaponDom = quakeDomTighteningEnabled("other", false);
   return {
     source: modelPath,
     renderBundle: await renderBundleBuilder.build({
       bundleName: "w",
       polygons: anchorQuakeWeaponPolygons(polygons),
       extractLeafStyles: true,
-      tightenAtlasLeaves: quakeDomTighteningEnabled("other", false),
-      optimizeAtlasLeafBasis: quakeDomTighteningEnabled("other", false),
+      tightenAtlasLeaves: tightenWeaponDom,
+      optimizeAtlasLeafBasis: tightenWeaponDom,
+      optimizeAtlasLeafHomography: tightenWeaponDom,
     }),
   };
 }
@@ -2312,37 +3040,40 @@ function anchorQuakeWeaponPolygons(polygons) {
   }));
 }
 
-async function buildQuakePickupModels(assets, buildBspModel, programMetadata, renderBundleBuilder) {
+async function buildQuakePickupModels(assets, buildBspModel, programMetadata, renderBundleBuilder, options = {}) {
   const models = {};
-  const programPickupModels = quakeProgramPickupModelPaths(programMetadata)
-    .filter((model) => assets.entries.has(model));
-  const programEnemyModels = quakeProgramEnemyModelPaths(programMetadata)
-    .filter((model) => assets.entries.has(model));
-  const animatedAliasModelPaths = new Set([
-    ...Object.values(QUAKE_PICKUP_MODEL_PATHS),
-    ...programPickupModels.filter((model) => model.endsWith(".mdl")),
-  ].filter((model) => assets.entries.has(model)));
-  const projectileAliasModelPaths = new Set(
-    QUAKE_PROJECTILE_ALIAS_MODEL_PATHS.filter((model) => assets.entries.has(model)),
-  );
-  const enemyAliasModelPaths = new Set(
-    programEnemyModels
-      .filter((model) => model.endsWith(".mdl") &&
-        !animatedAliasModelPaths.has(model) &&
-        !projectileAliasModelPaths.has(model)),
-  );
-  const animatedMonsterAliasModelPaths = new Set(
-    QUAKE_ANIMATED_MONSTER_ALIAS_MODEL_PATHS.filter((model) => enemyAliasModelPaths.has(model)),
-  );
-  const aliasModelPaths = new Set([
-    ...animatedAliasModelPaths,
-    ...enemyAliasModelPaths,
-    ...projectileAliasModelPaths,
-  ]);
-  const bspModelPaths = new Set([
-    ...QUAKE_PICKUP_BSP_MODEL_PATHS,
-    ...programPickupModels.filter((model) => model.endsWith(".bsp")),
-  ].filter((model) => assets.entries.has(model)));
+  const modelPathSets = quakePickupModelPathSets(assets, programMetadata);
+  const {
+    animatedAliasModelPaths,
+    projectileAliasModelPaths,
+    enemyAliasModelPaths,
+    animatedMonsterAliasModelPaths,
+  } = modelPathSets;
+  let aliasModelPaths = new Set(modelPathSets.aliasModelPaths);
+  let bspModelPaths = new Set(modelPathSets.bspModelPaths);
+  const concurrency = Number.isFinite(options.concurrency)
+    ? Math.max(1, Math.trunc(options.concurrency))
+    : normalizedQuakeRenderBundleConcurrency();
+  const referencedModelPaths = normalizeQuakeModelPathSet(options.referencedModelPaths);
+  if (referencedModelPaths) {
+    const modelCountBeforeFilter = aliasModelPaths.size + bspModelPaths.size;
+    aliasModelPaths = filterQuakeModelPathSet(aliasModelPaths, referencedModelPaths);
+    bspModelPaths = filterQuakeModelPathSet(bspModelPaths, referencedModelPaths);
+    const modelCountAfterFilter = aliasModelPaths.size + bspModelPaths.size;
+    console.log(
+      `Referenced model filter: ${modelCountAfterFilter}/${modelCountBeforeFilter} model bundles selected` +
+      `${modelCountAfterFilter === modelCountBeforeFilter ? "" : ` (${modelCountBeforeFilter - modelCountAfterFilter} skipped)`}.`,
+    );
+  }
+  if (quakePrepareModelOnly.size > 0) {
+    aliasModelPaths = new Set([...aliasModelPaths].filter(quakePrepareModelOnlyMatches));
+    bspModelPaths = new Set([...bspModelPaths].filter(quakePrepareModelOnlyMatches));
+    if (aliasModelPaths.size === 0 && bspModelPaths.size === 0) {
+      throw new Error(
+        `QUAKE_PREPARE_MODEL_ONLY did not match any prepared model: ${[...quakePrepareModelOnly].join(", ")}`,
+      );
+    }
+  }
   const aliasModelItems = [];
   for (const source of aliasModelPaths) {
     const model = parseQuakeAliasModel(assets, source);
@@ -2396,13 +3127,13 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
 
   const aliasModelResults = await mapConcurrently(
     aliasModelItems,
-    normalizedQuakeRenderBundleConcurrency(),
-    async ({ source, prepared }) => {
+    concurrency,
+    async ({ source, prepared }) => timedPrepareStep(`model ${source}`, async () => {
       await addQuakePickupModelRenderBundles(prepared, renderBundleBuilder);
       if (!hasRenderableQuakePickupModelBundle(prepared)) return null;
       stripQuakePickupModelFallbackGeometry(prepared);
       return [source, prepared];
-    },
+    }),
   );
   for (const result of aliasModelResults) {
     if (!result) continue;
@@ -2411,13 +3142,14 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
 
   const bspModelResults = await mapConcurrently(
     [...bspModelPaths],
-    normalizedQuakeRenderBundleConcurrency(),
-    async (source) => {
+    concurrency,
+    async (source) => timedPrepareStep(`model ${source}`, async () => {
       const model = await buildBspModel(source);
       const polygons = model.polygons;
       const prepared = {
         source,
         polygons,
+        disableDomTightening: true,
         domTighteningTarget: "pickups",
         debugOutlineKind: "pickup",
         bounds: polygonBounds(polygons),
@@ -2425,12 +3157,66 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
       await addQuakePickupModelRenderBundles(prepared, renderBundleBuilder);
       stripQuakePickupModelFallbackGeometry(prepared);
       return [source, prepared];
-    },
+    }),
   );
   for (const result of bspModelResults) {
     models[result[0]] = result[1];
   }
   return { models };
+}
+
+function quakePickupModelCandidatePaths(assets, programMetadata) {
+  return quakePickupModelPathSets(assets, programMetadata).modelPaths;
+}
+
+function quakePickupModelPathSets(assets, programMetadata) {
+  const programPickupModels = quakeProgramPickupModelPaths(programMetadata)
+    .filter((model) => assets.entries.has(model));
+  const programEnemyModels = quakeProgramEnemyModelPaths(programMetadata)
+    .filter((model) => assets.entries.has(model));
+  const animatedAliasModelPaths = new Set([
+    ...Object.values(QUAKE_PICKUP_MODEL_PATHS),
+    ...programPickupModels.filter((model) => model.endsWith(".mdl")),
+  ].filter((model) => assets.entries.has(model)));
+  const projectileAliasModelPaths = new Set(
+    QUAKE_PROJECTILE_ALIAS_MODEL_PATHS.filter((model) => assets.entries.has(model)),
+  );
+  const enemyAliasModelPaths = new Set(
+    programEnemyModels
+      .filter((model) => model.endsWith(".mdl") &&
+        !animatedAliasModelPaths.has(model) &&
+        !projectileAliasModelPaths.has(model)),
+  );
+  const animatedMonsterAliasModelPaths = new Set(
+    QUAKE_ANIMATED_MONSTER_ALIAS_MODEL_PATHS.filter((model) => enemyAliasModelPaths.has(model)),
+  );
+  let aliasModelPaths = new Set([
+    ...animatedAliasModelPaths,
+    ...enemyAliasModelPaths,
+    ...projectileAliasModelPaths,
+  ]);
+  let bspModelPaths = new Set([
+    ...QUAKE_PICKUP_BSP_MODEL_PATHS,
+    ...programPickupModels.filter((model) => model.endsWith(".bsp")),
+  ].filter((model) => assets.entries.has(model)));
+  return {
+    animatedAliasModelPaths,
+    projectileAliasModelPaths,
+    enemyAliasModelPaths,
+    animatedMonsterAliasModelPaths,
+    aliasModelPaths,
+    bspModelPaths,
+    modelPaths: new Set([...aliasModelPaths, ...bspModelPaths]),
+  };
+}
+
+function normalizeQuakeModelPathSet(modelPaths) {
+  if (!modelPaths) return null;
+  return new Set([...modelPaths].map((modelPath) => modelPath.toLowerCase()));
+}
+
+function filterQuakeModelPathSet(modelPaths, allowedModelPaths) {
+  return new Set([...modelPaths].filter((modelPath) => allowedModelPaths.has(modelPath.toLowerCase())));
 }
 
 function hasRenderableQuakePickupModelBundle(model) {
@@ -2456,11 +3242,13 @@ async function addQuakePickupModelRenderBundles(model, renderBundleBuilder, text
   const baseName = quakeModelBundleName(model.source);
   const domTighteningTarget = model.domTighteningTarget ?? "other";
   const outlineKind = model.debugOutlineKind ?? "pickup";
-  const tightenAtlasLeaves = quakeDomTighteningEnabled(domTighteningTarget, true);
-  const optimizeAtlasLeafBasis = quakeDomTighteningEnabled(domTighteningTarget, false);
-  const optimizeAtlasLeafHomography = tightenAtlasLeaves &&
-    quakeDomHomography &&
-    domTighteningTarget === "monsters";
+  const tightenAtlasLeaves = model.disableDomTightening === true
+    ? false
+    : quakeDomTighteningEnabled(domTighteningTarget, true);
+  const optimizeAtlasLeafBasis = model.disableDomTightening === true
+    ? false
+    : quakeDomTighteningEnabled(domTighteningTarget, false);
+  const optimizeAtlasLeafHomography = tightenAtlasLeaves && domTighteningTarget !== "pickups";
   if (model.animationFrames?.length > 1) {
     const frameBundles = await renderBundleBuilder.buildAnimatedFrameSet({
       bundleName: baseName,
@@ -2481,7 +3269,13 @@ async function addQuakePickupModelRenderBundles(model, renderBundleBuilder, text
     }
     const animationFrameSet = quakePickupModelAnimationFrameSet(model);
     if (!animationFrameSet) {
-      throw new Error(`Animated model ${model.source} could not be built as a stable topology frame set.`);
+      console.warn(`Animated model ${model.source} has no lossless stable topology frame set; using per-frame bundles.`);
+      for (const frame of model.animationFrames) {
+        const leafClasses = quakeRenderBundleLeafClassesInOrder(frame.renderBundle);
+        attachQuakeRenderBundleDirectFrameStyles(frame.renderBundle, leafClasses);
+      }
+      await writeQuakeAnimationFrameStyles(baseName, model);
+      return;
     }
     model.animationFrameSet = animationFrameSet;
     await writeQuakeAnimationFrameStyles(baseName, model);
@@ -2495,6 +3289,7 @@ async function addQuakePickupModelRenderBundles(model, renderBundleBuilder, text
     extractLeafStyles: true,
     tightenAtlasLeaves,
     optimizeAtlasLeafBasis,
+    optimizeAtlasLeafHomography,
     outlineKind,
   });
 }
@@ -2504,26 +3299,38 @@ function quakePickupModelAnimationFrameSet(model) {
   if (frames.length <= 1) return null;
   const frameClassSets = frames.map((frame) => quakeRenderBundleLeafClasses(frame.renderBundle));
   if (frameClassSets.some((classes) => classes.size === 0)) return null;
-  const commonLeafClasses = new Set(frameClassSets[0]);
-  for (const classes of frameClassSets.slice(1)) {
-    for (const leafClass of [...commonLeafClasses]) {
-      if (!classes.has(leafClass)) commonLeafClasses.delete(leafClass);
-    }
-  }
-  const maxLeafCount = Math.max(...frames.map((frame) => Number(frame.renderBundle?.leafCount) || 0));
-  if (maxLeafCount <= 0) return null;
-  if (commonLeafClasses.size / maxLeafCount < QUAKE_ANIMATION_FRAME_SET_MIN_COMMON_LEAF_RATIO) return null;
-  const renderBundle = quakeRenderBundleWithLeafClasses(frames[0].renderBundle, commonLeafClasses);
+  const firstFrameLeafClasses = frameClassSets[0];
+  const hasStableLeafClasses = frameClassSets.every((classes) =>
+    classes.size === firstFrameLeafClasses.size &&
+    [...firstFrameLeafClasses].every((leafClass) => classes.has(leafClass))
+  );
+  if (!hasStableLeafClasses) return null;
+  const renderBundle = quakeRenderBundleWithLeafClasses(frames[0].renderBundle, firstFrameLeafClasses);
   const leafClasses = quakeRenderBundleLeafClassesInOrder(renderBundle);
+  if (leafClasses.length !== firstFrameLeafClasses.size) return null;
+  if (!frames.every((frame) => quakeRenderBundleHasLosslessFrameStyles(frame.renderBundle, leafClasses))) {
+    return null;
+  }
   attachQuakeRenderBundleDirectFrameStyles(renderBundle, leafClasses);
   for (const frame of frames) {
     attachQuakeRenderBundleDirectFrameStyles(frame.renderBundle, leafClasses);
   }
   return {
-    leafCount: commonLeafClasses.size,
-    droppedLeafCount: maxLeafCount - commonLeafClasses.size,
+    leafCount: leafClasses.length,
     renderBundle,
   };
+}
+
+function quakeRenderBundleHasLosslessFrameStyles(renderBundle, leafClasses) {
+  const stylesByClass = new Map(renderBundle?.leafFrameStylesByClass ?? []);
+  return leafClasses.every((leafClass) => {
+    const style = stylesByClass.get(leafClass);
+    return style !== undefined && !quakeRenderBundleFrameStyleHidesLeaf(style);
+  });
+}
+
+function quakeRenderBundleFrameStyleHidesLeaf(style) {
+  return style.some((part) => /\bvisibility\s*:\s*hidden\b/i.test(String(part)));
 }
 
 function quakeRenderBundleLeafClasses(renderBundle) {
@@ -2572,9 +3379,10 @@ function quakeRenderBundleWithLeafClasses(renderBundle, leafClasses) {
   };
 }
 
-function attachQuakeRenderBundleDirectFrameStyles(renderBundle, leafClasses) {
+function attachQuakeRenderBundleDirectFrameStyles(renderBundle, leafClasses, options = {}) {
   const stylesByClass = new Map(renderBundle.leafFrameStylesByClass ?? []);
-  const leafFrameStyles = leafClasses.map((leafClass) => stylesByClass.get(leafClass) ?? []);
+  const missingLeafFrameStyle = options.missingLeafFrameStyle ?? [];
+  const leafFrameStyles = leafClasses.map((leafClass) => stylesByClass.get(leafClass) ?? missingLeafFrameStyle);
   if (leafFrameStyles.some((frameStyle) => frameStyle.length > 0)) {
     renderBundle.leafFrameStyles = leafFrameStyles;
   }
@@ -2667,6 +3475,7 @@ function quakeRenderBundleLeafHasClass(attributes, leafClasses) {
 }
 
 function stripQuakePickupModelFallbackGeometry(model) {
+  delete model.disableDomTightening;
   delete model.debugOutlineKind;
   delete model.domTighteningTarget;
   delete model.texture;
@@ -3947,7 +4756,7 @@ async function encodeTextureFileUrl(input) {
   const hash = createHash("sha256").update(png).digest("hex");
   const cached = textureFileUrlByHash.get(hash);
   if (cached) return cached;
-  const filename = `${nextTextureFileIndex++}.png`;
+  const filename = `${hash}.png`;
   const url = `${quakeTexturePublicPath}/${filename}`;
   texturePngByPublicPath.set(url, png);
   textureFileUrlByHash.set(hash, url);
@@ -3999,10 +4808,4 @@ function paletteRgbAt(palette, paletteIndex) {
 
 function clampByte(value) {
   return Math.max(0, Math.min(255, Math.round(value)));
-}
-
-function formatBytes(value) {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
