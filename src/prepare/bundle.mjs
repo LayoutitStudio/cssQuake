@@ -50,18 +50,17 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
   skipAssetPayloads = false,
   layoutOnly = false,
 }) {
-  const timing = createQuakeRenderBundleTiming();
-  const host = timeQuakeRenderBundlePhase(timing, "host-create", () => createQuakeRenderHost());
+  const host = createQuakeRenderHost();
 
   try {
-    const scene = timeQuakeRenderBundlePhase(timing, "scene-create", () =>
+    const scene = runQuakeRenderBundleStep("scene-create", () =>
       createQuakeRenderScene(host, textureQuality)
     );
-    const atlasLeafBasisOptimization = timeQuakeRenderBundlePhase(timing, "basis-optimize", () =>
+    const atlasLeafBasisOptimization = runQuakeRenderBundleStep("basis-optimize", () =>
       optimizeAtlasLeafBasis ? optimizeQuakeAtlasLeafBasisPolygons(polygons) : null
     );
     let renderPolygons = atlasLeafBasisOptimization?.polygons ?? polygons;
-    const handle = timeQuakeRenderBundlePhase(timing, "scene-add-polygons", () =>
+    const handle = runQuakeRenderBundleStep("scene-add-polygons", () =>
       scene.add(
         {
           polygons: renderPolygons,
@@ -80,47 +79,42 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
     const canOptimizeAtlasLeafHomography = optimizeAtlasLeafHomography && !layoutOnly;
     const needsTextureLeaves = !layoutOnly || canOptimizeAtlasLeafHomography;
     if (needsTextureLeaves) {
-      await timeQuakeRenderBundlePhaseAsync(timing, "texture-wait", () =>
-        waitForBakedTextureLeaves(handle.element, timing, "texture-wait")
+      await runQuakeRenderBundleStepAsync("texture-wait", () =>
+        waitForBakedTextureLeaves(handle.element)
       );
-    } else {
-      addQuakeRenderBundleTimingPhase(timing, "texture-wait-skipped", 0);
     }
-    const atlasLeafHomographyOptimizationStats = await timeQuakeRenderBundlePhaseAsync(timing, "homography-optimize", () =>
+    const atlasLeafHomographyOptimizationStats = await runQuakeRenderBundleStepAsync("homography-optimize", () =>
       canOptimizeAtlasLeafHomography
         ? optimizeQuakeAtlasLeafHomography(handle.element, renderPolygons)
         : null
     );
-    await timeQuakeRenderBundlePhaseAsync(timing, "tighten-atlas", () =>
+    await runQuakeRenderBundleStepAsync("tighten-atlas", () =>
       tightenAtlasLeaves && !layoutOnly ? tightenQuakeAtlasLeaves(handle.element) : null
     );
-    const adaptiveAtlasLeafSizeStats = timeQuakeRenderBundlePhase(timing, "adaptive-atlas-size", () =>
+    const adaptiveAtlasLeafSizeStats = runQuakeRenderBundleStep("adaptive-atlas-size", () =>
       adaptiveAtlasLeafSize ? applyAdaptiveQuakeAtlasLeafSizes(handle.element) : null
     );
-    const transformSnapStats = timeQuakeRenderBundlePhase(timing, "snap-transforms", () =>
+    const transformSnapStats = runQuakeRenderBundleStep("snap-transforms", () =>
       snapQuakeLeafTransformsToStableGrid(handle.element)
     );
-    const atlasBackgroundSnapStats = timeQuakeRenderBundlePhase(timing, "snap-backgrounds", () =>
+    const atlasBackgroundSnapStats = runQuakeRenderBundleStep("snap-backgrounds", () =>
       layoutOnly ? null : snapQuakeAtlasLeafBackgroundsToIntegerPx(handle.element)
     );
-    const layoutOnlyPendingStyleStats = timeQuakeRenderBundlePhase(timing, "clear-layout-only-pending-styles", () =>
+    const layoutOnlyPendingStyleStats = runQuakeRenderBundleStep("clear-layout-only-pending-styles", () =>
       layoutOnly ? clearQuakeLayoutOnlyPendingLeafStyles(handle.element) : null
     );
-    const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await timeQuakeRenderBundlePhaseAsync(
-      timing,
-      "serialize",
+    const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await runQuakeRenderBundleStepAsync("serialize",
       () => serializeMeshWithAssets(handle.element, {
       extractLeafStyles,
       skipBackgroundAssetExtraction: layoutOnly,
       skipAssetPayloads: skipAssetPayloads || layoutOnly,
       styleClassName,
       mutateOriginal: true,
-      timing,
     }));
     const leafCount = handle.element.querySelectorAll("b,i,s,u").length;
     const atlasLeafCount = handle.element.querySelectorAll("s").length;
     if (layoutOnly) {
-      timeQuakeRenderBundlePhase(timing, "dispose-layout-only-handle", () => handle.dispose?.());
+      runQuakeRenderBundleStep("dispose-layout-only-handle", () => handle.dispose?.());
     }
     return {
       meshHtml,
@@ -141,10 +135,9 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
       ...(atlasLeafHomographyOptimizationStats?.optimizedLeaves
         ? { atlasLeafHomographyOptimizationStats }
         : {}),
-      timing: summarizeQuakeRenderBundleTiming(timing),
     };
   } finally {
-    timeQuakeRenderBundlePhase(timing, "host-remove", () => host.remove());
+    host.remove();
   }
 };
 
@@ -167,25 +160,24 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
     throw new Error("Animated render bundle first frame has no polygons.");
   }
   const host = createQuakeRenderHost();
-  const timing = createQuakeRenderBundleTiming();
 
   try {
-    const atlasLeafBasisRotationPlan = timeQuakeRenderBundlePhase(timing, "basis-plan", () =>
+    const atlasLeafBasisRotationPlan = runQuakeRenderBundleStep("basis-plan", () =>
       optimizeAtlasLeafBasis
         ? quakeAtlasLeafBasisRotationPlan(firstFrame.polygons)
         : null
     );
-    const renderFramePolygons = timeQuakeRenderBundlePhase(timing, "prepare-frame-polygons", () =>
+    const renderFramePolygons = runQuakeRenderBundleStep("prepare-frame-polygons", () =>
       frames.map((frame) =>
         atlasLeafBasisRotationPlan
           ? applyQuakeAtlasLeafBasisRotationPlan(frame.polygons, atlasLeafBasisRotationPlan)
           : frame.polygons
       )
     );
-    const scene = timeQuakeRenderBundlePhase(timing, "scene-create", () =>
+    const scene = runQuakeRenderBundleStep("scene-create", () =>
       createQuakeRenderScene(host, textureQuality)
     );
-    const handle = timeQuakeRenderBundlePhase(timing, "scene-add-first-frame", () =>
+    const handle = runQuakeRenderBundleStep("scene-add-first-frame", () =>
       scene.add(
         {
           polygons: renderFramePolygons[0],
@@ -204,27 +196,26 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
     const outFrames = [];
     let baseLeafFrameStylesByClass = new Map();
     let baseTightAtlasBoundsByKey = null;
-    await timeQuakeRenderBundlePhaseAsync(timing, "initial-texture-wait", () =>
-      waitForBakedTextureLeaves(handle.element, timing, "initial-texture-wait")
+    await runQuakeRenderBundleStepAsync("initial-texture-wait", () =>
+      waitForBakedTextureLeaves(handle.element)
     );
-    const animatedAtlasLeafHomographyPlan = await timeQuakeRenderBundlePhaseAsync(timing, "homography-plan", () =>
+    const animatedAtlasLeafHomographyPlan = await runQuakeRenderBundleStepAsync("homography-plan", () =>
       optimizeAtlasLeafHomography
         ? createQuakeAnimatedAtlasLeafHomographyPlan(handle, renderFramePolygons)
         : null
     );
-    const animatedTriangleAtlasBasisPlan = await timeQuakeRenderBundlePhaseAsync(timing, "triangle-basis-plan", () =>
+    const animatedTriangleAtlasBasisPlan = await runQuakeRenderBundleStepAsync("triangle-basis-plan", () =>
       optimizeAtlasTriangleBasis
         ? createQuakeAnimatedTriangleAtlasBasisPlan(handle.element, renderFramePolygons[0])
         : null
     );
     for (let index = 0; index < frames.length; index++) {
-      const frameStartedAt = performance.now();
       const frame = frames[index];
       if (!frame?.polygons?.length) {
         throw new Error(`Animated render bundle frame ${index} has no polygons.`);
       }
       if (index > 0) {
-        timeQuakeRenderBundlePhase(timing, "frame-set-polygons", () =>
+        runQuakeRenderBundleStep("frame-set-polygons", () =>
           handle.setPolygons(
             renderFramePolygons[index],
             {
@@ -236,46 +227,44 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
         );
       }
       const name = frame.name ?? `frame-${index}`;
-      await timeQuakeRenderBundlePhaseAsync(timing, "frame-texture-wait", () =>
-        waitForBakedTextureLeaves(handle.element, timing, index === 0 ? "frame0-texture-wait" : "frame-texture-wait")
+      await runQuakeRenderBundleStepAsync("frame-texture-wait", () =>
+        waitForBakedTextureLeaves(handle.element)
       );
       if (animatedAtlasLeafHomographyPlan) {
-        timeQuakeRenderBundlePhase(timing, "frame-apply-homography", () =>
+        runQuakeRenderBundleStep("frame-apply-homography", () =>
           applyQuakeAnimatedAtlasLeafHomographyPlan(handle.element, animatedAtlasLeafHomographyPlan, index)
         );
       }
       if (animatedTriangleAtlasBasisPlan) {
-        timeQuakeRenderBundlePhase(timing, "frame-apply-triangle-basis", () =>
+        runQuakeRenderBundleStep("frame-apply-triangle-basis", () =>
           applyQuakeAnimatedTriangleAtlasBasisPlan(handle.element, animatedTriangleAtlasBasisPlan)
         );
       }
       if (tightenAtlasLeaves) {
-        baseTightAtlasBoundsByKey = await timeQuakeRenderBundlePhaseAsync(timing, "frame-tighten-atlas", () =>
+        baseTightAtlasBoundsByKey = await runQuakeRenderBundleStepAsync("frame-tighten-atlas", () =>
           tightenQuakeAtlasLeaves(handle.element, baseTightAtlasBoundsByKey)
         );
       }
-      const adaptiveAtlasLeafSizeStats = timeQuakeRenderBundlePhase(timing, "frame-adaptive-atlas-size", () =>
+      const adaptiveAtlasLeafSizeStats = runQuakeRenderBundleStep("frame-adaptive-atlas-size", () =>
         adaptiveAtlasLeafSize
           ? applyAdaptiveQuakeAtlasLeafSizes(handle.element)
           : null
       );
-      const transformSnapStats = timeQuakeRenderBundlePhase(timing, "frame-snap-transforms", () =>
+      const transformSnapStats = runQuakeRenderBundleStep("frame-snap-transforms", () =>
         snapQuakeLeafTransformsToStableGrid(handle.element)
       );
-      const inheritedFrameStyleResult = timeQuakeRenderBundlePhase(timing, "frame-inherited-style-probe", () =>
+      const inheritedFrameStyleResult = runQuakeRenderBundleStep("frame-inherited-style-probe", () =>
         index > 0 && fastFrameStyles
           ? extractRenderBundleFrameStylesFromInheritedBase(handle.element, baseLeafFrameStylesByClass)
           : null
       );
-      const atlasBackgroundSnapStats = timeQuakeRenderBundlePhase(timing, "frame-snap-backgrounds", () =>
+      const atlasBackgroundSnapStats = runQuakeRenderBundleStep("frame-snap-backgrounds", () =>
         inheritedFrameStyleResult
           ? null
           : snapQuakeAtlasLeafBackgroundsToIntegerPx(handle.element)
       );
       if (index === 0) {
-        const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await timeQuakeRenderBundlePhaseAsync(
-          timing,
-          "frame-serialize-first",
+        const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await runQuakeRenderBundleStepAsync("frame-serialize-first",
           () => serializeMeshWithAssets(handle.element, {
             extractLeafStyles,
             styleClassName: frame.styleClassName,
@@ -306,10 +295,9 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
             ? { triangleAtlasBasisOptimizationStats: animatedTriangleAtlasBasisPlan.stats }
             : {}),
         });
-        recordQuakeRenderBundleFrameTiming(timing, index, frameStartedAt);
         continue;
       }
-      const frameStyleResult = inheritedFrameStyleResult ?? timeQuakeRenderBundlePhase(timing, "frame-extract-styles", () =>
+      const frameStyleResult = inheritedFrameStyleResult ?? runQuakeRenderBundleStep("frame-extract-styles", () =>
         (fastFrameStyles
           ? extractRenderBundleFrameStylesReadOnly
           : extractRenderBundleFrameStyles)(handle.element, {
@@ -326,129 +314,19 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
         atlasLeafCount: frameStyleResult.atlasLeafCount ?? handle.element.querySelectorAll("s").length,
         polygonCount: frame.polygons.length,
       });
-      recordQuakeRenderBundleFrameTiming(timing, index, frameStartedAt);
     }
-    return { frames: outFrames, timing: summarizeQuakeRenderBundleTiming(timing) };
+    return { frames: outFrames };
   } finally {
     host.remove();
   }
 };
 
-function createQuakeRenderBundleTiming() {
-  return {
-    startedAt: performance.now(),
-    phases: new Map(),
-    frames: [],
-    bakeStatsStarted: snapshotQuakeRenderBundleBakeStats(),
-    bakeWaits: [],
-  };
+async function runQuakeRenderBundleStepAsync(_label, callback) {
+  return await callback();
 }
 
-async function timeQuakeRenderBundlePhaseAsync(timing, label, callback) {
-  const startedAt = performance.now();
-  try {
-    return await callback();
-  } finally {
-    addQuakeRenderBundleTimingPhase(timing, label, performance.now() - startedAt);
-  }
-}
-
-function timeQuakeRenderBundlePhase(timing, label, callback) {
-  const startedAt = performance.now();
-  try {
-    return callback();
-  } finally {
-    addQuakeRenderBundleTimingPhase(timing, label, performance.now() - startedAt);
-  }
-}
-
-function addQuakeRenderBundleTimingPhase(timing, label, elapsedMs) {
-  if (!timing) return;
-  const entry = timing.phases.get(label) ?? { label, elapsedMs: 0, count: 0 };
-  entry.elapsedMs += elapsedMs;
-  entry.count++;
-  timing.phases.set(label, entry);
-}
-
-function recordQuakeRenderBundleFrameTiming(timing, frameIndex, startedAt) {
-  timing.frames.push({
-    frame: frameIndex,
-    elapsedMs: Math.round(performance.now() - startedAt),
-  });
-}
-
-function recordQuakeRenderBundleBakeWait(timing, waitStats) {
-  if (!timing || !waitStats) return;
-  timing.bakeWaits.push(waitStats);
-}
-
-function summarizeQuakeRenderBundleTiming(timing) {
-  return {
-    totalMs: Math.round(performance.now() - timing.startedAt),
-    phases: [...timing.phases.values()]
-      .map((entry) => ({
-        label: entry.label,
-        elapsedMs: Math.round(entry.elapsedMs),
-        count: entry.count,
-      }))
-      .sort((a, b) => b.elapsedMs - a.elapsedMs),
-    slowFrames: [...timing.frames]
-      .sort((a, b) => b.elapsedMs - a.elapsedMs)
-      .slice(0, 5),
-    bakeWaits: [...timing.bakeWaits]
-      .sort((a, b) => b.elapsedMs - a.elapsedMs)
-      .slice(0, 5),
-    bakeStats: diffQuakeRenderBundleBakeStats(
-      timing.bakeStatsStarted,
-      snapshotQuakeRenderBundleBakeStats(),
-    ),
-  };
-}
-
-function snapshotQuakeRenderBundleBakeStats() {
-  const stats = window.__quakeRenderBundleBakeStats;
-  if (!stats) return { counts: {}, timings: {}, bytes: {} };
-  return {
-    counts: { ...(stats.counts ?? {}) },
-    timings: Object.fromEntries(
-      Object.entries(stats.timings ?? {}).map(([label, entry]) => [
-        label,
-        {
-          elapsedMs: Number(entry?.elapsedMs) || 0,
-          count: Number(entry?.count) || 0,
-        },
-      ]),
-    ),
-    bytes: { ...(stats.bytes ?? {}) },
-  };
-}
-
-function diffQuakeRenderBundleBakeStats(before, after) {
-  const counts = diffNumberRecords(before?.counts, after?.counts);
-  const bytes = diffNumberRecords(before?.bytes, after?.bytes);
-  const timings = {};
-  const labels = new Set([
-    ...Object.keys(before?.timings ?? {}),
-    ...Object.keys(after?.timings ?? {}),
-  ]);
-  for (const label of labels) {
-    const beforeEntry = before?.timings?.[label] ?? {};
-    const afterEntry = after?.timings?.[label] ?? {};
-    const elapsedMs = (Number(afterEntry.elapsedMs) || 0) - (Number(beforeEntry.elapsedMs) || 0);
-    const count = (Number(afterEntry.count) || 0) - (Number(beforeEntry.count) || 0);
-    if (elapsedMs || count) timings[label] = { elapsedMs: Math.round(elapsedMs), count };
-  }
-  return { counts, timings, bytes };
-}
-
-function diffNumberRecords(before = {}, after = {}) {
-  const diff = {};
-  const labels = new Set([...Object.keys(before), ...Object.keys(after)]);
-  for (const label of labels) {
-    const value = (Number(after[label]) || 0) - (Number(before[label]) || 0);
-    if (value) diff[label] = Math.round(value);
-  }
-  return diff;
+function runQuakeRenderBundleStep(_label, callback) {
+  return callback();
 }
 
 function createQuakeRenderHost() {
@@ -502,70 +380,20 @@ function waitForRenderBundleFrameUpdate() {
   });
 }
 
-async function waitForBakedTextureLeaves(mesh, timing = null, label = "texture-wait") {
+async function waitForBakedTextureLeaves(mesh) {
   const startedAt = performance.now();
-  const startedBakeStats = snapshotQuakeRenderBundleBakeStats();
-  let pollCount = 0;
-  let totalLeaves = 0;
-  let maxPending = 0;
-  let lastPending = null;
-  let queryMs = 0;
-  let frameWaitMs = 0;
-  const pendingTransitions = [];
   while (true) {
-    pollCount++;
-    const queryStartedAt = performance.now();
     const leaves = [...mesh.querySelectorAll("s")];
-    totalLeaves = Math.max(totalLeaves, leaves.length);
     const pending = leaves.filter((leaf) => {
       const style = leaf.getAttribute("style") ?? "";
       return !/background(?:-image)?\s*:/.test(style);
     });
-    const queryElapsed = performance.now() - queryStartedAt;
-    queryMs += queryElapsed;
-    addQuakeRenderBundleTimingPhase(timing, `${label}-query`, queryElapsed);
-    maxPending = Math.max(maxPending, pending.length);
-    if (pending.length !== lastPending) {
-      lastPending = pending.length;
-      pendingTransitions.push({
-        elapsedMs: Math.round(performance.now() - startedAt),
-        pending: pending.length,
-        ready: leaves.length - pending.length,
-        total: leaves.length,
-      });
-    }
-    if (leaves.length === 0 || pending.length === 0) {
-      const elapsedMs = Math.round(performance.now() - startedAt);
-      recordQuakeRenderBundleBakeWait(timing, {
-        label,
-        elapsedMs,
-        pollCount,
-        totalLeaves,
-        maxPending,
-        queryMs: Math.round(queryMs),
-        frameWaitMs: Math.round(frameWaitMs),
-        pendingTransitions: compactQuakeRenderBundlePendingTransitions(pendingTransitions),
-        bakeStats: diffQuakeRenderBundleBakeStats(startedBakeStats, snapshotQuakeRenderBundleBakeStats()),
-      });
-      return;
-    }
+    if (leaves.length === 0 || pending.length === 0) return;
     if (performance.now() - startedAt > QUAKE_RENDER_BUNDLE_TIMEOUT_MS) {
       throw new Error(`Timed out waiting for ${pending.length}/${leaves.length} baked texture leaves.`);
     }
-    const frameStartedAt = performance.now();
     await waitForRenderBundleFrameUpdate();
-    const frameElapsed = performance.now() - frameStartedAt;
-    frameWaitMs += frameElapsed;
-    addQuakeRenderBundleTimingPhase(timing, `${label}-frame`, frameElapsed);
   }
-}
-
-function compactQuakeRenderBundlePendingTransitions(transitions) {
-  if (transitions.length <= 8) return transitions;
-  return [
-    ...transitions.slice(0, 4),
-    ...transitions.slice(-4),
-  ];
 }
 
 function optimizeQuakeAtlasLeafBasisPolygons(polygons) {
@@ -2003,25 +1831,24 @@ function roundCssIntegerPx(value) {
 }
 
 async function serializeMeshWithAssets(mesh, options = {}) {
-  const timing = options.timing ?? null;
-  const serializableMesh = timeQuakeRenderBundlePhase(timing, "serialize-clone", () =>
+  const serializableMesh = runQuakeRenderBundleStep("serialize-clone", () =>
     options.mutateOriginal ? mesh : mesh.cloneNode(true)
   );
-  const leafMetadata = timeQuakeRenderBundlePhase(timing, "serialize-metadata", () =>
+  const leafMetadata = runQuakeRenderBundleStep("serialize-metadata", () =>
     extractRenderBundleLeafMetadata(serializableMesh)
   );
-  timeQuakeRenderBundlePhase(timing, "serialize-strip-metadata", () =>
+  runQuakeRenderBundleStep("serialize-strip-metadata", () =>
     stripRenderBundleMeshMetadata(serializableMesh, {
       preserveLeafPolyIndex: Boolean(options.extractLeafStyles),
     })
   );
   const assetByBlobUrl = new Map();
   if (!options.skipBackgroundAssetExtraction) {
-    const styleElements = timeQuakeRenderBundlePhase(timing, "serialize-query-styles", () => [
+    const styleElements = runQuakeRenderBundleStep("serialize-query-styles", () => [
       serializableMesh,
       ...serializableMesh.querySelectorAll("[style]"),
     ]);
-    timeQuakeRenderBundlePhase(timing, "serialize-replace-blob-urls", () => {
+    runQuakeRenderBundleStep("serialize-replace-blob-urls", () => {
       for (const element of styleElements) {
         const style = element.getAttribute("style");
         if (!style || !style.includes("blob:")) continue;
@@ -2039,18 +1866,18 @@ async function serializeMeshWithAssets(mesh, options = {}) {
         element.setAttribute("style", nextStyle);
       }
     });
-    timeQuakeRenderBundlePhase(timing, "serialize-hoist-backgrounds", () =>
+    runQuakeRenderBundleStep("serialize-hoist-backgrounds", () =>
       hoistRenderBundleBackgroundImages(serializableMesh)
     );
   }
-  const { meshCss, leafFrameStyles } = timeQuakeRenderBundlePhase(timing, "serialize-extract-styles", () =>
+  const { meshCss, leafFrameStyles } = runQuakeRenderBundleStep("serialize-extract-styles", () =>
     options.extractLeafStyles
       ? extractRenderBundleLeafStyles(serializableMesh, options.styleClassName)
       : { meshCss: "", leafFrameStyles: [] }
   );
 
   const assets = [];
-  await timeQuakeRenderBundlePhaseAsync(timing, "serialize-assets", async () => {
+  await runQuakeRenderBundleStepAsync("serialize-assets", async () => {
     for (const asset of assetByBlobUrl.values()) {
       if (options.skipAssetPayloads) {
         assets.push({
@@ -2060,13 +1887,13 @@ async function serializeMeshWithAssets(mesh, options = {}) {
         });
         continue;
       }
-      const response = await timeQuakeRenderBundlePhaseAsync(timing, "serialize-fetch-asset", () =>
+      const response = await runQuakeRenderBundleStepAsync("serialize-fetch-asset", () =>
         fetch(asset.blobUrl)
       );
-      const blob = await timeQuakeRenderBundlePhaseAsync(timing, "serialize-asset-blob", () =>
+      const blob = await runQuakeRenderBundleStepAsync("serialize-asset-blob", () =>
         response.blob()
       );
-      const base64 = await timeQuakeRenderBundlePhaseAsync(timing, "serialize-asset-base64", () =>
+      const base64 = await runQuakeRenderBundleStepAsync("serialize-asset-base64", () =>
         blobToBase64(blob)
       );
       assets.push({
@@ -2078,7 +1905,7 @@ async function serializeMeshWithAssets(mesh, options = {}) {
   });
 
   return {
-    meshHtml: timeQuakeRenderBundlePhase(timing, "serialize-outer-html", () => serializableMesh.outerHTML),
+    meshHtml: runQuakeRenderBundleStep("serialize-outer-html", () => serializableMesh.outerHTML),
     meshCss,
     assets,
     leafMetadata,

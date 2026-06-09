@@ -94,24 +94,16 @@ export async function replaceQuakeRenderBundleWorldAtlas({
     return { enabled: true, replacedLeaves: 0, skippedLeaves: 0, skipped: { invalidInput: 1 } };
   }
 
-  const timing = createDeterministicAtlasTiming();
-  const bspData = timeDeterministicAtlasPhase(timing, "parse-bsp", () => parseQuakeBspFromPak(pakBuffer, mapPath));
-  const renderPolygons = timeDeterministicAtlasPhase(timing, "prepare-render-polygons", () => (
-    optimizeAtlasLeafBasis
-      ? applyQuakeAtlasLeafBasisRotationPlan(polygons, quakeAtlasLeafBasisRotationPlan(polygons))
-      : polygons
-  ));
-  const leaves = timeDeterministicAtlasPhase(timing, "parse-render-leaves", () =>
-    parseRenderBundleAtlasLeaves(renderBundle.meshHtml, renderBundle.leafMetadata)
-  );
+  const bspData = parseQuakeBspFromPak(pakBuffer, mapPath);
+  const renderPolygons = optimizeAtlasLeafBasis
+    ? applyQuakeAtlasLeafBasisRotationPlan(polygons, quakeAtlasLeafBasisRotationPlan(polygons))
+    : polygons;
+  const leaves = parseRenderBundleAtlasLeaves(renderBundle.meshHtml, renderBundle.leafMetadata);
   const tiles = [];
   const skipped = new Map();
   const skipSamples = new Map();
-  const startedAt = Date.now();
   const normalizedImagePolicy = normalizeDeterministicImagePolicy(imagePolicy);
-  const softwareOracle = await timeDeterministicAtlasPhaseAsync(timing, "create-software-oracle", () =>
-    deterministicAtlasNeedsSoftwareOracle() ? createSoftwareQuakeSurfaceOracle() : null
-  );
+  const softwareOracle = deterministicAtlasNeedsSoftwareOracle() ? await createSoftwareQuakeSurfaceOracle() : null;
   const context = {
     boundsBySourceFace: new Map(),
     directPreparedTextureByKey: new Map(),
@@ -121,38 +113,35 @@ export async function replaceQuakeRenderBundleWorldAtlas({
     sourceByFace: new Map(),
     softwareSurfaceBySourceFace: new Map(),
     softwareOracle,
-    timing,
   };
 
   try {
-    await timeDeterministicAtlasPhaseAsync(timing, "leaf-tiles", async () => {
-      for (const leaf of leaves) {
-        const tile = await deterministicLeafTile({
-          bspData,
-          context,
-          leaf,
-          polygons: renderPolygons,
-          visibility,
-        });
-        if (tile?.skip) {
-          incrementStat(skipped, tile.skip);
-          recordSkipSample(skipSamples, tile.skip, tile.sample);
-          continue;
-        }
-        if (!tile) {
-          incrementStat(skipped, "unknown");
-          recordSkipSample(skipSamples, "unknown", { leafIndex: leaf.index });
-          continue;
-        }
-        tiles.push(tile);
+    for (const leaf of leaves) {
+      const tile = await deterministicLeafTile({
+        bspData,
+        context,
+        leaf,
+        polygons: renderPolygons,
+        visibility,
+      });
+      if (tile?.skip) {
+        incrementStat(skipped, tile.skip);
+        recordSkipSample(skipSamples, tile.skip, tile.sample);
+        continue;
       }
-    });
+      if (!tile) {
+        incrementStat(skipped, "unknown");
+        recordSkipSample(skipSamples, "unknown", { leafIndex: leaf.index });
+        continue;
+      }
+      tiles.push(tile);
+    }
   } finally {
-    await timeDeterministicAtlasPhaseAsync(timing, "close-software-oracle", () => softwareOracle?.close?.());
+    await softwareOracle?.close?.();
   }
 
   if (!tiles.length) {
-    const stats = {
+    return {
       enabled: true,
       pageCount: 0,
       replacedLeaves: 0,
@@ -160,147 +149,92 @@ export async function replaceQuakeRenderBundleWorldAtlas({
       skipped: Object.fromEntries([...skipped.entries()].sort()),
       skipSamples: serializeSkipSamples(skipSamples),
     };
-    attachDeterministicAtlasTiming(stats, timing);
-    return stats;
   }
 
   const atlasTiles = [];
   const leafImageTiles = [];
-  timeDeterministicAtlasPhase(timing, "classify-tiles", () => {
-    for (const tile of tiles) {
-      if (deterministicTileUsesLeafImage(tile, normalizedImagePolicy)) {
-        leafImageTiles.push(tile);
-      } else {
-        atlasTiles.push(tile);
-      }
+  for (const tile of tiles) {
+    if (deterministicTileUsesLeafImage(tile, normalizedImagePolicy)) {
+      leafImageTiles.push(tile);
+    } else {
+      atlasTiles.push(tile);
     }
-  });
-  const pages = timeDeterministicAtlasPhase(timing, "pack-atlas-tiles", () => packDeterministicAtlasTiles(atlasTiles));
+  }
+  const pages = packDeterministicAtlasTiles(atlasTiles);
   const coverageFallbackLeaves = tiles.reduce((total, tile) => total + (tile.coverageFallback ? 1 : 0), 0);
   const derivedUvAffineLeaves = tiles.reduce((total, tile) => total + (tile.derivedUvAffine ? 1 : 0), 0);
   const mergedSourceLeaves = tiles.reduce((total, tile) => total + (tile.mergedSourceFaces > 1 ? 1 : 0), 0);
   await mkdir(outputDir, { recursive: true });
   let pageBytes = 0;
   let leafImageBytes = 0;
+  let runtimeTextureImageBytes = 0;
+  let runtimeTextureImageCount = 0;
   const pageAssetUrls = [];
   for (let index = 0; index < pages.length; index++) {
     const page = pages[index];
     const filename = `det-${index}.png`;
     const outputPath = path.join(outputDir, filename);
-    const image = await timeDeterministicAtlasPhaseAsync(timing, "render-atlas-page", () =>
-      renderDeterministicAtlasPage(page)
-    );
-    await timeDeterministicAtlasPhaseAsync(timing, "write-atlas-page", () => writeFile(outputPath, image));
+    const image = await renderDeterministicAtlasPage(page);
+    await writeFile(outputPath, image);
     pageBytes += image.byteLength;
-    addDeterministicAtlasBytes(timing, "atlas-pages", image.byteLength);
     pageAssetUrls.push(`${publicPath}/${filename}`);
   }
   for (const tile of leafImageTiles) {
     const filename = `det-leaf-${tile.leafIndex}.png`;
-    const image = await timeDeterministicAtlasPhaseAsync(timing, "render-leaf-image", () =>
-      renderDeterministicLeafImage(tile)
-    );
-    await timeDeterministicAtlasPhaseAsync(timing, "write-leaf-image", () =>
-      writeFile(path.join(outputDir, filename), image)
-    );
+    const image = await renderDeterministicLeafImage(tile);
+    await writeFile(path.join(outputDir, filename), image);
     leafImageBytes += image.byteLength;
-    addDeterministicAtlasBytes(timing, "leaf-images", image.byteLength);
     tile.leafImageUrl = `${publicPath}/${filename}`;
+  }
+  for (const tile of tiles) {
+    if (!tile.runtimeTextureImages) continue;
+    tile.runtimeTextureUrls = {};
+    for (const [kind, runtimeImage] of Object.entries(tile.runtimeTextureImages)) {
+      if (!runtimeImage?.rgba || !runtimeImage.width || !runtimeImage.height) continue;
+      const filename = `det-leaf-${tile.leafIndex}-${kind}.png`;
+      const image = await renderDeterministicRgbaImage(runtimeImage.width, runtimeImage.height, runtimeImage.rgba);
+      await writeFile(path.join(outputDir, filename), image);
+      runtimeTextureImageBytes += image.byteLength;
+      runtimeTextureImageCount++;
+      tile.runtimeTextureUrls[kind] = `${publicPath}/${filename}`;
+    }
   }
 
   const originalAssetUrls = renderBundle.assetUrls.slice();
   const firstNewAssetIndex = renderBundle.assetUrls.length;
   renderBundle.assetUrls = [...renderBundle.assetUrls, ...pageAssetUrls];
-  renderBundle.meshHtml = timeDeterministicAtlasPhase(timing, "rewrite-mesh-html", () =>
-    rewriteRenderBundleMeshHtmlForDeterministicAtlas(
-      renderBundle.meshHtml,
-      tiles,
-      pageAssetUrls,
-      firstNewAssetIndex,
-    )
+  renderBundle.meshHtml = rewriteRenderBundleMeshHtmlForDeterministicAtlas(
+    renderBundle.meshHtml,
+    tiles,
+    pageAssetUrls,
+    firstNewAssetIndex,
   );
   renderBundle.leafCount = renderBundle.leafMetadata.length;
-  await timeDeterministicAtlasPhaseAsync(timing, "compact-background-assets", () =>
-    compactRenderBundleBackgroundAssets(renderBundle, outputDir, publicPath)
-  );
+  await compactRenderBundleBackgroundAssets(renderBundle, outputDir, publicPath);
 
-  const oldBytes = await timeDeterministicAtlasPhaseAsync(timing, "referenced-old-asset-bytes", () =>
-    referencedAssetBytes(originalAssetUrls, outputDir, publicPath)
-  );
+  const oldBytes = await referencedAssetBytes(originalAssetUrls, outputDir, publicPath);
   const stats = {
     enabled: true,
     imagePolicy: normalizedImagePolicy,
     name,
-    pageBytes: pageBytes + leafImageBytes,
+    pageBytes: pageBytes + leafImageBytes + runtimeTextureImageBytes,
     atlasPageBytes: pageBytes,
     leafImageBytes,
+    runtimeTextureImageBytes,
     pageCount: pages.length,
     atlasTileCount: atlasTiles.length,
     leafImageCount: leafImageTiles.length,
+    runtimeTextureImageCount,
     coverageFallbackLeaves,
     derivedUvAffineLeaves,
     mergedSourceLeaves,
-    elapsedMs: Date.now() - startedAt,
     replacedLeaves: tiles.length,
     skippedLeaves: leaves.length - tiles.length,
     skipped: Object.fromEntries([...skipped.entries()].sort()),
     skipSamples: serializeSkipSamples(skipSamples),
     oldAtlasBytesStillReferenced: oldBytes,
   };
-  attachDeterministicAtlasTiming(stats, timing);
   return stats;
-}
-
-function createDeterministicAtlasTiming() {
-  return {
-    bytes: new Map(),
-    counts: new Map(),
-    phases: new Map(),
-  };
-}
-
-function addDeterministicAtlasPhase(timing, label, elapsedMs) {
-  const current = timing.phases.get(label) ?? { count: 0, elapsedMs: 0 };
-  current.count++;
-  current.elapsedMs += elapsedMs;
-  timing.phases.set(label, current);
-}
-
-function timeDeterministicAtlasPhase(timing, label, callback) {
-  const startedAt = Date.now();
-  try {
-    return callback();
-  } finally {
-    addDeterministicAtlasPhase(timing, label, Date.now() - startedAt);
-  }
-}
-
-async function timeDeterministicAtlasPhaseAsync(timing, label, callback) {
-  const startedAt = Date.now();
-  try {
-    return await callback();
-  } finally {
-    addDeterministicAtlasPhase(timing, label, Date.now() - startedAt);
-  }
-}
-
-function addDeterministicAtlasCount(timing, label, count = 1) {
-  timing.counts.set(label, (timing.counts.get(label) ?? 0) + count);
-}
-
-function addDeterministicAtlasBytes(timing, label, byteCount) {
-  timing.bytes.set(label, (timing.bytes.get(label) ?? 0) + (Number(byteCount) || 0));
-}
-
-function attachDeterministicAtlasTiming(stats, timing) {
-  Object.defineProperty(stats, "timing", {
-    enumerable: false,
-    value: {
-      bytes: Object.fromEntries([...timing.bytes.entries()].sort()),
-      counts: Object.fromEntries([...timing.counts.entries()].sort()),
-      phases: Object.fromEntries([...timing.phases.entries()].sort()),
-    },
-  });
 }
 
 function parseQuakeBspFromPak(pakBuffer, mapPath) {
@@ -347,7 +281,7 @@ async function deterministicLeafTile({ bspData, context, leaf, polygons, visibil
     sourceLightOffset: source.face.lightOffset,
     sourceEdgeCount: source.face.edgeCount,
   });
-  const hasSpecialTexture = sources.some((item) => quakeTextureIsSpecial(item.texture.name));
+  const hasSpecialTexture = sources.some((item) => quakeTextureNeedsPreparedAtlas(item.texture.name));
   if (sources.some((item) => item.texture.name.toLowerCase() !== source.texture.name.toLowerCase())) {
     return { skip: "merged-texture-mismatch", sample: sourceSample() };
   }
@@ -375,17 +309,15 @@ async function deterministicLeafTile({ bspData, context, leaf, polygons, visibil
 
   const sourceBounds = cachedSourceBounds(context, source);
   const baked = polygon.data?.["lm-bake"] === true;
-  const sourceEntries = await timeDeterministicAtlasPhaseAsync(context.timing, "source-entries", () =>
-    Promise.all(sources.map(async (item) => {
-      const bounds = cachedSourceBounds(context, item);
-      return {
-        bounds,
-        polyPoints: item.points.map((point) => quakeToPoly(point, bspData.pivot)),
-        softwareSurface: await cachedWinQuakeSurface(context, item, bounds, bspData),
-        source: item,
-      };
-    }))
-  );
+  const sourceEntries = await Promise.all(sources.map(async (item) => {
+    const bounds = cachedSourceBounds(context, item);
+    return {
+      bounds,
+      polyPoints: item.points.map((point) => quakeToPoly(point, bspData.pivot)),
+      softwareSurface: await cachedWinQuakeSurface(context, item, bounds, bspData),
+      source: item,
+    };
+  }));
   const mergedSourceEntries = sourceEntries.length > 1 ? sourceEntries : null;
   const planMatrix = parseMatrix3dDeclaration(plan.atlasMatrix);
   const sampleMatrix = leaf.matrix ?? planMatrix;
@@ -407,12 +339,7 @@ async function deterministicLeafTile({ bspData, context, leaf, polygons, visibil
   const leafSamplerCoversTile = leafSampler
     ? polygonCoversRasterSampleRect(leafSampler.coveragePoints, leaf.width, leaf.height)
     : false;
-  addDeterministicAtlasCount(context.timing, "leaf-raster-pixels", leaf.width * leaf.height);
-  addDeterministicAtlasCount(context.timing, "leaf-raster-leaves");
-  if (sourceEntries.length > 1) addDeterministicAtlasCount(context.timing, "merged-source-leaves");
-  if (leafSampler) addDeterministicAtlasCount(context.timing, "leaf-sampler-leaves");
-  if (leafSamplerCoversTile) addDeterministicAtlasCount(context.timing, "full-coverage-leaf-raster-leaves");
-
+  const leafSingleSourceFullCoverage = leafSamplerCoversTile ? leafSampler?.singleSourceSample ?? null : null;
   const paintPixelAtPlanPoint = (x, y, planX, planY, localX, localY, options = {}) => {
     let u;
     let v;
@@ -421,10 +348,8 @@ async function deterministicLeafTile({ bspData, context, leaf, polygons, visibil
     let t;
     if (leafSampler && options.useLeafSampler !== false) {
       if (leafSampler.singleSourceSample) {
-        sampleSoftwareSurface = leafSampler.singleSourceSample.softwareSurface;
-        const sample = leafLocalSingleSourceTextureSample(leafSampler.singleSourceSample, localX, localY);
-        s = sample.s;
-        t = sample.t;
+        const offset = (y * leaf.width + x) * 4;
+        return writeLeafLocalSingleSourceSampleRgbAt(leafSampler.singleSourceSample, localX, localY, rgba, offset);
       } else {
         const sample = leafSampler.sample(localX, localY);
         if (!sample) return false;
@@ -467,7 +392,38 @@ async function deterministicLeafTile({ bspData, context, leaf, polygons, visibil
     return true;
   };
 
-  timeDeterministicAtlasPhase(context.timing, "raster-primary", () => {
+  if (leafSingleSourceFullCoverage) {
+    const sample = leafSingleSourceFullCoverage;
+    const matrix = sample.matrix;
+    const texInfo = sample.texInfo;
+    const pivot = sample.pivot;
+    const surface = sample.softwareSurface;
+    const writeRgbAt = QUAKE_DETERMINISTIC_ATLAS_LIGHT_SAMPLING === "vkquake-world" &&
+      surface.texturePixels &&
+      surface.paletteRgb
+      ? writeVkQuakeWorldPassRgbAt
+      : writeVkQuakePostprocessedRgbAt;
+    for (let y = 0; y < leaf.height; y++) {
+      const localY = y + 0.5;
+      const polyXLocalY = matrix[5] * localY;
+      const polyYLocalY = matrix[4] * localY;
+      const polyZLocalY = matrix[6] * localY;
+      for (let x = 0; x < leaf.width; x++) {
+        const localX = x + 0.5;
+        const offset = (y * leaf.width + x) * 4;
+        const polyX = (matrix[1] * localX + polyXLocalY + matrix[13]) / BASE_TILE;
+        const polyY = (matrix[0] * localX + polyYLocalY + matrix[12]) / BASE_TILE;
+        const polyZ = (matrix[2] * localX + polyZLocalY + matrix[14]) / BASE_TILE;
+        const quakeX = polyX / QUAKE_UNIT_SCALE + pivot.x;
+        const quakeY = polyY / QUAKE_UNIT_SCALE + pivot.y;
+        const quakeZ = polyZ / QUAKE_UNIT_SCALE + pivot.z;
+        const s = quakeX * texInfo.s[0] + quakeY * texInfo.s[1] + quakeZ * texInfo.s[2] + texInfo.s[3];
+        const t = quakeX * texInfo.t[0] + quakeY * texInfo.t[1] + quakeZ * texInfo.t[2] + texInfo.t[3];
+        writeRgbAt(surface, s, t, rgba, offset);
+        solidPixels++;
+      }
+    }
+  } else {
     for (let y = 0; y < leaf.height; y++) {
       const localY = y + 0.5;
       const planY = (localY / leaf.height) * plan.canvasH;
@@ -483,44 +439,42 @@ async function deterministicLeafTile({ bspData, context, leaf, polygons, visibil
         if (paintPixelAtPlanPoint(x, y, planX, planY, localX, localY)) solidPixels++;
       }
     }
-  });
+  }
 
   if (!solidPixels) {
     const stepX = plan.canvasW / leaf.width;
     const stepY = plan.canvasH / leaf.height;
-    timeDeterministicAtlasPhase(context.timing, "raster-fallback", () => {
-      for (let y = 0; y < leaf.height; y++) {
-        const localY = y + 0.5;
-        const planY = (localY / leaf.height) * plan.canvasH;
-        const minY = planY - stepY * 0.5;
-        const maxY = planY + stepY * 0.5;
-        for (let x = 0; x < leaf.width; x++) {
-          const localX = x + 0.5;
-          const planX = (localX / leaf.width) * plan.canvasW;
-          const minX = planX - stepX * 0.5;
-          const maxX = planX + stepX * 0.5;
-          let painted = false;
-          const localSample = leafSampler
-            ? samplePolygonPointInRect(leafSampler.coveragePoints, x, y, x + 1, y + 1)
-            : null;
-          if (localSample) {
-            const sampleLocalX = localSample[0];
-            const sampleLocalY = localSample[1];
-            const samplePlanX = (sampleLocalX / leaf.width) * plan.canvasW;
-            const samplePlanY = (sampleLocalY / leaf.height) * plan.canvasH;
-            painted = paintPixelAtPlanPoint(x, y, samplePlanX, samplePlanY, sampleLocalX, sampleLocalY);
-          }
-          if (!painted) {
-            const planSample = samplePolygonPointInRect(planScreenPolygonPoints, minX, minY, maxX, maxY);
-            if (!planSample) continue;
-            painted = paintPixelAtPlanPoint(x, y, planSample[0], planSample[1], localX, localY, {
-              useLeafSampler: false,
-            });
-          }
-          if (painted) solidPixels++;
+    for (let y = 0; y < leaf.height; y++) {
+      const localY = y + 0.5;
+      const planY = (localY / leaf.height) * plan.canvasH;
+      const minY = planY - stepY * 0.5;
+      const maxY = planY + stepY * 0.5;
+      for (let x = 0; x < leaf.width; x++) {
+        const localX = x + 0.5;
+        const planX = (localX / leaf.width) * plan.canvasW;
+        const minX = planX - stepX * 0.5;
+        const maxX = planX + stepX * 0.5;
+        let painted = false;
+        const localSample = leafSampler
+          ? samplePolygonPointInRect(leafSampler.coveragePoints, x, y, x + 1, y + 1)
+          : null;
+        if (localSample) {
+          const sampleLocalX = localSample[0];
+          const sampleLocalY = localSample[1];
+          const samplePlanX = (sampleLocalX / leaf.width) * plan.canvasW;
+          const samplePlanY = (sampleLocalY / leaf.height) * plan.canvasH;
+          painted = paintPixelAtPlanPoint(x, y, samplePlanX, samplePlanY, sampleLocalX, sampleLocalY);
         }
+        if (!painted) {
+          const planSample = samplePolygonPointInRect(planScreenPolygonPoints, minX, minY, maxX, maxY);
+          if (!planSample) continue;
+          painted = paintPixelAtPlanPoint(x, y, planSample[0], planSample[1], localX, localY, {
+            useLeafSampler: false,
+          });
+        }
+        if (painted) solidPixels++;
       }
-    });
+    }
     coverageFallback = solidPixels > 0;
   }
 
@@ -537,9 +491,17 @@ async function deterministicLeafTile({ bspData, context, leaf, polygons, visibil
       },
     };
   }
-  addDeterministicAtlasCount(context.timing, "leaf-solid-pixels", solidPixels);
-  if (coverageFallback) addDeterministicAtlasCount(context.timing, "coverage-fallback-leaves");
-  if (derivedUvAffine) addDeterministicAtlasCount(context.timing, "derived-uv-affine-leaves");
+  const runtimeTextureImages = deterministicRuntimeTextureImagesForLeaf({
+    leaf,
+    renderTexture: (texture) => renderSingleSourceFullCoverageTexture({
+      height: leaf.height,
+      sample: leafSingleSourceFullCoverage,
+      texture,
+      width: leaf.width,
+    }),
+    sourceTexture: source.texture,
+    textures: bspData.textures,
+  });
   return {
     height: leaf.height,
     leafIndex: leaf.index,
@@ -548,6 +510,7 @@ async function deterministicLeafTile({ bspData, context, leaf, polygons, visibil
     mergedSourceFaces: sourceEntries.length,
     matrix: planMatrix,
     rgba,
+    ...(runtimeTextureImages ? { runtimeTextureImages } : {}),
     transformCompensationX: leaf.transformCompensationX,
     transformCompensationY: leaf.transformCompensationY,
     solidPixels,
@@ -585,8 +548,6 @@ async function deterministicPreparedTextureLeafTile({
   const planScreenPolygonPoints = screenPolygonPoints(plan.screenPts);
   const baseRgb = polygon.textureAlphaMode === "opaque" ? parseCssHexRgb(polygon.color) : null;
   let coverageFallback = false;
-  addDeterministicAtlasCount(context.timing, "prepared-texture-leaf-raster-pixels", tileWidth * tileHeight);
-  addDeterministicAtlasCount(context.timing, "prepared-texture-leaves");
 
   const paintPixelAtPlanPoint = (x, y, planX, planY) => {
     const sample = preparedTextureSampleAtPlanPoint(plan, polygon, texture, planX, planY, derivedUvAffine);
@@ -595,42 +556,38 @@ async function deterministicPreparedTextureLeafTile({
     return writePreparedTextureSampleAt(texture, sample, rgba, offset, baseRgb);
   };
 
-  timeDeterministicAtlasPhase(context.timing, "prepared-texture-raster-primary", () => {
-    for (let y = 0; y < tileHeight; y++) {
-      const localY = y + 0.5;
-      const planY = (localY / tileHeight) * plan.canvasH;
-      for (let x = 0; x < tileWidth; x++) {
-        const localX = x + 0.5;
-        const planX = (localX / tileWidth) * plan.canvasW;
-        const inside = pointInScreenPolygon(planX, planY, plan.screenPts);
-        if (!inside) continue;
-        if (paintPixelAtPlanPoint(x, y, planX, planY)) solidPixels++;
-      }
+  for (let y = 0; y < tileHeight; y++) {
+    const localY = y + 0.5;
+    const planY = (localY / tileHeight) * plan.canvasH;
+    for (let x = 0; x < tileWidth; x++) {
+      const localX = x + 0.5;
+      const planX = (localX / tileWidth) * plan.canvasW;
+      const inside = pointInScreenPolygon(planX, planY, plan.screenPts);
+      if (!inside) continue;
+      if (paintPixelAtPlanPoint(x, y, planX, planY)) solidPixels++;
     }
-  });
+  }
 
   if (!solidPixels) {
     const stepX = plan.canvasW / tileWidth;
     const stepY = plan.canvasH / tileHeight;
-    timeDeterministicAtlasPhase(context.timing, "prepared-texture-raster-fallback", () => {
-      for (let y = 0; y < tileHeight; y++) {
-        const localY = y + 0.5;
-        const planY = (localY / tileHeight) * plan.canvasH;
-        const minY = planY - stepY * 0.5;
-        const maxY = planY + stepY * 0.5;
-        for (let x = 0; x < tileWidth; x++) {
-          const localX = x + 0.5;
-          const planX = (localX / tileWidth) * plan.canvasW;
-          const minX = planX - stepX * 0.5;
-          const maxX = planX + stepX * 0.5;
-          let painted = false;
-          const planSample = samplePolygonPointInRect(planScreenPolygonPoints, minX, minY, maxX, maxY);
-          if (!planSample) continue;
-          painted = paintPixelAtPlanPoint(x, y, planSample[0], planSample[1]);
-          if (painted) solidPixels++;
-        }
+    for (let y = 0; y < tileHeight; y++) {
+      const localY = y + 0.5;
+      const planY = (localY / tileHeight) * plan.canvasH;
+      const minY = planY - stepY * 0.5;
+      const maxY = planY + stepY * 0.5;
+      for (let x = 0; x < tileWidth; x++) {
+        const localX = x + 0.5;
+        const planX = (localX / tileWidth) * plan.canvasW;
+        const minX = planX - stepX * 0.5;
+        const maxX = planX + stepX * 0.5;
+        let painted = false;
+        const planSample = samplePolygonPointInRect(planScreenPolygonPoints, minX, minY, maxX, maxY);
+        if (!planSample) continue;
+        painted = paintPixelAtPlanPoint(x, y, planSample[0], planSample[1]);
+        if (painted) solidPixels++;
       }
-    });
+    }
     coverageFallback = solidPixels > 0;
   }
 
@@ -648,9 +605,6 @@ async function deterministicPreparedTextureLeafTile({
     };
   }
 
-  addDeterministicAtlasCount(context.timing, "prepared-texture-leaf-solid-pixels", solidPixels);
-  if (coverageFallback) addDeterministicAtlasCount(context.timing, "prepared-texture-coverage-fallback-leaves");
-  if (derivedUvAffine) addDeterministicAtlasCount(context.timing, "prepared-texture-derived-uv-affine-leaves");
   return {
     height: tileHeight,
     leafIndex: leaf.index,
@@ -669,26 +623,25 @@ async function deterministicPreparedTextureLeafTile({
 
 async function cachedPreparedTexture(context, url) {
   if (context.preparedTextureByUrl.has(url)) {
-    addDeterministicAtlasCount(context.timing, "prepared-texture-cache-hit");
     return context.preparedTextureByUrl.get(url);
   }
-  addDeterministicAtlasCount(context.timing, "prepared-texture-cache-miss");
-  const texture = await timeDeterministicAtlasPhaseAsync(context.timing, "decode-prepared-texture", async () => {
-    const buffer = await context.readTextureUrl(url);
-    if (!buffer) return null;
-    const { data, info } = await sharp(buffer)
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    if (!info?.width || !info?.height || info.channels !== 4) return null;
-    addDeterministicAtlasBytes(context.timing, "prepared-textures", data.byteLength);
-    return {
-      height: info.height,
-      rgba: data,
-      url,
-      width: info.width,
-    };
-  });
+  const buffer = await context.readTextureUrl(url);
+  if (!buffer) {
+    context.preparedTextureByUrl.set(url, null);
+    return null;
+  }
+  const { data, info } = await sharp(buffer)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const texture = !info?.width || !info?.height || info.channels !== 4
+    ? null
+    : {
+        height: info.height,
+        rgba: data,
+        url,
+        width: info.width,
+      };
   context.preparedTextureByUrl.set(url, texture);
   return texture;
 }
@@ -703,11 +656,9 @@ function directPreparedTextureForSource(context, polygon, source, bspData) {
   const sourceKind = textureName.startsWith("sky") ? "sky" : "indexed";
   const key = `${sourceKind}:${source.texture.name}:${brightness.toFixed(4)}`;
   if (context.directPreparedTextureByKey.has(key)) {
-    addDeterministicAtlasCount(context.timing, "direct-prepared-texture-cache-hit");
     return context.directPreparedTextureByKey.get(key);
   }
 
-  addDeterministicAtlasCount(context.timing, "direct-prepared-texture-cache-miss");
   const pixels = sourceKind === "sky" ? quakeCompositeSkyPixels(source.texture) : source.texture.pixels;
   const texture = {
     height: source.texture.height,
@@ -721,7 +672,6 @@ function directPreparedTextureForSource(context, polygon, source, bspData) {
     url: polygon.texture,
     width: source.texture.width,
   };
-  addDeterministicAtlasBytes(context.timing, "direct-prepared-textures", texture.rgba.byteLength);
   context.directPreparedTextureByKey.set(key, texture);
   return texture;
 }
@@ -954,8 +904,8 @@ function parseCssHexRgb(value) {
   ];
 }
 
-function quakeTextureIsSpecial(name) {
-  return name.startsWith("sky") || name.startsWith("*") || name.startsWith("+");
+function quakeTextureNeedsPreparedAtlas(name) {
+  return name.startsWith("sky") || name.startsWith("*");
 }
 
 function cachedSourceFace(context, bspData, sourceFaceIndex) {
@@ -1014,7 +964,7 @@ function leafLocalSingleSourceTextureSampleContext(matrix, entry, pivot) {
   };
 }
 
-function leafLocalSingleSourceTextureSample(context, localX, localY) {
+function writeLeafLocalSingleSourceSampleRgbAt(context, localX, localY, rgba, offset) {
   const matrix = context.matrix;
   const texInfo = context.texInfo;
   const pivot = context.pivot;
@@ -1024,10 +974,123 @@ function leafLocalSingleSourceTextureSample(context, localX, localY) {
   const quakeX = polyX / QUAKE_UNIT_SCALE + pivot.x;
   const quakeY = polyY / QUAKE_UNIT_SCALE + pivot.y;
   const quakeZ = polyZ / QUAKE_UNIT_SCALE + pivot.z;
-  return {
-    s: quakeX * texInfo.s[0] + quakeY * texInfo.s[1] + quakeZ * texInfo.s[2] + texInfo.s[3],
-    t: quakeX * texInfo.t[0] + quakeY * texInfo.t[1] + quakeZ * texInfo.t[2] + texInfo.t[3],
+  const s = quakeX * texInfo.s[0] + quakeY * texInfo.s[1] + quakeZ * texInfo.s[2] + texInfo.s[3];
+  const t = quakeX * texInfo.t[0] + quakeY * texInfo.t[1] + quakeZ * texInfo.t[2] + texInfo.t[3];
+  writeVkQuakePostprocessedRgbAt(context.softwareSurface, s, t, rgba, offset);
+  return true;
+}
+
+function renderSingleSourceFullCoverageTexture({ height, sample, texture, width }) {
+  if (!sample || !texture?.pixels || !texture.width || !texture.height || !width || !height) return null;
+  const matrix = sample.matrix;
+  const texInfo = sample.texInfo;
+  const pivot = sample.pivot;
+  const surface = {
+    ...sample.softwareSurface,
+    texturePixels: texture.pixels,
+    textureHeight: texture.height,
+    textureWidth: texture.width,
   };
+  const rgba = Buffer.alloc(width * height * 4);
+  const writeRgbAt = QUAKE_DETERMINISTIC_ATLAS_LIGHT_SAMPLING === "vkquake-world" &&
+    surface.texturePixels &&
+    surface.paletteRgb
+    ? writeVkQuakeWorldPassRgbAt
+    : writeVkQuakePostprocessedRgbAt;
+  for (let y = 0; y < height; y++) {
+    const localY = y + 0.5;
+    const polyXLocalY = matrix[5] * localY;
+    const polyYLocalY = matrix[4] * localY;
+    const polyZLocalY = matrix[6] * localY;
+    for (let x = 0; x < width; x++) {
+      const localX = x + 0.5;
+      const offset = (y * width + x) * 4;
+      const polyX = (matrix[1] * localX + polyXLocalY + matrix[13]) / BASE_TILE;
+      const polyY = (matrix[0] * localX + polyYLocalY + matrix[12]) / BASE_TILE;
+      const polyZ = (matrix[2] * localX + polyZLocalY + matrix[14]) / BASE_TILE;
+      const quakeX = polyX / QUAKE_UNIT_SCALE + pivot.x;
+      const quakeY = polyY / QUAKE_UNIT_SCALE + pivot.y;
+      const quakeZ = polyZ / QUAKE_UNIT_SCALE + pivot.z;
+      const s = quakeX * texInfo.s[0] + quakeY * texInfo.s[1] + quakeZ * texInfo.s[2] + texInfo.s[3];
+      const t = quakeX * texInfo.t[0] + quakeY * texInfo.t[1] + quakeZ * texInfo.t[2] + texInfo.t[3];
+      writeRgbAt(surface, s, t, rgba, offset);
+    }
+  }
+  return { height, rgba, width };
+}
+
+function deterministicRuntimeTextureImagesForLeaf({ leaf, renderTexture, sourceTexture, textures }) {
+  const attrs = leaf.attrs ?? {};
+  if (!attrs["data-base"] && !attrs["data-pressed"] && !attrs["data-sprite"]) return null;
+  const out = {};
+  if (attrs["data-base"]) {
+    const base = renderTexture(sourceTexture);
+    if (base) out.base = base;
+  }
+  if (attrs["data-pressed"]) {
+    const pressedTexture = buttonPressedTextureFrame(sourceTexture, textures);
+    const pressed = pressedTexture ? renderTexture(pressedTexture) : null;
+    if (pressed) out.pressed = pressed;
+  }
+  if (attrs["data-sprite"]) {
+    const animation = textureAnimationFrameTextures(sourceTexture, textures);
+    if (animation) {
+      const frames = rotateTextureAnimationFrames(animation.frames, animation.frameIndex)
+        .map((frame) => renderTexture(frame));
+      if (frames.length > 1 && frames.every(Boolean)) {
+        out.sprite = stitchHorizontalRuntimeFrames(frames);
+      }
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function stitchHorizontalRuntimeFrames(frames) {
+  const frameWidth = frames[0].width;
+  const frameHeight = frames[0].height;
+  if (!frames.every((frame) => frame.width === frameWidth && frame.height === frameHeight)) return null;
+  const width = frameWidth * frames.length;
+  const height = frameHeight;
+  const rgba = Buffer.alloc(width * height * 4);
+  for (let frameIndex = 0; frameIndex < frames.length; frameIndex++) {
+    const frame = frames[frameIndex];
+    const sourceStride = frameWidth * 4;
+    const targetStride = width * 4;
+    for (let y = 0; y < frameHeight; y++) {
+      const sourceStart = y * sourceStride;
+      const targetStart = (y * targetStride) + frameIndex * sourceStride;
+      frame.rgba.copy(rgba, targetStart, sourceStart, sourceStart + sourceStride);
+    }
+  }
+  return { height, rgba, width };
+}
+
+function textureAnimationFrameTextures(texture, textures) {
+  const match = texture.name.match(/^\+([0-9])(.+)$/);
+  if (!match) return undefined;
+  const suffix = match[2]?.toLowerCase();
+  if (!suffix) return undefined;
+  const frames = textures
+    .filter((item) => {
+      if (!item) return false;
+      const itemMatch = item.name.match(/^\+([0-9])(.+)$/);
+      return Boolean(itemMatch && itemMatch[2]?.toLowerCase() === suffix);
+    })
+    .sort((a, b) => Number(a.name[1]) - Number(b.name[1]));
+  if (frames.length <= 1) return undefined;
+  const frameIndex = frames.findIndex((frame) => frame.name.toLowerCase() === texture.name.toLowerCase());
+  return frameIndex >= 0 ? { frames, frameIndex } : undefined;
+}
+
+function rotateTextureAnimationFrames(frames, frameIndex) {
+  if (frameIndex <= 0) return frames;
+  return [...frames.slice(frameIndex), ...frames.slice(0, frameIndex)];
+}
+
+function buttonPressedTextureFrame(texture, textures) {
+  if (!texture.name.startsWith("+0") || texture.name.length <= 2) return undefined;
+  const pressedName = `+a${texture.name.slice(2)}`.toLowerCase();
+  return textures.find((item) => Boolean(item && item.name.toLowerCase() === pressedName));
 }
 
 function leafLocalToPolyPoint(matrix, localX, localY) {
@@ -1242,23 +1305,11 @@ function cachedSourceBounds(context, source) {
 async function cachedWinQuakeSurface(context, source, bounds, data) {
   const key = source.faceIndex;
   if (context.softwareSurfaceBySourceFace.has(key)) {
-    addDeterministicAtlasCount(context.timing, "software-surface-cache-hit");
     return context.softwareSurfaceBySourceFace.get(key);
   }
-  addDeterministicAtlasCount(context.timing, "software-surface-cache-miss");
   const surface = deterministicAtlasNeedsSoftwareOracle()
-    ? await timeDeterministicAtlasPhaseAsync(context.timing, "software-surface-render", () =>
-      buildWinQuakeSurface(source, bounds, data, context.softwareOracle)
-    )
-    : timeDeterministicAtlasPhase(context.timing, "vk-world-surface", () =>
-      buildVkQuakeWorldSurface(source, bounds, data)
-    );
-  if (surface.cacheWidth && surface.cacheHeight) {
-    addDeterministicAtlasCount(context.timing, "software-surface-pixels", surface.cacheWidth * surface.cacheHeight);
-  }
-  if (surface.cacheData?.byteLength) {
-    addDeterministicAtlasBytes(context.timing, "software-surfaces", surface.cacheData.byteLength);
-  }
+    ? await buildWinQuakeSurface(source, bounds, data, context.softwareOracle)
+    : buildVkQuakeWorldSurface(source, bounds, data);
   context.softwareSurfaceBySourceFace.set(key, surface);
   return surface;
 }
@@ -1337,15 +1388,33 @@ function writeVkQuakePostprocessedRgbAt(surface, s, t, rgba, offset) {
 }
 
 function writeVkQuakeWorldPassRgbAt(surface, s, t, rgba, offset) {
-  const texX = positiveModulo(Math.floor(s), surface.textureWidth);
-  const texY = positiveModulo(Math.floor(t), surface.textureHeight);
+  const texX = wrappedTextureIndex(s, surface.textureWidth);
+  const texY = wrappedTextureIndex(t, surface.textureHeight);
   const paletteIndex = surface.texturePixels[texY * surface.textureWidth + texX] ?? 0;
   const paletteOffset = paletteIndex * 3;
-  const light = paletteIndex >= 224 ? 1 : vkQuakeWorldLightAt(surface, s, t);
+  const light = paletteIndex >= 224
+    ? 1
+    : typeof surface.vkLightGrid?.constantLight === "number"
+      ? surface.vkLightGrid.constantLight
+      : vkQuakeWorldLightAt(surface, s, t);
   rgba[offset] = VKQUAKE_WORLD_POSTPROCESS_LUT[Math.min(255, Math.round((surface.paletteRgb[paletteOffset] ?? 0) * light))];
   rgba[offset + 1] = VKQUAKE_WORLD_POSTPROCESS_LUT[Math.min(255, Math.round((surface.paletteRgb[paletteOffset + 1] ?? 0) * light))];
   rgba[offset + 2] = VKQUAKE_WORLD_POSTPROCESS_LUT[Math.min(255, Math.round((surface.paletteRgb[paletteOffset + 2] ?? 0) * light))];
   rgba[offset + 3] = 255;
+}
+
+function wrappedTextureIndex(value, side) {
+  const index = Math.floor(value);
+  if (
+    side > 0 &&
+    side <= 0x40000000 &&
+    (side & (side - 1)) === 0 &&
+    index >= -0x80000000 &&
+    index <= 0x7fffffff
+  ) {
+    return index & (side - 1);
+  }
+  return positiveModulo(index, side);
 }
 
 function vkQuakeWorldLightAt(surface, s, t) {
@@ -1379,8 +1448,8 @@ function vkQuakeLightSampleByte(grid, x, y) {
 }
 
 function writeVkQuakePostprocessedNearestTextureBilinearLightAt(surface, s, t, rgba, offset) {
-  const texX = positiveModulo(Math.floor(s), surface.textureWidth);
-  const texY = positiveModulo(Math.floor(t), surface.textureHeight);
+  const texX = wrappedTextureIndex(s, surface.textureWidth);
+  const texY = wrappedTextureIndex(t, surface.textureHeight);
   const pix = surface.texturePixels[texY * surface.textureWidth + texX] ?? 0;
   const lightRow = Math.max(0, Math.min((1 << WINQUAKE_VID_CBITS) - 1, Math.round(
     bilinearSoftwareSurfaceLightRow(surface, s - surface.texturemins[0], t - surface.texturemins[1]),
@@ -1722,7 +1791,11 @@ async function renderDeterministicAtlasPage(page) {
 }
 
 function renderDeterministicLeafImage(tile) {
-  return sharp(tile.rgba, { raw: { width: tile.width, height: tile.height, channels: 4 } })
+  return renderDeterministicRgbaImage(tile.width, tile.height, tile.rgba);
+}
+
+function renderDeterministicRgbaImage(width, height, rgba) {
+  return sharp(rgba, { raw: { width, height, channels: 4 } })
     .png()
     .toBuffer();
 }
@@ -1772,9 +1845,26 @@ function rewriteRenderBundleMeshHtmlForDeterministicAtlas(html, tiles, pageAsset
       "height",
       `${tile.height}px`,
     );
-    return match.replace(`style="${style}"`, `style="${nextStyle}"`);
+    let next = match.replace(`style="${style}"`, `style="${nextStyle}"`);
+    if (tile.runtimeTextureUrls?.base) {
+      next = replaceTagAttribute(next, "data-base", tile.runtimeTextureUrls.base);
+    }
+    if (tile.runtimeTextureUrls?.pressed) {
+      next = replaceTagAttribute(next, "data-pressed", tile.runtimeTextureUrls.pressed);
+    }
+    if (tile.runtimeTextureUrls?.sprite) {
+      next = replaceTagAttribute(next, "data-sprite", tile.runtimeTextureUrls.sprite);
+    }
+    return next;
   });
   return appendRenderBundleBackgroundVars(htmlWithLeaves, pageAssetUrls, firstNewAssetIndex);
+}
+
+function replaceTagAttribute(tag, name, value) {
+  const escaped = String(value).replace(/"/g, "&quot;");
+  const pattern = new RegExp(`\\s${name}="[^"]*"`);
+  if (pattern.test(tag)) return tag.replace(pattern, ` ${name}="${escaped}"`);
+  return tag.replace(/>$/, ` ${name}="${escaped}">`);
 }
 
 function deterministicAtlasTileBackground(tile, firstNewAssetIndex) {
@@ -1893,6 +1983,7 @@ function parseRenderBundleAtlasLeaves(html, metadata) {
     const sizing = atlasLeafSizingFromStyle(style, width?.[1], height?.[1]);
     const matrix = compensatedAtlasLeafMatrix(style, sizing);
     out.push({
+      attrs,
       index,
       matrix,
       metadata: metadata[index],

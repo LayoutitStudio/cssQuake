@@ -34,7 +34,6 @@ export interface QuakeTextureEncodeInput {
 }
 
 export type QuakeTextureUrlEncoder = (input: QuakeTextureEncodeInput) => Promise<string>;
-export type QuakePrepareSceneTimingSink = (label: string, elapsedMs: number) => void;
 
 export interface QuakePreparedSceneCreateOptions {
   encodeTextureUrl?: QuakeTextureUrlEncoder;
@@ -62,7 +61,6 @@ export interface QuakePreparedSceneCreateOptions {
   litTextureEncodingTextureNames?: string[];
   gameLogicProgramFacts?: QuakeGameLogicProgramFactsInput | null;
   mapPath?: string;
-  timing?: QuakePrepareSceneTimingSink;
 }
 
 interface QuakeBspPrepareOptions {
@@ -71,7 +69,6 @@ interface QuakeBspPrepareOptions {
   lightmapOverlay: QuakeLightmapOverlayOptions;
   litTextureEncoding: boolean;
   litTextureEncodingTextureNames?: ReadonlySet<string>;
-  timing?: QuakePrepareSceneTimingSink;
 }
 
 interface QuakeLightmapBakeOptions {
@@ -828,7 +825,7 @@ export async function createQuakePreparedSceneFromPakBuffer(
   buffer: ArrayBuffer,
   options: QuakePreparedSceneCreateOptions = {},
 ): Promise<QuakePreparedScene> {
-  const timer = createQuakePrepareSceneTimer(options.timing);
+  const timer = createQuakePrepareSceneTimer();
   const entries = timer.sync("prepare-scene.pak-directory", () => parseQuakePakDirectory(buffer));
   const palette = timer.sync("prepare-scene.palette", () => paletteFromPak(buffer, entries));
   const mapEntry = timer.sync("prepare-scene.select-map", () =>
@@ -849,28 +846,17 @@ export async function createQuakePreparedSceneFromPakBuffer(
       lightmapOverlay: normalizeQuakeLightmapOverlayOptions(options),
       litTextureEncoding: options.litTextureEncoding !== false,
       litTextureEncodingTextureNames: normalizeQuakeTextureNameSet(options.litTextureEncodingTextureNames),
-      timing: options.timing,
     },
   ));
 }
 
-function createQuakePrepareSceneTimer(timing?: QuakePrepareSceneTimingSink) {
+function createQuakePrepareSceneTimer() {
   return {
-    sync<T>(label: string, callback: () => T): T {
-      const startedAt = Date.now();
-      try {
-        return callback();
-      } finally {
-        timing?.(label, Date.now() - startedAt);
-      }
+    sync<T>(_label: string, callback: () => T): T {
+      return callback();
     },
-    async asyncPhase<T>(label: string, callback: () => Promise<T>): Promise<T> {
-      const startedAt = Date.now();
-      try {
-        return await callback();
-      } finally {
-        timing?.(label, Date.now() - startedAt);
-      }
+    async asyncPhase<T>(_label: string, callback: () => Promise<T>): Promise<T> {
+      return await callback();
     },
   };
 }
@@ -1006,7 +992,7 @@ async function createQuakePreparedSceneFromBsp(
     litTextureEncoding: true,
   },
 ): Promise<QuakePreparedScene> {
-  const timer = createQuakePrepareSceneTimer(options.timing);
+  const timer = createQuakePrepareSceneTimer();
   const view = timer.sync("prepare-scene.bsp-view", () => new DataView(buffer));
   timer.sync("prepare-scene.bsp-header", () => {
     assertValidBspHeader(view);

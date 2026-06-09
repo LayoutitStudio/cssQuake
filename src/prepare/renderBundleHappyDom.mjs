@@ -15,114 +15,37 @@ const chromeBackgroundByStyle = new WeakMap();
 
 export async function buildQuakeRenderBundleHappyDom(input, options = {}) {
   return enqueueQuakeRenderBundleHappyDomBuild(async () => {
-    const totalStartedAt = performance.now();
-    const outerPhases = [];
     let environment = null;
-    let result = null;
     try {
-      environment = await timeHappyDomRenderBundleOuterPhase(outerPhases, "happy-dom-env-create", () =>
-        createQuakeRenderBundleHappyDomEnvironment()
-      );
-      const resolvedInput = await timeHappyDomRenderBundleOuterPhase(outerPhases, "texture-resolve", () =>
-        resolveRenderBundleTextureUrls(input, {
-          ...options,
-          bakeStats: environment.window.__quakeRenderBundleBakeStats,
-        })
-      );
-      result = await timeHappyDomRenderBundleOuterPhase(outerPhases, "window-build", () =>
-        environment.window.__buildQuakeRenderBundle(resolvedInput)
-      );
-      return result;
+      environment = await createQuakeRenderBundleHappyDomEnvironment();
+      const resolvedInput = await resolveRenderBundleTextureUrls(input, options);
+      return await environment.window.__buildQuakeRenderBundle(resolvedInput);
     } finally {
-      if (environment) {
-        await timeHappyDomRenderBundleOuterPhase(outerPhases, "happy-dom-close", () => environment.close());
-      }
-      attachHappyDomRenderBundleOuterTiming(result, outerPhases, totalStartedAt);
+      await environment?.close();
     }
   });
 }
 
 export async function buildQuakeAnimatedRenderBundleHappyDom(input, options = {}) {
   return enqueueQuakeRenderBundleHappyDomBuild(async () => {
-    const totalStartedAt = performance.now();
-    const outerPhases = [];
     let environment = null;
-    let result = null;
     try {
-      environment = await timeHappyDomRenderBundleOuterPhase(outerPhases, "happy-dom-env-create", () =>
-        createQuakeRenderBundleHappyDomEnvironment()
-      );
-      const resolvedInput = await timeHappyDomRenderBundleOuterPhase(outerPhases, "texture-resolve", () =>
-        resolveAnimatedRenderBundleTextureUrls(input, {
-          ...options,
-          bakeStats: environment.window.__quakeRenderBundleBakeStats,
-        })
-      );
-      result = await timeHappyDomRenderBundleOuterPhase(outerPhases, "window-build", () =>
-        environment.window.__buildQuakeAnimatedRenderBundle(resolvedInput)
-      );
-      return result;
+      environment = await createQuakeRenderBundleHappyDomEnvironment();
+      const resolvedInput = await resolveAnimatedRenderBundleTextureUrls(input, options);
+      return await environment.window.__buildQuakeAnimatedRenderBundle(resolvedInput);
     } finally {
-      if (environment) {
-        await timeHappyDomRenderBundleOuterPhase(outerPhases, "happy-dom-close", () => environment.close());
-      }
-      attachHappyDomRenderBundleOuterTiming(result, outerPhases, totalStartedAt);
+      await environment?.close();
     }
   });
 }
 
 function enqueueQuakeRenderBundleHappyDomBuild(callback) {
-  const run = renderBundleQueue.then(callback, callback);
+  const run = renderBundleQueue.then(
+    () => callback(),
+    () => callback(),
+  );
   renderBundleQueue = run.catch(() => undefined);
   return run;
-}
-
-async function timeHappyDomRenderBundleOuterPhase(phases, label, callback) {
-  const startedAt = performance.now();
-  try {
-    return await callback();
-  } finally {
-    phases.push({
-      count: 1,
-      elapsedMs: Math.round(performance.now() - startedAt),
-      label,
-    });
-  }
-}
-
-function attachHappyDomRenderBundleOuterTiming(result, phases, totalStartedAt) {
-  if (!result?.timing) return;
-  result.timing.totalMs = Math.round(performance.now() - totalStartedAt);
-  result.timing.phases = [
-    ...(Array.isArray(result.timing.phases) ? result.timing.phases : []),
-    ...phases,
-  ].sort((a, b) => Number(b.elapsedMs) - Number(a.elapsedMs));
-}
-
-function createQuakeRenderBundleBakeStats() {
-  return {
-    counts: Object.create(null),
-    timings: Object.create(null),
-    bytes: Object.create(null),
-  };
-}
-
-function addQuakeRenderBundleBakeCount(stats, label, count = 1) {
-  if (!stats) return;
-  stats.counts[label] = (stats.counts[label] ?? 0) + count;
-}
-
-function addQuakeRenderBundleBakeTiming(stats, label, elapsedMs) {
-  if (!stats) return;
-  const entry = stats.timings[label] ?? { elapsedMs: 0, count: 0 };
-  entry.elapsedMs += Number.isFinite(elapsedMs) ? elapsedMs : 0;
-  entry.count++;
-  stats.timings[label] = entry;
-}
-
-function addQuakeRenderBundleBakeBytes(stats, label, bytes) {
-  if (!stats || !Number.isFinite(bytes)) return;
-  stats.bytes[label] = (stats.bytes[label] ?? 0) + bytes;
 }
 
 async function createQuakeRenderBundleHappyDomEnvironment() {
@@ -136,19 +59,13 @@ async function createQuakeRenderBundleHappyDomEnvironment() {
   });
   const { document } = window;
   const blobUrls = new Map();
-  window.__quakeRenderBundleBakeStats = createQuakeRenderBundleBakeStats();
   const NativeURL = URL;
   let nextBlobId = 0;
 
   class RenderBundleURL extends NativeURL {
     static createObjectURL(blob) {
-      const startedAt = performance.now();
       const url = `blob:quake-render-bundle-${nextBlobId++}`;
       blobUrls.set(url, blob);
-      const stats = window.__quakeRenderBundleBakeStats;
-      addQuakeRenderBundleBakeTiming(stats, "blob-create-object-url", performance.now() - startedAt);
-      addQuakeRenderBundleBakeCount(stats, "blob-create-object-url");
-      addQuakeRenderBundleBakeBytes(stats, "blob-create-object-url", blob?.size ?? 0);
       return url;
     }
 
@@ -161,10 +78,7 @@ async function createQuakeRenderBundleHappyDomEnvironment() {
   const fetchBlobUrl = async (input, init) => {
     const url = typeof input === "string" ? input : input?.url;
     if (blobUrls.has(url)) {
-      const startedAt = performance.now();
       const blob = blobUrls.get(url);
-      addQuakeRenderBundleBakeTiming(window.__quakeRenderBundleBakeStats, "blob-fetch", performance.now() - startedAt);
-      addQuakeRenderBundleBakeCount(window.__quakeRenderBundleBakeStats, "blob-fetch");
       return {
         ok: true,
         status: 200,
@@ -213,34 +127,13 @@ function createQuakeRenderBundleScheduler(window) {
     clearTimeout: (id) => nativeClearTimeout(id),
     cancelAnimationFrame: (id) => nativeClearTimeout(id),
     requestAnimationFrame(callback) {
-      const scheduledAt = performance.now();
-      return nativeSetTimeout(() => {
-        const stats = window.__quakeRenderBundleBakeStats;
-        addQuakeRenderBundleBakeTiming(stats, "raf-wait", performance.now() - scheduledAt);
-        addQuakeRenderBundleBakeCount(stats, "raf-callback");
-        const startedAt = performance.now();
-        try {
-          return callback(window.performance.now());
-        } finally {
-          addQuakeRenderBundleBakeTiming(stats, "raf-callback", performance.now() - startedAt);
-        }
-      }, 0);
+      return nativeSetTimeout(() => callback(window.performance.now()), 0);
     },
     setTimeout(callback, delay = 0, ...args) {
-      const scheduledAt = performance.now();
       const delayMs = Number(delay) || 0;
-      const label = delayMs > 0 ? "timeout-delayed" : "timeout-zero";
       return nativeSetTimeout(() => {
-        const stats = window.__quakeRenderBundleBakeStats;
-        addQuakeRenderBundleBakeTiming(stats, `${label}-wait`, performance.now() - scheduledAt);
-        addQuakeRenderBundleBakeCount(stats, `${label}-callback`);
         if (typeof callback !== "function") return undefined;
-        const startedAt = performance.now();
-        try {
-          return callback(...args);
-        } finally {
-          addQuakeRenderBundleBakeTiming(stats, `${label}-callback`, performance.now() - startedAt);
-        }
+        return callback(...args);
       }, delayMs);
     },
   };
@@ -279,36 +172,19 @@ function patchQuakeRenderBundleCanvas(document) {
       patchQuakeCanvasContextPathTracking(context);
       const drawImage = context.drawImage.bind(context);
       context.drawImage = (...drawArgs) => {
-        const stats = document.defaultView?.__quakeRenderBundleBakeStats;
-        let startedAt = performance.now();
         if (drawQuakeNearestImageData(context, drawArgs)) {
-          addQuakeRenderBundleBakeTiming(stats, "canvas-draw-image-custom", performance.now() - startedAt);
-          addQuakeRenderBundleBakeCount(stats, "canvas-draw-image-custom");
           return;
         }
-        addQuakeRenderBundleBakeTiming(stats, "canvas-draw-image-custom-miss", performance.now() - startedAt);
-        addQuakeRenderBundleBakeCount(stats, "canvas-draw-image-custom-miss");
-        startedAt = performance.now();
-        const result = drawImage(...drawArgs.map((arg) => arg?.__quakeCanvasImage ?? arg));
-        addQuakeRenderBundleBakeTiming(stats, "canvas-draw-image-native", performance.now() - startedAt);
-        addQuakeRenderBundleBakeCount(stats, "canvas-draw-image-native");
-        return result;
+        return drawImage(...drawArgs.map((arg) => arg?.__quakeCanvasImage ?? arg));
       };
       context.__quakeRenderBundleDrawImagePatched = true;
       return context;
     };
     canvas.toBlob = (callback, type = "image/png") => {
-      const stats = document.defaultView?.__quakeRenderBundleBakeStats;
-      const startedAt = performance.now();
       try {
         const buffer = canvas.toBuffer(type);
-        addQuakeRenderBundleBakeTiming(stats, "canvas-to-blob", performance.now() - startedAt);
-        addQuakeRenderBundleBakeCount(stats, "canvas-to-blob");
-        addQuakeRenderBundleBakeBytes(stats, "canvas-to-blob", buffer.byteLength);
         callback(new document.defaultView.Blob([buffer], { type }));
       } catch {
-        addQuakeRenderBundleBakeTiming(stats, "canvas-to-blob-error", performance.now() - startedAt);
-        addQuakeRenderBundleBakeCount(stats, "canvas-to-blob-error");
         callback(null);
       }
     };
@@ -379,25 +255,16 @@ function patchQuakeRenderBundleStyleDeclaration(window) {
   const setProperty = stylePrototype.setProperty;
   const getPropertyValue = stylePrototype.getPropertyValue;
   stylePrototype.setProperty = function patchedSetProperty(name, value, priority) {
-    const stats = window.__quakeRenderBundleBakeStats;
-    const startedAt = performance.now();
     const normalizedName = String(name).trim().toLowerCase();
     if (normalizedName === "background") {
       const parsed = parseChromeBackgroundShorthand(value);
       if (parsed) {
         setChromeBackgroundLonghands(this, parsed, setProperty);
-        addQuakeRenderBundleBakeTiming(stats, "style-set-background-shorthand", performance.now() - startedAt);
-        addQuakeRenderBundleBakeCount(stats, "style-set-background-shorthand");
         return undefined;
       }
     }
     updateChromeBackgroundPart(this, chromeBackgroundPatchForProperty(normalizedName, value));
-    const result = setProperty.call(this, name, value, priority);
-    if (normalizedName.startsWith("background")) {
-      addQuakeRenderBundleBakeTiming(stats, "style-set-background-property", performance.now() - startedAt);
-      addQuakeRenderBundleBakeCount(stats, "style-set-background-property");
-    }
-    return result;
+    return setProperty.call(this, name, value, priority);
   };
   stylePrototype.getPropertyValue = function patchedGetPropertyValue(name) {
     const parsedValue = chromeBackgroundPropertyValue(chromeBackgroundByStyle.get(this), name);
@@ -422,8 +289,6 @@ function patchQuakeRenderBundleStyleDeclaration(window) {
         : backgroundDescriptor?.get?.call(this) ?? this.getPropertyValue("background");
     },
     set(value) {
-      const stats = window.__quakeRenderBundleBakeStats;
-      const startedAt = performance.now();
       const parsed = parseChromeBackgroundShorthand(value);
       if (!parsed) {
         if (backgroundDescriptor?.set) {
@@ -431,13 +296,9 @@ function patchQuakeRenderBundleStyleDeclaration(window) {
         } else {
           this.setProperty("background", value);
         }
-        addQuakeRenderBundleBakeTiming(stats, "style-background-setter-fallback", performance.now() - startedAt);
-        addQuakeRenderBundleBakeCount(stats, "style-background-setter-fallback");
         return;
       }
       setChromeBackgroundLonghands(this, parsed, setProperty);
-      addQuakeRenderBundleBakeTiming(stats, "style-background-setter", performance.now() - startedAt);
-      addQuakeRenderBundleBakeCount(stats, "style-background-setter");
     },
   });
   Object.defineProperty(stylePrototype, "cssText", {
@@ -446,8 +307,6 @@ function patchQuakeRenderBundleStyleDeclaration(window) {
       return cssTextDescriptor?.get?.call(this) ?? "";
     },
     set(value) {
-      const stats = window.__quakeRenderBundleBakeStats;
-      const startedAt = performance.now();
       const parsed = chromeBackgroundFromStyleAttribute(value);
       const expanded = expandChromeStyleAttributeBackgrounds(value);
       if (cssTextDescriptor?.set) {
@@ -459,10 +318,6 @@ function patchQuakeRenderBundleStyleDeclaration(window) {
         }
       }
       if (parsed) chromeBackgroundByStyle.set(this, parsed);
-      if (String(value).includes("background")) {
-        addQuakeRenderBundleBakeTiming(stats, "style-css-text-background", performance.now() - startedAt);
-        addQuakeRenderBundleBakeCount(stats, "style-css-text-background");
-      }
     },
   });
 
@@ -497,15 +352,9 @@ function patchQuakeRenderBundleStyleDeclaration(window) {
     if (String(name).toLowerCase() !== "style") {
       return setAttribute.call(this, name, value);
     }
-    const stats = window.__quakeRenderBundleBakeStats;
-    const startedAt = performance.now();
     const parsed = chromeBackgroundFromStyleAttribute(value);
     const result = setAttribute.call(this, name, expandChromeStyleAttributeBackgrounds(value));
     if (parsed) chromeBackgroundByStyle.set(this.style, parsed);
-    if (String(value).includes("background")) {
-      addQuakeRenderBundleBakeTiming(stats, "element-set-style-background", performance.now() - startedAt);
-      addQuakeRenderBundleBakeCount(stats, "element-set-style-background");
-    }
     return result;
   };
   elementPrototype.getAttribute = function patchedGetAttribute(name) {
@@ -928,7 +777,6 @@ function drawQuakeNearestImageData(context, drawArgs) {
   if (debug) console.error("drawImage custom", { sx, sy, sw, sh, dx, dy, dw, dh, transform });
 
   const canvas = context.canvas;
-  const stats = canvas.ownerDocument?.defaultView?.__quakeRenderBundleBakeStats;
   const corners = [
     [dx, dy],
     [dx + dw, dy],
@@ -960,23 +808,12 @@ function drawQuakeNearestImageData(context, drawArgs) {
   const drawRows = destRows && clipRows
     ? intersectQuakeCanvasRows(destRows, clipRows)
     : destRows ?? clipRows;
-  const candidatePixelCount = (endX - startX) * (endY - startY);
-  addQuakeRenderBundleBakeCount(stats, "canvas-custom-candidate-pixels", candidatePixelCount);
-  addQuakeRenderBundleBakeCount(stats, `canvas-custom-clip-count-${clips.length}`);
-  if (destRows) addQuakeRenderBundleBakeCount(stats, "canvas-custom-dest-scanline");
-  if (clipRows) addQuakeRenderBundleBakeCount(stats, "canvas-custom-scanline-clip");
-  const getImageDataStartedAt = performance.now();
   const imageData = context.getImageData(startX, startY, endX - startX, endY - startY);
-  addQuakeRenderBundleBakeTiming(stats, "canvas-custom-get-image-data", performance.now() - getImageDataStartedAt);
   const out = imageData.data;
-  const pixelLoopStartedAt = performance.now();
-  let visitedPixelCount = 0;
-  let drawnPixelCount = 0;
   for (let y = startY; y < endY; y++) {
     const ranges = drawRows ? drawRows[y - startY] : [[startX, endX]];
     for (const [rangeStartX, rangeEndX] of ranges) {
       for (let x = rangeStartX; x < rangeEndX; x++) {
-        visitedPixelCount++;
         if (clips.some((clip) => !pointInPolygon(x + 0.5, y + 0.5, clip))) continue;
         const tx = x + 0.5 - transform.e;
         const ty = y + 0.5 - transform.f;
@@ -989,7 +826,6 @@ function drawQuakeNearestImageData(context, drawArgs) {
         const targetOffset = ((y - startY) * imageData.width + (x - startX)) * 4;
         const targetAlpha = out[targetOffset + 3];
         const sourceAlpha = pixels.data[sourceOffset + 3];
-        drawnPixelCount++;
         if (preservePartialClipCoverage && targetAlpha > 0 && targetAlpha < 255 && sourceAlpha >= targetAlpha) {
           compositeQuakeCanvasPixel(out, targetOffset, pixels.data, sourceOffset, targetAlpha / 255);
           continue;
@@ -1001,12 +837,7 @@ function drawQuakeNearestImageData(context, drawArgs) {
       }
     }
   }
-  addQuakeRenderBundleBakeTiming(stats, "canvas-custom-pixel-loop", performance.now() - pixelLoopStartedAt);
-  addQuakeRenderBundleBakeCount(stats, "canvas-custom-visited-pixels", visitedPixelCount);
-  addQuakeRenderBundleBakeCount(stats, "canvas-custom-drawn-pixels", drawnPixelCount);
-  const putImageDataStartedAt = performance.now();
   context.putImageData(imageData, startX, startY);
-  addQuakeRenderBundleBakeTiming(stats, "canvas-custom-put-image-data", performance.now() - putImageDataStartedAt);
   return true;
 }
 
@@ -1209,16 +1040,10 @@ async function resolvePolygonTextureUrls(polygons = [], options = {}) {
   if (typeof options.readTextureUrl !== "function") return polygons;
   return Promise.all(polygons.map(async (polygon) => {
     if (typeof polygon?.texture !== "string") return polygon;
-    const startedAt = performance.now();
     const source = await options.readTextureUrl(polygon.texture);
-    addQuakeRenderBundleBakeTiming(options.bakeStats, "texture-read-url", performance.now() - startedAt);
-    addQuakeRenderBundleBakeCount(options.bakeStats, "texture-read-url");
     const dataUrl = typeof source === "string"
       ? source
       : `data:${options.contentTypeForTextureUrl?.(polygon.texture) ?? "image/png"};base64,${Buffer.from(source).toString("base64")}`;
-    if (typeof source !== "string") {
-      addQuakeRenderBundleBakeBytes(options.bakeStats, "texture-read-url", source.byteLength ?? source.length ?? 0);
-    }
     return { ...polygon, texture: dataUrl };
   }));
 }
