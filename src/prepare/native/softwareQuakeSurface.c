@@ -1,4 +1,4 @@
-// Standalone software Quake mip0 surface-cache oracle for scripts/quakeFaceDiff.mjs.
+// Standalone software Quake mip0 surface-cache oracle for deterministic atlas checks.
 // The renderer function structure and arithmetic mirror id Software's GPL Quake
 // source: WinQuake/r_surf.c R_BuildLightMap, R_DrawSurface, and
 // R_DrawSurfaceBlock8_mip0. This helper intentionally excludes dynamic lights

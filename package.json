@@ -12,9 +12,6 @@
     "prepare:quake:map": "node src/prepare/target.mjs map",
     "prepare:quake:model": "node src/prepare/target.mjs model",
     "prepare:quake-logic": "node src/prepare/quakecLogic.mjs",
-    "check:game-logic": "node scripts/checkGameLogic.mjs",
-    "check:hud": "node scripts/checkHudFastPath.mjs",
-    "check:text": "node scripts/checkTextFastPath.mjs",
     "build": "vite build",
     "build:full": "pnpm prepare:quake && vite build",
     "preview": "vite preview"
