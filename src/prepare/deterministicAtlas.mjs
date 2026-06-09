@@ -404,10 +404,14 @@ async function deterministicLeafTile({ bspData, context, leaf, polygons, visibil
   const sampleRect = plan.uvSampleRect;
   const planScreenPolygonPoints = screenPolygonPoints(plan.screenPts);
   let coverageFallback = false;
+  const leafSamplerCoversTile = leafSampler
+    ? polygonCoversRasterSampleRect(leafSampler.coveragePoints, leaf.width, leaf.height)
+    : false;
   addDeterministicAtlasCount(context.timing, "leaf-raster-pixels", leaf.width * leaf.height);
   addDeterministicAtlasCount(context.timing, "leaf-raster-leaves");
   if (sourceEntries.length > 1) addDeterministicAtlasCount(context.timing, "merged-source-leaves");
   if (leafSampler) addDeterministicAtlasCount(context.timing, "leaf-sampler-leaves");
+  if (leafSamplerCoversTile) addDeterministicAtlasCount(context.timing, "full-coverage-leaf-raster-leaves");
 
   const paintPixelAtPlanPoint = (x, y, planX, planY, localX, localY, options = {}) => {
     let u;
@@ -470,7 +474,9 @@ async function deterministicLeafTile({ bspData, context, leaf, polygons, visibil
       for (let x = 0; x < leaf.width; x++) {
         const localX = x + 0.5;
         const planX = (localX / leaf.width) * plan.canvasW;
-        const inside = leafSampler
+        const inside = leafSamplerCoversTile
+          ? true
+          : leafSampler
           ? pointInPolygon2(localX, localY, leafSampler.coveragePoints)
           : pointInScreenPolygon(planX, planY, plan.screenPts);
         if (!inside) continue;
@@ -566,7 +572,7 @@ async function deterministicPreparedTextureLeafTile({
     return { skip: "missing-prepared-texture-reader", sample: sourceSample() };
   }
 
-  const texture = (false && directPreparedTextureForSource(context, polygon, source, bspData)) ??
+  const texture = directPreparedTextureForSource(context, polygon, source, bspData) ??
     await cachedPreparedTexture(context, polygon.texture);
   if (!texture) return { skip: "missing-prepared-texture", sample: sourceSample() };
 
@@ -1079,6 +1085,35 @@ function signedLocalPolygonArea(points) {
     area += points[previous][0] * points[index][1] - points[index][0] * points[previous][1];
   }
   return area * 0.5;
+}
+
+function polygonCoversRasterSampleRect(points, width, height) {
+  if (!localPolygonIsConvex(points)) return false;
+  const minX = 0.5;
+  const minY = 0.5;
+  const maxX = Math.max(minX, width - 0.5);
+  const maxY = Math.max(minY, height - 0.5);
+  return pointInPolygon2(minX, minY, points) &&
+    pointInPolygon2(maxX, minY, points) &&
+    pointInPolygon2(maxX, maxY, points) &&
+    pointInPolygon2(minX, maxY, points);
+}
+
+function localPolygonIsConvex(points) {
+  if (!Array.isArray(points) || points.length < 3) return false;
+  let sign = 0;
+  for (let index = 0; index < points.length; index++) {
+    const a = points[index];
+    const b = points[(index + 1) % points.length];
+    const c = points[(index + 2) % points.length];
+    if (!validLocalPoint(a) || !validLocalPoint(b) || !validLocalPoint(c)) return false;
+    const cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+    if (Math.abs(cross) <= 1e-9) continue;
+    const nextSign = Math.sign(cross);
+    if (sign && nextSign !== sign) return false;
+    sign = nextSign;
+  }
+  return sign !== 0;
 }
 
 function pixelIntersectsLocalPolygon(minX, minY, maxX, maxY, points) {
