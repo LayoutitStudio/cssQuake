@@ -1717,6 +1717,14 @@ async function loadQuakeAtlasImageData(url) {
   let cached = quakeAtlasImageDataCache.get(url);
   if (cached) return cached;
   cached = (async () => {
+    const imageInfo = await renderBundleImageInfo(url);
+    if (imageInfo?.data) {
+      return {
+        width: imageInfo.width,
+        height: imageInfo.height,
+        data: imageInfo.data,
+      };
+    }
     const image = new Image();
     image.decoding = "async";
     image.src = url;
@@ -1738,6 +1746,13 @@ async function loadQuakeAtlasImageData(url) {
   })();
   quakeAtlasImageDataCache.set(url, cached);
   return cached;
+}
+
+async function renderBundleImageInfo(url) {
+  const readImageInfo = globalThis.__quakeRenderBundleImageInfo;
+  if (typeof readImageInfo !== "function") return null;
+  const info = await readImageInfo(url);
+  return info?.width && info.height ? info : null;
 }
 
 function atlasLeafAlphaBounds(atlas, atlasSize, position, backgroundSize) {

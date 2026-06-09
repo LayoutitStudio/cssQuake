@@ -2,6 +2,7 @@ import { createCanvas, DOMMatrix, DOMPoint, DOMRect, Image as CanvasImage, Image
 import { Window } from "happy-dom";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import sharp from "sharp";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const bundleModulePath = path.join(scriptDir, "bundle.mjs");
@@ -89,6 +90,7 @@ async function createQuakeRenderBundleHappyDomEnvironment() {
     return nativeFetch(input, init);
   };
   const RenderBundleImage = createRenderBundleImageClass(blobUrls);
+  const renderBundleImageInfo = createRenderBundleImageInfoReader(blobUrls);
   const scheduler = createQuakeRenderBundleScheduler(window);
 
   patchQuakeRenderBundleCanvas(document);
@@ -102,6 +104,7 @@ async function createQuakeRenderBundleHappyDomEnvironment() {
     Image: RenderBundleImage,
     ImageData,
     Path2D,
+    __quakeRenderBundleImageInfo: renderBundleImageInfo,
     clearTimeout: scheduler.clearTimeout,
     requestAnimationFrame: scheduler.requestAnimationFrame,
     cancelAnimationFrame: scheduler.cancelAnimationFrame,
@@ -654,6 +657,29 @@ function roundHalfEven(value, decimals) {
 
 function trimFixed(value, decimals) {
   return Number(value.toFixed(decimals)).toString();
+}
+
+function createRenderBundleImageInfoReader(blobUrls) {
+  const cache = new Map();
+  return async (source) => {
+    const blob = blobUrls.get(source);
+    if (!blob) return null;
+    let promise = cache.get(source);
+    if (!promise) {
+      promise = (async () => {
+        const buffer = Buffer.from(await blob.arrayBuffer());
+        const { data, info } = await sharp(buffer)
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        return info.width && info.height
+          ? { width: info.width, height: info.height, data: new Uint8ClampedArray(data) }
+          : null;
+      })();
+      cache.set(source, promise);
+    }
+    return promise;
+  };
 }
 
 function createRenderBundleImageClass(blobUrls) {
