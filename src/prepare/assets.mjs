@@ -105,6 +105,7 @@ const quakeRenderBundleAvifQuality = Number.parseInt(process.env.QUAKE_RENDER_BU
 const quakeRenderBundleAvifEffort = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_AVIF_EFFORT ?? "4", 10);
 const quakeRenderBundleConcurrency = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_CONCURRENCY ?? "", 10);
 const quakeRenderBundleModelConcurrency = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_MODEL_CONCURRENCY ?? "", 10);
+const quakePrepareCi = normalizedEnvFlag(process.env.CI);
 const quakeRenderBundleEngine = normalizeQuakeRenderBundleEngine(process.env.QUAKE_RENDER_BUNDLE_ENGINE ?? "happy-dom");
 const quakeRenderBundleFastFrameStyles = process.env.QUAKE_RENDER_BUNDLE_FAST_FRAME_STYLES !== "0";
 const quakePrepareMapOnly = process.env.QUAKE_PREPARE_MAP_ONLY === "1";
@@ -835,9 +836,7 @@ try {
 }
 
 async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
-  const workerCount = Number.isFinite(concurrency)
-    ? Math.max(1, Math.trunc(concurrency))
-    : normalizedQuakeRenderBundleConcurrency();
+  const workerCount = normalizedQuakeRenderBundleConcurrency(concurrency);
   const renderBundleEngine = await createQuakeRenderBundleEngine({ concurrency: workerCount, engine });
   console.log(`Using ${workerCount} render bundle worker${workerCount === 1 ? "" : "s"}`);
 
@@ -1761,7 +1760,7 @@ async function runPrepareStep(_label, callback) {
 }
 
 function normalizedQuakeRenderBundleConcurrency(value = quakeRenderBundleConcurrency) {
-  const maxParallelism = Math.max(1, availableParallelism());
+  const maxParallelism = maxQuakeRenderBundleParallelism();
   if (Number.isFinite(value)) {
     return Math.max(1, Math.min(maxParallelism, Math.trunc(value)));
   }
@@ -1769,7 +1768,7 @@ function normalizedQuakeRenderBundleConcurrency(value = quakeRenderBundleConcurr
 }
 
 function normalizedQuakeRenderBundleModelConcurrency() {
-  const maxParallelism = Math.max(1, availableParallelism());
+  const maxParallelism = maxQuakeRenderBundleParallelism();
   if (Number.isFinite(quakeRenderBundleModelConcurrency)) {
     return normalizedQuakeRenderBundleConcurrency(quakeRenderBundleModelConcurrency);
   }
@@ -1779,6 +1778,16 @@ function normalizedQuakeRenderBundleModelConcurrency() {
   if (maxParallelism >= 12) return Math.min(6, maxParallelism);
   if (maxParallelism >= 8) return 4;
   return normalizedQuakeRenderBundleConcurrency();
+}
+
+function maxQuakeRenderBundleParallelism() {
+  const maxParallelism = Math.max(1, availableParallelism());
+  return quakePrepareCi ? Math.min(2, maxParallelism) : maxParallelism;
+}
+
+function normalizedEnvFlag(value) {
+  const normalized = value?.trim().toLowerCase();
+  return Boolean(normalized && normalized !== "0" && normalized !== "false");
 }
 
 function normalizedQuakeRenderBundleAvifQuality() {
