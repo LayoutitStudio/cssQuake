@@ -1028,6 +1028,8 @@ function quakeResolvedPickupInventoryDelta(
   if (classname === "item_spikes" || classname === "ammo_nails") return { nails: big ? 50 : 25 };
   if (classname === "item_rockets" || classname === "ammo_rockets") return { rockets: big ? 10 : 5 };
   if (classname === "item_cells" || classname === "ammo_cells") return { cells: big ? 12 : 6 };
+  const weaponInventoryDelta = quakeResolvedWeaponPickupInventoryDelta(behavior?.weapon?.ammoGrant);
+  if (weaponInventoryDelta) return weaponInventoryDelta;
   if (classname === "weapon_nailgun" || classname === "weapon_supernailgun") return { nails: 30 };
   if (classname === "weapon_supershotgun") return { shells: 5 };
   if (classname === "weapon_grenadelauncher" || classname === "weapon_rocketlauncher") return { rockets: 5 };
@@ -1361,6 +1363,16 @@ function quakeAmmoInventoryFieldForPlayerField(playerField: string | undefined):
   if (playerField === "ammo_rockets") return "rockets";
   if (playerField === "ammo_cells") return "cells";
   return undefined;
+}
+
+function quakeResolvedWeaponPickupInventoryDelta(
+  ammoGrant: NonNullable<QuakeGameLogicResolvedPickupBehaviorFact["weapon"]>["ammoGrant"] | undefined,
+): QuakeGameLogicPickupInventoryDeltaFact | undefined {
+  if (!ammoGrant) return undefined;
+  if (ammoGrant.inventoryField === "shells") return { shells: ammoGrant.amount };
+  if (ammoGrant.inventoryField === "nails") return { nails: ammoGrant.amount };
+  if (ammoGrant.inventoryField === "rockets") return { rockets: ammoGrant.amount };
+  return { cells: ammoGrant.amount };
 }
 
 function quakeProgramTimeOffsetSeconds(expression: string | undefined): number | undefined {

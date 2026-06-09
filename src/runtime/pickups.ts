@@ -616,6 +616,8 @@ export function quakePickupEffectForEntity(
 ): QuakePickupEffect | null {
   const fact = quakeGameLogicResolvedPickupFact(gameLogic, entity.index);
   if (fact) {
+    const weaponEffect = quakeWeaponAmmoGrantEffect(fact.behavior?.weapon?.ammoGrant);
+    if (weaponEffect) return weaponEffect;
     const effect: QuakePickupEffect = { ...fact.inventoryDelta };
     const armor = fact.behavior?.armor;
     if (armor && effect.armor !== undefined) effect.armorType = armor.armorType;
@@ -643,6 +645,16 @@ export function quakePickupEffectForEntity(
   if (classname.startsWith("item_artifact_")) return {};
   if (classname.startsWith("weapon_") || classname.startsWith("item_") || classname.startsWith("ammo_") || classname.startsWith("key_")) return {};
   return null;
+}
+
+function quakeWeaponAmmoGrantEffect(
+  ammoGrant: { inventoryField: "shells" | "nails" | "rockets" | "cells"; amount: number } | undefined,
+): QuakePickupEffect | null {
+  if (!ammoGrant) return null;
+  if (ammoGrant.inventoryField === "shells") return { shells: ammoGrant.amount };
+  if (ammoGrant.inventoryField === "nails") return { nails: ammoGrant.amount };
+  if (ammoGrant.inventoryField === "rockets") return { rockets: ammoGrant.amount };
+  return { cells: ammoGrant.amount };
 }
 
 export function quakePickupMessageForEntity(

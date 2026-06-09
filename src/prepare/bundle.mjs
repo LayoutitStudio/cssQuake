@@ -1925,7 +1925,9 @@ function extractRenderBundleFrameStyles(mesh, options = {}) {
     preserveLeafPolyIndex: true,
   });
   hoistRenderBundleBackgroundImages(serializableMesh);
-  const { leafFrameStyles } = extractRenderBundleLeafStyles(serializableMesh, options.styleClassName);
+  const { leafFrameStyles } = extractRenderBundleLeafStyles(serializableMesh, options.styleClassName, {
+    baseLeafFrameStylesByClass: options.baseLeafFrameStylesByClass ?? new Map(),
+  });
   return {
     leafFrameStyles: inheritRenderBundleFrameStyleBackgrounds(
       leafFrameStyles,
@@ -1948,11 +1950,8 @@ function extractRenderBundleFrameStylesReadOnly(mesh, options = {}) {
   for (const leaf of mesh.querySelectorAll("b,i,s,u")) {
     leafCount++;
     if (leaf.tagName?.toLowerCase() === "s") atlasLeafCount++;
-    const style = renderBundleLeafStyleWithExplicitAtlasSize(
-      leaf,
-      stylesByElement.get(leaf) ?? leaf.getAttribute("style") ?? "",
-    );
-    if (!style) continue;
+    const rawStyle = stylesByElement.get(leaf) ?? leaf.getAttribute("style") ?? "";
+    if (!rawStyle) continue;
     let leafClass = renderBundleLeafClass(leaf, usedLeafClasses);
     if (!leafClass) {
       do {
@@ -1961,6 +1960,9 @@ function extractRenderBundleFrameStylesReadOnly(mesh, options = {}) {
       } while (usedLeafClasses.has(leafClass));
       usedLeafClasses.add(leafClass);
     }
+    const style = renderBundleLeafStyleWithExplicitAtlasSize(leaf, rawStyle, {
+      baseFrameStyle: baseLeafFrameStylesByClass.get(leafClass),
+    });
     leafFrameStyles.push([leafClass, compactRenderBundleLeafFrameStyle(style)]);
   }
   return {
@@ -1994,13 +1996,14 @@ function extractRenderBundleFrameStylesFromInheritedBase(mesh, baseLeafFrameStyl
       usedLeafClasses.add(leafClass);
     }
     if (!baseLeafFrameStylesByClass.has(leafClass)) return null;
-    const style = renderBundleLeafStyleWithExplicitAtlasSize(leaf, (
+    const rawFrameStyle = (
       rawStyle.includes("--pn") ||
       rawStyle.includes("--polycss-atlas-size") ||
       rawStyle.includes("background-repeat")
     )
       ? stripRenderBundleStyleMetadata(rawStyle)
-      : rawStyle, {
+      : rawStyle;
+    const style = renderBundleLeafStyleWithExplicitAtlasSize(leaf, rawFrameStyle, {
       baseFrameStyle: baseLeafFrameStylesByClass.get(leafClass),
     });
     leafFrameStyles.push([leafClass, compactRenderBundleInheritedLeafFrameStyle(style)]);
@@ -2085,7 +2088,7 @@ function renderBundleIntegerAttr(element, name) {
   return Number.isInteger(value) ? value : undefined;
 }
 
-function extractRenderBundleLeafStyles(mesh, styleClassName) {
+function extractRenderBundleLeafStyles(mesh, styleClassName, options = {}) {
   if (!styleClassName || !/^[a-z_][a-z0-9_-]*$/i.test(styleClassName)) {
     throw new Error(`Invalid render bundle style class name ${JSON.stringify(styleClassName)}.`);
   }
@@ -2095,8 +2098,8 @@ function extractRenderBundleLeafStyles(mesh, styleClassName) {
   const usedLeafClasses = new Set();
   let fallbackLeafIndex = 0;
   for (const leaf of mesh.querySelectorAll("b,i,s,u")) {
-    const style = renderBundleLeafStyleWithExplicitAtlasSize(leaf, leaf.getAttribute("style") ?? "");
-    if (!style) continue;
+    const rawStyle = leaf.getAttribute("style") ?? "";
+    if (!rawStyle) continue;
     let leafClass = renderBundleLeafClass(leaf, usedLeafClasses);
     if (!leafClass) {
       do {
@@ -2105,6 +2108,9 @@ function extractRenderBundleLeafStyles(mesh, styleClassName) {
       } while (usedLeafClasses.has(leafClass));
       usedLeafClasses.add(leafClass);
     }
+    const style = renderBundleLeafStyleWithExplicitAtlasSize(leaf, rawStyle, {
+      baseFrameStyle: options.baseLeafFrameStylesByClass?.get(leafClass),
+    });
     leaf.classList.add(leafClass);
     leaf.removeAttribute("style");
     leaf.removeAttribute("data-poly-index");
