@@ -99,11 +99,13 @@ export function deriveQuakeGameLogicSoundPreloads(gameLogic, options = {}) {
   const preparedSoundPaths = options.preparedSoundPaths
     ? new Set([...options.preparedSoundPaths].map(normalizeQuakeSoundPath).filter(Boolean))
     : null;
+  const includeRegisteredOnlySounds = options.includeRegisteredOnlySounds === true;
   const soundPaths = new Set();
   const entities = [];
   for (const entity of gameLogic?.entities ?? []) {
     const entitySoundPaths = quakeGameLogicEntityAssetRefs(entity, gameLogic)
       .filter((asset) => asset.kind === "sound")
+      .filter((asset) => includeRegisteredOnlySounds || asset.call !== "precache_sound2")
       .map((asset) => normalizeQuakeSoundPath(asset.path))
       .filter(Boolean)
       .filter((soundPath) => !preparedSoundPaths || preparedSoundPaths.has(soundPath));
