@@ -3,6 +3,7 @@ import type { Vec3 } from "@layoutit/polycss";
 import type { QuakeEntity } from "../../prepare/scene";
 import { QUAKE_PLAYER_MINS_Z, STEP_HEIGHT } from "../constants";
 import type { QuakePlayerInventory } from "../hud";
+import type { QuakeMoversDebugStats } from "../movers";
 import type { QuakeShootablesDebugStats } from "../shootables";
 import type { QuakeWorldDebugStats } from "../world";
 
@@ -79,6 +80,7 @@ export interface QuakeDebugRuntime {
   isLoading(): boolean;
   loadMap(mapName: string): Promise<void>;
   mapExists(mapName: string): boolean;
+  moversStats(): QuakeMoversDebugStats;
   playerEyeHeight(): number;
   playerMoveDebug(): Record<string, unknown>;
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
@@ -119,8 +121,11 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
 function damageQuakeDebugPlayer(runtime: QuakeDebugRuntime, amount = 10): boolean {
   if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
   const previousHealth = runtime.inventory().health;
+  const previousArmor = runtime.inventory().armor;
   runtime.hideMainMenu();
-  return runtime.damagePlayer(amount) || runtime.inventory().health < previousHealth;
+  return runtime.damagePlayer(amount) ||
+    runtime.inventory().health < previousHealth ||
+    runtime.inventory().armor < previousArmor;
 }
 
 function debugMountQuakeEntity(runtime: QuakeDebugRuntime, entityIndex: number): boolean {
@@ -283,6 +288,7 @@ function buildQuakeDebugStats(runtime: QuakeDebugRuntime): Record<string, unknow
   const worldStats = runtime.worldStats();
   const shootableStats = runtime.shootablesStats();
   const inventory = runtime.inventory();
+  const playerMove = runtime.playerMoveDebug();
   const cameraRotation = runtime.cameraRotation();
   const cameraForward = runtime.forwardDirection(cameraRotation.rotX, cameraRotation.rotY);
   const enemyMeshes = Array.from(document.querySelectorAll<HTMLElement>(".polycss-mesh.shootable.enemy"));
@@ -312,7 +318,8 @@ function buildQuakeDebugStats(runtime: QuakeDebugRuntime): Record<string, unknow
     fireballs: runtime.fireballsCount(),
     playerHealth: inventory.health,
     playerArmor: inventory.armor,
-    playerMove: runtime.playerMoveDebug(),
+    playerGroundEntity: playerMove.currentGroundEntity ?? null,
+    playerMove,
     playerShells: inventory.shells,
     playerNails: inventory.nails,
     playerRockets: inventory.rockets,
@@ -335,6 +342,7 @@ function buildQuakeDebugStats(runtime: QuakeDebugRuntime): Record<string, unknow
     },
     enemyProjection: buildQuakeProjectionStats(activeEnemyMeshes, "enemy"),
     pickupProjection: buildQuakeProjectionStats(activePickupMeshes, "pickup"),
+    movers: runtime.moversStats(),
     worldLeaves: worldStats.mountedLeaves,
     worldAtlasLeaves: worldStats.mountedAtlasLeaves,
     world: worldStats,

@@ -28,6 +28,7 @@ export interface QuakeViewmodelModel {
 export interface QuakeViewmodelControllerOptions {
   scene: PolySceneHandle;
   controls: Pick<PolyFirstPersonControlsHandle, "getOrigin">;
+  getRenderOrigin?: () => Vec3;
   host: HTMLElement;
   hud: HTMLElement | null;
   layer: HTMLElement | null;
@@ -68,6 +69,7 @@ const QUAKE_WEAPON_SHORT_LANDSCAPE_MAX_HEIGHT_PX = 560;
 export function createQuakeViewmodelController({
   scene,
   controls,
+  getRenderOrigin,
   host,
   layer,
   onMount,
@@ -122,8 +124,9 @@ export function createQuakeViewmodelController({
 
   function syncTransform(): void {
     if (!handle) return;
-    const origin = controls.getOrigin();
-    const bob = updateWalkBob(origin);
+    const movementOrigin = controls.getOrigin();
+    const origin = getRenderOrigin?.() ?? movementOrigin;
+    const bob = updateWalkBob(movementOrigin);
     const rotX = weaponViewRotX(scene.camera.state.rotX ?? 88);
     const rotY = scene.camera.state.rotY ?? 270;
     const weaponPitch = rotX - 90;
@@ -359,7 +362,7 @@ export function createQuakeViewmodelController({
   function weaponStageTransform(transform: string): string {
     const scale = readCameraScale(transform);
     const translateZ = readCameraTranslateZ(transform);
-    const origin = controls.getOrigin();
+    const origin = getRenderOrigin?.() ?? controls.getOrigin();
     const rotX = weaponViewRotX(scene.camera.state.rotX ?? 88);
     const rotY = scene.camera.state.rotY ?? 270;
     const forward = forwardDirection(rotX, rotY);

@@ -7,6 +7,9 @@ export const QUAKE_PMOVE_MAX_SPEED = 320 * QUAKE_COLLISION_UNIT_SCALE;
 export const QUAKE_PMOVE_BACK_SPEED = QUAKE_PMOVE_MAX_SPEED;
 export const QUAKE_PMOVE_FORWARD_SPEED = QUAKE_PMOVE_MAX_SPEED;
 export const QUAKE_PMOVE_SIDE_SPEED = QUAKE_PMOVE_MAX_SPEED;
+export const QUAKE_PMOVE_EDGE_DISTANCE = 16 * QUAKE_COLLISION_UNIT_SCALE;
+export const QUAKE_PMOVE_EDGE_DROP = 34 * QUAKE_COLLISION_UNIT_SCALE;
+export const QUAKE_PMOVE_EDGE_FRICTION = 2;
 
 const QUAKE_PMOVE_ACCELERATE = 10;
 const QUAKE_PMOVE_AIR_ACCELERATE = 10;
@@ -28,6 +31,7 @@ export function updateQuakePlayerPhysics(
   dt: number,
   gravity: number,
   jumpVelocity: number,
+  frictionScale = 1,
 ): boolean {
   const yaw = (command.yawDegrees * Math.PI) / 180;
   const forwardX = -Math.cos(yaw);
@@ -48,7 +52,7 @@ export function updateQuakePlayerPhysics(
 
   if (grounded) {
     velocity[2] = 0;
-    applyQuakeFriction(velocity, dt);
+    applyQuakeFriction(velocity, dt, frictionScale);
     applyQuakeAccelerate(velocity, wishDirectionX, wishDirectionY, wishSpeed, QUAKE_PMOVE_ACCELERATE, dt);
     if (command.jump) {
       velocity[2] += jumpVelocity;
@@ -62,11 +66,12 @@ export function updateQuakePlayerPhysics(
   return grounded;
 }
 
-function applyQuakeFriction(velocity: Vec3, dt: number): void {
+function applyQuakeFriction(velocity: Vec3, dt: number, frictionScale: number): void {
   const speed = Math.hypot(velocity[0], velocity[1]);
   if (speed <= COLLISION_EPSILON) return;
   const control = speed < QUAKE_PMOVE_STOP_SPEED ? QUAKE_PMOVE_STOP_SPEED : speed;
-  const newspeed = Math.max(0, speed - dt * control * QUAKE_PMOVE_FRICTION) / speed;
+  const friction = QUAKE_PMOVE_FRICTION * Math.max(0, frictionScale);
+  const newspeed = Math.max(0, speed - dt * control * friction) / speed;
   velocity[0] *= newspeed;
   velocity[1] *= newspeed;
   velocity[2] *= newspeed;

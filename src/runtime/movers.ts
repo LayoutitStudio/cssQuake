@@ -1,5 +1,13 @@
 import type { Vec3 } from "@layoutit/polycss";
 
+import type {
+  QuakeGameLogicFacts,
+  QuakeGameLogicResolvedFuncButtonFact,
+  QuakeGameLogicResolvedFuncDoorFact,
+  QuakeGameLogicResolvedFuncPlatFact,
+  QuakeGameLogicResolvedFuncTrainFact,
+} from "../prepare/gameLogicFacts";
+import { indexQuakeGameLogicEntityFacts } from "../prepare/gameLogicFacts";
 import type { QuakeEntity, QuakePreparedModel } from "../prepare/scene";
 import type { QuakeTouchedTrigger } from "./collision";
 import {
@@ -37,9 +45,32 @@ export interface QuakeMoverState {
   linkedEntityIndexes: number[];
   targetedPlatPrimed: boolean;
   targetFired: boolean;
+  prebakedButton?: QuakeGameLogicResolvedFuncButtonFact;
+  prebakedDoor?: QuakeGameLogicResolvedFuncDoorFact;
+  prebakedPlat?: QuakeGameLogicResolvedFuncPlatFact;
+  prebakedTrain?: QuakeGameLogicResolvedFuncTrainFact;
   pathBaseOrigin?: Vec3;
   pathCurrentTarget?: string;
   pathNextTarget?: string;
+}
+
+export interface QuakeMoverDebugState {
+  entityIndex: number;
+  classname: string;
+  kind: QuakeMoverKind;
+  mode: QuakeMoverMode;
+  offset: Vec3;
+  closedOffset: Vec3;
+  openOffset: Vec3;
+  speed: number;
+  wait: number;
+  targetedPlatPrimed: boolean;
+}
+
+export interface QuakeMoversDebugStats {
+  moverCount: number;
+  activeMoverCount: number;
+  movers: QuakeMoverDebugState[];
 }
 
 interface QuakeDoorTriggerField {
@@ -70,10 +101,12 @@ export interface QuakeMoversController {
     entities: QuakeEntity[],
     models: QuakePreparedModel[],
     pivot: { x: number; y: number; z: number },
+    gameLogic?: QuakeGameLogicFacts | null,
   ) => void;
   get: (entityIndex: number) => QuakeMoverState | undefined;
   activateEntity: (entityIndex: number, sourceEntityIndex?: number) => boolean;
   activateGroup: (state: QuakeMoverState) => boolean;
+  debugStats: () => QuakeMoversDebugStats;
   touchingDoorTriggerFields: (origin: [number, number, number], eyeHeight: number) => QuakeTouchedTrigger[];
 }
 
@@ -103,16 +136,19 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     entities: QuakeEntity[],
     models: QuakePreparedModel[],
     nextPivot: { x: number; y: number; z: number },
+    gameLogic?: QuakeGameLogicFacts | null,
   ): void => {
     clear();
     pivot = nextPivot;
     pathCorners = pathCornerIndex(entities);
     const modelsByIndex = new Map(models.map((model) => [model.index, model]));
+    const logicEntityByIndex = indexQuakeGameLogicEntityFacts(gameLogic);
     for (const entity of entities) {
       if (entity.modelIndex === undefined || !isQuakeMoverEntity(entity.classname)) continue;
       const model = modelsByIndex.get(entity.modelIndex);
       if (!model) continue;
-      const state = createQuakeMoverState(entity, model, pathCorners);
+      const resolvedMover = logicEntityByIndex.get(entity.index)?.resolvedMover;
+      const state = createQuakeMoverState(entity, model, pathCorners, resolvedMover);
       if (!state) continue;
       movers.set(entity.index, state);
     }
@@ -309,7 +345,7 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     if (!state.pathBaseOrigin || !state.pathNextTarget) return false;
     const next = pathCorners.get(state.pathNextTarget);
     if (!next?.origin) return false;
-    state.openOffset = trainCornerOffset(state.pathBaseOrigin, next.origin);
+    state.openOffset = trainCornerOffset(state.pathBaseOrigin, next.origin, state.closedOffset);
     state.mode = "opening";
     state.waitUntil = 0;
     return true;
@@ -396,6 +432,11 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
       if (!linked.length || !quakeDoorGroupCanSpawnTrigger(linked)) continue;
       const first = linked[0];
       if (!first) continue;
+      const prebakedField = quakeDoorTriggerFieldFromPrebaked(first, linked, pivot);
+      if (prebakedField) {
+        doorTriggerFields.push(prebakedField);
+        continue;
+      }
       const bounds = linked.reduce(
         (acc, linkedState) => unionMoverBounds(acc, moverBounds(linkedState, linkedState.closedOffset, pivot)),
         moverBounds(first, first.closedOffset, pivot),
@@ -469,6 +510,22 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     get: (entityIndex: number) => movers.get(entityIndex),
     activateEntity,
     activateGroup,
+    debugStats: () => ({
+      moverCount: movers.size,
+      activeMoverCount: [...movers.values()].filter(moverLoopActive).length,
+      movers: [...movers.values()].map((state) => ({
+        entityIndex: state.entity.index,
+        classname: state.entity.classname,
+        kind: state.kind,
+        mode: state.mode,
+        offset: [...state.offset] as Vec3,
+        closedOffset: [...state.closedOffset] as Vec3,
+        openOffset: [...state.openOffset] as Vec3,
+        speed: state.speed,
+        wait: state.wait,
+        targetedPlatPrimed: state.targetedPlatPrimed,
+      })),
+    }),
     touchingDoorTriggerFields,
   };
 }
@@ -483,6 +540,13 @@ function isQuakeMoverEntity(classname: string): boolean {
 
 export function quakeButtonIsPressed(state: QuakeMoverState): boolean {
   return state.mode === "opening" || state.mode === "open";
+}
+
+export function quakeMoverBlockDamage(state: QuakeMoverState): number {
+  const amount = state.prebakedDoor?.dmg ??
+    state.prebakedTrain?.dmg ??
+    quakeEntityNumber(state.entity, "dmg", state.kind === "plat" ? 1 : 2);
+  return Math.max(0, Number.isFinite(amount) ? amount : 0);
 }
 
 function quakeMoverDefaultSpeed(classname: string): number {
@@ -509,6 +573,21 @@ function quakePlatTriggerField(
   state: QuakeMoverState,
   pivot: { x: number; y: number; z: number },
 ): QuakePlatTriggerField | null {
+  const prebakedTrigger = state.prebakedPlat?.trigger;
+  if (prebakedTrigger && state.prebakedPlat.travelDistance > COLLISION_EPSILON) {
+    return {
+      entityIndex: state.entity.index,
+      modelIndex: state.model.index,
+      minX: (prebakedTrigger.mins.x - pivot.x) * QUAKE_COLLISION_UNIT_SCALE,
+      maxX: (prebakedTrigger.maxs.x - pivot.x) * QUAKE_COLLISION_UNIT_SCALE,
+      minY: (prebakedTrigger.mins.y - pivot.y) * QUAKE_COLLISION_UNIT_SCALE,
+      maxY: (prebakedTrigger.maxs.y - pivot.y) * QUAKE_COLLISION_UNIT_SCALE,
+      minZ: (prebakedTrigger.mins.z - pivot.z) * QUAKE_COLLISION_UNIT_SCALE,
+      maxZ: (prebakedTrigger.maxs.z - pivot.z) * QUAKE_COLLISION_UNIT_SCALE,
+      contact: "plat-trigger",
+    };
+  }
+
   const travel = Math.abs(state.openOffset[2] - state.closedOffset[2]) / QUAKE_COLLISION_UNIT_SCALE;
   if (travel <= COLLISION_EPSILON) return null;
 
@@ -546,14 +625,52 @@ function quakePlatTriggerField(
   };
 }
 
+function quakeDoorTriggerFieldFromPrebaked(
+  state: QuakeMoverState,
+  linked: QuakeMoverState[],
+  pivot: { x: number; y: number; z: number },
+): QuakeDoorTriggerField | null {
+  const trigger = state.prebakedDoor?.trigger;
+  if (!trigger) return null;
+  if (!sameEntityIndexes(trigger.linkedEntityIndexes, linked.map((linkedState) => linkedState.entity.index))) return null;
+  return {
+    entityIndex: trigger.ownerEntityIndex,
+    modelIndex: trigger.modelIndex,
+    minX: (trigger.mins.x - pivot.x) * QUAKE_COLLISION_UNIT_SCALE,
+    maxX: (trigger.maxs.x - pivot.x) * QUAKE_COLLISION_UNIT_SCALE,
+    minY: (trigger.mins.y - pivot.y) * QUAKE_COLLISION_UNIT_SCALE,
+    maxY: (trigger.maxs.y - pivot.y) * QUAKE_COLLISION_UNIT_SCALE,
+    minZ: (trigger.mins.z - pivot.z) * QUAKE_COLLISION_UNIT_SCALE,
+    maxZ: (trigger.maxs.z - pivot.z) * QUAKE_COLLISION_UNIT_SCALE,
+  };
+}
+
+function sameEntityIndexes(a: readonly number[], b: readonly number[]): boolean {
+  return a.length === b.length &&
+    a.every((value, index) => value === b[index]);
+}
+
 function createQuakeMoverState(
   entity: QuakeEntity,
   model: QuakePreparedModel,
   pathCorners: Map<string, QuakeEntity>,
+  resolvedMover?: QuakeGameLogicFacts["entities"][number]["resolvedMover"],
 ): QuakeMoverState | null {
   const kind = quakeMoverKind(entity.classname);
   if (!kind) return null;
-  if (kind === "train") return createQuakeTrainState(entity, model, pathCorners);
+  if (kind === "train") {
+    const prebakedTrain = resolvedMover?.kind === "func_train" ? resolvedMover : undefined;
+    return createQuakeTrainState(entity, model, pathCorners, prebakedTrain);
+  }
+  const prebakedButton = kind === "button" && resolvedMover?.kind === "func_button"
+    ? resolvedMover
+    : undefined;
+  const prebakedDoor = kind === "door" && resolvedMover?.kind === "func_door"
+    ? resolvedMover
+    : undefined;
+  const prebakedPlat = kind === "plat" && resolvedMover?.kind === "func_plat"
+    ? resolvedMover
+    : undefined;
 
   const closedOffset: Vec3 = [0, 0, 0];
   let openOffset: Vec3;
@@ -561,21 +678,31 @@ function createQuakeMoverState(
   let initialMode: QuakeMoverMode = "closed";
   let targetedPlatPrimed = false;
   const spawnflags = quakeEntitySpawnflags(entity);
-  const wait = quakeEntityNumber(entity, "wait", quakeMoverDefaultWait(entity.classname));
+  const wait =
+    prebakedButton?.wait ??
+    prebakedPlat?.waitAtTop ??
+    prebakedDoor?.wait ??
+    quakeEntityNumber(entity, "wait", quakeMoverDefaultWait(entity.classname));
 
   if (kind === "plat") {
-    const bottomOffset = quakePlatBottomOffset(entity, model);
-    const startsTop = Boolean(entity.properties.targetname);
+    const bottomOffset = prebakedPlat
+      ? quakeVectorToScaledOffset(prebakedPlat.travelOffset)
+      : quakePlatBottomOffset(entity, model);
+    const startsTop = prebakedPlat?.startsTop ?? Boolean(entity.properties.targetname);
     openOffset = [0, 0, 0];
     closedOffset[0] = bottomOffset[0];
     closedOffset[1] = bottomOffset[1];
     closedOffset[2] = bottomOffset[2];
     initialOffset = startsTop ? [...openOffset] as Vec3 : [...closedOffset] as Vec3;
-    initialMode = startsTop ? "open" : "closed";
+    initialMode = prebakedPlat?.initialState === "top" || (!prebakedPlat && startsTop) ? "open" : "closed";
     targetedPlatPrimed = startsTop;
   } else {
-    openOffset = quakeMoverTravelOffset(entity, model);
-    if (kind === "door" && (spawnflags & QUAKE_DOOR_START_OPEN)) {
+    const prebakedTravelOffset = prebakedButton?.travelOffset ?? prebakedDoor?.travelOffset;
+    openOffset = prebakedTravelOffset
+      ? quakeVectorToScaledOffset(prebakedTravelOffset)
+      : quakeMoverTravelOffset(entity, model);
+    const startsOpen = prebakedDoor?.startsOpen ?? Boolean(spawnflags & QUAKE_DOOR_START_OPEN);
+    if (kind === "door" && startsOpen) {
       closedOffset[0] = openOffset[0];
       closedOffset[1] = openOffset[1];
       closedOffset[2] = openOffset[2];
@@ -594,7 +721,13 @@ function createQuakeMoverState(
     closedOffset,
     openOffset,
     mode: initialMode,
-    speed: quakeEntityNumber(entity, "speed", quakeMoverDefaultSpeed(entity.classname)) * QUAKE_COLLISION_UNIT_SCALE,
+    speed: (
+      prebakedButton?.speed ??
+      prebakedPlat?.speed ??
+      prebakedDoor?.speed ??
+      quakeEntityNumber(entity, "speed", quakeMoverDefaultSpeed(entity.classname))
+    ) *
+      QUAKE_COLLISION_UNIT_SCALE,
     wait,
     waitUntil: initialMode === "open" && kind === "plat" ? Infinity : 0,
     once: wait < 0 || (kind === "secret-door" && Boolean(spawnflags & QUAKE_SECRET_OPEN_ONCE)),
@@ -602,6 +735,9 @@ function createQuakeMoverState(
     linkedEntityIndexes: [entity.index],
     targetedPlatPrimed,
     targetFired: false,
+    ...(prebakedButton ? { prebakedButton } : {}),
+    ...(prebakedDoor ? { prebakedDoor } : {}),
+    ...(prebakedPlat ? { prebakedPlat } : {}),
   };
 }
 
@@ -618,29 +754,33 @@ function createQuakeTrainState(
   entity: QuakeEntity,
   model: QuakePreparedModel,
   pathCorners: Map<string, QuakeEntity>,
+  prebakedTrain?: QuakeGameLogicResolvedFuncTrainFact,
 ): QuakeMoverState | null {
-  const firstTarget = entity.properties.target;
+  const firstTarget = prebakedTrain?.initialTarget ?? entity.properties.target;
   const firstCorner = firstTarget ? pathCorners.get(firstTarget) : undefined;
   if (!firstCorner?.origin) return null;
-  const pathBaseOrigin: Vec3 = [
-    firstCorner.origin.x,
-    firstCorner.origin.y,
-    firstCorner.origin.z,
-  ];
+  const rawPathBaseOrigin = prebakedTrain?.pathBaseOrigin ?? firstCorner.origin;
+  const pathBaseOrigin: Vec3 = [rawPathBaseOrigin.x, rawPathBaseOrigin.y, rawPathBaseOrigin.z];
+  const baseOffset = prebakedTrain?.quakeCInitialOrigin
+    ? quakeVectorToScaledOffset(prebakedTrain.quakeCInitialOrigin)
+    : [0, 0, 0] as Vec3;
   const startsInactive = Boolean(entity.properties.targetname);
   const nextTarget = firstCorner.properties.target;
   const nextCorner = nextTarget ? pathCorners.get(nextTarget) : undefined;
-  const openOffset = nextCorner?.origin ? trainCornerOffset(pathBaseOrigin, nextCorner.origin) : [0, 0, 0] as Vec3;
+  const openOffset = nextCorner?.origin
+    ? trainCornerOffset(pathBaseOrigin, nextCorner.origin, baseOffset)
+    : [...baseOffset] as Vec3;
   return {
     entity,
     model,
     kind: "train",
-    offset: [0, 0, 0],
-    lastOffset: [0, 0, 0],
-    closedOffset: [0, 0, 0],
+    offset: [...baseOffset] as Vec3,
+    lastOffset: [...baseOffset] as Vec3,
+    closedOffset: [...baseOffset] as Vec3,
     openOffset,
     mode: startsInactive || !nextCorner ? "closed" : "opening",
-    speed: quakeEntityNumber(entity, "speed", quakeMoverDefaultSpeed(entity.classname)) * QUAKE_COLLISION_UNIT_SCALE,
+    speed: (prebakedTrain?.speed ?? quakeEntityNumber(entity, "speed", quakeMoverDefaultSpeed(entity.classname))) *
+      QUAKE_COLLISION_UNIT_SCALE,
     wait: quakeEntityNumber(entity, "wait", 0),
     waitUntil: startsInactive ? Infinity : 0,
     once: false,
@@ -651,6 +791,7 @@ function createQuakeTrainState(
     pathBaseOrigin,
     pathCurrentTarget: firstTarget,
     pathNextTarget: nextTarget,
+    ...(prebakedTrain ? { prebakedTrain } : {}),
   };
 }
 
@@ -661,6 +802,14 @@ function quakePlatBottomOffset(entity: QuakeEntity, model: QuakePreparedModel): 
     Math.max(0, model.maxs.z - model.mins.z - 8),
   );
   return [0, 0, -height * QUAKE_COLLISION_UNIT_SCALE];
+}
+
+function quakeVectorToScaledOffset(vector: { x: number; y: number; z: number }): Vec3 {
+  return [
+    vector.x * QUAKE_COLLISION_UNIT_SCALE,
+    vector.y * QUAKE_COLLISION_UNIT_SCALE,
+    vector.z * QUAKE_COLLISION_UNIT_SCALE,
+  ];
 }
 
 function quakeMoverTravelOffset(entity: QuakeEntity, model: QuakePreparedModel): Vec3 {
@@ -706,11 +855,15 @@ function pathCornerIndex(entities: QuakeEntity[]): Map<string, QuakeEntity> {
   return out;
 }
 
-function trainCornerOffset(base: Vec3, origin: { x: number; y: number; z: number }): Vec3 {
+function trainCornerOffset(
+  base: Vec3,
+  origin: { x: number; y: number; z: number },
+  baseOffset: Vec3 = [0, 0, 0],
+): Vec3 {
   return [
-    (origin.x - base[0]) * QUAKE_COLLISION_UNIT_SCALE,
-    (origin.y - base[1]) * QUAKE_COLLISION_UNIT_SCALE,
-    (origin.z - base[2]) * QUAKE_COLLISION_UNIT_SCALE,
+    baseOffset[0] + (origin.x - base[0]) * QUAKE_COLLISION_UNIT_SCALE,
+    baseOffset[1] + (origin.y - base[1]) * QUAKE_COLLISION_UNIT_SCALE,
+    baseOffset[2] + (origin.z - base[2]) * QUAKE_COLLISION_UNIT_SCALE,
   ];
 }
 

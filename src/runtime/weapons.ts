@@ -46,6 +46,7 @@ export interface QuakeWeaponsControllerOptions {
   playFireAnimation(): void;
   damageShootable(entityIndex: number, amount: number): boolean;
   damageBrushEntity(entityIndex: number, amount: number): boolean;
+  damageMultiplier?: () => number;
   onHit(): void;
   syncCrosshairTarget(): void;
 }
@@ -83,6 +84,7 @@ export function createQuakeWeaponsController({
   playFireAnimation,
   damageShootable,
   damageBrushEntity,
+  damageMultiplier,
   onHit,
   syncCrosshairTarget,
 }: QuakeWeaponsControllerOptions): QuakeWeaponsController {
@@ -258,16 +260,22 @@ export function createQuakeWeaponsController({
   }
 
   function damageWeaponEntity(entityIndex: number, amount: number): boolean {
+    const damageAmount = scaledWeaponDamage(amount);
     for (const shootable of getShootables()) {
       if (shootable.dead || shootable.entity.index !== entityIndex) continue;
-      return damageShootable(entityIndex, amount);
+      return damageShootable(entityIndex, damageAmount);
     }
     const entity = getEntities().get(entityIndex);
     if (!entity) return false;
     if (isShootableBrushEntity(entity)) {
-      return damageBrushEntity(entity.index, amount);
+      return damageBrushEntity(entity.index, damageAmount);
     }
     return false;
+  }
+
+  function scaledWeaponDamage(amount: number): number {
+    const multiplier = damageMultiplier?.() ?? 1;
+    return amount * (Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1);
   }
 
   return {

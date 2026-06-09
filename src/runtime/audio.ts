@@ -1,3 +1,5 @@
+import type { QuakeGameLogicFacts } from "../prepare/gameLogicFacts";
+import { quakeGameLogicResolvedPickupFact } from "../prepare/gameLogicFacts";
 import type { QuakeEntity } from "../prepare/scene";
 
 export interface QuakeSoundManifest {
@@ -34,7 +36,7 @@ export interface QuakeSoundController {
   toggleMuted(): boolean;
   unlock(): void;
   playEvent(event: QuakeSoundEvent, options?: QuakeSoundPlayOptions): boolean;
-  playPickup(entity: QuakeEntity): boolean;
+  playPickup(entity: QuakeEntity, gameLogic?: QuakeGameLogicFacts | null): boolean;
   playSound(soundPath: string, options?: QuakeSoundPlayOptions): boolean;
 }
 
@@ -110,8 +112,8 @@ export function createQuakeSoundController(): QuakeSoundController {
     return playFirst(QUAKE_SOUND_EVENT_CANDIDATES[event], options);
   }
 
-  function playPickup(entity: QuakeEntity): boolean {
-    return playEvent(pickupSoundEvent(entity));
+  function playPickup(entity: QuakeEntity, gameLogic: QuakeGameLogicFacts | null = null): boolean {
+    return playFirst(quakePickupSoundCandidates(entity, gameLogic), {});
   }
 
   function playSound(soundPath: string, options: QuakeSoundPlayOptions = {}): boolean {
@@ -212,6 +214,24 @@ function normalizeSoundManifest(manifest: QuakeSoundManifest | null): Map<string
     out.set(soundKey(key), url);
   }
   return out;
+}
+
+export function quakePickupSoundPath(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null = null,
+): string {
+  return quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.feedback?.sound ??
+    QUAKE_SOUND_EVENT_CANDIDATES[pickupSoundEvent(entity)][0];
+}
+
+function quakePickupSoundCandidates(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null,
+): string[] {
+  const eventCandidates = QUAKE_SOUND_EVENT_CANDIDATES[pickupSoundEvent(entity)];
+  const factSound = quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.feedback?.sound;
+  if (!factSound) return eventCandidates;
+  return [factSound, ...eventCandidates.filter((candidate) => soundKey(candidate) !== soundKey(factSound))];
 }
 
 function pickupSoundEvent(entity: QuakeEntity): QuakeSoundEvent {

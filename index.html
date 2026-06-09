@@ -33,6 +33,8 @@
       content="Play Quake shareware maps rendered as real DOM geometry with HTML, CSS transforms, and PolyCSS."
     />
     <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#050505" />
+    <meta name="apple-mobile-web-app-title" content="cssQuake" />
     <link rel="canonical" href="https://cssquake.com/" />
     <meta property="og:site_name" content="cssQuake" />
     <meta property="og:type" content="website" />
@@ -68,6 +70,9 @@
       }
     </script>
     <link rel="icon" href="/src/assets/favicon.ico" type="image/x-icon" />
+    <link rel="icon" href="/assets/app-icon-192.png" type="image/png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <style>
       html,
       body {
@@ -109,8 +114,8 @@
 
       .cssquake-logo {
         position: absolute;
-        top: 14px;
-        left: 14px;
+        top: 8px;
+        left: 8px;
         z-index: 40;
         display: block;
         width: auto;
@@ -132,8 +137,8 @@
 
       .cssquake-version {
         position: absolute;
-        top: calc(14px + min(16px, calc((100vw - 92px) * 0.0676)));
-        left: calc(22px + min(237px, calc((100vw - 92px) * 0.9)));
+        top: calc(16px + min(12px, calc((100vw - 92px) * 0.0507)));
+        left: calc(16px + min(237px, calc((100vw - 92px) * 0.9)));
         z-index: 40;
         color: #ffffff;
         font: 400 12px/1 ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
@@ -350,7 +355,8 @@
       <div id="quake-hud">
         <div id="quake-bonus-overlay" aria-hidden="true"></div>
         <div id="quake-damage-overlay" aria-hidden="true"></div>
-        <div id="quake-hud-status" role="status" aria-live="polite" hidden></div>
+        <div id="quake-notify" role="log" aria-live="polite" hidden></div>
+        <div id="quake-centerprint" role="status" aria-live="polite" hidden></div>
         <div id="quake-main-menu" role="button" tabindex="-1" aria-label="cssQuake menu" hidden>
           <span id="quake-main-menu-art">
             <span id="quake-main-menu-brand">
@@ -544,8 +550,27 @@
         <div id="quake-crosshair" aria-hidden="true"></div>
         <div id="quake-classic-hud" aria-label="Quake status bar">
           <img id="quake-classic-hud-image" src="/q/hud.png" width="320" height="24" alt="" />
+          <div id="quake-hud-inventory" aria-hidden="true"></div>
+          <div id="quake-hud-status-row" aria-hidden="true"></div>
           <div id="quake-hud-frame" aria-hidden="true">
-            <span class="quake-hud-sprite quake-hud-sprite-shells"></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="armor-green" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="armor-yellow" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="armor-red" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="face-normal" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="face-invisibility" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="face-invulnerability" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="face-invisibility-invulnerability" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="face-quad" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="ammo-shells" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="ammo-nails" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="ammo-rockets" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="ammo-cells" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="key-silver" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="key-gold" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="powerup-invisibility" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="powerup-invulnerability" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="powerup-biosuit" hidden></span>
+            <span class="quake-hud-slot" data-quake-hud-slot="powerup-quad" hidden></span>
           </div>
           <div id="quake-hud-values" aria-hidden="true">
             <span id="quake-hud-armor-value" class="quake-hud-readout quake-hud-readout-armor">
@@ -570,10 +595,6 @@
               <span class="quake-hud-digit"></span>
               <span class="quake-hud-digit"></span>
               <span class="quake-hud-digit"></span>
-            </span>
-            <span id="quake-hud-keys-value" class="quake-hud-keys">
-              <span class="quake-hud-key quake-hud-key-silver">S</span>
-              <span class="quake-hud-key quake-hud-key-gold">G</span>
             </span>
           </div>
         </div>

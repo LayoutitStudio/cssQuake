@@ -105,6 +105,9 @@ body.quake-debug-labels #quake-app .polycss-mesh s[data-quake-poly-id]::after {
   will-change: transform;
 }
 #quake-hud {
+  --quake-notify-top: calc(8px + min(45px, calc((100vw - 92px) * 0.1902)) + 12px);
+  --quake-notify-stack-height: 96px;
+  --quake-centerprint-safe-top: max(35%, calc(var(--quake-notify-top) + var(--quake-notify-stack-height) + 12px));
   position: absolute;
   inset: 0;
   z-index: 3;
@@ -168,8 +171,8 @@ body.quake-menu-open.quake-dead #quake-damage-overlay {
 }
 .cssquake-logo {
   position: absolute;
-  top: 14px;
-  left: 14px;
+  top: 8px;
+  left: 8px;
   z-index: 40;
   display: block;
   width: auto;
@@ -193,8 +196,8 @@ body.quake-loading .cssquake-version {
 }
 .cssquake-version {
   position: absolute;
-  top: calc(14px + min(16px, calc((100vw - 92px) * 0.0676)));
-  left: calc(22px + min(237px, calc((100vw - 92px) * 0.9)));
+  top: calc(16px + min(12px, calc((100vw - 92px) * 0.0507)));
+  left: calc(16px + min(237px, calc((100vw - 92px) * 0.9)));
   z-index: 40;
   color: #ffffff;
   font: 400 12px/1 ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
@@ -408,33 +411,106 @@ body.quake-menu-open #quake-loading-overlay.quake-loading-death {
     bottom: calc(8vw + 10px);
   }
 }
-#quake-hud-status {
+#quake-notify {
+  position: absolute;
+  left: 8px;
+  top: var(--quake-notify-top);
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: min(760px, calc(100vw - 16px));
+  pointer-events: none;
+}
+#quake-notify[hidden] {
+  display: none;
+}
+.quake-notify-line {
+  display: block;
+  height: 24px;
+}
+#quake-notify .quake-bitmap-text {
+  --quake-bitmap-glyph-size: 24px;
+  --quake-bitmap-sheet-size: 384px;
+  --quake-bitmap-space-size: 24px;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+#quake-centerprint {
   position: absolute;
   left: 50%;
-  top: 42%;
+  top: var(--quake-centerprint-safe-top);
   z-index: 7;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: min(760px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+#quake-centerprint[hidden] {
   display: none;
-  padding: 10px 14px;
-  border: 1px solid rgba(205, 112, 40, 0.72);
-  background: rgba(0, 0, 0, 0.78);
-  color: #d86f2d;
-  font-family: ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
-  font-size: clamp(18px, 3vw, 44px);
-  font-weight: 900;
-  line-height: 1;
-  text-shadow: 0 2px 0 #000000;
-  transform: translate(-50%, -50%);
-  white-space: nowrap;
 }
-body.quake-hud-message #quake-hud-status:not([hidden]),
-body.quake-level-complete #quake-hud-status:not([hidden]) {
-  display: block;
+.quake-centerprint-line {
+  display: flex;
+  justify-content: center;
+  min-height: 28px;
 }
-body.quake-hud-message #quake-hud-status {
-  max-width: min(720px, calc(100vw - 32px));
-  line-height: 1.15;
-  text-align: center;
-  white-space: pre-line;
+#quake-centerprint .quake-bitmap-text {
+  --quake-bitmap-glyph-size: 28px;
+  --quake-bitmap-sheet-size: 448px;
+  --quake-bitmap-space-size: 28px;
+  flex-wrap: nowrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0;
+}
+#quake-notify .quake-bitmap-glyph,
+#quake-centerprint .quake-bitmap-glyph {
+  filter: drop-shadow(2px 2px 0 #000000);
+}
+@media (max-width: 700px) {
+  #quake-hud {
+    --quake-notify-stack-height: 72px;
+  }
+  .quake-centerprint-line {
+    min-height: 22px;
+  }
+  #quake-centerprint .quake-bitmap-text {
+    --quake-bitmap-glyph-size: 22px;
+    --quake-bitmap-sheet-size: 352px;
+    --quake-bitmap-space-size: 22px;
+  }
+  .quake-notify-line {
+    height: 18px;
+  }
+  #quake-notify .quake-bitmap-text {
+    --quake-bitmap-glyph-size: 18px;
+    --quake-bitmap-sheet-size: 288px;
+    --quake-bitmap-space-size: 18px;
+  }
+}
+@media (max-width: 480px) {
+  #quake-hud {
+    --quake-notify-stack-height: 64px;
+  }
+  .quake-centerprint-line {
+    min-height: 16px;
+  }
+  #quake-centerprint .quake-bitmap-text {
+    --quake-bitmap-glyph-size: 16px;
+    --quake-bitmap-sheet-size: 256px;
+    --quake-bitmap-space-size: 16px;
+  }
+  .quake-notify-line {
+    height: 16px;
+  }
+  #quake-notify .quake-bitmap-text {
+    --quake-bitmap-glyph-size: 16px;
+    --quake-bitmap-sheet-size: 256px;
+    --quake-bitmap-space-size: 16px;
+  }
 }
 #quake-main-menu {
   position: absolute;
@@ -1733,16 +1809,17 @@ body.quake-crosshair-hit #quake-crosshair::after {
   --quake-hud-red-bright: #f04a2b;
   --quake-hud-orange: #d46b28;
   --quake-hud-shadow: #110503;
-  --quake-hud-key: #e3c75c;
   --quake-hud-px: calc(100cqw / 320);
+  --quake-hud-status-y: calc(24 * var(--quake-hud-px));
   --quake-hud-readout-top: 0;
   --quake-hud-readout-width: calc(72 * var(--quake-hud-px));
   --quake-hud-armor-x: calc(24 * var(--quake-hud-px));
   --quake-hud-health-x: calc(136 * var(--quake-hud-px));
   --quake-hud-ammo-x: calc(248 * var(--quake-hud-px));
+  --quake-hud-icons-width: 432;
   transform: translateX(-50%);
-  aspect-ratio: 320 / 24;
-  background: #050302 url("/q/hud-base.png") 0 0 / 100% 100%;
+  aspect-ratio: 320 / 48;
+  background: #050302;
   overflow: hidden;
   line-height: 0;
   container-type: inline-size;
@@ -1754,33 +1831,54 @@ body.quake-crosshair-hit #quake-crosshair::after {
 .quake-main-menu-item-cursor,
 .quake-bitmap-glyph,
 #quake-classic-hud,
-.quake-hud-sprite,
+.quake-hud-slot,
 .quake-hud-digit {
   background-repeat: no-repeat;
 }
 #quake-classic-hud-image {
   display: none;
 }
+#quake-hud-inventory,
+#quake-hud-status-row {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: var(--quake-hud-status-y);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  pointer-events: none;
+}
+#quake-hud-inventory {
+  top: 0;
+  background-image: url("/q/hud-inventory.png");
+}
+#quake-hud-status-row {
+  top: var(--quake-hud-status-y);
+  background-image: url("/q/hud-base.png");
+}
 #quake-hud-frame {
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
-.quake-hud-sprite {
+.quake-hud-slot {
   position: absolute;
-  top: 0;
-  height: 100%;
-  background-image: url("/q/hud.png");
-  background-size: 100cqw auto;
-  background-position-x: calc(var(--quake-hud-sprite-x) * -1 * var(--quake-hud-px));
-  background-position-y: 0;
+  left: calc(var(--quake-hud-slot-x) * var(--quake-hud-px));
+  top: calc(var(--quake-hud-slot-y) * var(--quake-hud-px));
+  width: calc(var(--quake-hud-slot-width) * var(--quake-hud-px));
+  height: calc(var(--quake-hud-slot-height) * var(--quake-hud-px));
+  background-image: url("/q/hud-icons.png");
+  background-size:
+    calc(var(--quake-hud-icons-width) * var(--quake-hud-px))
+    calc(24 * var(--quake-hud-px));
+  background-position:
+    calc(var(--quake-hud-slot-source-x) * -1 * var(--quake-hud-px))
+    calc(var(--quake-hud-slot-source-y) * -1 * var(--quake-hud-px));
   image-rendering: pixelated;
   filter: brightness(1.08) saturate(1.05);
 }
-.quake-hud-sprite-shells {
-  --quake-hud-sprite-x: 224;
-  left: calc(224 * var(--quake-hud-px));
-  width: calc(24 * var(--quake-hud-px));
+.quake-hud-slot[hidden] {
+  display: none;
 }
 #quake-hud-values {
   position: absolute;
@@ -1790,10 +1888,10 @@ body.quake-crosshair-hit #quake-crosshair::after {
 }
 .quake-hud-readout {
   position: absolute;
-  top: var(--quake-hud-readout-top);
+  top: calc(var(--quake-hud-status-y) + var(--quake-hud-readout-top) * var(--quake-hud-px));
   display: flex;
   width: var(--quake-hud-readout-width);
-  height: 100%;
+  height: var(--quake-hud-status-y);
   background: transparent;
 }
 .quake-hud-digit {
@@ -1827,26 +1925,6 @@ body.quake-crosshair-hit #quake-crosshair::after {
 }
 .quake-hud-readout-ammo {
   left: var(--quake-hud-ammo-x);
-}
-.quake-hud-keys {
-  position: absolute;
-  left: 66.25%;
-  top: 0.08em;
-  display: flex;
-  gap: 0.12em;
-  color: var(--quake-hud-key);
-  font-size: 0.62em;
-  letter-spacing: 0;
-  line-height: 1;
-  text-shadow: 0 0.05em 0 #000000;
-}
-.quake-hud-key {
-  display: block;
-  opacity: 1;
-}
-#quake-classic-hud:not(.quake-hud-key-silver-active) .quake-hud-key-silver,
-#quake-classic-hud:not(.quake-hud-key-gold-active) .quake-hud-key-gold {
-  opacity: 0;
 }
 body.quake-menu-open .dn-stats-overlay {
   display: none !important;

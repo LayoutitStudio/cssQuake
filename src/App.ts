@@ -17,6 +17,11 @@ import {
   type QuakePreparedRenderBundle,
   type QuakeScene,
 } from "./prepare/scene";
+import {
+  quakeGameLogicEntityFact,
+  type QuakeGameLogicGeneratedTextFact,
+  type QuakeGameLogicTextFact,
+} from "./prepare/gameLogicFacts";
 import { createQuakeSoundController, type QuakeSoundManifest } from "./runtime/audio";
 import { mountQuakeBitmapText } from "./runtime/bitmapText";
 import {
@@ -35,22 +40,32 @@ import {
 } from "./runtime/collision";
 import { installQuakeDebugHooks, isQuakeDebugHooksEnabled } from "./runtime/debug/quakeDebug";
 import { isQuakeDebugDomMetadataEnabled, markQuakeTrace } from "./runtime/debug/traceMarks";
-import { quakeDoorGroupKeyRequirement, quakePlayerHasDoorKey } from "./runtime/doors";
+import { quakeDoorGroupKeyRequirement, quakePlayerHasDoorKey, type QuakeDoorKey } from "./runtime/doors";
 import {
   quakeEntityNumber,
   shouldSpawnQuakeEntityForCurrentGame,
 } from "./runtime/entities";
 import {
+  activateQuakeInventoryPowerup,
   applyQuakeInventoryDelta,
+  clearQuakeInventoryPowerup,
+  clearQuakeInventoryPowerups,
+  createQuakeHudElements,
   syncQuakeHud as syncQuakeHudElements,
-  type QuakeHudElements,
+  type QuakeInventoryPowerupBehavior,
 } from "./runtime/hud";
-import { quakeContentsDamage, quakeTriggerHurtDamage, type QuakeHazardDamage } from "./runtime/hazards";
+import {
+  quakeContentsDamage,
+  quakeRadsuitProtectedContentsDamage,
+  quakeTriggerHurtDamage,
+  type QuakeHazardDamage,
+} from "./runtime/hazards";
 import { distanceSq3, dotVec3, normalizeVec3, subtractVec3 } from "./runtime/math";
 import { createQuakeMenuController } from "./runtime/menu";
 import {
   createQuakeMoversController,
   quakeButtonIsPressed,
+  quakeMoverBlockDamage,
   type QuakeMoverState,
 } from "./runtime/movers";
 import { createQuakeMonsterStateRunner } from "./runtime/quakeMonsterStateRunner";
@@ -60,7 +75,18 @@ import {
   quakeShootableFallbackPolygons,
   type QuakeShootablesDebugStats,
 } from "./runtime/shootables";
-import { createQuakeTargetsController } from "./runtime/targets";
+import { createQuakeTargetsController, type QuakeCounterActivationResult } from "./runtime/targets";
+import { createQuakeTextController } from "./runtime/text";
+import {
+  quakeTriggerChangelevelMap,
+  quakeTriggerOnlyRegisteredActivation,
+  quakeTriggerOneShot,
+  quakeTriggerPushActivation,
+  quakeTriggerSecretActivation,
+  quakeTriggerSetSkillValue,
+  quakeTriggerTeleportDestination,
+  quakeTriggerWait,
+} from "./runtime/triggerEffects";
 import { createQuakeTriggersController } from "./runtime/triggers";
 import { createQuakeViewmodelController, type QuakeViewmodelModel } from "./runtime/viewmodel";
 import { createQuakeWeaponsController } from "./runtime/weapons";
@@ -75,6 +101,8 @@ import {
 } from "./runtime/world";
 import {
   createQuakePickupController,
+  quakeCanPickupForInventory,
+  quakePickupMessageForEntity,
   quakePickupModelRenderBundleFrameSet,
   quakePickupModelRenderBundle,
   quakePickupModelPath,
@@ -131,20 +159,23 @@ const hudArmorValue = document.getElementById("quake-hud-armor-value") as HTMLEl
 const hudHealthValue = document.getElementById("quake-hud-health-value") as HTMLElement | null;
 const hudHealthDamageValue = document.getElementById("quake-hud-health-damage-value") as HTMLElement | null;
 const hudAmmoValue = document.getElementById("quake-hud-ammo-value") as HTMLElement | null;
-const hudKeysValue = document.getElementById("quake-hud-keys-value") as HTMLElement | null;
 const classicHud = document.getElementById("quake-classic-hud") as HTMLElement | null;
 const quakeHud = document.getElementById("quake-hud") as HTMLElement | null;
 const bonusOverlay = document.getElementById("quake-bonus-overlay") as HTMLElement | null;
 const damageOverlay = document.getElementById("quake-damage-overlay") as HTMLElement | null;
-const quakeHudStatus = document.getElementById("quake-hud-status") as HTMLElement | null;
-const hudElements: QuakeHudElements = {
+const quakeNotify = document.getElementById("quake-notify") as HTMLElement | null;
+const quakeCenterPrint = document.getElementById("quake-centerprint") as HTMLElement | null;
+const quakeText = createQuakeTextController({
+  centerPrintRoot: quakeCenterPrint,
+  notifyRoot: quakeNotify,
+});
+const hudElements = createQuakeHudElements({
   root: classicHud,
   armor: hudArmorValue,
   health: hudHealthValue,
   healthDamage: hudHealthDamageValue,
   ammo: hudAmmoValue,
-  keys: hudKeysValue,
-};
+});
 const QUAKE_HUD_DAMAGE_CUE_MS = 900;
 let quakeHudDamageTimer: number | null = null;
 let quakeHudDamageSerial = 0;
@@ -227,6 +258,9 @@ const QUAKE_WEAPON_VIEW_PUNCH_EPSILON_DEG = 0.001;
 const QUAKE_WEAPON_VIEW_PUNCH_EXTERNAL_EPSILON_DEG = 0.05;
 const QUAKE_CAMERA_ROT_X_MIN = 5;
 const QUAKE_CAMERA_ROT_X_MAX = 175;
+const QUAKE_CAMERA_STEP_SMOOTH_SPEED = 80 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_CAMERA_STEP_SMOOTH_MAX_OFFSET = 12 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_CAMERA_STEP_SMOOTH_DT_CLAMP = 0.05;
 const QUAKE_DAMAGE_VIEW_PITCH_SCALE = 0.035;
 const QUAKE_DAMAGE_VIEW_PITCH_MAX_DEG = 2;
 const QUAKE_BONUS_FLASH_HOLD_MS = 80;
@@ -390,7 +424,9 @@ interface QuakeUrlRoute {
 }
 
 interface QuakeMapLoadOptions {
+  loadingStatus?: string;
   urlMode?: QuakeUrlUpdateMode;
+  resumeGameplay?: boolean;
   view?: QuakeUrlView | null;
 }
 
@@ -513,12 +549,30 @@ const QUAKE_DEBUG_FLY_DT_CLAMP = 0.05;
 const QUAKE_DEFAULT_CAMERA_ZOOM = (BASE_TILE * 0.65) / QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_CAMERA_ZOOM = quakeCameraZoomFromUrl() ?? QUAKE_DEFAULT_CAMERA_ZOOM;
 const QUAKE_REFERENCE_FOV = 90;
-const QUAKE_CAMERA_PERSPECTIVE_CALIBRATION = 1.009;
-const QUAKE_CAMERA_PERSPECTIVE =
-  quakeCameraPerspectiveFromUrl() ??
-  quakeReferencePerspectiveForViewport(window.innerWidth, window.innerHeight, QUAKE_REFERENCE_FOV) /
-    (QUAKE_CAMERA_ZOOM / BASE_TILE) *
-    QUAKE_CAMERA_PERSPECTIVE_CALIBRATION;
+const QUAKE_CAMERA_PERSPECTIVE_OVERRIDE = quakeCameraPerspectiveFromUrl();
+function quakeViewportSize(): { width: number; height: number } {
+  const root = document.documentElement;
+  const width = window.innerWidth || root.clientWidth || 1;
+  const height = window.innerHeight || root.clientHeight || 1;
+  return { width: Math.max(1, width), height: Math.max(1, height) };
+}
+
+function quakeCameraPerspectiveForViewport(width: number, height: number): number {
+  return (
+    QUAKE_CAMERA_PERSPECTIVE_OVERRIDE ??
+    quakeReferencePerspectiveForViewport(width, height, QUAKE_REFERENCE_FOV) / (QUAKE_CAMERA_ZOOM / BASE_TILE)
+  );
+}
+
+function quakeViewportCenterCss(value: number): string {
+  return Math.round(value) % 2 === 0 ? "50%" : "calc(50% + 0.5px)";
+}
+
+const initialQuakeViewportSize = quakeViewportSize();
+const QUAKE_CAMERA_PERSPECTIVE = quakeCameraPerspectiveForViewport(
+  initialQuakeViewportSize.width,
+  initialQuakeViewportSize.height,
+);
 const QUAKE_MENU_ENABLED = true;
 const QUAKE_MONSTER_RUNTIME_ENABLED = true;
 const QUAKE_MONSTER_MOUNT_VIEW_DOT_MIN = -0.1;
@@ -527,7 +581,7 @@ let quakeMapUrls = quakeSceneUrlMap(quakeAssetManifest);
 let quakeEnemiesDisabled = quakeUrlBoolean("disableEnemies") || (disableEnemiesOption?.checked ?? false);
 let quakeDamageDisabled = disableDamageOption?.checked ?? false;
 let quakeDebugMode = quakeUrlBoolean("debugPolys");
-let quakeDebugHideTextures = quakeDebugMode || (debugHideTexturesOption?.checked ?? false);
+let quakeDebugHideTextures = debugHideTexturesOption?.checked ?? false;
 let quakeDebugStaticLighting = debugStaticLightingOption?.checked ?? false;
 let quakeDebugFlyMode = quakeUrlBoolean("debugFly") || (debugFlyModeOption?.checked ?? false);
 let quakeDebugFlyModeActive = false;
@@ -702,6 +756,17 @@ const scene = createPolyScene(host, {
 const sceneElement = scene.cameraEl.querySelector<HTMLElement>(".polycss-scene");
 if (!sceneElement) throw new Error("Quake scene mount requires a PolyCSS scene element.");
 sceneElement.removeAttribute("data-polycss-lighting");
+function syncQuakeViewportProjection(): void {
+  const { width, height } = quakeViewportSize();
+  const perspective = quakeCameraPerspectiveForViewport(width, height);
+  scene.cameraEl.style.perspective = `${Number(perspective.toFixed(6))}px`;
+  const centerX = quakeViewportCenterCss(width);
+  const centerY = quakeViewportCenterCss(height);
+  scene.cameraEl.style.perspectiveOrigin = `${centerX} ${centerY}`;
+  sceneElement.style.left = centerX;
+  sceneElement.style.top = centerY;
+}
+syncQuakeViewportProjection();
 const controls = createPolyFirstPersonControls(scene, {
   eyeHeight: 1.72,
   groundZ: 0,
@@ -714,6 +779,9 @@ const controls = createPolyFirstPersonControls(scene, {
   jumpVelocity: QUAKE_JUMP_VELOCITY,
   gravity: 0,
 });
+let quakeCameraRenderOrigin: Vec3 = [0, 0, 1.72];
+let quakeCameraStepSmoothFrame = 0;
+let quakeCameraStepSmoothAt = 0;
 let quakePlayerDead = false;
 let quakeDeathUnlockMenuSuppressUntil = 0;
 
@@ -764,6 +832,7 @@ syncQuakeAudioToggle();
 const viewmodel = createQuakeViewmodelController({
   scene,
   controls,
+  getRenderOrigin: currentQuakeCameraRenderOrigin,
   host,
   hud: classicHud,
   layer: viewmodelLayer,
@@ -780,6 +849,7 @@ const shootables = createQuakeShootablesController({
   getPlayerForward: () => forwardDirection(scene.camera.state.rotX ?? 90, scene.camera.state.rotY ?? 270),
   getPlayerOrigin: () => getPlayer().currentOrigin(),
   hasLineOfSight: quakeLineOfSight,
+  isPlayerInvisible: quakePlayerInvisible,
   isInPlayerView: isQuakePointInPlayerView,
   leafIndexAt: world.leafIndexAt,
   monsterRuntimeEnabled: () => QUAKE_MONSTER_RUNTIME_ENABLED && !quakeEnemiesDisabled,
@@ -793,6 +863,8 @@ const shootables = createQuakeShootablesController({
 });
 const targetSystem = createQuakeTargetsController({
   activateEntity: activateQuakeEntity,
+  onCounterStateChange: showQuakeCounterGeneratedText,
+  onUseTargetsMessage: showQuakeUseTargetsMessageText,
 });
 const movers = createQuakeMoversController({
   applyState: applyMoverState,
@@ -810,8 +882,10 @@ const triggerSystem = createQuakeTriggersController({
   getOrigin: () => controls.getOrigin(),
   getTouchedTriggers: currentQuakeTouchedTriggers,
   isEntityDisabled: targetSystem.isDisabled,
+  isOneShotTrigger: quakeRuntimeTriggerOneShot,
   onActiveKeyChange: syncQuakeActiveTriggerDataset,
   triggerSpecial: activateQuakeSpecialTrigger,
+  triggerWait: quakeRuntimeTriggerWait,
   transitionSerial: () => quakeTransitionSerial,
   useTargets: targetSystem.useTargets,
 });
@@ -821,14 +895,23 @@ pickups = createQuakePickupController({
     applyQuakeInventoryDelta(getPlayer().inventory(), effect);
     syncQuakeHud();
     flashQuakeBonusOverlay();
-    audio.playPickup(entity);
+    const gameLogic = currentResult?.gameLogic ?? null;
+    const pickupMessage = quakePickupMessageForEntity(entity, gameLogic);
+    if (pickupMessage) showQuakeNotifyText(pickupMessage);
+    audio.playPickup(entity, gameLogic);
   },
+  canPickup: (effect, entity) =>
+    quakeCanPickupForInventory(entity, getPlayer().inventory(), currentResult?.gameLogic ?? null, effect),
   leafIndexAt: world.leafIndexAt,
   playerForward: () => forwardDirection(scene.camera.state.rotX ?? 90, scene.camera.state.rotY ?? 270),
   playerViewDot: quakePlayerViewDot,
   pointToPoly: quakePointToPoly,
+  gameLogic: () => currentResult?.gameLogic ?? null,
   programMetadata: () => currentProgramMetadata,
   shouldSpawn: shouldSpawnQuakeEntityForCurrentGame,
+  startMegahealthRot: startQuakeMegahealthRot,
+  startPowerup: startQuakePowerup,
+  useTargets: targetSystem.useTargets,
   visibleLeavesAt: world.visibleLeavesAt,
 });
 const weapons = createQuakeWeaponsController({
@@ -849,6 +932,7 @@ const weapons = createQuakeWeaponsController({
   playFireAnimation: playQuakeWeaponFireFeedback,
   damageShootable: shootables.damage,
   damageBrushEntity: damageQuakeBrushEntity,
+  damageMultiplier: quakeWeaponDamageMultiplier,
   onHit: flashQuakeCrosshairHit,
   syncCrosshairTarget: queueQuakeCrosshairTargetSync,
 });
@@ -861,6 +945,7 @@ player = createQuakePlayerController({
   getCollisionWorld: () => currentCollisionWorld,
   getCurrentScene: () => currentResult,
   gravity: QUAKE_GRAVITY,
+  isInvulnerable: quakePlayerInvulnerable,
   jumpVelocity: QUAKE_JUMP_VELOCITY,
   onDamageFlash: (active, feedback) => {
     if (!active) {
@@ -896,6 +981,7 @@ player = createQuakePlayerController({
   pointToPoly: quakePointToPoly,
   resolveShootablesCollision: shootables.resolvePlayerCollision,
   syncCrosshairTarget: syncQuakeCrosshairTarget,
+  syncCamera: syncQuakeCameraOrigin,
   syncHazards: syncQuakeHazards,
   syncPickups: (origin, eyeHeight) => getPickups().syncCollision(origin, eyeHeight, STEP_HEIGHT),
   syncTouchedTriggers,
@@ -921,8 +1007,10 @@ let quakePointHazards: QuakePointHazard[] = [];
 let quakeFireballEmitters: QuakeFireballEmitter[] = [];
 let quakePointHazardFrame: number | null = null;
 let quakePointHazardTime = 0;
-let quakeHudMessageTimer: number | null = null;
 let quakeCrosshairHitTimer: number | null = null;
+let quakeMegahealthRotTimer: number | null = null;
+let quakePowerupTimers = new Map<string, number>();
+let quakeDoorMessageCooldownUntil = new Map<number, number>();
 let quakeSkill = 1;
 let quakeModelPivot = { x: 0, y: 0, z: 0 };
 let quakeLevelLoadTimer: number | null = null;
@@ -959,7 +1047,11 @@ const STATS_MS_FOREGROUND = "#a98c3f";
 const STATS_MS_BACKGROUND = "#100803";
 const QUAKE_HAZARD_FOOT_SAMPLE_Z = 2 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_CHANGELEVEL_DELAY_MS = 850;
-const QUAKE_HUD_MESSAGE_MS = 2600;
+const QUAKE_CENTERPRINT_MS = 2600;
+const QUAKE_NOTIFY_TEXT_MS = 3000;
+const QUAKE_DOOR_MESSAGE_COOLDOWN_MS = 2000;
+const QUAKE_PLAYER_DEFAULT_MAX_HEALTH = 100;
+const QUAKE_MEGAHEALTH_ROT_INTERVAL_MS = 1000;
 const QUAKE_SHAREWARE_REGISTERED = false;
 const QUAKE_FIREBALL_RADIUS = 56 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_FIREBALL_DEFAULT_SPEED = 1000;
@@ -974,10 +1066,7 @@ const QUAKE_POINT_HAZARD_DT_CLAMP = 0.05;
 const QUAKE_TRAP_SPIKE_RANGE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_TRAP_SPIKE_RADIUS = 36 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_TRAP_SPIKE_DAMAGE = 10;
-const QUAKE_TRIGGER_PUSH_DEFAULT_SPEED = 1000;
-const QUAKE_TRIGGER_PUSH_ONCE = 1;
-const QUAKE_TRIGGER_PUSH_VELOCITY_MULTIPLIER = 10;
-
+const QUAKE_QUAD_DAMAGE_MULTIPLIER = 4;
 function makeParseResult(polygons: Polygon[]): ParseResult {
   return { polygons, objectUrls: [], warnings: [], dispose: () => undefined };
 }
@@ -987,9 +1076,111 @@ function syncQuakeHud(): void {
   markQuakeTrace("hud-sync", {
     health: inventory.health,
     armor: inventory.armor,
+    itemFlags: inventory.itemFlags,
+    powerups: Object.keys(inventory.powerups),
     shells: inventory.shells,
   });
   syncQuakeHudElements(hudElements, inventory);
+}
+
+function startQuakeMegahealthRot(entity: QuakeEntity, delaySeconds: number): void {
+  clearQuakeMegahealthRot();
+  if (!Number.isFinite(delaySeconds) || delaySeconds < 0) return;
+  markQuakeTrace("pickup-megahealth-rot-start", { entityIndex: entity.index, delaySeconds });
+  quakeMegahealthRotTimer = window.setTimeout(runQuakeMegahealthRot, delaySeconds * 1000);
+}
+
+function runQuakeMegahealthRot(): void {
+  quakeMegahealthRotTimer = null;
+  if (quakeAppDisposed || !currentResult || quakePlayerDead) return;
+  const inventory = getPlayer().inventory();
+  if (inventory.health <= QUAKE_PLAYER_DEFAULT_MAX_HEALTH) return;
+  inventory.health = Math.max(QUAKE_PLAYER_DEFAULT_MAX_HEALTH, inventory.health - 1);
+  markQuakeTrace("pickup-megahealth-rot", { health: inventory.health });
+  syncQuakeHud();
+  if (inventory.health > QUAKE_PLAYER_DEFAULT_MAX_HEALTH) {
+    quakeMegahealthRotTimer = window.setTimeout(runQuakeMegahealthRot, QUAKE_MEGAHEALTH_ROT_INTERVAL_MS);
+  }
+}
+
+function clearQuakeMegahealthRot(): void {
+  if (quakeMegahealthRotTimer === null) return;
+  window.clearTimeout(quakeMegahealthRotTimer);
+  quakeMegahealthRotTimer = null;
+}
+
+function startQuakePowerup(entity: QuakeEntity, powerup: QuakeInventoryPowerupBehavior): void {
+  const now = performance.now();
+  clearQuakePowerupTimer(powerup.finishedField);
+  const state = activateQuakeInventoryPowerup(getPlayer().inventory(), powerup, now);
+  if (!state) return;
+  const timeoutMs = Math.max(0, state.finishedAt - now);
+  quakePowerupTimers.set(
+    powerup.finishedField,
+    window.setTimeout(() => finishQuakePowerup(powerup.finishedField, "timer"), timeoutMs),
+  );
+  markQuakeTrace("pickup-powerup-start", {
+    activationField: powerup.activationField,
+    durationSeconds: powerup.durationSeconds,
+    entityIndex: entity.index,
+    finishedField: powerup.finishedField,
+    itemFlag: powerup.itemFlag,
+    itemFlagExpression: powerup.itemFlagExpression,
+  });
+  syncQuakeHud();
+}
+
+function finishQuakePowerup(finishedField: string, reason: string): void {
+  clearQuakePowerupTimer(finishedField);
+  if (!player) return;
+  const state = clearQuakeInventoryPowerup(player.inventory(), finishedField);
+  if (!state) return;
+  markQuakeTrace("pickup-powerup-end", {
+    activationField: state.activationField,
+    finishedField,
+    itemFlag: state.itemFlag,
+    itemFlagExpression: state.itemFlagExpression,
+    reason,
+  });
+  syncQuakeHud();
+}
+
+function clearQuakePowerupTimer(finishedField: string): void {
+  const timer = quakePowerupTimers.get(finishedField);
+  if (timer === undefined) return;
+  window.clearTimeout(timer);
+  quakePowerupTimers.delete(finishedField);
+}
+
+function clearQuakePowerups(): void {
+  for (const timer of quakePowerupTimers.values()) window.clearTimeout(timer);
+  quakePowerupTimers = new Map();
+  if (!player) return;
+  const inventory = player.inventory();
+  const hadPowerups = inventory.itemFlags !== 0 || Object.keys(inventory.powerups).length > 0;
+  clearQuakeInventoryPowerups(inventory);
+  if (hadPowerups) syncQuakeHud();
+}
+
+function quakePowerupActive(finishedField: string): boolean {
+  if (!player) return false;
+  const state = player.inventory().powerups[finishedField];
+  if (!state) return false;
+  if (state.finishedAt > performance.now()) return true;
+  finishQuakePowerup(finishedField, "expired");
+  return false;
+}
+
+function quakeWeaponDamageMultiplier(): number {
+  return quakePowerupActive("super_damage_finished") ? QUAKE_QUAD_DAMAGE_MULTIPLIER : 1;
+}
+
+function quakePlayerInvulnerable(): boolean {
+  return quakePowerupActive("invincible_finished");
+}
+
+function quakePlayerInvisible(): boolean {
+  return quakePowerupActive("invisible_finished");
 }
 
 function setQuakeAudioMuted(muted: boolean): void {
@@ -1019,9 +1210,7 @@ function setQuakeDamageDisabled(disabled: boolean): void {
 }
 
 function setQuakeDebugMode(enabled: boolean): void {
-  const wasEnabled = quakeDebugMode;
   quakeDebugMode = enabled;
-  if (enabled && !wasEnabled) quakeDebugHideTextures = true;
   syncQuakeDebugRenderOptions();
   syncQuakeDebugFlyMode();
   syncQuakeDebugPanelVisibility();
@@ -1110,6 +1299,7 @@ function syncQuakeDebugFlyMode(): void {
 
 function respawnQuakePlayerFromFlyMode(): boolean {
   if (!currentResult || quakeAppLoading) return false;
+  clearQuakeMegahealthRot();
   getPlayer().respawn();
   return true;
 }
@@ -1225,7 +1415,7 @@ function clearQuakeLevelComplete(): void {
   clearQuakeMoveInput();
   clearQuakeWeaponViewPunch();
   document.body.classList.remove("quake-level-complete");
-  if (!document.body.classList.contains("quake-hud-message")) clearQuakeHudStatus();
+  clearQuakeCenterPrint();
   controls.update({ moveEnabled: false, jumpEnabled: false, crouchEnabled: false, jumpVelocity: QUAKE_JUMP_VELOCITY, gravity: 0 });
 }
 
@@ -1246,37 +1436,87 @@ function clearQuakeCrosshairHit(): void {
   document.body.classList.remove("quake-crosshair-hit");
 }
 
-function showQuakeHudMessage(message: string, duration = QUAKE_HUD_MESSAGE_MS): void {
+function showQuakeNotifyText(message: string, duration = QUAKE_NOTIFY_TEXT_MS): void {
   const text = message.trim();
   if (!text || !quakeHud || quakePlayerDead) return;
-  if (quakeHudMessageTimer !== null) {
-    window.clearTimeout(quakeHudMessageTimer);
-    quakeHudMessageTimer = null;
+  quakeText.notify(text, { durationMs: duration });
+}
+
+function showQuakeCenterPrint(message: string, duration = QUAKE_CENTERPRINT_MS): void {
+  const text = message.trim();
+  if (!text || !quakeHud || quakePlayerDead) return;
+  quakeText.centerPrint(text, { durationMs: duration });
+}
+
+function showQuakeUseTargetsMessageText(_entity: QuakeEntity, text: QuakeGameLogicTextFact): void {
+  if (text.lane !== "centerprint" || text.sourceCall !== "SUB_UseTargets") return;
+  showQuakeCenterPrint(text.text);
+}
+
+function showQuakeDirectCenterPrintMessageText(entity: QuakeEntity): boolean {
+  const text = quakeGameLogicEntityFact(currentResult?.gameLogic, entity.index)?.resolvedTrigger?.messageText;
+  if (text?.lane !== "centerprint" || text.sourceCall !== "centerprint") return false;
+  showQuakeCenterPrint(text.text);
+  return true;
+}
+
+function showQuakeCounterGeneratedText(entity: QuakeEntity, result: QuakeCounterActivationResult): void {
+  const reason = result.completed ? "counter-complete" : "counter-remaining";
+  const text = quakeGeneratedCenterPrintTextForEntityIndexes(
+    [entity.index],
+    reason,
+    (fact) => quakeCounterGeneratedTextMatches(fact, result),
+  );
+  if (text) showQuakeCenterPrint(text);
+}
+
+function quakeCounterGeneratedTextMatches(
+  fact: QuakeGameLogicGeneratedTextFact,
+  result: QuakeCounterActivationResult,
+): boolean {
+  const condition = fact.condition;
+  if (condition?.remaining !== undefined) return condition.remaining === result.remaining;
+  if (condition?.minRemaining !== undefined) return result.remaining >= condition.minRemaining;
+  return true;
+}
+
+function quakeGeneratedCenterPrintTextForEntityIndexes(
+  entityIndexes: readonly number[],
+  reason: QuakeGameLogicGeneratedTextFact["reason"],
+  matches: (fact: QuakeGameLogicGeneratedTextFact) => boolean,
+): string | null {
+  if (!currentResult?.gameLogic) return null;
+  const seen = new Set<number>();
+  for (const entityIndex of entityIndexes) {
+    if (seen.has(entityIndex)) continue;
+    seen.add(entityIndex);
+    const entityFact = quakeGameLogicEntityFact(currentResult.gameLogic, entityIndex);
+    const moverText = quakeGeneratedCenterPrintText(entityFact?.resolvedMover?.generatedText, reason, matches);
+    if (moverText) return moverText;
+    const triggerText = quakeGeneratedCenterPrintText(entityFact?.resolvedTrigger?.generatedText, reason, matches);
+    if (triggerText) return triggerText;
   }
-  document.body.classList.add("quake-hud-message");
-  setQuakeHudStatus(text);
-  quakeHudMessageTimer = window.setTimeout(clearQuakeHudMessage, duration);
+  return null;
 }
 
-function clearQuakeHudMessage(): void {
-  if (quakeHudMessageTimer !== null) {
-    window.clearTimeout(quakeHudMessageTimer);
-    quakeHudMessageTimer = null;
+function quakeGeneratedCenterPrintText(
+  facts: readonly QuakeGameLogicGeneratedTextFact[] | undefined,
+  reason: QuakeGameLogicGeneratedTextFact["reason"],
+  matches: (fact: QuakeGameLogicGeneratedTextFact) => boolean,
+): string | null {
+  for (const fact of facts ?? []) {
+    if (fact.lane === "centerprint" && fact.reason === reason && matches(fact)) return fact.text;
   }
-  document.body.classList.remove("quake-hud-message");
-  if (!document.body.classList.contains("quake-level-complete")) clearQuakeHudStatus();
+  return null;
 }
 
-function setQuakeHudStatus(text: string): void {
-  if (!quakeHudStatus) return;
-  if (quakeHudStatus.textContent !== text) quakeHudStatus.textContent = text;
-  quakeHudStatus.hidden = false;
+function setQuakeCenterPrint(text: string): void {
+  if (!text.trim() || !quakeHud) return;
+  quakeText.setCenterPrint(text);
 }
 
-function clearQuakeHudStatus(): void {
-  if (!quakeHudStatus) return;
-  if (quakeHudStatus.textContent) quakeHudStatus.textContent = "";
-  quakeHudStatus.hidden = true;
+function clearQuakeCenterPrint(): void {
+  quakeText.clearCenterPrint();
 }
 
 function suppressQuakeMainMenuOnNextControlsEnd(): void {
@@ -1289,6 +1529,7 @@ function clearQuakeMainMenuControlsEndSuppression(): void {
 
 function shouldOpenQuakeMainMenuOnControlsEnd(): boolean {
   if (quakeDebugMode) return false;
+  if (quakeAppLoading || isQuakeLevelTransitionActive()) return false;
   if (quakeDeathUnlockMenuSuppressUntil > 0) {
     const suppress = performance.now() <= quakeDeathUnlockMenuSuppressUntil;
     quakeDeathUnlockMenuSuppressUntil = 0;
@@ -1300,6 +1541,8 @@ function shouldOpenQuakeMainMenuOnControlsEnd(): boolean {
 function showQuakePlayerDeath(): void {
   if (quakePlayerDead) return;
   quakePlayerDead = true;
+  clearQuakeMegahealthRot();
+  clearQuakePowerups();
   clearQuakeMoveInput();
   clearQuakeAttackInput();
   clearQuakeDebugFlyInput();
@@ -1307,7 +1550,7 @@ function showQuakePlayerDeath(): void {
   clearQuakeWeaponViewPunch();
   clearQuakeBonusOverlay();
   markQuakeTrace("hud-death", { active: true });
-  clearQuakeHudMessage();
+  quakeText.clear();
   clearQuakeCrosshairHit();
   clearQuakeCrosshairTarget();
   viewmodel.clearFireAnimation();
@@ -1368,6 +1611,8 @@ function clearQuakeDeathOverlay(): void {
 
 function respawnQuakePlayerFromDeath(): boolean {
   if (!quakePlayerDead || !currentResult) return false;
+  clearQuakeMegahealthRot();
+  clearQuakePowerups();
   getPlayer().respawn();
   if (!quakePlayerDead) {
     host.focus({ preventScroll: true });
@@ -1378,12 +1623,21 @@ function respawnQuakePlayerFromDeath(): boolean {
 
 function startQuakeNewGame(): void {
   if (!currentResult) return;
+  clearQuakeMegahealthRot();
+  clearQuakePowerups();
   clearQuakeMoveInput();
   clearQuakeAttackInput();
   clearQuakeMobileMoveInput();
   clearQuakeLevelComplete();
   getPlayer().respawn();
   quakeGameplayStarted = true;
+}
+
+function resumeQuakeGameplayAfterMapLoad(): void {
+  if (!currentResult || quakeAppLoading || quakePlayerDead) return;
+  quakeGameplayStarted = true;
+  menu.hideMainMenu();
+  syncPlayerCollision();
 }
 
 function isQuakeLevelTransitionActive(): boolean {
@@ -1725,6 +1979,8 @@ function disposeCurrentScene(): void {
   clearQuakeAttackInput();
   clearQuakeDebugFlyInput();
   clearQuakeWeaponViewPunch();
+  clearQuakeMegahealthRot();
+  clearQuakePowerups();
   clearQuakeBonusOverlay();
   viewmodel.remove();
   world.clear();
@@ -1733,7 +1989,8 @@ function disposeCurrentScene(): void {
   shootables.clear();
   clearQuakeLevelComplete();
   clearQuakePlayerDeath();
-  clearQuakeHudMessage();
+  quakeText.clear();
+  quakeDoorMessageCooldownUntil.clear();
   clearQuakeCrosshairHit();
   clearQuakeLevelLoadTimer();
   clearQuakeCrosshairTarget();
@@ -1766,6 +2023,108 @@ function syncSceneCamera(rotX: number, rotY: number): void {
 }
 
 function syncSceneCameraAt(origin: Vec3, rotX: number, rotY: number): void {
+  resetQuakeCameraStepSmoothing(origin);
+  applyQuakeSceneCameraAt(origin, rotX, rotY);
+}
+
+function currentQuakeCameraRenderOrigin(): Vec3 {
+  return quakeCameraRenderOrigin;
+}
+
+function syncQuakeCameraOrigin(origin: [number, number, number], mode: "move" | "reset" | "smooth-step"): void {
+  if (mode === "reset") {
+    resetQuakeCameraStepSmoothing(origin);
+    return;
+  }
+
+  const active = Math.abs(quakeCameraRenderOrigin[2] - origin[2]) > COLLISION_EPSILON || quakeCameraStepSmoothFrame !== 0;
+  if (!active && mode !== "smooth-step") {
+    quakeCameraRenderOrigin = [origin[0], origin[1], origin[2]];
+    quakeCameraStepSmoothAt = 0;
+    return;
+  }
+
+  const now = performance.now();
+  if (active) advanceQuakeCameraStepSmoothing(origin[2], now);
+  else quakeCameraStepSmoothAt = now;
+  if (mode === "smooth-step") {
+    quakeCameraRenderOrigin[2] = clampNumber(
+      quakeCameraRenderOrigin[2],
+      origin[2] - QUAKE_CAMERA_STEP_SMOOTH_MAX_OFFSET,
+      origin[2],
+    );
+  }
+  quakeCameraRenderOrigin[0] = origin[0];
+  quakeCameraRenderOrigin[1] = origin[1];
+  applyQuakeSceneCameraAt(
+    quakeCameraRenderOrigin,
+    scene.camera.state.rotX ?? 88,
+    scene.camera.state.rotY ?? 270,
+  );
+  viewmodel.syncTransform();
+  if (Math.abs(quakeCameraRenderOrigin[2] - origin[2]) > COLLISION_EPSILON) {
+    scheduleQuakeCameraStepSmoothingFrame();
+  } else {
+    if (quakeCameraStepSmoothFrame) {
+      window.cancelAnimationFrame(quakeCameraStepSmoothFrame);
+      quakeCameraStepSmoothFrame = 0;
+    }
+    quakeCameraStepSmoothAt = 0;
+  }
+}
+
+function scheduleQuakeCameraStepSmoothingFrame(): void {
+  if (quakeAppDisposed || quakeCameraStepSmoothFrame) return;
+  quakeCameraStepSmoothFrame = window.requestAnimationFrame(runQuakeCameraStepSmoothingFrame);
+}
+
+function runQuakeCameraStepSmoothingFrame(now: number): void {
+  quakeCameraStepSmoothFrame = 0;
+  const origin = controls.getOrigin();
+  quakeCameraRenderOrigin[0] = origin[0];
+  quakeCameraRenderOrigin[1] = origin[1];
+  const active = advanceQuakeCameraStepSmoothing(origin[2], now);
+  applyQuakeSceneCameraAt(
+    quakeCameraRenderOrigin,
+    scene.camera.state.rotX ?? 88,
+    scene.camera.state.rotY ?? 270,
+  );
+  viewmodel.syncTransform();
+  if (active) scheduleQuakeCameraStepSmoothingFrame();
+}
+
+function advanceQuakeCameraStepSmoothing(originZ: number, now: number): boolean {
+  const dz = originZ - quakeCameraRenderOrigin[2];
+  if (dz <= COLLISION_EPSILON) {
+    quakeCameraRenderOrigin[2] = originZ;
+    quakeCameraStepSmoothAt = 0;
+    return false;
+  }
+  const dt = Math.min(
+    QUAKE_CAMERA_STEP_SMOOTH_DT_CLAMP,
+    quakeCameraStepSmoothAt ? Math.max(0, (now - quakeCameraStepSmoothAt) / 1000) : 0,
+  );
+  quakeCameraStepSmoothAt = now;
+  const step = QUAKE_CAMERA_STEP_SMOOTH_SPEED * dt;
+  if (step > 0) {
+    quakeCameraRenderOrigin[2] = Math.min(originZ, quakeCameraRenderOrigin[2] + step);
+  }
+  if (originZ - quakeCameraRenderOrigin[2] > QUAKE_CAMERA_STEP_SMOOTH_MAX_OFFSET) {
+    quakeCameraRenderOrigin[2] = originZ - QUAKE_CAMERA_STEP_SMOOTH_MAX_OFFSET;
+  }
+  return originZ - quakeCameraRenderOrigin[2] > COLLISION_EPSILON;
+}
+
+function resetQuakeCameraStepSmoothing(origin: Vec3): void {
+  if (quakeCameraStepSmoothFrame) {
+    window.cancelAnimationFrame(quakeCameraStepSmoothFrame);
+    quakeCameraStepSmoothFrame = 0;
+  }
+  quakeCameraStepSmoothAt = 0;
+  quakeCameraRenderOrigin = [origin[0], origin[1], origin[2]];
+}
+
+function applyQuakeSceneCameraAt(origin: Vec3, rotX: number, rotY: number): void {
   const forward = forwardDirection(rotX, rotY);
   const distance = lookOffset();
   scene.camera.update({
@@ -1831,7 +2190,6 @@ function clearQuakeWeaponViewPunch(syncCamera = true): void {
 }
 
 function syncQuakeWeaponViewPunchOffset(nextOffset: number): void {
-  const origin = controls.getOrigin();
   const currentRotX = clampNumber(scene.camera.state.rotX ?? 88, QUAKE_CAMERA_ROT_X_MIN, QUAKE_CAMERA_ROT_X_MAX);
   const rotY = scene.camera.state.rotY ?? 270;
   let baseRotX = quakeWeaponViewPunchBaseRotX;
@@ -1844,7 +2202,11 @@ function syncQuakeWeaponViewPunchOffset(nextOffset: number): void {
   baseRotX = clampNumber(baseRotX, QUAKE_CAMERA_ROT_X_MIN, QUAKE_CAMERA_ROT_X_MAX);
   quakeWeaponViewPunchOffset = nextOffset;
   quakeWeaponViewPunchBaseRotX = nextOffset > 0 ? baseRotX : null;
-  syncSceneCameraAt(origin, clampNumber(baseRotX + nextOffset, QUAKE_CAMERA_ROT_X_MIN, QUAKE_CAMERA_ROT_X_MAX), rotY);
+  applyQuakeSceneCameraAt(
+    currentQuakeCameraRenderOrigin(),
+    clampNumber(baseRotX + nextOffset, QUAKE_CAMERA_ROT_X_MIN, QUAKE_CAMERA_ROT_X_MAX),
+    rotY,
+  );
   viewmodel.syncTransform();
 }
 
@@ -1854,7 +2216,7 @@ function playQuakeDamageViewFeedback(feedback: QuakePlayerDamageFeedback | undef
 }
 
 function lookOffset(): number {
-  const value = Number.parseFloat(scene.camera.perspectiveStyle);
+  const value = Number.parseFloat(scene.cameraEl.style.perspective || scene.camera.perspectiveStyle);
   return (Number.isFinite(value) && value > 0 ? value : 900) / BASE_TILE;
 }
 
@@ -2023,12 +2385,13 @@ function setupQuakeEntityActions(result: QuakeScene): void {
   const runtime = result.entityManifest.runtime;
   setupQuakeDamageableBrushes(runtime.damageableBrushEntityIndexes);
   setupQuakePointHazards(runtime.fireballEmitterEntityIndexes);
-  targetSystem.setup(runtime);
+  targetSystem.setup(runtime, result.gameLogic);
   triggerSystem.clear();
   movers.setup(
     quakeEntitiesForIndexes([...runtime.moverEntityIndexes, ...runtime.moverSupportEntityIndexes]),
     result.models,
     quakeModelPivot,
+    result.gameLogic,
   );
 }
 
@@ -2045,20 +2408,14 @@ function quakeEntitiesForIndexes(indexes: readonly number[]): QuakeEntity[] {
 }
 
 function activateQuakeTeleport(trigger: QuakeEntity): boolean {
-  const target = trigger.properties.target;
-  if (!target) return false;
-  const destination = quakeTeleportDestination(target);
+  const destination = quakeTriggerTeleportDestination(trigger, {
+    gameLogic: currentResult?.gameLogic,
+    getEntity: (entityIndex) => entityByIndex.get(entityIndex),
+    targetEntityIndexesFor: (targetname) => targetSystem.entityIndexesFor(targetname),
+  });
   if (!destination) return false;
   teleportQuakePlayer(destination);
   return true;
-}
-
-function quakeTeleportDestination(targetname: string): QuakeEntity | null {
-  for (const entityIndex of targetSystem.entityIndexesFor(targetname)) {
-    const entity = entityByIndex.get(entityIndex);
-    if (entity?.classname === "info_teleport_destination" && entity.origin) return entity;
-  }
-  return null;
 }
 
 function teleportQuakePlayer(destination: QuakeEntity): void {
@@ -2080,26 +2437,23 @@ function completeQuakeLevel(entity: QuakeEntity): void {
   clearQuakeAttackInput();
   clearQuakeLevelLoadTimer();
   viewmodel.clearFireAnimation();
+  document.body.classList.add("quake-level-complete");
   getPlayer().clearLevelState();
   audio.playEvent("levelExit", { volume: 0.58 });
-  document.body.classList.add("quake-level-complete");
   const nextMap = quakeChangelevelMap(entity);
-  if (quakeHud) {
-    setQuakeHudStatus(nextMap ? `EXIT TO ${nextMap.toUpperCase()}` : "EXIT REACHED");
-  }
+  if (!nextMap && quakeHud) setQuakeCenterPrint("EXIT REACHED");
   if (!nextMap || !quakeSceneUrl(nextMap)) return;
   quakeLevelLoadTimer = window.setTimeout(() => {
     quakeLevelLoadTimer = null;
-    void loadQuakeMap(nextMap).catch((error) => {
+    void loadQuakeMap(nextMap, { loadingStatus: "Loading", resumeGameplay: true }).catch((error) => {
       console.error(error);
-      if (quakeHud) setQuakeHudStatus(`COULD NOT LOAD ${nextMap.toUpperCase()}`);
+      if (quakeHud) setQuakeCenterPrint(`COULD NOT LOAD ${nextMap.toUpperCase()}`);
     });
   }, QUAKE_CHANGELEVEL_DELAY_MS);
 }
 
 function quakeChangelevelMap(entity: QuakeEntity): string | null {
-  const map = entity.properties.map?.trim().toLowerCase();
-  return map || null;
+  return quakeTriggerChangelevelMap(entity, currentResult?.gameLogic);
 }
 
 function activateSolidTouch(touch: QuakeTouchedTrigger): void {
@@ -2130,7 +2484,7 @@ function activateQuakeEntity(entityIndex: number, sourceEntityIndex?: number): b
   }
   if (entity.classname === "trigger_once" || entity.classname === "trigger_secret") {
     const activated = targetSystem.useTargets(entity);
-    targetSystem.disableEntity(entity.index);
+    if (quakeRuntimeTriggerOneShot(entity, true)) targetSystem.disableEntity(entity.index);
     return activated;
   }
   if (entity.classname === "trigger_multiple") {
@@ -2162,45 +2516,77 @@ function activateQuakeSpecialEntity(entity: QuakeEntity): boolean {
 }
 
 function activateQuakeSpecialTrigger(entity: QuakeEntity): boolean {
+  if (entity.classname === "trigger_secret") {
+    activateQuakeSecretTrigger(entity);
+    return false;
+  }
   if (entity.classname === "trigger_push") {
     activateQuakePushTrigger(entity);
     return true;
   }
   if (entity.classname === "trigger_setskill") {
-    quakeSkill = Math.max(0, Math.round(quakeEntityNumber(entity, "message", 1)));
-    showQuakeHudMessage(`SKILL ${quakeSkill}`);
+    quakeSkill = quakeTriggerSetSkillValue(entity, currentResult?.gameLogic) ?? 1;
+    showQuakeCenterPrint(`SKILL ${quakeSkill}`);
     return true;
   }
   if (entity.classname === "trigger_onlyregistered") {
-    if (QUAKE_SHAREWARE_REGISTERED) {
+    const activation = quakeTriggerOnlyRegisteredActivation(entity, {
+      fallbackMessage: "REGISTERED VERSION ONLY",
+      gameLogic: currentResult?.gameLogic,
+      registered: QUAKE_SHAREWARE_REGISTERED,
+    });
+    if (activation?.allowed) {
       targetSystem.useTargets(entity);
       return true;
     }
-    showQuakeHudMessage(quakeEntityMessage(entity, "REGISTERED VERSION ONLY"));
+    if (!showQuakeDirectCenterPrintMessageText(entity)) {
+      showQuakeCenterPrint(activation?.message ?? quakeEntityMessage(entity, "REGISTERED VERSION ONLY"));
+    }
     return true;
   }
   return false;
 }
 
 function activateQuakePushTrigger(entity: QuakeEntity): void {
-  const rawSpeed = quakeEntityNumber(entity, "speed", QUAKE_TRIGGER_PUSH_DEFAULT_SPEED);
-  const speed = (rawSpeed > 0 ? rawSpeed : QUAKE_TRIGGER_PUSH_DEFAULT_SPEED) *
-    QUAKE_TRIGGER_PUSH_VELOCITY_MULTIPLIER *
-    QUAKE_COLLISION_UNIT_SCALE;
-  const direction = quakeEntityDirection(entity);
-  getPlayer().push([direction[0] * speed, direction[1] * speed, direction[2] * speed]);
-  if (quakeEntitySpawnflagsCompat(entity) & QUAKE_TRIGGER_PUSH_ONCE) {
+  const activation = quakeTriggerPushActivation(entity, currentResult?.gameLogic);
+  if (!activation) return;
+  getPlayer().push([
+    activation.velocity[0] * QUAKE_COLLISION_UNIT_SCALE,
+    activation.velocity[1] * QUAKE_COLLISION_UNIT_SCALE,
+    activation.velocity[2] * QUAKE_COLLISION_UNIT_SCALE,
+  ]);
+  if (activation.oneShot) {
     targetSystem.disableEntity(entity.index);
   }
 }
 
+function activateQuakeSecretTrigger(entity: QuakeEntity): void {
+  const activation = quakeTriggerSecretActivation(entity, currentResult?.gameLogic);
+  if (!activation) return;
+  if (!quakeHasUseTargetsMessageText(entity)) showQuakeCenterPrint(activation.message);
+  audio.playSound(activation.sound, { volume: 0.58 });
+}
+
+function quakeHasUseTargetsMessageText(entity: QuakeEntity): boolean {
+  const text = quakeGameLogicEntityFact(currentResult?.gameLogic, entity.index)?.resolvedTrigger?.messageText;
+  return text?.lane === "centerprint" && text.sourceCall === "SUB_UseTargets" && text.text.trim().length > 0;
+}
+
+function quakeRuntimeTriggerOneShot(entity: QuakeEntity, fallback: boolean): boolean {
+  return quakeTriggerOneShot(entity, currentResult?.gameLogic, fallback);
+}
+
+function quakeRuntimeTriggerWait(entity: QuakeEntity, fallback: number): number {
+  return quakeTriggerWait(entity, currentResult?.gameLogic, fallback);
+}
+
 function activateQuakeSolidGate(entity: QuakeEntity): boolean {
   if (entity.classname === "func_episodegate") {
-    showQuakeHudMessage(quakeEntityMessage(entity, "THIS EPISODE IS LOCKED"));
+    showQuakeCenterPrint(quakeEntityMessage(entity, "THIS EPISODE IS LOCKED"));
     return true;
   }
   if (entity.classname === "func_bossgate") {
-    showQuakeHudMessage(quakeEntityMessage(entity, "YOU MUST COMPLETE THE EPISODES FIRST"));
+    showQuakeCenterPrint(quakeEntityMessage(entity, "YOU MUST COMPLETE THE EPISODES FIRST"));
     return true;
   }
   return false;
@@ -2386,8 +2772,9 @@ function damageQuakeBrushEntity(entityIndex: number, amount: number): boolean {
 
 function activateQuakeDamageableBrush(entity: QuakeEntity): boolean {
   if (entity.classname === "trigger_once" || entity.classname === "trigger_secret") {
+    if (entity.classname === "trigger_secret") activateQuakeSecretTrigger(entity);
     const activated = targetSystem.useTargets(entity);
-    targetSystem.disableEntity(entity.index);
+    if (quakeRuntimeTriggerOneShot(entity, true)) targetSystem.disableEntity(entity.index);
     return activated;
   }
   if (entity.classname === "trigger_multiple") {
@@ -2443,7 +2830,42 @@ function quakeMoverGroupUnlocked(state: QuakeMoverState): boolean {
     .map((entityIndex) => movers.get(entityIndex)?.entity)
     .filter((entity): entity is QuakeEntity => Boolean(entity));
   const requiredKey = quakeDoorGroupKeyRequirement(entities.length ? entities : [state.entity]);
-  return quakePlayerHasDoorKey(getPlayer().inventory(), requiredKey);
+  if (quakePlayerHasDoorKey(getPlayer().inventory(), requiredKey)) return true;
+  if (requiredKey) showQuakeDoorRequirementText(state, requiredKey);
+  return false;
+}
+
+function showQuakeDoorRequirementText(state: QuakeMoverState, requiredKey: QuakeDoorKey): void {
+  const cooldownKey = quakeMoverGroupCooldownKey(state);
+  const now = performance.now();
+  if ((quakeDoorMessageCooldownUntil.get(cooldownKey) ?? 0) > now) return;
+  quakeDoorMessageCooldownUntil.set(cooldownKey, now + QUAKE_DOOR_MESSAGE_COOLDOWN_MS);
+  const entityIndexes = quakeMoverGroupEntityIndexes(state);
+  const text = quakeGeneratedCenterPrintTextForEntityIndexes(
+    entityIndexes,
+    "door-key-required",
+    (fact) => fact.condition?.key === requiredKey,
+  );
+  if (text) showQuakeCenterPrint(text);
+}
+
+function quakeMoverGroupCooldownKey(state: QuakeMoverState): number {
+  let key = state.entity.index;
+  for (const entityIndex of state.linkedEntityIndexes) key = Math.min(key, entityIndex);
+  return key;
+}
+
+function quakeMoverGroupEntityIndexes(state: QuakeMoverState): number[] {
+  const entityIndexes: number[] = [];
+  const seen = new Set<number>();
+  const addEntityIndex = (entityIndex: number): void => {
+    if (seen.has(entityIndex)) return;
+    seen.add(entityIndex);
+    entityIndexes.push(entityIndex);
+  };
+  addEntityIndex(state.entity.index);
+  for (const entityIndex of state.linkedEntityIndexes) addEntityIndex(entityIndex);
+  return entityIndexes;
 }
 
 function moverBlockedByPlayer(state: QuakeMoverState, nextOffset: Vec3, delta: Vec3): boolean {
@@ -2484,7 +2906,7 @@ function damageQuakePlayerForMoverBlock(state: QuakeMoverState): void {
   const now = performance.now();
   const lastDamageAt = quakeMoverCrushDamageAt.get(state.entity.index) ?? -Infinity;
   if (now - lastDamageAt < 500) return;
-  const amount = quakeEntityNumber(state.entity, "dmg", state.kind === "plat" ? 1 : 2);
+  const amount = quakeMoverBlockDamage(state);
   if (amount <= 0) return;
   quakeMoverCrushDamageAt.set(state.entity.index, now);
   getPlayer().damage(amount);
@@ -3058,11 +3480,17 @@ function currentQuakeHazard(
   for (const trigger of triggers) {
     const entity = entityByIndex.get(trigger.entityIndex);
     if (!entity) continue;
-    hazard = strongerQuakeHazard(hazard, quakeTriggerHurtDamage(entity));
+    hazard = strongerQuakeHazard(hazard, quakeTriggerHurtDamage(entity, currentResult?.gameLogic));
   }
   hazard = strongerQuakeHazard(hazard, quakePointHazardAt(origin));
   const contents = currentCollisionWorld?.contentsAt?.(quakePlayerContentsPoint(origin));
-  return strongerQuakeHazard(hazard, quakeContentsDamage(contents));
+  const contentsHazard = quakeContentsDamage(contents);
+  const radsuitActive = contentsHazard?.kind === "slime" && quakePowerupActive("radsuit_finished");
+  const protectedContentsHazard = quakeRadsuitProtectedContentsDamage(contentsHazard, radsuitActive);
+  if (contentsHazard && !protectedContentsHazard) {
+    markQuakeTrace("hazard-blocked", { kind: contentsHazard.kind, reason: "radsuit" });
+  }
+  return strongerQuakeHazard(hazard, protectedContentsHazard);
 }
 
 function syncQuakeHazards(
@@ -3274,14 +3702,16 @@ async function loadQuakeMap(mapName: string, options: QuakeMapLoadOptions = {}):
   const nextMapName = mapName.trim().toLowerCase();
   const url = quakeSceneUrl(nextMapName);
   if (!url) throw new Error(`No prepared Quake map registered for ${nextMapName}.`);
-  const progress = createQuakeLoadingProgressTracker(`Loading ${nextMapName.toUpperCase()}`);
-  setQuakeLoading(true, `Loading ${nextMapName.toUpperCase()}`);
+  const loadingStatus = options.loadingStatus ?? `Loading ${nextMapName.toUpperCase()}`;
+  const loadingModelsStatus = options.loadingStatus ? "Loading models" : `Loading ${nextMapName.toUpperCase()} models`;
+  const progress = createQuakeLoadingProgressTracker(loadingStatus);
+  setQuakeLoading(true, loadingStatus);
   try {
     const scenePromise = fetchQuakeScene(url, nextMapName, progress);
     const weaponPromise = preloadWeaponViewModel(progress);
     const result = await scenePromise;
     if (quakeAppDisposed) return;
-    progress.setStatus(`Loading ${nextMapName.toUpperCase()} models`);
+    progress.setStatus(loadingModelsStatus);
     await preloadQuakeMapModelRenderBundleAssets(nextMapName, progress);
     await preloadQuakeSceneModelRenderBundleAssets(result, progress);
     if (quakeAppDisposed) return;
@@ -3293,6 +3723,8 @@ async function loadQuakeMap(mapName: string, options: QuakeMapLoadOptions = {}):
     if (quakeAppDisposed) return;
     progress.setStatus("Preparing view");
     await completeQuakeSceneReadiness(weaponPromise, progress);
+    if (quakeAppDisposed) return;
+    if (options.resumeGameplay) resumeQuakeGameplayAfterMapLoad();
     quakeGameplayStarted = true;
   } catch (error) {
     if (!quakeAppDisposed) setQuakeLoading(false);
@@ -3472,6 +3904,7 @@ function installQuakeAppDebugHooks(): void {
     isLoading: () => quakeAppLoading,
     loadMap: loadQuakeMap,
     mapExists: (mapName) => Boolean(quakeSceneUrl(mapName)),
+    moversStats: () => movers.debugStats(),
     playerEyeHeight: () => getPlayer().eyeHeight(),
     playerMoveDebug: () => getPlayer().debugMovement(),
     pointToPoly: quakePointToPoly,
@@ -3528,7 +3961,7 @@ async function preloadQuakeSceneModelRenderBundleAssets(
   const pickupEntities = quakeSceneEntitiesForIndexes(entitiesByIndex, runtime.pickupEntityIndexes);
   for (const entity of pickupEntities) {
     if (!shouldSpawnQuakeEntityForCurrentGame(entity)) continue;
-    const modelPath = quakePickupModelPath(entity, currentProgramMetadata);
+    const modelPath = quakePickupModelPath(entity, currentProgramMetadata, result.gameLogic);
     if (modelPath) modelPaths.add(modelPath);
   }
   const shootableEntities = quakeSceneEntitiesForIndexes(entitiesByIndex, runtime.shootableEntityIndexes);
@@ -3846,6 +4279,7 @@ function handleWindowBlur(): void {
 }
 
 function handleViewportResize(): void {
+  syncQuakeViewportProjection();
   viewmodel.queueViewportSync();
 }
 
@@ -3873,6 +4307,10 @@ function disposeQuakeApp(): void {
   clearQuakeWeaponViewPunch(false);
   clearQuakeBonusOverlay();
   destroyQuakeMobileControls();
+  if (quakeCameraStepSmoothFrame) {
+    window.cancelAnimationFrame(quakeCameraStepSmoothFrame);
+    quakeCameraStepSmoothFrame = 0;
+  }
   if (quakeCrosshairTargetSyncFrame) {
     window.cancelAnimationFrame(quakeCrosshairTargetSyncFrame);
     quakeCrosshairTargetSyncFrame = 0;

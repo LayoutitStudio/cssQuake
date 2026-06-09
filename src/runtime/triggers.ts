@@ -2,9 +2,10 @@ import type { QuakeEntity } from "../prepare/scene";
 import type { QuakeTouchedTrigger } from "./collision";
 import { quakeEntityNumber } from "./entities";
 import { normalizeVec3 } from "./math";
+import type { QuakeCounterActivationResult } from "./targets";
 
 export interface QuakeTriggersControllerOptions {
-  activateCounter: (entity: QuakeEntity) => boolean;
+  activateCounter: (entity: QuakeEntity) => QuakeCounterActivationResult | null;
   activateEntity: (entityIndex: number) => boolean | void;
   activateTeleport: (entity: QuakeEntity) => boolean;
   completeLevel: (entity: QuakeEntity) => void;
@@ -13,8 +14,10 @@ export interface QuakeTriggersControllerOptions {
   getOrigin: () => [number, number, number];
   getTouchedTriggers: (origin: [number, number, number]) => QuakeTouchedTrigger[];
   isEntityDisabled: (entityIndex: number) => boolean;
+  isOneShotTrigger: (entity: QuakeEntity, fallback: boolean) => boolean;
   onActiveKeyChange: (key: string) => void;
   triggerSpecial: (entity: QuakeEntity) => boolean;
+  triggerWait: (entity: QuakeEntity, fallback: number) => number;
   transitionSerial: () => number;
   useTargets: (entity: QuakeEntity) => boolean;
 }
@@ -108,13 +111,13 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
     }
     if (entity.classname === "trigger_once" || entity.classname === "trigger_secret") {
       options.useTargets(entity);
-      options.disableEntity(entity.index);
+      if (options.isOneShotTrigger(entity, true)) options.disableEntity(entity.index);
       return false;
     }
     if (entity.classname === "trigger_multiple") {
       if (!markTriggerMultipleUse(entity)) return false;
       options.useTargets(entity);
-      if (quakeEntityNumber(entity, "wait", QUAKE_TRIGGER_MULTIPLE_DEFAULT_WAIT) < 0) {
+      if (options.triggerWait(entity, QUAKE_TRIGGER_MULTIPLE_DEFAULT_WAIT) < 0) {
         options.disableEntity(entity.index);
       }
       return false;
@@ -130,7 +133,8 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
   const activateCounterEntity = (entity: QuakeEntity): void => {
     if (options.isEntityDisabled(entity.index)) return;
     if (usedTriggers.has(entity.index)) return;
-    if (!options.activateCounter(entity)) return;
+    const result = options.activateCounter(entity);
+    if (!result?.completed) return;
     usedTriggers.add(entity.index);
   };
 
@@ -153,7 +157,7 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
     const now = performance.now();
     const cooldownUntil = triggerCooldownUntil.get(entity.index) ?? 0;
     if (now < cooldownUntil) return false;
-    const wait = quakeEntityNumber(entity, "wait", QUAKE_TRIGGER_MULTIPLE_DEFAULT_WAIT);
+    const wait = options.triggerWait(entity, QUAKE_TRIGGER_MULTIPLE_DEFAULT_WAIT);
     if (wait >= 0) {
       triggerCooldownUntil.set(entity.index, now + Math.max(0, wait) * 1000);
     }

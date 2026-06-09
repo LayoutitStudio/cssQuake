@@ -12,11 +12,14 @@ import {
 } from "./constants";
 import type { QuakeHazardDamage } from "./hazards";
 import { markQuakeTrace } from "./debug/traceMarks";
-import { createInitialInventory, type QuakePlayerInventory } from "./hud";
+import { applyQuakeDamageToInventory, createInitialInventory, type QuakePlayerInventory } from "./hud";
 import { distanceSq3, subtractVec3 } from "./math";
 import {
   QUAKE_PMOVE_BACK_SPEED,
   QUAKE_PMOVE_DT_CLAMP,
+  QUAKE_PMOVE_EDGE_DISTANCE,
+  QUAKE_PMOVE_EDGE_DROP,
+  QUAKE_PMOVE_EDGE_FRICTION,
   QUAKE_PMOVE_FORWARD_SPEED,
   QUAKE_PMOVE_MAX_SPEED,
   QUAKE_PMOVE_SIDE_SPEED,
@@ -70,6 +73,7 @@ export interface QuakePlayerControllerOptions {
   getCollisionWorld: () => QuakeCollisionWorld | null;
   getCurrentScene: () => QuakeScene | null;
   gravity: number;
+  isInvulnerable?: () => boolean;
   jumpVelocity: number;
   onDamageFlash: (active: boolean, feedback?: QuakePlayerDamageFeedback) => void;
   onDeath: () => void;
@@ -84,6 +88,7 @@ export interface QuakePlayerControllerOptions {
   ) => { origin: [number, number, number]; groundZ: number; grounded: boolean; touches?: QuakeTouchedTrigger[] };
   syncCrosshairTarget: () => void;
   syncHazards: (origin?: [number, number, number], triggers?: QuakeTouchedTrigger[]) => boolean;
+  syncCamera: (origin: [number, number, number], mode: "move" | "reset" | "smooth-step") => void;
   syncPickups: (origin: [number, number, number], eyeHeight: number) => void;
   syncTouchedTriggers: (origin: [number, number, number]) => QuakeTouchedTrigger[];
   syncViewmodel: () => void;
@@ -123,6 +128,7 @@ export interface QuakePlayerDamageFeedback {
 
 export interface QuakePlayerMovementDebug {
   analogX: number;
+  currentGroundEntity: number | null;
   analogY: number;
   grounded: boolean;
   groundZ: number;
@@ -352,9 +358,10 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   };
 
   const debugMovement = (): QuakePlayerMovementDebug => ({
-    analogX: moveAnalogX,
-    analogY: moveAnalogY,
-    grounded: currentGrounded,
+      analogX: moveAnalogX,
+      analogY: moveAnalogY,
+      currentGroundEntity: lastGroundEntityIndex,
+      grounded: currentGrounded,
     groundZ: currentGroundZ,
     jumpQueued,
     jumpReleased,
@@ -366,11 +373,32 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
 
   const applyDamage = (amount: number): boolean => {
     if (amount <= 0 || dead || !options.canTakeDamage()) return false;
-    const damage = Math.round(amount);
-    inventory.health = Math.max(0, inventory.health - damage);
-    markQuakeTrace("player-damage", { amount: damage, health: inventory.health, died: inventory.health <= 0 });
+    const invulnerable = options.isInvulnerable?.() === true;
+    // QuakeC T_Damage computes armor save before invulnerability blocks health damage.
+    const damage = applyQuakeDamageToInventory(inventory, amount, { applyHealth: !invulnerable });
+    if (invulnerable) {
+      markQuakeTrace("player-damage-blocked", {
+        amount: damage.rawDamage,
+        armor: inventory.armor,
+        armorDamage: damage.armorDamage,
+        armorType: inventory.armorType,
+        reason: "invulnerability",
+      });
+    }
+    if (!damage.changed) return false;
+    markQuakeTrace("player-damage", {
+      amount: damage.rawDamage,
+      armor: inventory.armor,
+      armorDamage: damage.armorDamage,
+      armorType: inventory.armorType,
+      blockedHealthDamage: invulnerable,
+      health: inventory.health,
+      healthDamage: damage.healthDamage,
+      died: inventory.health <= 0,
+    });
     options.onInventoryChanged();
-    flashDamage({ amount: damage });
+    if (invulnerable) return false;
+    flashDamage({ amount: damage.rawDamage });
     if (inventory.health > 0) return false;
     enterDeath();
     return true;
@@ -536,6 +564,9 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     currentGrounded = groundedForPhysics;
     const command = updateCurrentMoveCommand();
     jumpQueued = false;
+    const frictionScale = groundedForPhysics
+      ? quakePlayerEdgeFriction(collisionWorld, origin, currentEyeHeight, moveVelocity)
+      : 1;
     const physicsGrounded = updateQuakePlayerPhysics(
       moveVelocity,
       command,
@@ -543,6 +574,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
       dt,
       options.gravity,
       options.jumpVelocity,
+      frictionScale,
     );
     currentGrounded = physicsGrounded;
 
@@ -574,6 +606,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     moveStepDebug.dt = dt;
     moveStepDebug.groundedForPhysics = groundedForPhysics;
     moveStepDebug.groundSnapZ = snapGroundZ;
+    moveStepDebug.frictionScale = frictionScale;
     moveStepDebug.physicsGrounded = physicsGrounded;
     moveStepDebug.physicsVelocityZ = moveVelocity[2];
     moveStepDebug.resolvedGrounded = resolved.grounded;
@@ -599,6 +632,21 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     if (moveFrame === null && hasMoveMotion()) scheduleMoveFrame();
   };
 
+  function quakePlayerEdgeFriction(
+    collisionWorld: QuakeCollisionWorld,
+    origin: [number, number, number],
+    eyeHeight: number,
+    velocity: Vec3,
+  ): number {
+    const speed = Math.hypot(velocity[0], velocity[1]);
+    if (speed <= COLLISION_EPSILON) return 1;
+    const footZ = origin[2] - eyeHeight;
+    const edgeX = origin[0] + (velocity[0] / speed) * QUAKE_PMOVE_EDGE_DISTANCE;
+    const edgeY = origin[1] + (velocity[1] / speed) * QUAKE_PMOVE_EDGE_DISTANCE;
+    const floorZ = collisionWorld.floorAt(edgeX, edgeY, footZ + COLLISION_EPSILON, footZ - QUAKE_PMOVE_EDGE_DROP);
+    return floorZ === null ? QUAKE_PMOVE_EDGE_FRICTION : 1;
+  }
+
   const syncCollision = (): void => {
     if (dead) return;
     const collisionWorld = options.getCollisionWorld();
@@ -618,8 +666,16 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     jumpEnabled = false,
   ): void {
     const moved = distanceSq3(previousOrigin, resolved.origin) > COLLISION_EPSILON;
-    const groundChanged = Math.abs(resolved.groundZ - currentGroundZ) > COLLISION_EPSILON;
+    const groundDelta = resolved.groundZ - currentGroundZ;
+    const groundChanged = Math.abs(groundDelta) > COLLISION_EPSILON;
     const groundedChanged = currentGrounded !== resolved.grounded;
+    const cameraMode = currentGrounded &&
+      resolved.grounded &&
+      groundChanged &&
+      groundDelta > COLLISION_EPSILON &&
+      groundDelta <= STEP_HEIGHT + GROUND_SNAP
+      ? "smooth-step"
+      : "move";
 
     currentGrounded = resolved.grounded;
     if (resolved.grounded) {
@@ -629,7 +685,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     }
 
     if (moved || groundChanged || groundedChanged) {
-      setOrigin(resolved.origin, resolved.groundZ, jumpEnabled, resolved.grounded);
+      setOrigin(resolved.origin, resolved.groundZ, jumpEnabled, resolved.grounded, cameraMode);
     } else {
       lastValidOrigin = resolved.origin;
     }
@@ -796,7 +852,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     }
 
     const nextOrigin: [number, number, number] = [origin[0], origin[1], nextGroundZ + currentEyeHeight];
-    setOrigin(nextOrigin, nextGroundZ, true, landed);
+    setOrigin(nextOrigin, nextGroundZ, true, landed, "move");
     lastValidOrigin = nextOrigin;
     const transitionSerial = options.transitionSerial();
     const triggers = options.syncTouchedTriggers(nextOrigin);
@@ -850,7 +906,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     pushVelocity[0] *= damping;
     pushVelocity[1] *= damping;
 
-    setOrigin(resolved.origin, resolved.groundZ, false, grounded);
+    setOrigin(resolved.origin, resolved.groundZ, false, grounded, "move");
     lastGroundEntityIndex = resolved.touches?.find((touch) => touch.contact === "floor")?.entityIndex ?? null;
     for (const touch of resolved.touches ?? []) {
       options.activateSolidTouch(touch);
@@ -878,6 +934,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     groundZ = origin[2] - currentEyeHeight,
     jumpEnabled = true,
     landed = true,
+    cameraMode: "move" | "reset" | "smooth-step" = "reset",
   ): void => {
     const previousGroundZ = currentGroundZ;
     syncingCollision = true;
@@ -889,6 +946,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     playerControlUpdate.jumpVelocity = options.jumpVelocity;
     options.controls.update(playerControlUpdate);
     options.controls.setOrigin(origin);
+    options.syncCamera(origin, cameraMode);
     syncingCollision = false;
     lastValidOrigin = origin;
     if (landed) lastSafeOrigin = origin;

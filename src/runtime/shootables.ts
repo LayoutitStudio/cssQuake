@@ -79,6 +79,7 @@ export interface QuakeShootablesControllerOptions {
   getPlayerEyeHeight(): number;
   getPlayerOrigin(): [number, number, number];
   hasLineOfSight(start: Vec3, end: Vec3): boolean;
+  isPlayerInvisible?: () => boolean;
   isInPlayerView(origin: Vec3): boolean;
   leafIndexAt(origin: Vec3): number | undefined;
   monsterRuntimeEnabled(): boolean;
@@ -353,6 +354,7 @@ export function createQuakeShootablesController({
   getPlayerEyeHeight,
   getPlayerOrigin,
   hasLineOfSight,
+  isPlayerInvisible,
   isInPlayerView,
   leafIndexAt,
   monsterRuntimeEnabled,
@@ -415,6 +417,9 @@ export function createQuakeShootablesController({
       const modelPath = quakeShootableModelPath(entity, programMetadata);
       if (!modelPath) continue;
       const model = modelLibrary?.models[modelPath];
+      if (!model && isRequiredShootableModel(entity, modelPath)) {
+        throw missingRequiredShootableModelError(entity, modelPath);
+      }
       if (!model && !canUseShootableFallback(entity)) continue;
       const bounds = shootableLocalBounds(entity, model);
       const spawnProfile = quakeMonsterSpawnProfile(entity.classname);
@@ -1238,6 +1243,10 @@ export function createQuakeShootablesController({
     if (!enemy.awake) {
       updateEnemyAnimation(shootable, "idle", now);
       if (!canSeePlayer) return;
+      if (!quakeMonsterCanAcquirePlayer(isPlayerInvisible?.() === true)) {
+        markShootableTrace("enemy-acquire-blocked", shootable, { reason: "invisibility" });
+        return;
+      }
       enemy.awake = true;
       enemy.nextAttackAt = now + enemyWakeDelayMs(profile, enemy);
       syncShootableEnemyDatasets(shootable);
@@ -3148,9 +3157,19 @@ export function quakeShootableModelPath(
   return null;
 }
 
+function isRequiredShootableModel(entity: QuakeEntity, modelPath: string): boolean {
+  return entity.classname.startsWith("monster_") && modelPath.startsWith("progs/") && modelPath.endsWith(".mdl");
+}
+
+function missingRequiredShootableModelError(entity: QuakeEntity, modelPath: string): Error {
+  return new Error(
+    `Missing prepared Quake model ${modelPath} for ${entity.classname} #${entity.index}. ` +
+      "This is a preload or asset bug, not a procedural fallback.",
+  );
+}
+
 function canUseShootableFallback(entity: QuakeEntity): boolean {
-  return entity.classname.startsWith("monster_") ||
-    entity.classname === "misc_explobox" ||
+  return entity.classname === "misc_explobox" ||
     entity.classname === "misc_explobox2";
 }
 
@@ -3469,6 +3488,10 @@ const QUAKE_MONSTER_MODEL_PATHS: Record<string, string> = {
   monster_boss: "progs/boss.mdl",
   monster_oldone: "progs/oldone.mdl",
 };
+
+export function quakeMonsterCanAcquirePlayer(playerInvisible: boolean): boolean {
+  return !playerInvisible;
+}
 
 export function quakeShootableFallbackPolygons(entity: QuakeEntity): Polygon[] {
   if (entity.classname === "misc_explobox" || entity.classname === "misc_explobox2") {

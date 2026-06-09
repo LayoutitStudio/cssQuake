@@ -1,7 +1,9 @@
 import type { Polygon, PolyMeshHandle, Vec3 } from "@layoutit/polycss";
 
+import type { QuakeGameLogicFacts } from "../prepare/gameLogicFacts";
+import { quakeGameLogicResolvedPickupFact } from "../prepare/gameLogicFacts";
 import type { QuakeEntity, QuakePreparedRenderBundle } from "../prepare/scene";
-import type { QuakeInventoryDelta } from "./hud";
+import type { QuakeInventoryDelta, QuakeInventoryPowerupBehavior, QuakePlayerInventory } from "./hud";
 import { COLLISION_EPSILON, PLAYER_RADIUS, QUAKE_COLLISION_UNIT_SCALE } from "./constants";
 import { distanceSq3, dotVec3, normalizeVec3 } from "./math";
 import { quakeEntityNumber, quakeEntitySpawnflags } from "./entities";
@@ -113,6 +115,7 @@ interface QuakePickupState {
   leafIndex?: number;
   radius: number;
   height: number;
+  model?: QuakePickupModel;
   handle: PolyMeshHandle | null;
   renderRadius: number;
   effect: QuakePickupEffect;
@@ -134,13 +137,33 @@ interface QuakePickupAnimationState {
 export interface QuakePickupControllerOptions {
   addMesh: (entity: QuakeEntity, model?: QuakePickupModel, frameIndex?: number) => PolyMeshHandle | null;
   applyEffect: (effect: QuakePickupEffect, entity: QuakeEntity) => void;
+  canPickup?: (effect: QuakePickupEffect, entity: QuakeEntity) => boolean;
+  gameMode?: () => QuakePickupGameMode;
   leafIndexAt: (origin: Vec3) => number | undefined;
+  onRespawnScheduled?: (entity: QuakeEntity, delaySeconds: number) => void;
   playerForward: () => Vec3;
   playerViewDot: (origin: Vec3) => number;
   pointToPoly: (point: { x: number; y: number; z: number }) => Vec3;
+  gameLogic: () => QuakeGameLogicFacts | null;
   programMetadata: () => QuakeProgramMetadata | null;
   shouldSpawn: (entity: QuakeEntity) => boolean;
+  startMegahealthRot?: (entity: QuakeEntity, delaySeconds: number) => void;
+  startPowerup?: (entity: QuakeEntity, powerup: QuakeInventoryPowerupBehavior) => void;
+  useTargets?: (entity: QuakeEntity) => boolean | void;
   visibleLeavesAt: (origin: [number, number, number]) => Set<number> | null;
+}
+
+export interface QuakePickupGameMode {
+  coop?: boolean;
+  deathmatch?: number;
+  singleplayer?: boolean;
+}
+
+export interface QuakePickupLifecycleAction {
+  action: "leave" | "remove" | "respawn";
+  condition: string;
+  delaySeconds?: number;
+  think?: "SUB_regen";
 }
 
 export interface QuakePickupController {
@@ -158,9 +181,12 @@ export function createQuakePickupController(options: QuakePickupControllerOption
   let handles: PolyMeshHandle[] = [];
   let pickups: QuakePickupState[] = [];
   let animationTimer: number | null = null;
+  let respawnTimers: ReturnType<typeof globalThis.setTimeout>[] = [];
 
   const clear = (): void => {
     stopAnimationLoop();
+    for (const timer of respawnTimers) globalThis.clearTimeout(timer);
+    respawnTimers = [];
     for (const handle of handles) handle.remove();
     handles = [];
     pickups = [];
@@ -172,17 +198,18 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     visibilityOrigin?: [number, number, number],
   ): void => {
     clear();
+    const gameLogic = options.gameLogic();
     const programMetadata = options.programMetadata();
 
     for (const entity of entities) {
       if (!entity.origin) continue;
       if (!options.shouldSpawn(entity)) continue;
-      const effect = quakePickupEffectForEntity(entity);
-      const modelPath = quakePickupModelPath(entity, programMetadata);
+      const effect = quakePickupEffectForEntity(entity, gameLogic);
+      const modelPath = quakePickupModelPath(entity, programMetadata, gameLogic);
       if (!effect && !modelPath) continue;
 
       const origin = options.pointToPoly(entity.origin);
-      const model = quakePickupModelForEntity(entity, modelLibrary, programMetadata);
+      const model = quakePickupModelForEntity(entity, modelLibrary, programMetadata, gameLogic);
       const handle = options.addMesh(entity, model);
       if (handle) {
         handle.element.hidden = true;
@@ -195,6 +222,7 @@ export function createQuakePickupController(options: QuakePickupControllerOption
         leafIndex: options.leafIndexAt(origin),
         radius: QUAKE_PICKUP_RADIUS,
         height: QUAKE_PICKUP_HEIGHT,
+        ...(model ? { model } : {}),
         handle,
         renderRadius: quakePickupHorizontalRadius(model),
         effect: effect ?? {},
@@ -340,11 +368,59 @@ export function createQuakePickupController(options: QuakePickupControllerOption
   };
 
   const pickUp = (pickup: QuakePickupState): void => {
+    const gameLogic = options.gameLogic();
+    if (options.canPickup && !options.canPickup(pickup.effect, pickup.entity)) return;
+    const lifecycleAction = quakePickupLifecycleActionForEntity(
+      pickup.entity,
+      gameLogic,
+      options.gameMode?.() ?? { singleplayer: true },
+    );
+    // Leave-in-place pickups need per-player ownership; keep them facts-only until multiplayer exists.
+    if (lifecycleAction?.action === "leave") return;
     pickup.picked = true;
     pickup.visible = false;
     pickup.handle?.remove();
     handles = handles.filter((handle) => handle !== pickup.handle);
     options.applyEffect(pickup.effect, pickup.entity);
+    const powerup = quakePickupPowerupBehaviorForEntity(pickup.entity, gameLogic);
+    if (powerup) {
+      options.startPowerup?.(pickup.entity, powerup);
+    }
+    const megahealthRotDelay = quakePickupMegahealthRotDelayForEntity(pickup.entity, gameLogic);
+    if (megahealthRotDelay !== undefined) {
+      options.startMegahealthRot?.(pickup.entity, megahealthRotDelay);
+    }
+    if (quakePickupFiresTargetsForEntity(pickup.entity, gameLogic)) {
+      options.useTargets?.(pickup.entity);
+    }
+    if (lifecycleAction?.action === "respawn" && lifecycleAction.delaySeconds !== undefined) {
+      schedulePickupRespawn(pickup, lifecycleAction.delaySeconds);
+    }
+  };
+
+  const schedulePickupRespawn = (pickup: QuakePickupState, delaySeconds: number): void => {
+    if (!Number.isFinite(delaySeconds) || delaySeconds < 0) return;
+    options.onRespawnScheduled?.(pickup.entity, delaySeconds);
+    const timer = globalThis.setTimeout(() => {
+      respawnTimers = respawnTimers.filter((entry) => entry !== timer);
+      respawnPickup(pickup);
+    }, delaySeconds * 1000);
+    respawnTimers.push(timer);
+  };
+
+  const respawnPickup = (pickup: QuakePickupState): void => {
+    if (!pickups.includes(pickup)) return;
+    if (!pickup.picked) return;
+    pickup.picked = false;
+    pickup.visible = false;
+    const handle = options.addMesh(pickup.entity, pickup.model);
+    pickup.handle = handle;
+    if (handle) {
+      handle.element.hidden = true;
+      handles.push(handle);
+    }
+    const animation = quakePickupAnimationStateForModel(pickup.entity, pickup.model);
+    if (animation) pickup.animation = animation;
   };
 
   return {
@@ -412,10 +488,23 @@ export function quakePickupModelForEntity(
   entity: QuakeEntity,
   modelLibrary: QuakePickupModelLibrary | null,
   programMetadata: QuakeProgramMetadata | null = null,
+  gameLogic: QuakeGameLogicFacts | null = null,
 ): QuakePickupModel | undefined {
-  const modelPath = quakePickupModelPath(entity, programMetadata);
-  const fallbackModelPath = QUAKE_PICKUP_MODEL_PATHS[entity.classname];
+  const resolvedFact = quakeGameLogicResolvedPickupFact(gameLogic, entity.index);
+  const modelPath = resolvedFact?.modelPath ?? quakePickupModelPath(entity, programMetadata, gameLogic);
   const model = modelPath ? modelLibrary?.models[modelPath] : undefined;
+  if (resolvedFact?.modelPath) {
+    if (model) return model;
+    if (modelLibrary) {
+      throw new Error(
+        `Prepared Quake pickup model ${resolvedFact.modelPath} is missing for ` +
+          `${entity.classname} entity ${entity.index}. ` +
+          "This is a preload or asset bug, not a hardcoded pickup fallback.",
+      );
+    }
+    return undefined;
+  }
+  const fallbackModelPath = QUAKE_PICKUP_MODEL_PATHS[entity.classname];
   const fallbackModel = fallbackModelPath && fallbackModelPath !== modelPath
     ? modelLibrary?.models[fallbackModelPath]
     : undefined;
@@ -447,8 +536,11 @@ export function quakePickupModelRenderBundleFrameSet(
 export function quakePickupModelPath(
   entity: QuakeEntity,
   programMetadata: QuakeProgramMetadata | null = null,
+  gameLogic: QuakeGameLogicFacts | null = null,
 ): string | undefined {
   if (!isQuakePickupClassname(entity.classname)) return undefined;
+  const factModelPath = quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.modelPath;
+  if (factModelPath) return factModelPath;
   const programModels = quakeProgramModelPathsForEntity(entity, programMetadata);
   const large = Boolean(quakeEntitySpawnflags(entity) & 1);
   if (entity.classname === "item_health") {
@@ -518,7 +610,17 @@ function quakePreferredProgramPickupModelPath(models: string[]): string | undefi
     models.find((model) => model.startsWith("maps/") && model.endsWith(".bsp"));
 }
 
-export function quakePickupEffectForEntity(entity: QuakeEntity): QuakePickupEffect | null {
+export function quakePickupEffectForEntity(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null = null,
+): QuakePickupEffect | null {
+  const fact = quakeGameLogicResolvedPickupFact(gameLogic, entity.index);
+  if (fact) {
+    const effect: QuakePickupEffect = { ...fact.inventoryDelta };
+    const armor = fact.behavior?.armor;
+    if (armor && effect.armor !== undefined) effect.armorType = armor.armorType;
+    return effect;
+  }
   const classname = entity.classname;
   const spawnflags = quakeEntitySpawnflags(entity);
   if (classname === "item_health") {
@@ -540,6 +642,142 @@ export function quakePickupEffectForEntity(entity: QuakeEntity): QuakePickupEffe
   if (classname.startsWith("item_artifact_")) return {};
   if (classname.startsWith("weapon_") || classname.startsWith("item_") || classname.startsWith("ammo_") || classname.startsWith("key_")) return {};
   return null;
+}
+
+export function quakePickupMessageForEntity(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null = null,
+): string | undefined {
+  return quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.feedback?.message;
+}
+
+export function quakePickupFiresTargetsForEntity(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null = null,
+): boolean {
+  return quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.lifecycle?.pickup.firesTargets === true;
+}
+
+export function quakeCanPickupForInventory(
+  entity: QuakeEntity,
+  inventory: Pick<QuakePlayerInventory, "armor" | "armorType" | "health">,
+  gameLogic: QuakeGameLogicFacts | null = null,
+  effect: QuakePickupEffect = quakePickupEffectForEntity(entity, gameLogic) ?? {},
+): boolean {
+  const healthAcceptance = quakePickupHealthAcceptanceForEntity(entity, gameLogic);
+  if (healthAcceptance && typeof effect.health === "number") {
+    if (inventory.health <= 0) return false;
+    return inventory.health < healthAcceptance.rejectAtOrAboveHealth;
+  }
+  const armor = quakePickupArmorBehaviorForEntity(entity, gameLogic);
+  if (armor && typeof effect.armor === "number") {
+    if (inventory.health <= 0) return false;
+    return inventory.armorType * inventory.armor < armor.armorType * armor.armorValue;
+  }
+  if (quakePickupPowerupBehaviorForEntity(entity, gameLogic)) {
+    return inventory.health > 0;
+  }
+  return true;
+}
+
+export function quakePickupLifecycleActionForEntity(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null = null,
+  mode: QuakePickupGameMode = { singleplayer: true },
+): QuakePickupLifecycleAction | undefined {
+  const rules = quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.lifecycle?.respawn.rules ?? [];
+  for (const rule of rules) {
+    if (rule.action === "rot") continue;
+    if (!quakePickupLifecycleConditionMatches(rule.condition, mode)) continue;
+    if (rule.action === "respawn") {
+      if (typeof rule.delaySeconds !== "number" || !Number.isFinite(rule.delaySeconds)) return undefined;
+      return {
+        action: "respawn",
+        condition: rule.condition,
+        delaySeconds: rule.delaySeconds,
+        ...(rule.think === "SUB_regen" ? { think: rule.think } : {}),
+      };
+    }
+    return {
+      action: rule.action,
+      condition: rule.condition,
+    };
+  }
+  return undefined;
+}
+
+export function quakePickupLifecycleConditionMatches(condition: string, mode: QuakePickupGameMode): boolean {
+  const deathmatch = Math.max(0, Math.round(mode.deathmatch ?? 0));
+  const coop = mode.coop === true;
+  const singleplayer = mode.singleplayer ?? (deathmatch === 0 && !coop);
+  switch (condition) {
+    case "pickup":
+      return true;
+    case "singleplayer":
+      return singleplayer;
+    case "coop":
+      return coop;
+    case "!coop":
+      return !coop;
+    case "deathmatch":
+      return deathmatch !== 0;
+    case "!deathmatch":
+      return deathmatch === 0;
+    case "deathmatch == 1":
+      return deathmatch === 1;
+    case "deathmatch == 2":
+      return deathmatch === 2;
+    case "deathmatch != 1":
+      return deathmatch !== 1;
+    case "deathmatch != 2":
+      return deathmatch !== 2;
+    case "deathmatch && deathmatch != 2":
+      return deathmatch !== 0 && deathmatch !== 2;
+    case "deathmatch == 2 || coop":
+      return deathmatch === 2 || coop;
+    case "singleplayer || deathmatch != 1":
+      return singleplayer || deathmatch !== 1;
+    case "singleplayer || deathmatch == 2":
+      return singleplayer || deathmatch === 2;
+    case "!(deathmatch == 2 || coop)":
+      return deathmatch !== 2 && !coop;
+    default:
+      return false;
+  }
+}
+
+export function quakePickupArmorBehaviorForEntity(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null = null,
+): { armorType: number; armorValue: number; itemFlag: number; itemFlagExpression: string } | undefined {
+  return quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.behavior?.armor;
+}
+
+export function quakePickupHealthAcceptanceForEntity(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null = null,
+): { healFunction: "T_Heal"; ignoreMaxHealth: boolean; rejectAtOrAboveHealth: number } | undefined {
+  return quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.behavior?.health;
+}
+
+export function quakePickupPowerupBehaviorForEntity(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null = null,
+): QuakeInventoryPowerupBehavior | undefined {
+  return quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.behavior?.powerup;
+}
+
+export function quakePickupMegahealthRotDelayForEntity(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null = null,
+): number | undefined {
+  const rule = quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.lifecycle?.respawn.rules.find((candidate) =>
+    candidate.action === "rot" &&
+    candidate.think === "item_megahealth_rot" &&
+    typeof candidate.delaySeconds === "number"
+  );
+  if (!rule || !Number.isFinite(rule.delaySeconds) || rule.delaySeconds < 0) return undefined;
+  return rule.delaySeconds;
 }
 
 function createHealthPickupPolygons(): Polygon[] {
