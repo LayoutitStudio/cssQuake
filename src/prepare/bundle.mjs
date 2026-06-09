@@ -267,6 +267,7 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
         const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await runQuakeRenderBundleStepAsync("frame-serialize-first",
           () => serializeMeshWithAssets(handle.element, {
             extractLeafStyles,
+            normalizeAtlasLeafImagePixelBoxes: true,
             styleClassName: frame.styleClassName,
           }),
         );
@@ -1844,6 +1845,11 @@ async function serializeMeshWithAssets(mesh, options = {}) {
   );
   const assetByBlobUrl = new Map();
   if (!options.skipBackgroundAssetExtraction) {
+    if (options.normalizeAtlasLeafImagePixelBoxes) {
+      await runQuakeRenderBundleStepAsync("serialize-normalize-atlas-leaf-boxes", () =>
+        normalizeRenderBundleAtlasLeafImagePixelBoxes(serializableMesh)
+      );
+    }
     const styleElements = runQuakeRenderBundleStep("serialize-query-styles", () => [
       serializableMesh,
       ...serializableMesh.querySelectorAll("[style]"),
@@ -1994,7 +2000,9 @@ function extractRenderBundleFrameStylesFromInheritedBase(mesh, baseLeafFrameStyl
       rawStyle.includes("background-repeat")
     )
       ? stripRenderBundleStyleMetadata(rawStyle)
-      : rawStyle);
+      : rawStyle, {
+      baseFrameStyle: baseLeafFrameStylesByClass.get(leafClass),
+    });
     leafFrameStyles.push([leafClass, compactRenderBundleInheritedLeafFrameStyle(style)]);
   }
   return {
@@ -2138,17 +2146,117 @@ function compactRenderBundleInheritedLeafFrameStyle(style) {
   return [matrix, "", extras];
 }
 
-function renderBundleLeafStyleWithExplicitAtlasSize(leaf, style) {
+async function normalizeRenderBundleAtlasLeafImagePixelBoxes(mesh) {
+  await Promise.all([...mesh.querySelectorAll("s")]
+    .map((leaf) => normalizeRenderBundleAtlasLeafImagePixelBox(leaf)));
+}
+
+async function normalizeRenderBundleAtlasLeafImagePixelBox(leaf) {
+  const win = leaf.ownerDocument.defaultView ?? window;
+  let computedStyle = null;
+  const style = () => {
+    computedStyle ??= win.getComputedStyle(leaf);
+    return computedStyle;
+  };
+  const backgroundImage = leaf.style.backgroundImage || style().backgroundImage;
+  if (!backgroundImage || backgroundImage === "none") return;
+  const imageUrl = cssUrlValue(backgroundImage);
+  if (!imageUrl) return;
+  const atlas = await loadQuakeAtlasImageData(imageUrl);
+  if (!atlas?.width || !atlas.height) return;
+  const backgroundPosition = cssPixelPair(
+    leaf.style.backgroundPosition,
+    leaf.style.backgroundPositionX,
+    leaf.style.backgroundPositionY,
+  ) ?? cssPixelPair(style().backgroundPosition, style().backgroundPositionX, style().backgroundPositionY);
+  const backgroundSize = cssPixelPair(leaf.style.backgroundSize) ?? cssPixelPair(style().backgroundSize);
+  const sourceWidth = renderBundleLeafCssSize(leaf, "width", style());
+  const sourceHeight = renderBundleLeafCssSize(leaf, "height", style());
+  if (
+    !backgroundPosition ||
+    !backgroundSize ||
+    sourceWidth <= 0 ||
+    sourceHeight <= 0 ||
+    backgroundSize[0] <= 0 ||
+    backgroundSize[1] <= 0
+  ) {
+    return;
+  }
+  const targetWidth = atlas.width * sourceWidth / backgroundSize[0];
+  const targetHeight = atlas.height * sourceHeight / backgroundSize[1];
+  if (
+    !Number.isFinite(targetWidth) ||
+    !Number.isFinite(targetHeight) ||
+    targetWidth <= 0 ||
+    targetHeight <= 0
+  ) {
+    return;
+  }
+  const matrix = parseMatrix3d(leaf.style.transform || style().transform);
+  if (matrix) {
+    leaf.style.transform = scaleRenderBundleLeafMatrix(matrix, sourceWidth, sourceHeight, targetWidth, targetHeight);
+  }
+  const scaleX = atlas.width / backgroundSize[0];
+  const scaleY = atlas.height / backgroundSize[1];
+  leaf.style.width = `${roundCssPx(targetWidth)}px`;
+  leaf.style.height = `${roundCssPx(targetHeight)}px`;
+  leaf.style.background = `${backgroundImage} ${roundCssPx(backgroundPosition[0] * scaleX)}px ` +
+    `${roundCssPx(backgroundPosition[1] * scaleY)}px / ${roundCssPx(atlas.width)}px ` +
+    `${roundCssPx(atlas.height)}px no-repeat`;
+}
+
+function renderBundleLeafCssSize(leaf, propertyName, style) {
+  return cssPixelValue(leaf.style[propertyName]) ||
+    cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
+    cssPixelValue(style?.[propertyName]) ||
+    64;
+}
+
+function renderBundleLeafFrameStyleSize(frameStyle, propertyName) {
+  const extraStyle = frameStyle?.[2] ?? "";
+  const declaration = renderBundleStyleDeclarations(extraStyle)
+    .find((part) => part.name === propertyName);
+  return cssPixelValue(declaration?.value);
+}
+
+function scaleRenderBundleLeafStyleToBox(leaf, style, width, height) {
+  const declarations = renderBundleStyleDeclarations(style);
+  const transform = declarations.find((part) => part.name === "transform");
+  const matrix = parseMatrix3d(transform?.value);
+  if (!matrix) return style;
+  const computedStyle = leaf.ownerDocument.defaultView?.getComputedStyle(leaf);
+  const sourceWidth = renderBundleLeafCssSize(leaf, "width", computedStyle);
+  const sourceHeight = renderBundleLeafCssSize(leaf, "height", computedStyle);
+  if (sourceWidth <= 0 || sourceHeight <= 0 || width <= 0 || height <= 0) return style;
+  transform.value = scaleRenderBundleLeafMatrix(matrix, sourceWidth, sourceHeight, width, height);
+  return declarations.map((part) => `${part.name}:${part.value}`).join(";");
+}
+
+function scaleRenderBundleLeafMatrix(matrix, sourceWidth, sourceHeight, targetWidth, targetHeight) {
+  const next = [...matrix];
+  const scaleX = sourceWidth / targetWidth;
+  const scaleY = sourceHeight / targetHeight;
+  for (let index = 0; index < 4; index++) next[index] *= scaleX;
+  for (let index = 4; index < 8; index++) next[index] *= scaleY;
+  return formatMatrix3d(next);
+}
+
+function renderBundleLeafStyleWithExplicitAtlasSize(leaf, style, options = {}) {
   if (leaf.tagName?.toLowerCase() !== "s" || !style) return style;
   const declarations = renderBundleStyleDeclarations(style);
   const hasWidth = declarations.some((part) => part.name === "width");
   const hasHeight = declarations.some((part) => part.name === "height");
   if (hasWidth && hasHeight) return style;
+  const baseWidth = renderBundleLeafFrameStyleSize(options.baseFrameStyle, "width");
+  const baseHeight = renderBundleLeafFrameStyleSize(options.baseFrameStyle, "height");
+  if (baseWidth && baseHeight) {
+    style = scaleRenderBundleLeafStyleToBox(leaf, style, baseWidth, baseHeight);
+  }
   const atlasSize = declarations.find((part) => part.name === "--polycss-atlas-size")?.value || "64px";
   return [
     style.replace(/;+$/, ""),
-    ...(!hasWidth ? [`width:${atlasSize}`] : []),
-    ...(!hasHeight ? [`height:${atlasSize}`] : []),
+    ...(!hasWidth ? [`width:${baseWidth ? `${roundCssPx(baseWidth)}px` : atlasSize}`] : []),
+    ...(!hasHeight ? [`height:${baseHeight ? `${roundCssPx(baseHeight)}px` : atlasSize}`] : []),
   ].filter(Boolean).join(";");
 }
 

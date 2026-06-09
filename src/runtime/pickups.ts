@@ -637,6 +637,7 @@ export function quakePickupEffectForEntity(
   if (classname === "weapon_nailgun" || classname === "weapon_supernailgun") return { nails: 30 };
   if (classname === "weapon_supershotgun") return { shells: 5 };
   if (classname === "weapon_grenadelauncher" || classname === "weapon_rocketlauncher") return { rockets: 5 };
+  if (classname === "weapon_lightning") return { cells: 15 };
   if (classname === "item_key1" || classname === "key_silver") return { key: "silver" };
   if (classname === "item_key2" || classname === "key_gold") return { key: "gold" };
   if (classname.startsWith("item_artifact_")) return {};

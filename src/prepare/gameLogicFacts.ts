@@ -321,6 +321,8 @@ export interface QuakeGameLogicPickupInventoryDeltaFact {
   key?: QuakeGameLogicPickupKey;
 }
 
+export type QuakeGameLogicAmmoInventoryField = "shells" | "nails" | "rockets" | "cells";
+
 export type QuakeGameLogicResolvedPickupKind =
   | "ammo_cells"
   | "ammo_nails"
@@ -410,6 +412,27 @@ export interface QuakeGameLogicResolvedPickupBehaviorFact {
     finishedField: string;
     itemFlag: number;
     itemFlagExpression: string;
+  };
+  weapon?: {
+    itemFlag: number;
+    itemFlagExpression: string;
+    ammoGrant: {
+      inventoryField: QuakeGameLogicAmmoInventoryField;
+      playerField: string;
+      amount: number;
+      hadAmmoPlayerField: string;
+    };
+    ownedWeaponReject: {
+      condition: "deathmatch == 2 || coop";
+      itemFlagExpression: string;
+    };
+    activeWeapon: {
+      bestWeaponFunction: "W_BestWeapon";
+      clampAmmoFunction: "bound_other_ammo";
+      currentAmmoFunction: "W_SetCurrentAmmo";
+      deathmatchFunction: "Deathmatch_Weapon";
+      singleplayerAssignment: "self.weapon = new";
+    };
   };
 }
 
@@ -1022,11 +1045,13 @@ function quakeResolvedPickupBehavior(
   const armor = quakeResolvedArmorPickupBehavior(classname, programFact);
   const health = quakeResolvedHealthPickupBehavior(classname, spawnflags, programFact);
   const powerup = quakeResolvedPowerupPickupBehavior(classname, programFact);
-  if (!armor && !health && !powerup) return undefined;
+  const weapon = quakeResolvedWeaponPickupBehavior(classname, programFact);
+  if (!armor && !health && !powerup && !weapon) return undefined;
   return {
     ...(armor ? { armor } : {}),
     ...(health ? { health } : {}),
     ...(powerup ? { powerup } : {}),
+    ...(weapon ? { weapon } : {}),
   };
 }
 
@@ -1255,6 +1280,87 @@ function quakeResolvedPowerupPickupBehavior(
 
 function quakeProgramOtherFieldName(field: string): string {
   return field.startsWith("other.") ? field.slice("other.".length) : field;
+}
+
+function quakeResolvedWeaponPickupBehavior(
+  classname: QuakeGameLogicResolvedPickupKind,
+  programFact: QuakeGameLogicProgramEntityFact,
+): NonNullable<QuakeGameLogicResolvedPickupBehaviorFact["weapon"]> | undefined {
+  if (programFact.callbacks.touch !== "weapon_touch") return undefined;
+  const callbackFact = programFact.callbackFacts?.weapon_touch;
+  const branch = quakeProgramCallbackClassnameBranch(programFact, "weapon_touch", classname);
+  if (!callbackFact || !branch) return undefined;
+
+  const itemFlag = quakeProgramBranchFieldNumber(branch, "new");
+  const itemFlagExpression = quakeProgramBranchFieldExpression(branch, "new");
+  const ammoAssignment = branch.assignments.find((assignment) => assignment.field.startsWith("other.ammo_"));
+  const ammoAmount = quakeProgramAmmoGrantAmount(ammoAssignment);
+  const playerField = ammoAssignment?.field.startsWith("other.") ? ammoAssignment.field.slice("other.".length) : undefined;
+  const inventoryField = quakeAmmoInventoryFieldForPlayerField(playerField);
+  const hadAmmoExpression = branch.assignments.find((assignment) => assignment.field === "hadammo")?.expression;
+  const hadAmmoPlayerField = hadAmmoExpression?.startsWith("other.") ? hadAmmoExpression.slice("other.".length) : undefined;
+  const hasLeaveMode = callbackFact.assignments?.some((assignment) => assignment.field === "leave" && assignment.value === 1) &&
+    callbackFact.assignments?.some((assignment) => assignment.field === "leave" && assignment.value === 0);
+  const hasActiveWeaponFacts = quakeProgramCallbackCalls(callbackFact, "W_BestWeapon") &&
+    quakeProgramCallbackCalls(callbackFact, "bound_other_ammo") &&
+    quakeProgramCallbackCalls(callbackFact, "W_SetCurrentAmmo") &&
+    quakeProgramCallbackCalls(callbackFact, "Deathmatch_Weapon") &&
+    quakeProgramCallbackHasAssignment(callbackFact, "other.items", "other.items | new") &&
+    quakeProgramCallbackHasAssignment(callbackFact, "self.weapon", "new");
+
+  if (
+    itemFlag === undefined ||
+    itemFlagExpression === undefined ||
+    ammoAmount === undefined ||
+    playerField === undefined ||
+    inventoryField === undefined ||
+    hadAmmoPlayerField === undefined ||
+    !hasLeaveMode ||
+    !hasActiveWeaponFacts
+  ) {
+    return undefined;
+  }
+
+  return {
+    itemFlag,
+    itemFlagExpression,
+    ammoGrant: {
+      inventoryField,
+      playerField,
+      amount: ammoAmount,
+      hadAmmoPlayerField,
+    },
+    ownedWeaponReject: {
+      condition: "deathmatch == 2 || coop",
+      itemFlagExpression,
+    },
+    activeWeapon: {
+      bestWeaponFunction: "W_BestWeapon",
+      clampAmmoFunction: "bound_other_ammo",
+      currentAmmoFunction: "W_SetCurrentAmmo",
+      deathmatchFunction: "Deathmatch_Weapon",
+      singleplayerAssignment: "self.weapon = new",
+    },
+  };
+}
+
+function quakeProgramAmmoGrantAmount(
+  assignment: QuakeGameLogicProgramAssignment | undefined,
+): number | undefined {
+  if (!assignment?.field.startsWith("other.ammo_")) return undefined;
+  const pattern = new RegExp(`^${escapeRegExp(assignment.field)}\\s*\\+\\s*([-+]?[0-9.]+)$`);
+  const match = pattern.exec(assignment.expression);
+  if (!match) return undefined;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function quakeAmmoInventoryFieldForPlayerField(playerField: string | undefined): QuakeGameLogicAmmoInventoryField | undefined {
+  if (playerField === "ammo_shells") return "shells";
+  if (playerField === "ammo_nails") return "nails";
+  if (playerField === "ammo_rockets") return "rockets";
+  if (playerField === "ammo_cells") return "cells";
+  return undefined;
 }
 
 function quakeProgramTimeOffsetSeconds(expression: string | undefined): number | undefined {
@@ -2583,6 +2689,10 @@ function quakeProgramBranchFieldExpression(
   field: string,
 ): string | undefined {
   return branch.assignments.find((assignment) => assignment.field === field)?.expression;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function quakeEntityNumber(entity: QuakeEntity, key: string, fallback: number): number {

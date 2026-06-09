@@ -51,6 +51,8 @@ const armorTouchBranch = (entity, classname) =>
   entity?.callbackFacts?.armor_touch?.classnameBranches?.find((branch) => branch.classname === classname);
 const powerupTouchBranch = (entity, classname) =>
   entity?.callbackFacts?.powerup_touch?.classnameBranches?.find((branch) => branch.classname === classname);
+const weaponTouchBranch = (entity, classname) =>
+  entity?.callbackFacts?.weapon_touch?.classnameBranches?.find((branch) => branch.classname === classname);
 const armorBranchValue = (branch, field) => branch?.assignments?.find((assignment) => assignment.field === field)?.value;
 const armorBranchExpression = (branch, field) =>
   branch?.assignments?.find((assignment) => assignment.field === field)?.expression;
@@ -148,6 +150,18 @@ const soldierMissingRenderBundles = soldierFrames.filter(
 
 const checks = [
   [
+    entities.worldspawn?.functionName === "worldspawn" &&
+      entities.worldspawn.kind === "worldspawn" &&
+      entities.worldspawn.source?.sourceFile === "qcc/v101qc/world.qc" &&
+      entities.worldspawn.assetRefs.length === 0 &&
+      entities.worldspawn.dependencies.models.length === 0 &&
+      entities.worldspawn.dependencies.sounds.length === 0 &&
+      entities.worldspawn.calls.includes("InitBodyQue") &&
+      entities.worldspawn.calls.includes("W_Precache") &&
+      entities.worldspawn.calls.includes("lightstyle"),
+    "worldspawn should expose compact source/call facts without broad precache asset refs",
+  ],
+  [
     entities.monster_army?.dependencies.models.some((dep) => dep.path === "progs/soldier.mdl"),
     "monster_army should include progs/soldier.mdl",
   ],
@@ -200,6 +214,26 @@ const checks = [
       callbackAssignmentExpression(entities.item_key1, "key_touch", "self.model") === "string_null" &&
       callbackCalls(entities.item_key1, "key_touch", "SUB_UseTargets"),
     "weapon, ammo, and key source facts should expose pickup lifecycle callback summaries",
+  ],
+  [
+    armorBranchValue(weaponTouchBranch(entities.weapon_rocketlauncher, "weapon_nailgun"), "new") === 4 &&
+      armorBranchExpression(weaponTouchBranch(entities.weapon_rocketlauncher, "weapon_nailgun"), "new") === "IT_NAILGUN" &&
+      armorBranchExpression(
+        weaponTouchBranch(entities.weapon_rocketlauncher, "weapon_nailgun"),
+        "other.ammo_nails",
+      ) === "other.ammo_nails + 30" &&
+      armorBranchValue(weaponTouchBranch(entities.weapon_rocketlauncher, "weapon_rocketlauncher"), "new") === 32 &&
+      armorBranchExpression(
+        weaponTouchBranch(entities.weapon_rocketlauncher, "weapon_rocketlauncher"),
+        "other.ammo_rockets",
+      ) === "other.ammo_rockets + 5" &&
+      armorBranchExpression(
+        weaponTouchBranch(entities.weapon_rocketlauncher, "weapon_lightning"),
+        "other.ammo_cells",
+      ) === "other.ammo_cells + 15" &&
+      callbackCalls(entities.weapon_rocketlauncher, "weapon_touch", "Deathmatch_Weapon") &&
+      callbackCalls(entities.weapon_rocketlauncher, "weapon_touch", "W_SetCurrentAmmo"),
+    "weapon_touch source facts should expose weapon item flags, ammo grants, and active-weapon calls",
   ],
   [
     armorBranchValue(powerupTouchBranch(entities.item_artifact_super_damage, "item_artifact_super_damage"), "other.super_time") === 1 &&
@@ -412,7 +446,11 @@ const checks = [
   ],
   [
     callbackAssignmentExpression(jsonEntities.weapon_rocketlauncher, "weapon_touch", "self.nextthink") === "time + 30" &&
-      callbackCalls(jsonEntities.item_key2, "key_touch", "SUB_UseTargets"),
+      callbackCalls(jsonEntities.item_key2, "key_touch", "SUB_UseTargets") &&
+      armorBranchExpression(
+        weaponTouchBranch(jsonEntities.weapon_rocketlauncher, "weapon_supershotgun"),
+        "other.ammo_shells",
+      ) === "other.ammo_shells + 5",
     "JSON facts should include pickup lifecycle callback summaries",
   ],
   [

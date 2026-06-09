@@ -26,6 +26,14 @@ const QUAKE_PLAT_TRIGGER_INSET = 25;
 const QUAKE_PLAT_TRIGGER_TOP_EXTRA = 8;
 const QUAKE_PLAT_TRIGGER_LOW_HEIGHT = 8;
 const QUAKE_PLAT_TRIGGER_MIN_SIDE = 50;
+const WEAPON_PICKUP_CLASSNAMES = [
+  "weapon_nailgun",
+  "weapon_supernailgun",
+  "weapon_supershotgun",
+  "weapon_grenadelauncher",
+  "weapon_rocketlauncher",
+  "weapon_lightning",
+];
 
 const scene = await readScene(scenePath);
 const { QUAKE_UNIT_SCALE: QUAKE_COLLISION_UNIT_SCALE } = await import(
@@ -89,6 +97,7 @@ const e1m8Entities = sceneGameLogicEntities(e1m8Scene);
 const funcPlats = entities.filter((entity) => entity.classname === "func_plat");
 const funcDoors = entities.filter((entity) => entity.classname === "func_door");
 const funcButtons = entities.filter((entity) => entity.classname === "func_button");
+const rebuiltWorldspawn = rebuiltEntities.find((entity) => entity.entityIndex === 0 && entity.classname === "worldspawn");
 const sourceBackedTriggers = entities.filter((entity) =>
   entity.classname === "trigger_counter" ||
   entity.classname === "trigger_multiple" ||
@@ -225,6 +234,7 @@ const sceneRocketAmmoPickup203 = scene.entities?.find((entity) =>
   entity.index === 203 && entity.classname === "item_rockets"
 );
 const sceneRottenHealthPickup208 = scene.entities?.find((entity) => entity.index === 208 && entity.classname === "item_health");
+const sourceWorldspawn = rebuiltLogic?.programFacts?.entities?.worldspawn;
 const sourceFuncPlat = logic?.programFacts?.entities?.func_plat;
 const sourceFuncDoor = rebuiltLogic?.programFacts?.entities?.func_door ?? logic?.programFacts?.entities?.func_door;
 const sourceFuncButton = logic?.programFacts?.entities?.func_button;
@@ -348,8 +358,23 @@ const runtimeHurtSynthetic = buildRuntimeTriggerHurtAudit(quakeTriggerHurtDamage
 const runtimePushSynthetic = buildRuntimeTriggerPushAudit(quakeTriggerPushActivation);
 const runtimeArmorPickup20 = buildRuntimePickupAudit(quakePickupEffectForEntity, quakePickupModelPath, scene, logic, 20);
 const runtimeRocketWeapon201 = buildRuntimePickupAudit(quakePickupEffectForEntity, quakePickupModelPath, scene, logic, 201);
+const runtimeRocketWeaponGrantEffect = weaponAmmoGrantEffect(
+  rebuiltRocketWeapon201?.resolvedPickup?.behavior?.weapon?.ammoGrant,
+);
 const runtimeRocketAmmo203 = buildRuntimePickupAudit(quakePickupEffectForEntity, quakePickupModelPath, scene, logic, 203);
 const runtimeRottenHealth208 = buildRuntimePickupAudit(quakePickupEffectForEntity, quakePickupModelPath, scene, logic, 208);
+const syntheticWeaponScene = buildSyntheticWeaponPickupScene(scene);
+const syntheticWeaponLogic = buildRebuiltGameLogic(syntheticWeaponScene);
+const syntheticWeaponPickupAudits = WEAPON_PICKUP_CLASSNAMES.map((classname, index) =>
+  buildSyntheticWeaponPickupAudit(
+    quakePickupEffectForEntity,
+    quakePickupModelPath,
+    syntheticWeaponScene,
+    syntheticWeaponLogic,
+    classname,
+    index,
+  )
+);
 const runtimeDoor14BlockDamage = buildRuntimeMoverBlockDamageAudit(quakeMoverBlockDamage, runtimeDoor14);
 const runtimeDoor29BlockDamage = buildRuntimeMoverBlockDamageAudit(quakeMoverBlockDamage, runtimeDoor29);
 const runtimePlat70BlockDamage = buildRuntimeMoverBlockDamageAudit(quakeMoverBlockDamage, runtimeFuncPlat);
@@ -374,6 +399,18 @@ const checks = [
       rebuiltE1M2Logic.sources?.bsp?.worldtype === 0 &&
       rebuiltE1M6Logic.sources?.bsp?.worldtype === 1,
     "rebuilt map facts should expose worldspawn worldtype as a BSP source fact",
+  ],
+  [
+    sourceWorldspawn?.functionName === "worldspawn" &&
+      sourceWorldspawn.assetRefs?.length === 0 &&
+      sourceWorldspawn.calls?.includes("InitBodyQue") &&
+      sourceWorldspawn.calls?.includes("W_Precache") &&
+      rebuiltWorldspawn?.programClassname === "worldspawn" &&
+      rebuiltWorldspawn.category === "worldspawn" &&
+      rebuiltWorldspawn.runtimeStatus === "active" &&
+      rebuiltWorldspawn.properties?.message === "the Slipgate Complex" &&
+      rebuiltWorldspawn.properties?.worldtype === rebuiltLogic.sources?.bsp?.worldtype,
+    "rebuilt worldspawn facts should join compact QuakeC provenance to BSP world metadata",
   ],
   [
     entities.length === scene.entities?.length,
@@ -476,6 +513,29 @@ const checks = [
       sourceWeaponRocketLauncher.dependencies?.models?.includes("progs/g_rock2.mdl") &&
       sourceWeaponRocketLauncher.fieldAssignments?.some((assignment) => assignment.field === "netname" && assignment.value === "Rocket Launcher"),
     "source-backed weapon_rocketlauncher facts should expose weapon callback, model, and netname",
+  ],
+  [
+    programBranchValue(sourceWeaponRocketLauncher, "weapon_touch", "weapon_rocketlauncher", "new") === 32 &&
+      programBranchExpression(
+        sourceWeaponRocketLauncher,
+        "weapon_touch",
+        "weapon_rocketlauncher",
+        "new",
+      ) === "IT_ROCKET_LAUNCHER" &&
+      programBranchExpression(
+        sourceWeaponRocketLauncher,
+        "weapon_touch",
+        "weapon_rocketlauncher",
+        "other.ammo_rockets",
+      ) === "other.ammo_rockets + 5" &&
+      programBranchValue(sourceWeaponRocketLauncher, "weapon_touch", "weapon_lightning", "new") === 64 &&
+      programBranchExpression(
+        sourceWeaponRocketLauncher,
+        "weapon_touch",
+        "weapon_lightning",
+        "other.ammo_cells",
+      ) === "other.ammo_cells + 15",
+    "source-backed weapon_touch facts should expose weapon item flags and ammo grants",
   ],
   [
     sourceQuadDamage?.callbacks?.touch === "powerup_touch" &&
@@ -719,6 +779,30 @@ const checks = [
     "E1M1 rocket launcher pickup should resolve source-backed model and ammo fact even when skill-disabled",
   ],
   [
+    JSON.stringify(rebuiltRocketWeapon201?.resolvedPickup?.behavior?.weapon) === JSON.stringify({
+      itemFlag: 32,
+      itemFlagExpression: "IT_ROCKET_LAUNCHER",
+      ammoGrant: {
+        inventoryField: "rockets",
+        playerField: "ammo_rockets",
+        amount: 5,
+        hadAmmoPlayerField: "ammo_rockets",
+      },
+      ownedWeaponReject: {
+        condition: "deathmatch == 2 || coop",
+        itemFlagExpression: "IT_ROCKET_LAUNCHER",
+      },
+      activeWeapon: {
+        bestWeaponFunction: "W_BestWeapon",
+        clampAmmoFunction: "bound_other_ammo",
+        currentAmmoFunction: "W_SetCurrentAmmo",
+        deathmatchFunction: "Deathmatch_Weapon",
+        singleplayerAssignment: "self.weapon = new",
+      },
+    }),
+    "rebuilt weapon pickup facts should resolve QuakeC item flag, ammo grant, owned rejection, and weapon switch facts",
+  ],
+  [
     rebuiltRocketWeapon201?.resolvedPickup?.feedback?.message === "You got the Rocket Launcher" &&
       sceneRocketWeapon201 &&
       quakePickupMessageForEntity(sceneRocketWeapon201, rebuiltLogic) === "You got the Rocket Launcher",
@@ -844,6 +928,24 @@ const checks = [
       JSON.stringify(runtimeRocketWeapon201.factEffect) === JSON.stringify({ rockets: 5 }) &&
       JSON.stringify(runtimeRocketWeapon201.poisonedFactEffect) === JSON.stringify({ rockets: 5 }),
     "runtime pickup helper should prefer prebaked weapon facts with fallback-compatible output",
+  ],
+  [
+    JSON.stringify(runtimeRocketWeaponGrantEffect) === JSON.stringify({ rockets: 5 }) &&
+      JSON.stringify(runtimeRocketWeapon201.factEffect) === JSON.stringify(runtimeRocketWeaponGrantEffect) &&
+      JSON.stringify(runtimeRocketWeapon201.poisonedFactEffect) === JSON.stringify(runtimeRocketWeaponGrantEffect),
+    "runtime pickup helper weapon output should match source-backed weapon ammo grant facts",
+  ],
+  [
+    syntheticWeaponPickupAudits.length === WEAPON_PICKUP_CLASSNAMES.length &&
+      syntheticWeaponPickupAudits.every((item) =>
+        item.factEntity?.resolvedPickup?.behavior?.weapon &&
+          JSON.stringify(item.factEntity.resolvedPickup.inventoryDelta) === JSON.stringify(item.grantEffect) &&
+          JSON.stringify(item.audit.factEffect) === JSON.stringify(item.grantEffect) &&
+          JSON.stringify(item.audit.fallbackEffect) === JSON.stringify(item.grantEffect) &&
+          JSON.stringify(item.audit.poisonedFactEffect) === JSON.stringify(item.grantEffect) &&
+          JSON.stringify(item.audit.poisonedFallbackEffect) === JSON.stringify(item.grantEffect)
+      ),
+    "runtime pickup helper weapon output should match source-backed ammo grant facts for every weapon branch",
   ],
   [
     runtimeRocketAmmo203.factModelPath === "maps/b_rock1.bsp" &&
@@ -2471,6 +2573,43 @@ function buildRuntimePickupAudit(effectForPickup, modelPathForPickup, scene, log
     poisonedFallbackEffect: effectForPickup(poisonedEntity, fallbackLogic),
     poisonedFallbackModelPath: modelPathForPickup(poisonedEntity, null, fallbackLogic),
   };
+}
+
+function buildSyntheticWeaponPickupAudit(effectForPickup, modelPathForPickup, scene, logic, classname, index) {
+  const entityIndex = syntheticWeaponPickupEntityIndex(index);
+  const factEntity = logic.entities.find((entity) => entity.entityIndex === entityIndex && entity.classname === classname);
+  return {
+    classname,
+    factEntity,
+    grantEffect: weaponAmmoGrantEffect(factEntity?.resolvedPickup?.behavior?.weapon?.ammoGrant),
+    audit: buildRuntimePickupAudit(effectForPickup, modelPathForPickup, scene, logic, entityIndex),
+  };
+}
+
+function buildSyntheticWeaponPickupScene(inputScene) {
+  const worldspawn = inputScene.entities?.find((entity) => entity.classname === "worldspawn");
+  return {
+    ...inputScene,
+    label: `${inputScene.label ?? "synthetic"}-weapon-pickups`,
+    entities: [
+      ...(worldspawn ? [worldspawn] : []),
+      ...WEAPON_PICKUP_CLASSNAMES.map((classname, index) => ({
+        index: syntheticWeaponPickupEntityIndex(index),
+        classname,
+        origin: { x: index * 16, y: 0, z: 0 },
+        properties: {},
+      })),
+    ],
+  };
+}
+
+function syntheticWeaponPickupEntityIndex(index) {
+  return 9300 + index;
+}
+
+function weaponAmmoGrantEffect(ammoGrant) {
+  if (!ammoGrant) return null;
+  return { [ammoGrant.inventoryField]: ammoGrant.amount };
 }
 
 function stripResolvedPickupFacts(logic, entityIndex) {

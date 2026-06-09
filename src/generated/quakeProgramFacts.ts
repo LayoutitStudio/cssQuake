@@ -116,6 +116,45 @@ export const QUAKE_PROGRAM_FACTS = {
     "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73"
   },
   "entities": {
+    "worldspawn": {
+      "assetRefs": [],
+      "callbacks": {},
+      "calls": [
+        "InitBodyQue",
+        "cvar_set",
+        "W_Precache",
+        "precache_sound",
+        "precache_model",
+        "lightstyle"
+      ],
+      "classname": "worldspawn",
+      "defaultAssignments": [],
+      "dependencies": {
+        "models": [],
+        "sounds": []
+      },
+      "fieldAssignments": [],
+      "functionName": "worldspawn",
+      "kind": "worldspawn",
+      "setmodels": [],
+      "setsizes": [],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/world.qc",
+          "functionName": "worldspawn",
+          "line": 191
+        }
+      ],
+      "source": {
+        "license": "GPL-2.0-or-later header in source file",
+        "repository": "https://github.com/id-Software/Quake-Tools",
+        "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73",
+        "sourceFile": "qcc/v101qc/world.qc",
+        "sourceSha256": "b4d12bfe1d845c521514e8de208709bbd99fa2402e7dea01406eb9bc4cae8d9b",
+        "sourceUrl": "https://raw.githubusercontent.com/id-Software/Quake-Tools/c0d1b91c74eb654365ac7755bc837e497caaca73/qcc/v101qc/world.qc"
+      },
+      "spawnflagChecks": []
+    },
     "monster_army": {
       "assetRefs": [
         {

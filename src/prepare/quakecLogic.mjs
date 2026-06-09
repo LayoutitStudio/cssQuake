@@ -134,6 +134,13 @@ const monsterTargets = [
 
 const programFactTargets = [
   {
+    classname: "worldspawn",
+    functionName: "worldspawn",
+    includeAssets: false,
+    kind: "worldspawn",
+    sourcePath: "qcc/v101qc/world.qc",
+  },
+  {
     classname: "monster_army",
     functionName: "monster_army",
     kind: "monster",
@@ -600,7 +607,7 @@ async function extractProgramEntityFact(target, sharedConstants) {
   const body = functionDefinition.body;
   const assignments = extractSelfAssignments(body, functionDefinition, target, constants);
   const callbacks = extractCallbackAssignments(assignments);
-  const assetRefs = extractProgramAssetRefs(body, functionDefinition, target);
+  const assetRefs = target.includeAssets === false ? [] : extractProgramAssetRefs(body, functionDefinition, target);
   const callbackFacts = extractProgramCallbackFacts(source, target, constants, callbacks);
   return {
     assetRefs,
