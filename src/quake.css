@@ -1818,7 +1818,7 @@ body.quake-crosshair-hit #quake-crosshair::after {
   --quake-hud-ammo-x: calc(248 * var(--quake-hud-px));
   --quake-hud-icons-width: 432;
   transform: translateX(-50%);
-  aspect-ratio: 320 / 48;
+  aspect-ratio: 320 / 24;
   background: #050302;
   overflow: hidden;
   line-height: 0;
@@ -1851,14 +1851,16 @@ body.quake-crosshair-hit #quake-crosshair::after {
 #quake-hud-inventory {
   top: 0;
   background-image: url("/q/hud-inventory.png");
+  display: none;
 }
 #quake-hud-status-row {
-  top: var(--quake-hud-status-y);
+  top: 0;
   background-image: url("/q/hud-base.png");
 }
 #quake-hud-frame {
   position: absolute;
   inset: 0;
+  transform: translateY(calc(-1 * var(--quake-hud-status-y)));
   pointer-events: none;
 }
 .quake-hud-slot {
@@ -1883,6 +1885,7 @@ body.quake-crosshair-hit #quake-crosshair::after {
 #quake-hud-values {
   position: absolute;
   inset: 0;
+  transform: translateY(calc(-1 * var(--quake-hud-status-y)));
   line-height: 1;
   pointer-events: none;
 }

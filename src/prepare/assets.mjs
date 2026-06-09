@@ -26,12 +26,23 @@ const generatedPublicDir = process.env.QUAKE_GENERATED_PUBLIC_DIR?.trim()
   : path.join(projectRoot, "build/generated/public");
 const quakePublicPath = "/q";
 const quakeOutputDir = path.join(generatedPublicDir, quakePublicPath.slice(1));
-const quakeAssetVersion = normalizeQuakeAssetVersion(process.env.QUAKE_ASSET_VERSION) ||
-  cssQuakeAssetVersion();
-const quakeAssetPublicPath = `${quakePublicPath}/${quakeAssetVersion}`;
+const explicitQuakeAssetVersion = normalizeQuakeAssetVersion(process.env.QUAKE_ASSET_VERSION);
+const quakeAssetRootMode = normalizeQuakeAssetRootMode(process.env.QUAKE_ASSET_ROOT_MODE);
+const quakeUseVersionedAssetRoot = shouldUseVersionedQuakeAssetRoot({
+  explicitAssetVersion: explicitQuakeAssetVersion,
+  mode: quakeAssetRootMode,
+});
+const quakeAssetVersion = quakeUseVersionedAssetRoot
+  ? explicitQuakeAssetVersion || cssQuakeAssetVersion()
+  : "";
+const quakeAssetPublicPath = quakeUseVersionedAssetRoot
+  ? `${quakePublicPath}/${quakeAssetVersion}`
+  : quakePublicPath;
 const quakeTexturePublicPath = `${quakeAssetPublicPath}/t`;
 const quakeRenderBundlePublicPath = `${quakeAssetPublicPath}/b`;
-const quakeAssetOutputDir = path.join(quakeOutputDir, quakeAssetVersion);
+const quakeAssetOutputDir = quakeUseVersionedAssetRoot
+  ? path.join(quakeOutputDir, quakeAssetVersion)
+  : quakeOutputDir;
 const legacyQuakeOutputDir = path.join(generatedPublicDir, "local/quake");
 const socialImageSourcePath = path.join(projectRoot, "src/assets/cssquake-social.webp");
 const socialImageOutputPath = path.join(generatedPublicDir, "assets/cssquake-social.webp");
@@ -327,6 +338,28 @@ function normalizeQuakeAssetVersion(value) {
     throw new Error(`Unsafe QUAKE_ASSET_VERSION ${JSON.stringify(value)}.`);
   }
   return normalized;
+}
+
+function normalizeQuakeAssetRootMode(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized || normalized === "auto") return "auto";
+  if (["local", "dev", "development", "unversioned"].includes(normalized)) return "local";
+  if (["versioned", "deploy", "deployment", "production"].includes(normalized)) return "versioned";
+  throw new Error(
+    `Unsupported QUAKE_ASSET_ROOT_MODE ${JSON.stringify(value)}. ` +
+    `Use "local", "versioned", or leave it unset for auto.`,
+  );
+}
+
+function shouldUseVersionedQuakeAssetRoot({ explicitAssetVersion, mode }) {
+  if (mode === "local") return false;
+  if (mode === "versioned") return true;
+  return Boolean(
+    explicitAssetVersion ||
+    normalizedEnvFlag(process.env.NETLIFY) ||
+    normalizedEnvFlag(process.env.CI) ||
+    normalizedEnvFlag(process.env.QUAKE_DEPLOY_BUILD)
+  );
 }
 
 function cssQuakeAssetVersion() {
@@ -888,7 +921,10 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
         const extension = mimeExtension(primaryMime ?? primaryAsset.mime);
         const filename = `${index}.${extension}`;
         const outputPath = path.join(assetDir, filename);
-        const assetUrl = `${quakeRenderBundlePublicPath}/${name}/${filename}`;
+        const assetUrl = quakeCacheBustedLocalAssetUrl(
+          `${quakeRenderBundlePublicPath}/${name}/${filename}`,
+          primaryAsset?.buffer ?? buffer,
+        );
         if (deferAssetWrites) {
           deferredAssets.push({
             ...(buffer ? { buffer } : {}),
@@ -931,7 +967,7 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
       const cssBuffer = Buffer.from(meshCss);
       const filename = "0.css";
       await writeFile(path.join(assetDir, filename), cssBuffer);
-      styleUrl = `${quakeRenderBundlePublicPath}/${name}/${filename}`;
+      styleUrl = quakeCacheBustedLocalAssetUrl(`${quakeRenderBundlePublicPath}/${name}/${filename}`, cssBuffer);
     }
 
     const renderBundle = {
@@ -1580,11 +1616,18 @@ function quakeRenderBundleDebugOutlineKindForName(name) {
 
 function quakePublicUrlOutputPath(url) {
   if (!url?.startsWith("/")) return null;
-  return path.join(generatedPublicDir, url.slice(1));
+  const pathOnly = url.split(/[?#]/, 1)[0];
+  return path.join(generatedPublicDir, pathOnly.slice(1));
 }
 
 function quakeOutputPathPublicUrl(outputPath) {
   return `/${path.relative(generatedPublicDir, outputPath).split(path.sep).join("/")}`;
+}
+
+function quakeCacheBustedLocalAssetUrl(url, content) {
+  if (quakeUseVersionedAssetRoot || !content) return url;
+  const hash = createHash("sha256").update(content).digest("hex").slice(0, 12);
+  return `${url}?v=${hash}`;
 }
 
 function quakeHtmlAttributeValue(attributes, name) {
@@ -2153,9 +2196,27 @@ async function removeGeneratedQuakeAssetVersionDirs() {
   } catch {
     entries = [];
   }
-  await Promise.all(entries
-    .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
-    .map((entry) => rm(path.join(quakeOutputDir, entry.name), { recursive: true, force: true })));
+  const staleVersionDirs = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || isStableQuakeOutputDir(entry.name)) continue;
+    const entryPath = path.join(quakeOutputDir, entry.name);
+    if (await isGeneratedQuakeAssetVersionDir(entryPath)) staleVersionDirs.push(entryPath);
+  }
+  await Promise.all(staleVersionDirs.map((entryPath) => rm(entryPath, { recursive: true, force: true })));
+}
+
+function isStableQuakeOutputDir(name) {
+  return name === "b" || name === "s" || name === "t" || name === "p";
+}
+
+async function isGeneratedQuakeAssetVersionDir(entryPath) {
+  let entries;
+  try {
+    entries = await readdir(entryPath, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  return entries.some((entry) => entry.isDirectory() && (entry.name === "b" || entry.name === "t"));
 }
 
 function escapeRegExp(value) {
@@ -3236,7 +3297,7 @@ async function writeQuakeAnimationFrameStyles(bundleName, model) {
   await mkdir(styleDir, { recursive: true });
   const filename = "0.json";
   await writeFile(path.join(styleDir, filename), body);
-  const styleUrl = `${quakeRenderBundlePublicPath}/${bundleName}/${filename}`;
+  const styleUrl = quakeCacheBustedLocalAssetUrl(`${quakeRenderBundlePublicPath}/${bundleName}/${filename}`, body);
   for (let index = 0; index < frames.length; index++) {
     const renderBundle = frames[index].renderBundle;
     if (!renderBundle) continue;

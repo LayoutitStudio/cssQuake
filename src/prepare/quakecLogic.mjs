@@ -146,6 +146,48 @@ const programFactTargets = [
     sourcePath: "qcc/v101qc/dog.qc",
   },
   {
+    classname: "monster_knight",
+    functionName: "monster_knight",
+    kind: "monster",
+    sourcePath: "qcc/v101qc/knight.qc",
+  },
+  {
+    classname: "monster_ogre",
+    functionName: "monster_ogre",
+    kind: "monster",
+    sourcePath: "qcc/v101qc/ogre.qc",
+  },
+  {
+    classname: "monster_demon1",
+    functionName: "monster_demon1",
+    kind: "monster",
+    sourcePath: "qcc/v101qc/demon.qc",
+  },
+  {
+    classname: "monster_wizard",
+    functionName: "monster_wizard",
+    kind: "monster",
+    sourcePath: "qcc/v101qc/wizard.qc",
+  },
+  {
+    classname: "monster_shambler",
+    functionName: "monster_shambler",
+    kind: "monster",
+    sourcePath: "qcc/v101qc/shambler.qc",
+  },
+  {
+    classname: "monster_zombie",
+    functionName: "monster_zombie",
+    kind: "monster",
+    sourcePath: "qcc/v101qc/zombie.qc",
+  },
+  {
+    classname: "monster_boss",
+    functionName: "monster_boss",
+    kind: "monster",
+    sourcePath: "qcc/v101qc/boss.qc",
+  },
+  {
     callbackFactFunctions: ["health_touch"],
     classname: "item_health",
     functionName: "item_health",
@@ -301,6 +343,86 @@ const programFactTargets = [
   {
     classname: "light_globe",
     functionName: "light_globe",
+    kind: "misc",
+    sourcePath: "qcc/v101qc/misc.qc",
+  },
+  {
+    callbackFactFunctions: ["movetarget_f", "t_movetarget"],
+    classname: "path_corner",
+    functionName: "path_corner",
+    kind: "misc",
+    sourcePath: "qcc/v101qc/ai.qc",
+  },
+  {
+    classname: "info_teleport_destination",
+    functionName: "info_teleport_destination",
+    kind: "misc",
+    sourcePath: "qcc/v101qc/triggers.qc",
+  },
+  {
+    callbackFactFunctions: ["fire_fly", "fire_touch"],
+    classname: "misc_fireball",
+    functionName: "misc_fireball",
+    kind: "misc",
+    sourcePath: "qcc/v101qc/misc.qc",
+  },
+  {
+    callbackFactFunctions: ["barrel_explode"],
+    classname: "misc_explobox",
+    functionName: "misc_explobox",
+    kind: "shootable",
+    sourcePath: "qcc/v101qc/misc.qc",
+  },
+  {
+    callbackFactFunctions: ["barrel_explode"],
+    classname: "misc_explobox2",
+    functionName: "misc_explobox2",
+    kind: "shootable",
+    sourcePath: "qcc/v101qc/misc.qc",
+  },
+  {
+    callbackFactFunctions: ["spikeshooter_use"],
+    classname: "trap_spikeshooter",
+    functionName: "trap_spikeshooter",
+    kind: "misc",
+    sourcePath: "qcc/v101qc/misc.qc",
+  },
+  {
+    callbackFactFunctions: ["func_wall_use"],
+    classname: "func_wall",
+    functionName: "func_wall",
+    kind: "misc",
+    sourcePath: "qcc/v101qc/misc.qc",
+  },
+  {
+    callbackFactFunctions: [
+      "fd_secret_done",
+      "fd_secret_move1",
+      "fd_secret_move2",
+      "fd_secret_move3",
+      "fd_secret_move4",
+      "fd_secret_move5",
+      "fd_secret_move6",
+      "fd_secret_use",
+      "secret_blocked",
+      "secret_touch",
+    ],
+    classname: "func_door_secret",
+    functionName: "func_door_secret",
+    kind: "mover",
+    sourcePath: "qcc/v101qc/doors.qc",
+  },
+  {
+    callbackFactFunctions: ["func_wall_use"],
+    classname: "func_episodegate",
+    functionName: "func_episodegate",
+    kind: "misc",
+    sourcePath: "qcc/v101qc/misc.qc",
+  },
+  {
+    callbackFactFunctions: ["func_wall_use"],
+    classname: "func_bossgate",
+    functionName: "func_bossgate",
     kind: "misc",
     sourcePath: "qcc/v101qc/misc.qc",
   },
@@ -730,9 +852,15 @@ function extractCallbackAssignments(assignments) {
 
 function extractProgramCallbackFacts(source, target, constants, callbacks) {
   const facts = {};
-  const allowedCallbacks = target.callbackFactFunctions ? new Set(target.callbackFactFunctions) : null;
-  for (const callbackName of [...new Set(Object.values(callbacks))].sort()) {
-    if (!allowedCallbacks?.has(callbackName)) continue;
+  if (!target.callbackFactFunctions?.length) return facts;
+  const allowedCallbacks = new Set(target.callbackFactFunctions);
+  const callbackNames = [
+    ...new Set([
+      ...Object.values(callbacks).filter((callbackName) => allowedCallbacks.has(callbackName)),
+      ...target.callbackFactFunctions,
+    ]),
+  ].sort();
+  for (const callbackName of callbackNames) {
     const functionDefinition = extractFunctionDefinition(source, callbackName);
     if (!functionDefinition) continue;
     const callbackTarget = { ...target, functionName: callbackName };
@@ -771,7 +899,7 @@ function extractClassnameBranchAssignments(functionDefinition, target, constants
 
 function extractLocalAssignments(body, functionDefinition, target, constants, bodyOffset = 0) {
   const assignments = [];
-  for (const match of body.matchAll(/\b(?:(self|other)\.)?([A-Za-z_]\w*)\s*=(?!=)\s*([^;]+);/g)) {
+  for (const match of body.matchAll(/(?<!\.)\b(?:(self(?:\.[A-Za-z_]\w*)*|other(?:\.[A-Za-z_]\w*)*)\.\s*)?([A-Za-z_]\w*)\s*=(?!=)\s*([^;]+);/g)) {
     const owner = match[1];
     const field = owner ? `${owner}.${match[2]}` : match[2];
     const expression = normalizeQuakeExpression(match[3]);
@@ -796,8 +924,8 @@ function isQuakeCallbackField(field) {
 function extractDefaultAssignments(body, functionDefinition, target, constants) {
   const defaults = [];
   const guardedPatterns = [
-    /if\s*\(\s*!\s*self\.([A-Za-z_]\w*)\s*\)\s*self\.\1\s*=\s*([^;]+);/g,
-    /if\s*\(\s*self\.([A-Za-z_]\w*)\s*==\s*0\s*\)\s*self\.\1\s*=\s*([^;]+);/g,
+    /if\s*\(\s*!\s*self\.([A-Za-z_]\w*)\s*\)\s*self\.\1\s*=(?!=)\s*([^;]+);/g,
+    /if\s*\(\s*self\.([A-Za-z_]\w*)\s*==\s*0\s*\)\s*self\.\1\s*=(?!=)\s*([^;]+);/g,
   ];
   for (const pattern of guardedPatterns) {
     for (const match of body.matchAll(pattern)) {
@@ -1274,12 +1402,18 @@ function normalizeBody(body) {
 
 function extractCalls(body) {
   const ignored = new Set(["if", "local", "normalize", "random"]);
+  const source = stripQuakeLineComments(body);
   const calls = [];
-  for (const match of body.matchAll(/\b([A-Za-z_]\w*)\s*\(/g)) {
+  for (const match of source.matchAll(/\b([A-Za-z_]\w*)\s*\(/g)) {
+    if (source[(match.index ?? 0) - 1] === ".") continue;
     const call = match[1];
     if (!ignored.has(call) && !calls.includes(call)) calls.push(call);
   }
   return calls;
+}
+
+function stripQuakeLineComments(source) {
+  return source.replace(/\/\/.*$/gm, "");
 }
 
 function extractSounds(body) {

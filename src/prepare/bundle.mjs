@@ -1942,7 +1942,10 @@ function extractRenderBundleFrameStylesReadOnly(mesh, options = {}) {
   for (const leaf of mesh.querySelectorAll("b,i,s,u")) {
     leafCount++;
     if (leaf.tagName?.toLowerCase() === "s") atlasLeafCount++;
-    const style = stylesByElement.get(leaf) ?? leaf.getAttribute("style") ?? "";
+    const style = renderBundleLeafStyleWithExplicitAtlasSize(
+      leaf,
+      stylesByElement.get(leaf) ?? leaf.getAttribute("style") ?? "",
+    );
     if (!style) continue;
     let leafClass = renderBundleLeafClass(leaf, usedLeafClasses);
     if (!leafClass) {
@@ -1985,13 +1988,13 @@ function extractRenderBundleFrameStylesFromInheritedBase(mesh, baseLeafFrameStyl
       usedLeafClasses.add(leafClass);
     }
     if (!baseLeafFrameStylesByClass.has(leafClass)) return null;
-    const style = (
+    const style = renderBundleLeafStyleWithExplicitAtlasSize(leaf, (
       rawStyle.includes("--pn") ||
       rawStyle.includes("--polycss-atlas-size") ||
       rawStyle.includes("background-repeat")
     )
       ? stripRenderBundleStyleMetadata(rawStyle)
-      : rawStyle;
+      : rawStyle);
     leafFrameStyles.push([leafClass, compactRenderBundleInheritedLeafFrameStyle(style)]);
   }
   return {
@@ -2084,7 +2087,7 @@ function extractRenderBundleLeafStyles(mesh, styleClassName) {
   const usedLeafClasses = new Set();
   let fallbackLeafIndex = 0;
   for (const leaf of mesh.querySelectorAll("b,i,s,u")) {
-    const style = leaf.getAttribute("style");
+    const style = renderBundleLeafStyleWithExplicitAtlasSize(leaf, leaf.getAttribute("style") ?? "");
     if (!style) continue;
     let leafClass = renderBundleLeafClass(leaf, usedLeafClasses);
     if (!leafClass) {
@@ -2133,6 +2136,20 @@ function compactRenderBundleInheritedLeafFrameStyle(style) {
     .join(";");
   const matrix = transform?.value?.match(/^matrix3d\((.*)\)$/)?.[1] ?? transform?.value ?? "";
   return [matrix, "", extras];
+}
+
+function renderBundleLeafStyleWithExplicitAtlasSize(leaf, style) {
+  if (leaf.tagName?.toLowerCase() !== "s" || !style) return style;
+  const declarations = renderBundleStyleDeclarations(style);
+  const hasWidth = declarations.some((part) => part.name === "width");
+  const hasHeight = declarations.some((part) => part.name === "height");
+  if (hasWidth && hasHeight) return style;
+  const atlasSize = declarations.find((part) => part.name === "--polycss-atlas-size")?.value || "64px";
+  return [
+    style.replace(/;+$/, ""),
+    ...(!hasWidth ? [`width:${atlasSize}`] : []),
+    ...(!hasHeight ? [`height:${atlasSize}`] : []),
+  ].filter(Boolean).join(";");
 }
 
 function renderBundleLeafClass(leaf, usedLeafClasses) {
