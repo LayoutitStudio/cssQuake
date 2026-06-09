@@ -13,14 +13,18 @@ const runtimeConstantsPath = path.join(projectRoot, "src/runtime/constants.ts");
 const runtimeHazardsPath = path.join(projectRoot, "src/runtime/hazards.ts");
 const runtimeHudPath = path.join(projectRoot, "src/runtime/hud.ts");
 const runtimeWeaponsPath = path.join(projectRoot, "src/runtime/weapons.ts");
+const generatedProgramFactsPath = path.join(projectRoot, "src/generated/quakeProgramFacts.ts");
+const gameLogicFactsPath = path.join(projectRoot, "src/prepare/gameLogicFacts.ts");
 
 const scene = await readScene(scenePath);
 const {
   createQuakePickupController,
   quakeCanPickupForInventory,
+  quakePickupAmmoBehaviorForEntity,
   quakePickupArmorBehaviorForEntity,
   quakePickupFiresTargetsForEntity,
   quakePickupHealthAcceptanceForEntity,
+  quakePickupKeyBehaviorForEntity,
   quakePickupLifecycleActionForEntity,
   quakePickupLifecycleConditionMatches,
   quakePickupMegahealthRotDelayForEntity,
@@ -28,6 +32,8 @@ const {
   quakePickupModelPath,
   quakePickupPowerupBehaviorForEntity,
 } = await importBundledModule(runtimePickupsPath);
+const { QUAKE_PROGRAM_FACTS } = await importBundledModule(generatedProgramFactsPath);
+const { buildQuakeGameLogicFacts } = await importBundledModule(gameLogicFactsPath);
 const { PLAYER_HEIGHT, QUAKE_COLLISION_UNIT_SCALE, STEP_HEIGHT } = await importBundledModule(runtimeConstantsPath);
 const {
   quakeContentsDamage,
@@ -35,6 +41,7 @@ const {
 } = await importBundledModule(runtimeHazardsPath);
 const {
   activateQuakeInventoryPowerup,
+  applyQuakeInventoryDelta,
   applyQuakeDamageToInventory,
   clearQuakeInventoryPowerup,
   createInitialInventory,
@@ -43,6 +50,14 @@ const { createQuakeWeaponsController } = await importBundledModule(runtimeWeapon
 
 const mapName = path.basename(scenePath, ".json");
 const gameLogic = scene.gameLogic;
+const rebuiltGameLogic = buildQuakeGameLogicFacts({
+  label: scene.label,
+  entities: scene.entities ?? [],
+  entityManifest: scene.entityManifest,
+  models: scene.collision?.models ?? [],
+  collision: scene.collision,
+  programFacts: QUAKE_PROGRAM_FACTS,
+});
 const entityByIndex = new Map((scene.entities ?? []).map((entity) => [entity.index, entity]));
 const logicEntityByIndex = new Map((gameLogic?.entities ?? []).map((entity) => [entity.entityIndex, entity]));
 const pivot = scene.visibility?.pivot ?? { x: 0, y: 0, z: 0 };
@@ -73,9 +88,12 @@ for (const testCase of pickupCases) {
     `${testCase.label} should fire pickup targets once from lifecycle facts, got ${JSON.stringify(result.targetUseEntityIndexes)}`,
   ]);
   checks.push([
-    JSON.stringify(result.powerupActivations) === JSON.stringify(testCase.expectedPowerup
-      ? [{ entityIndex: testCase.entityIndex, powerup: testCase.expectedPowerup }]
-      : []),
+    testCase.expectedPowerup
+      ? (
+        result.powerupActivations.length === 1 &&
+        powerupActivationMatches(result.powerupActivations[0], testCase.entityIndex, testCase.expectedPowerup)
+      )
+      : result.powerupActivations.length === 0,
     `${testCase.label} should start only fact-backed powerups, got ${JSON.stringify(result.powerupActivations)}`,
   ]);
 }
@@ -93,12 +111,14 @@ if (pickupAuditConfig.disabledPickup) {
 const strictPickupModel = runPickupModelStrictnessAudit(pickupAuditConfig.strictModelEntityIndex);
 const pickupTargetUse = runPickupTargetUseAudit(pickupAuditConfig.targetUseEntityIndex);
 const megahealthRot = runPickupMegahealthRotAudit(pickupAuditConfig.megahealthEntityIndex);
+const ammoAcceptance = runPickupAmmoAcceptanceAudit();
 const armorAcceptance = runPickupArmorAcceptanceAudit();
 const healthAcceptance = runPickupHealthAcceptanceAudit();
+const keyAcceptance = runPickupKeyAcceptanceAudit();
 const lifecycleRespawn = runPickupLifecycleRespawnAudit();
 const powerupCase = pickupCases.find((testCase) => testCase.expectedPowerup);
 const powerupBehavior = powerupCase ? runPickupPowerupAudit(powerupCase.entityIndex) : null;
-const powerupRuntime = powerupCase ? runPowerupRuntimeAudit(powerupCase.expectedPowerup) : null;
+const powerupRuntime = powerupCase ? runPowerupRuntimeAudit(powerupBehavior?.rebuiltPowerup ?? powerupCase.expectedPowerup) : null;
 const radsuitHazard = runRadsuitHazardAudit();
 checks.push([
   pickupTargetUse.factBackedFiresTargets === true &&
@@ -115,11 +135,29 @@ checks.push([
   `megahealth rot should be lifecycle-fact backed, got ${JSON.stringify(megahealthRot)}`,
 ]);
 checks.push([
-  JSON.stringify(armorAcceptance.greenArmorBehavior) === JSON.stringify({
+  ammoAcceptance.ammoBehavior?.inventoryField === ammoAcceptance.inventoryField &&
+    ammoAcceptance.ammoBehavior.rejectAtOrAboveAmount === ammoAcceptance.rejectAtOrAboveAmount &&
+    ammoAcceptance.allowsOneBelowCap &&
+    ammoAcceptance.rejectsAtCap &&
+    ammoAcceptance.rejectedAtCapEffects.length === 0 &&
+    ammoAcceptance.rejectedAtCapTargetUseEntityIndexes.length === 0 &&
+    JSON.stringify(ammoAcceptance.clampedInventory) === JSON.stringify({
+      shells: 100,
+      nails: 200,
+      rockets: 100,
+      cells: 100,
+    }),
+  `ammo pickup acceptance and caps should be source-fact backed, got ${JSON.stringify(ammoAcceptance)}`,
+]);
+checks.push([
+  JSON.stringify(armorAcceptance.rebuiltGreenArmorBehavior) === JSON.stringify({
     armorType: 0.3,
     armorValue: 100,
+    replacementScore: 30,
+    replacesWhenCurrentScoreBelow: 30,
     itemFlag: 8192,
     itemFlagExpression: "IT_ARMOR1",
+    clearsItemFlagExpression: "IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3",
   }) &&
     armorAcceptance.greenArmorEffectHasType &&
     armorAcceptance.greenArmorAllows99Green &&
@@ -131,7 +169,28 @@ checks.push([
   `armor pickup acceptance should be source-fact backed, got ${JSON.stringify(armorAcceptance)}`,
 ]);
 checks.push([
-  healthAcceptance.normalRejectAt100 &&
+  JSON.stringify(healthAcceptance.rebuiltNormalAcceptance) === JSON.stringify({
+    healAmount: healthAcceptance.normalHealAmount,
+    healFunction: "T_Heal",
+    healType: healthAcceptance.normalHealType,
+    healthMax: 100,
+    ignoreMaxHealth: false,
+    rejectAtOrAboveHealth: 100,
+  }) &&
+    JSON.stringify(healthAcceptance.rebuiltMegaAcceptance) === JSON.stringify({
+      healAmount: 100,
+      healFunction: "T_Heal",
+      healType: 2,
+      healthMax: 250,
+      ignoreMaxHealth: true,
+      rejectAtOrAboveHealth: 250,
+      megahealth: {
+        itemFlagExpression: "IT_SUPERHEALTH",
+        rotDelaySeconds: 5,
+        rotThink: "item_megahealth_rot",
+      },
+    }) &&
+    healthAcceptance.normalRejectAt100 &&
     healthAcceptance.normalFactlessAllows100 &&
     healthAcceptance.megaAllows249 &&
     healthAcceptance.megaRejects250 &&
@@ -142,6 +201,18 @@ checks.push([
     healthAcceptance.rejectedMegaRotDelays.length === 0 &&
     healthAcceptance.rejectedMegaTargetUseEntityIndexes.length === 0,
   `health pickup acceptance should be source-fact backed, got ${JSON.stringify(healthAcceptance)}`,
+]);
+checks.push([
+  !keyAcceptance ||
+    (
+      keyBehaviorMatches(keyAcceptance.keyBehavior, keyAcceptance.expected) &&
+      keyAcceptance.allowsMissingKey &&
+      keyAcceptance.rejectsOwnedKey &&
+      keyAcceptance.rejectedOwnedKeyEffects.length === 0 &&
+      keyAcceptance.rejectedOwnedKeyTargetUseEntityIndexes.length === 0 &&
+      keyAcceptance.appliedInventoryHasKey
+    ),
+  `key pickup ownership rejection should be source-fact backed, got ${JSON.stringify(keyAcceptance)}`,
 ]);
 checks.push([
   lifecycleRespawn.singleplayerAction?.action === "remove" &&
@@ -164,12 +235,17 @@ checks.push([
 checks.push([
   !powerupCase ||
     (
-      JSON.stringify(powerupBehavior.factBackedPowerup) === JSON.stringify(powerupCase.expectedPowerup) &&
+      powerupBehaviorMatches(powerupBehavior.factBackedPowerup, powerupCase.expectedPowerup) &&
       powerupBehavior.factBackedActivations.length === 1 &&
-      JSON.stringify(powerupBehavior.factBackedActivations[0]) === JSON.stringify({
-        entityIndex: powerupCase.entityIndex,
-        powerup: powerupCase.expectedPowerup,
-      }) &&
+      powerupActivationMatches(powerupBehavior.factBackedActivations[0], powerupCase.entityIndex, powerupCase.expectedPowerup) &&
+      powerupBehaviorMatches(powerupBehavior.rebuiltPowerup, powerupCase.expectedPowerup, { requireMutation: true }) &&
+      powerupBehavior.rebuiltActivations.length === 1 &&
+      powerupActivationMatches(
+        powerupBehavior.rebuiltActivations[0],
+        powerupCase.entityIndex,
+        powerupCase.expectedPowerup,
+        { requireMutation: true },
+      ) &&
       powerupBehavior.factlessPowerup === undefined &&
       powerupBehavior.factlessActivations.length === 0
     ),
@@ -181,6 +257,7 @@ checks.push([
       powerupRuntime.activeItemFlags === powerupCase.expectedPowerup.itemFlag &&
       powerupRuntime.activeFinishedField === powerupCase.expectedPowerup.finishedField &&
       powerupRuntime.activeFinishedAt === 30123 &&
+      powerupRuntime.activeItemFlagMutationExpression === "other.items | self.items" &&
       powerupRuntime.clearedItemFlags === 0 &&
       powerupRuntime.quadDamageAmount === 96 &&
       powerupRuntime.invulnerableArmorDamage === 30 &&
@@ -456,9 +533,37 @@ function runPickupPowerupAudit(entityIndex) {
   return {
     factBackedPowerup: quakePickupPowerupBehaviorForEntity(entity, gameLogic),
     factBackedActivations: runPickupPowerupCollision(entity, gameLogic),
+    rebuiltPowerup: quakePickupPowerupBehaviorForEntity(entity, rebuiltGameLogic),
+    rebuiltActivations: runPickupPowerupCollision(entity, rebuiltGameLogic),
     factlessPowerup: quakePickupPowerupBehaviorForEntity(entity, factlessLogic),
     factlessActivations: runPickupPowerupCollision(entity, factlessLogic),
   };
+}
+
+function powerupActivationMatches(actual, entityIndex, expectedPowerup, options = {}) {
+  return Boolean(
+    actual &&
+      actual.entityIndex === entityIndex &&
+      powerupBehaviorMatches(actual.powerup, expectedPowerup, options),
+  );
+}
+
+function powerupBehaviorMatches(actual, expected, options = {}) {
+  const baseMatches = Boolean(
+    actual &&
+      actual.activationField === expected.activationField &&
+      actual.durationSeconds === expected.durationSeconds &&
+      actual.finishedField === expected.finishedField &&
+      actual.itemFlag === expected.itemFlag &&
+      actual.itemFlagExpression === expected.itemFlagExpression,
+  );
+  if (!baseMatches) return false;
+  if (!options.requireMutation) return true;
+  return actual.activationValue === 1 &&
+    actual.finishedExpression === "time + 30" &&
+    actual.itemFlagMutation?.expression === "other.items | self.items" &&
+    actual.itemFlagMutation?.sourceField === "self.items" &&
+    actual.itemFlagMutation?.targetField === "other.items";
 }
 
 function runPickupPowerupCollision(entity, controllerGameLogic) {
@@ -496,6 +601,7 @@ function runPowerupRuntimeAudit(powerup) {
     activeFinishedAt: state?.finishedAt,
     activeFinishedField,
     activeItemFlags,
+    activeItemFlagMutationExpression: state?.itemFlagMutation?.expression,
     clearedItemFlags: inventory.itemFlags,
     invulnerableArmorAfter: protectedInventory.armor,
     invulnerableArmorDamage: protectedDamage.armorDamage,
@@ -585,9 +691,13 @@ function runPickupHealthAcceptanceAudit() {
   const rejectedMega = runPickupRejectedCollision(megaEntity, { health: 250 });
   return {
     normalAcceptance: quakePickupHealthAcceptanceForEntity(normalEntity, gameLogic),
+    rebuiltNormalAcceptance: quakePickupHealthAcceptanceForEntity(normalEntity, rebuiltGameLogic),
+    normalHealAmount: normalCase.expectedEffect.health,
+    normalHealType: normalCase.expectedEffect.health === 15 ? 0 : 1,
     normalRejectAt100: !quakeCanPickupForInventory(normalEntity, { health: 100 }, gameLogic, normalCase.expectedEffect),
     normalFactlessAllows100: quakeCanPickupForInventory(normalEntity, { health: 100 }, normalFactlessLogic, normalCase.expectedEffect),
     megaAcceptance: quakePickupHealthAcceptanceForEntity(megaEntity, gameLogic),
+    rebuiltMegaAcceptance: quakePickupHealthAcceptanceForEntity(megaEntity, rebuiltGameLogic),
     megaAllows249: quakeCanPickupForInventory(megaEntity, { health: 249 }, gameLogic, { health: 100, healthMax: 250 }),
     megaRejects250: !quakeCanPickupForInventory(megaEntity, { health: 250 }, gameLogic, { health: 100, healthMax: 250 }),
     megaFactlessAllows250: quakeCanPickupForInventory(megaEntity, { health: 250 }, megaFactlessLogic, { health: 100, healthMax: 250 }),
@@ -596,6 +706,46 @@ function runPickupHealthAcceptanceAudit() {
     rejectedMegaEffects: rejectedMega.effects,
     rejectedMegaRotDelays: rejectedMega.megahealthRotDelays,
     rejectedMegaTargetUseEntityIndexes: rejectedMega.targetUseEntityIndexes,
+  };
+}
+
+function runPickupAmmoAcceptanceAudit() {
+  const ammoCase = pickupCases.find((testCase) =>
+    ["shells", "nails", "rockets", "cells"].some((field) => typeof testCase.expectedEffect[field] === "number")
+  );
+  if (!ammoCase) throw new Error(`Missing ammo fixture for ${mapName}.`);
+  const ammoEntity = entityByIndex.get(ammoCase.entityIndex);
+  if (!ammoEntity) throw new Error(`Missing ammo acceptance fixture ${ammoCase.entityIndex}.`);
+  const ammoBehavior = quakePickupAmmoBehaviorForEntity(ammoEntity, rebuiltGameLogic);
+  if (!ammoBehavior) throw new Error(`Missing source-backed ammo behavior for ${ammoCase.entityIndex}.`);
+  const inventoryField = ammoBehavior.inventoryField;
+  const oneBelowCapInventory = fullPickupInventory({
+    [inventoryField]: ammoBehavior.rejectAtOrAboveAmount - 1,
+  });
+  const atCapInventory = fullPickupInventory({
+    [inventoryField]: ammoBehavior.rejectAtOrAboveAmount,
+  });
+  const rejectedAtCap = runPickupRejectedCollision(ammoEntity, atCapInventory, rebuiltGameLogic);
+  const clamped = createInitialInventory();
+  clamped.shells = 99;
+  clamped.nails = 199;
+  clamped.rockets = 99;
+  clamped.cells = 99;
+  applyQuakeInventoryDelta(clamped, { shells: 10, nails: 10, rockets: 10, cells: 10 });
+  return {
+    ammoBehavior,
+    inventoryField,
+    rejectAtOrAboveAmount: ammoBehavior.rejectAtOrAboveAmount,
+    allowsOneBelowCap: quakeCanPickupForInventory(ammoEntity, oneBelowCapInventory, rebuiltGameLogic, ammoCase.expectedEffect),
+    rejectsAtCap: !quakeCanPickupForInventory(ammoEntity, atCapInventory, rebuiltGameLogic, ammoCase.expectedEffect),
+    rejectedAtCapEffects: rejectedAtCap.effects,
+    rejectedAtCapTargetUseEntityIndexes: rejectedAtCap.targetUseEntityIndexes,
+    clampedInventory: {
+      shells: clamped.shells,
+      nails: clamped.nails,
+      rockets: clamped.rockets,
+      cells: clamped.cells,
+    },
   };
 }
 
@@ -615,6 +765,7 @@ function runPickupArmorAcceptanceAudit() {
   });
   return {
     greenArmorBehavior: quakePickupArmorBehaviorForEntity(armorEntity, gameLogic),
+    rebuiltGreenArmorBehavior: quakePickupArmorBehaviorForEntity(armorEntity, rebuiltGameLogic),
     greenArmorEffectHasType: JSON.stringify(armorCase.expectedEffect) === JSON.stringify({ armor: 100, armorType: 0.3 }),
     greenArmorAllows99Green: quakeCanPickupForInventory(
       armorEntity,
@@ -642,6 +793,97 @@ function runPickupArmorAcceptanceAudit() {
     ),
     rejectedGreenArmorEffects: rejectedGreenArmor.effects,
     rejectedGreenArmorTargetUseEntityIndexes: rejectedGreenArmor.targetUseEntityIndexes,
+  };
+}
+
+function runPickupKeyAcceptanceAudit() {
+  const keyCase = pickupCases.find((testCase) => typeof testCase.expectedEffect.key === "string");
+  const fixture = keyCase ? pickupKeyAcceptanceFixture(keyCase) : syntheticKeyAcceptanceFixture();
+  const { entity: keyEntity, expectedEffect, gameLogic: keyGameLogic } = fixture;
+  const keyBehavior = quakePickupKeyBehaviorForEntity(keyEntity, keyGameLogic);
+  if (!keyBehavior) throw new Error(`Missing source-backed key behavior for ${keyEntity.index}.`);
+  const missingKeyInventory = fullPickupInventory({ keys: new Set() });
+  const ownedKeyInventory = fullPickupInventory({ keys: new Set([keyBehavior.key]) });
+  const rejectedOwnedKey = runPickupRejectedCollision(keyEntity, ownedKeyInventory, keyGameLogic);
+  const appliedInventory = createInitialInventory();
+  applyQuakeInventoryDelta(appliedInventory, expectedEffect);
+  return {
+    keyBehavior,
+    expected: {
+      key: expectedEffect.key,
+      itemFlag: keyBehavior.itemFlag,
+      itemFlagExpression: keyBehavior.itemFlagExpression,
+    },
+    allowsMissingKey: quakeCanPickupForInventory(keyEntity, missingKeyInventory, keyGameLogic, expectedEffect),
+    rejectsOwnedKey: !quakeCanPickupForInventory(keyEntity, ownedKeyInventory, keyGameLogic, expectedEffect),
+    rejectedOwnedKeyEffects: rejectedOwnedKey.effects,
+    rejectedOwnedKeyTargetUseEntityIndexes: rejectedOwnedKey.targetUseEntityIndexes,
+    appliedInventoryHasKey: appliedInventory.keys.has(keyBehavior.key),
+  };
+}
+
+function pickupKeyAcceptanceFixture(keyCase) {
+  const keyEntity = entityByIndex.get(keyCase.entityIndex);
+  if (!keyEntity) throw new Error(`Missing key acceptance fixture ${keyCase.entityIndex}.`);
+  return {
+    entity: keyEntity,
+    expectedEffect: keyCase.expectedEffect,
+    gameLogic: rebuiltGameLogic,
+  };
+}
+
+function syntheticKeyAcceptanceFixture() {
+  const entity = {
+    index: 9700,
+    classname: "item_key1",
+    origin: { x: 0, y: 0, z: 0 },
+    properties: {
+      spawnflags: "0",
+    },
+  };
+  const worldspawn = scene.entities?.find((candidate) => candidate.classname === "worldspawn");
+  return {
+    entity,
+    expectedEffect: { key: "silver" },
+    gameLogic: buildQuakeGameLogicFacts({
+      label: `${scene.label ?? mapName}-synthetic-key-pickup`,
+      entities: [
+        ...(worldspawn ? [worldspawn] : []),
+        entity,
+      ],
+      entityManifest: scene.entityManifest,
+      models: scene.collision?.models ?? [],
+      collision: scene.collision,
+      programFacts: QUAKE_PROGRAM_FACTS,
+    }),
+  };
+}
+
+function keyBehaviorMatches(actual, expected) {
+  return Boolean(
+    actual &&
+      actual.key === expected.key &&
+      actual.itemFlag === expected.itemFlag &&
+      actual.itemFlagExpression === expected.itemFlagExpression &&
+      actual.itemFlagMutation?.expression === "other.items | self.items" &&
+      actual.itemFlagMutation?.sourceField === "self.items" &&
+      actual.itemFlagMutation?.targetField === "other.items" &&
+      actual.ownedKeyReject?.expression === "other.items & self.items" &&
+      actual.ownedKeyReject?.playerField === "items" &&
+      actual.ownedKeyReject?.sourceField === "self.items",
+  );
+}
+
+function fullPickupInventory(overrides = {}) {
+  return {
+    armor: 0,
+    armorType: 0,
+    health: 100,
+    shells: 0,
+    nails: 0,
+    rockets: 0,
+    cells: 0,
+    ...overrides,
   };
 }
 
@@ -730,7 +972,7 @@ function runPickupLeaveCollision(entity, gameMode) {
   };
 }
 
-function runPickupRejectedCollision(entity, inventory) {
+function runPickupRejectedCollision(entity, inventory, controllerGameLogic = gameLogic) {
   if (!entity.origin) throw new Error(`Missing pickup origin for entity ${entity.index}.`);
   const effects = [];
   const megahealthRotDelays = [];
@@ -739,7 +981,8 @@ function runPickupRejectedCollision(entity, inventory) {
     addMesh: () => null,
     applyEffect: (effect) => effects.push(effect),
     canPickup: (effect, usedEntity) =>
-      quakeCanPickupForInventory(usedEntity, inventory, gameLogic, effect),
+      quakeCanPickupForInventory(usedEntity, inventory, controllerGameLogic, effect),
+    gameLogic: () => controllerGameLogic,
     startMegahealthRot: (_usedEntity, delaySeconds) => megahealthRotDelays.push(delaySeconds),
     useTargets: (usedEntity) => targetUseEntityIndexes.push(usedEntity.index),
   });

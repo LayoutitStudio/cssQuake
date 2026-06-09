@@ -1,5 +1,10 @@
 export type QuakeKey = "silver" | "gold";
 
+const QUAKE_MAX_SHELLS = 100;
+const QUAKE_MAX_NAILS = 200;
+const QUAKE_MAX_ROCKETS = 100;
+const QUAKE_MAX_CELLS = 100;
+
 export interface QuakePlayerInventory {
   health: number;
   armor: number;
@@ -27,10 +32,17 @@ export interface QuakeInventoryDelta {
 
 export interface QuakeInventoryPowerupBehavior {
   activationField: string;
+  activationValue?: 1;
   durationSeconds: number;
+  finishedExpression?: string;
   finishedField: string;
   itemFlag: number;
   itemFlagExpression: string;
+  itemFlagMutation?: {
+    expression: string;
+    sourceField: "self.items";
+    targetField: "other.items";
+  };
 }
 
 export interface QuakeInventoryPowerupState {
@@ -39,6 +51,7 @@ export interface QuakeInventoryPowerupState {
   finishedAt: number;
   itemFlag: number;
   itemFlagExpression: string;
+  itemFlagMutation?: QuakeInventoryPowerupBehavior["itemFlagMutation"];
 }
 
 export interface QuakeInventoryDamageResult {
@@ -204,10 +217,10 @@ export function applyQuakeInventoryDelta(inventory: QuakePlayerInventory, delta:
       inventory.armor = Math.max(inventory.armor, delta.armor);
     }
   }
-  inventory.shells = Math.min(999, inventory.shells + (delta.shells ?? 0));
-  inventory.nails = Math.min(999, inventory.nails + (delta.nails ?? 0));
-  inventory.rockets = Math.min(999, inventory.rockets + (delta.rockets ?? 0));
-  inventory.cells = Math.min(999, inventory.cells + (delta.cells ?? 0));
+  inventory.shells = Math.min(QUAKE_MAX_SHELLS, inventory.shells + (delta.shells ?? 0));
+  inventory.nails = Math.min(QUAKE_MAX_NAILS, inventory.nails + (delta.nails ?? 0));
+  inventory.rockets = Math.min(QUAKE_MAX_ROCKETS, inventory.rockets + (delta.rockets ?? 0));
+  inventory.cells = Math.min(QUAKE_MAX_CELLS, inventory.cells + (delta.cells ?? 0));
   if (delta.key) inventory.keys.add(delta.key);
 }
 
@@ -256,12 +269,23 @@ export function activateQuakeInventoryPowerup(
   now = performance.now(),
 ): QuakeInventoryPowerupState | null {
   if (!Number.isFinite(powerup.durationSeconds) || powerup.durationSeconds <= 0) return null;
+  if (
+    powerup.itemFlagMutation &&
+    (
+      powerup.itemFlagMutation.expression !== "other.items | self.items" ||
+      powerup.itemFlagMutation.sourceField !== "self.items" ||
+      powerup.itemFlagMutation.targetField !== "other.items"
+    )
+  ) {
+    return null;
+  }
   const state: QuakeInventoryPowerupState = {
     active: true,
     activationField: powerup.activationField,
     finishedAt: now + powerup.durationSeconds * 1000,
     itemFlag: powerup.itemFlag,
     itemFlagExpression: powerup.itemFlagExpression,
+    ...(powerup.itemFlagMutation ? { itemFlagMutation: powerup.itemFlagMutation } : {}),
   };
   inventory.itemFlags |= powerup.itemFlag;
   inventory.powerups[powerup.finishedField] = state;

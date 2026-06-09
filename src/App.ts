@@ -1126,6 +1126,7 @@ function startQuakePowerup(entity: QuakeEntity, powerup: QuakeInventoryPowerupBe
     finishedField: powerup.finishedField,
     itemFlag: powerup.itemFlag,
     itemFlagExpression: powerup.itemFlagExpression,
+    itemFlagMutationExpression: powerup.itemFlagMutation?.expression,
   });
   syncQuakeHud();
 }
@@ -1140,6 +1141,7 @@ function finishQuakePowerup(finishedField: string, reason: string): void {
     finishedField,
     itemFlag: state.itemFlag,
     itemFlagExpression: state.itemFlagExpression,
+    itemFlagMutationExpression: state.itemFlagMutation?.expression,
     reason,
   });
   syncQuakeHud();

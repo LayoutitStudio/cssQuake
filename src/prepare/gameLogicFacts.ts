@@ -401,6 +401,8 @@ export interface QuakeGameLogicResolvedPickupBehaviorFact {
     amount: number;
     smallAmount: number;
     bigAmount: number;
+    rejectAtOrAboveAmount: number;
+    clampMaxAmount: number;
     box: "small" | "big";
     spawnflag: {
       name: "WEAPON_BIG2";
@@ -417,20 +419,53 @@ export interface QuakeGameLogicResolvedPickupBehaviorFact {
   armor?: {
     armorType: number;
     armorValue: number;
+    replacementScore: number;
+    replacesWhenCurrentScoreBelow: number;
     itemFlag: number;
     itemFlagExpression: string;
+    clearsItemFlagExpression: "IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3";
   };
   health?: {
+    healAmount: number;
     healFunction: "T_Heal";
+    healType: 0 | 1 | 2;
+    healthMax: number;
     ignoreMaxHealth: boolean;
     rejectAtOrAboveHealth: number;
+    megahealth?: {
+      itemFlagExpression: "IT_SUPERHEALTH";
+      rotDelaySeconds: number;
+      rotThink: "item_megahealth_rot";
+    };
+  };
+  key?: {
+    key: QuakeGameLogicDoorKey;
+    itemFlag: number;
+    itemFlagExpression: string;
+    itemFlagMutation: {
+      expression: "other.items | self.items";
+      sourceField: "self.items";
+      targetField: "other.items";
+    };
+    ownedKeyReject: {
+      expression: "other.items & self.items";
+      playerField: "items";
+      sourceField: "self.items";
+    };
   };
   powerup?: {
     activationField: string;
+    activationValue: 1;
     durationSeconds: number;
+    finishedExpression: string;
     finishedField: string;
     itemFlag: number;
     itemFlagExpression: string;
+    itemFlagMutation: {
+      expression: "other.items | self.items";
+      sourceField: "self.items";
+      targetField: "other.items";
+    };
   };
   weapon?: {
     itemFlag: number;
@@ -1068,13 +1103,15 @@ function quakeResolvedPickupBehavior(
   const ammo = quakeResolvedAmmoPickupBehavior(classname, spawnflags, programFact);
   const armor = quakeResolvedArmorPickupBehavior(classname, programFact);
   const health = quakeResolvedHealthPickupBehavior(classname, spawnflags, programFact);
+  const key = quakeResolvedKeyPickupBehavior(classname, programFact);
   const powerup = quakeResolvedPowerupPickupBehavior(classname, programFact);
   const weapon = quakeResolvedWeaponPickupBehavior(classname, programFact);
-  if (!ammo && !armor && !health && !powerup && !weapon) return undefined;
+  if (!ammo && !armor && !health && !key && !powerup && !weapon) return undefined;
   return {
     ...(ammo ? { ammo } : {}),
     ...(armor ? { armor } : {}),
     ...(health ? { health } : {}),
+    ...(key ? { key } : {}),
     ...(powerup ? { powerup } : {}),
     ...(weapon ? { weapon } : {}),
   };
@@ -1245,6 +1282,8 @@ function quakeResolvedAmmoPickupBehavior(
     amount: big ? amounts.bigAmount : amounts.smallAmount,
     smallAmount: amounts.smallAmount,
     bigAmount: amounts.bigAmount,
+    rejectAtOrAboveAmount: quakeAmmoPickupRejectAtOrAboveAmount(inventoryField),
+    clampMaxAmount: quakeAmmoClampMaxAmount(inventoryField),
     box: big ? "big" : "small",
     spawnflag: {
       name: "WEAPON_BIG2",
@@ -1290,6 +1329,16 @@ function quakeProgramAmmoBoxAmounts(
   };
 }
 
+function quakeAmmoPickupRejectAtOrAboveAmount(field: QuakeGameLogicAmmoInventoryField): number {
+  if (field === "nails" || field === "cells") return 200;
+  return 100;
+}
+
+function quakeAmmoClampMaxAmount(field: QuakeGameLogicAmmoInventoryField): number {
+  if (field === "nails") return 200;
+  return 100;
+}
+
 function quakeResolvedArmorPickupBehavior(
   classname: QuakeGameLogicResolvedPickupKind,
   programFact: QuakeGameLogicProgramEntityFact,
@@ -1312,8 +1361,11 @@ function quakeResolvedArmorPickupBehavior(
   return {
     armorType,
     armorValue,
+    replacementScore: armorType * armorValue,
+    replacesWhenCurrentScoreBelow: armorType * armorValue,
     itemFlag,
     itemFlagExpression,
+    clearsItemFlagExpression: "IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3",
   };
 }
 
@@ -1342,11 +1394,25 @@ function quakeResolvedHealthPickupBehavior(
     assignment.value === expectedHealtype
   );
   if (!hasSourceHealtype) return undefined;
+  const expectedHealAmount = expectedHealtype === 2 ? 100 : expectedHealtype === 0 ? 15 : 25;
+  const healAmount = quakeProgramFieldNumberMatching(programFact, "healamount", expectedHealAmount);
+  if (!Number.isFinite(healAmount)) return undefined;
   const ignoreMaxHealth = expectedHealtype === 2;
+  const rotDelaySeconds = quakeProgramCallbackNextthinkOffsetSeconds(callbackFact, "time + 5");
   return {
+    healAmount,
     healFunction: "T_Heal",
+    healType: expectedHealtype,
+    healthMax: ignoreMaxHealth ? 250 : 100,
     ignoreMaxHealth,
     rejectAtOrAboveHealth: ignoreMaxHealth ? 250 : 100,
+    ...(ignoreMaxHealth && rotDelaySeconds !== undefined ? {
+      megahealth: {
+        itemFlagExpression: "IT_SUPERHEALTH",
+        rotDelaySeconds,
+        rotThink: "item_megahealth_rot",
+      },
+    } : {}),
   };
 }
 
@@ -1355,10 +1421,15 @@ function quakeResolvedPowerupPickupBehavior(
   programFact: QuakeGameLogicProgramEntityFact,
 ): NonNullable<QuakeGameLogicResolvedPickupBehaviorFact["powerup"]> | undefined {
   if (programFact.callbacks.touch !== "powerup_touch") return undefined;
+  const callbackFact = programFact.callbackFacts?.powerup_touch;
   const branch = quakeProgramCallbackClassnameBranch(programFact, "powerup_touch", classname);
-  if (!branch) return undefined;
+  if (!callbackFact || !branch) return undefined;
   const itemFlag = quakeProgramFieldNumber(programFact, "items", Number.NaN);
   const itemFlagExpression = quakeProgramFieldExpression(programFact, "items");
+  const itemFlagMutation = callbackFact.assignments.find((assignment) =>
+    assignment.field === "other.items" &&
+    assignment.expression === "other.items | self.items"
+  );
   const activationAssignment = branch.assignments.find((assignment) =>
     assignment.field.startsWith("other.") &&
     assignment.field.endsWith("_time") &&
@@ -1372,18 +1443,65 @@ function quakeResolvedPowerupPickupBehavior(
   if (
     !Number.isFinite(itemFlag) ||
     itemFlagExpression === undefined ||
+    itemFlagMutation === undefined ||
     activationAssignment === undefined ||
     finishedAssignment === undefined ||
+    finishedAssignment.expression === undefined ||
     durationSeconds === undefined
   ) {
     return undefined;
   }
   return {
     activationField: quakeProgramOtherFieldName(activationAssignment.field),
+    activationValue: 1,
     durationSeconds,
+    finishedExpression: finishedAssignment.expression,
     finishedField: quakeProgramOtherFieldName(finishedAssignment.field),
     itemFlag,
     itemFlagExpression,
+    itemFlagMutation: {
+      expression: "other.items | self.items",
+      sourceField: "self.items",
+      targetField: "other.items",
+    },
+  };
+}
+
+function quakeResolvedKeyPickupBehavior(
+  classname: QuakeGameLogicResolvedPickupKind,
+  programFact: QuakeGameLogicProgramEntityFact,
+): NonNullable<QuakeGameLogicResolvedPickupBehaviorFact["key"]> | undefined {
+  if (programFact.callbacks.touch !== "key_touch") return undefined;
+  const callbackFact = programFact.callbackFacts?.key_touch;
+  if (!callbackFact) return undefined;
+  const key = classname === "item_key1" || classname === "key_silver"
+    ? "silver"
+    : classname === "item_key2" || classname === "key_gold"
+      ? "gold"
+      : undefined;
+  const itemFlag = quakeProgramFieldNumber(programFact, "items", Number.NaN);
+  const itemFlagExpression = quakeProgramFieldExpression(programFact, "items");
+  const itemFlagMutation = callbackFact.assignments.find((assignment) =>
+    assignment.field === "other.items" &&
+    assignment.expression === "other.items | self.items"
+  );
+  if (!key || !Number.isFinite(itemFlag) || itemFlagExpression === undefined || itemFlagMutation === undefined) {
+    return undefined;
+  }
+  return {
+    key,
+    itemFlag,
+    itemFlagExpression,
+    itemFlagMutation: {
+      expression: "other.items | self.items",
+      sourceField: "self.items",
+      targetField: "other.items",
+    },
+    ownedKeyReject: {
+      expression: "other.items & self.items",
+      playerField: "items",
+      sourceField: "self.items",
+    },
   };
 }
 

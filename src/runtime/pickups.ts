@@ -620,6 +620,8 @@ export function quakePickupEffectForEntity(
     if (ammoEffect) return ammoEffect;
     const weaponEffect = quakeAmmoInventoryEffect(fact.behavior?.weapon?.ammoGrant);
     if (weaponEffect) return weaponEffect;
+    const key = fact.behavior?.key;
+    if (key) return { key: key.key };
     const effect: QuakePickupEffect = { ...fact.inventoryDelta };
     const armor = fact.behavior?.armor;
     if (armor && effect.armor !== undefined) effect.armorType = armor.armorType;
@@ -675,10 +677,16 @@ export function quakePickupFiresTargetsForEntity(
 
 export function quakeCanPickupForInventory(
   entity: QuakeEntity,
-  inventory: Pick<QuakePlayerInventory, "armor" | "armorType" | "health">,
+  inventory: Pick<QuakePlayerInventory, "armor" | "armorType" | "health" | "shells" | "nails" | "rockets" | "cells"> &
+    Partial<Pick<QuakePlayerInventory, "keys">>,
   gameLogic: QuakeGameLogicFacts | null = null,
   effect: QuakePickupEffect = quakePickupEffectForEntity(entity, gameLogic) ?? {},
 ): boolean {
+  const ammo = quakePickupAmmoBehaviorForEntity(entity, gameLogic);
+  if (ammo && typeof effect[ammo.inventoryField] === "number") {
+    if (inventory.health <= 0) return false;
+    return inventory[ammo.inventoryField] < ammo.rejectAtOrAboveAmount;
+  }
   const healthAcceptance = quakePickupHealthAcceptanceForEntity(entity, gameLogic);
   if (healthAcceptance && typeof effect.health === "number") {
     if (inventory.health <= 0) return false;
@@ -687,10 +695,16 @@ export function quakeCanPickupForInventory(
   const armor = quakePickupArmorBehaviorForEntity(entity, gameLogic);
   if (armor && typeof effect.armor === "number") {
     if (inventory.health <= 0) return false;
-    return inventory.armorType * inventory.armor < armor.armorType * armor.armorValue;
+    const replacementScore = armor.replacesWhenCurrentScoreBelow ?? armor.armorType * armor.armorValue;
+    return inventory.armorType * inventory.armor < replacementScore;
   }
   if (quakePickupPowerupBehaviorForEntity(entity, gameLogic)) {
     return inventory.health > 0;
+  }
+  const key = quakePickupKeyBehaviorForEntity(entity, gameLogic);
+  if (key && effect.key === key.key) {
+    if (inventory.health <= 0) return false;
+    return inventory.keys ? !inventory.keys.has(key.key) : true;
   }
   return true;
 }
@@ -764,15 +778,63 @@ export function quakePickupLifecycleConditionMatches(condition: string, mode: Qu
 export function quakePickupArmorBehaviorForEntity(
   entity: QuakeEntity,
   gameLogic: QuakeGameLogicFacts | null = null,
-): { armorType: number; armorValue: number; itemFlag: number; itemFlagExpression: string } | undefined {
+): {
+  armorType: number;
+  armorValue: number;
+  replacementScore?: number;
+  replacesWhenCurrentScoreBelow?: number;
+  itemFlag: number;
+  itemFlagExpression: string;
+  clearsItemFlagExpression: "IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3";
+} | undefined {
   return quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.behavior?.armor;
+}
+
+export function quakePickupAmmoBehaviorForEntity(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null = null,
+): { inventoryField: "shells" | "nails" | "rockets" | "cells"; rejectAtOrAboveAmount: number } | undefined {
+  return quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.behavior?.ammo;
 }
 
 export function quakePickupHealthAcceptanceForEntity(
   entity: QuakeEntity,
   gameLogic: QuakeGameLogicFacts | null = null,
-): { healFunction: "T_Heal"; ignoreMaxHealth: boolean; rejectAtOrAboveHealth: number } | undefined {
+): {
+  healAmount: number;
+  healFunction: "T_Heal";
+  healType: 0 | 1 | 2;
+  healthMax: number;
+  ignoreMaxHealth: boolean;
+  rejectAtOrAboveHealth: number;
+  megahealth?: {
+    itemFlagExpression: "IT_SUPERHEALTH";
+    rotDelaySeconds: number;
+    rotThink: "item_megahealth_rot";
+  };
+} | undefined {
   return quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.behavior?.health;
+}
+
+export function quakePickupKeyBehaviorForEntity(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null = null,
+): {
+  key: "silver" | "gold";
+  itemFlag: number;
+  itemFlagExpression: string;
+  itemFlagMutation: {
+    expression: "other.items | self.items";
+    sourceField: "self.items";
+    targetField: "other.items";
+  };
+  ownedKeyReject: {
+    expression: "other.items & self.items";
+    playerField: "items";
+    sourceField: "self.items";
+  };
+} | undefined {
+  return quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.behavior?.key;
 }
 
 export function quakePickupPowerupBehaviorForEntity(

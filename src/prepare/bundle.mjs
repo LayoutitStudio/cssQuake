@@ -2252,18 +2252,29 @@ function renderBundleLeafStyleWithExplicitAtlasSize(leaf, style, options = {}) {
   const declarations = renderBundleStyleDeclarations(style);
   const hasWidth = declarations.some((part) => part.name === "width");
   const hasHeight = declarations.some((part) => part.name === "height");
-  if (hasWidth && hasHeight) return style;
   const baseWidth = renderBundleLeafFrameStyleSize(options.baseFrameStyle, "width");
   const baseHeight = renderBundleLeafFrameStyleSize(options.baseFrameStyle, "height");
   if (baseWidth && baseHeight) {
     style = scaleRenderBundleLeafStyleToBox(leaf, style, baseWidth, baseHeight);
+    return renderBundleLeafStyleWithBox(style, baseWidth, baseHeight);
   }
+  if (hasWidth && hasHeight) return style;
   const atlasSize = declarations.find((part) => part.name === "--polycss-atlas-size")?.value || "64px";
   return [
     style.replace(/;+$/, ""),
     ...(!hasWidth ? [`width:${baseWidth ? `${roundCssPx(baseWidth)}px` : atlasSize}`] : []),
     ...(!hasHeight ? [`height:${baseHeight ? `${roundCssPx(baseHeight)}px` : atlasSize}`] : []),
   ].filter(Boolean).join(";");
+}
+
+function renderBundleLeafStyleWithBox(style, width, height) {
+  const declarations = renderBundleStyleDeclarations(style)
+    .filter((part) => part.name !== "width" && part.name !== "height");
+  declarations.push(
+    { index: declarations.length, name: "width", value: `${roundCssPx(width)}px` },
+    { index: declarations.length + 1, name: "height", value: `${roundCssPx(height)}px` },
+  );
+  return declarations.map((part) => `${part.name}:${part.value}`).join(";");
 }
 
 function renderBundleLeafClass(leaf, usedLeafClasses) {

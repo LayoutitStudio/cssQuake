@@ -34,6 +34,12 @@ const WEAPON_PICKUP_CLASSNAMES = [
   "weapon_rocketlauncher",
   "weapon_lightning",
 ];
+const AMMO_PICKUP_CLASSNAMES = [
+  "item_shells",
+  "item_spikes",
+  "item_rockets",
+  "item_cells",
+];
 
 const scene = await readScene(scenePath);
 const { QUAKE_UNIT_SCALE: QUAKE_COLLISION_UNIT_SCALE } = await import(
@@ -82,6 +88,7 @@ const e1m6Scene = await readSiblingScene("e1m6");
 const e1m8Scene = await readSiblingScene("e1m8");
 const rebuiltStartLogic = buildRebuiltGameLogic(startScene);
 const rebuiltE1M2Logic = buildRebuiltGameLogic(e1m2Scene);
+const rebuiltE1M3Logic = buildRebuiltGameLogic(e1m3Scene);
 const rebuiltE1M4Logic = buildRebuiltGameLogic(e1m4Scene);
 const rebuiltE1M6Logic = buildRebuiltGameLogic(e1m6Scene);
 const startEntities = sceneGameLogicEntities(startScene);
@@ -89,6 +96,7 @@ const rebuiltStartEntities = Array.isArray(rebuiltStartLogic?.entities) ? rebuil
 const e1m2Entities = sceneGameLogicEntities(e1m2Scene);
 const rebuiltE1M2Entities = Array.isArray(rebuiltE1M2Logic?.entities) ? rebuiltE1M2Logic.entities : [];
 const e1m3Entities = sceneGameLogicEntities(e1m3Scene);
+const rebuiltE1M3Entities = Array.isArray(rebuiltE1M3Logic?.entities) ? rebuiltE1M3Logic.entities : [];
 const e1m4Entities = sceneGameLogicEntities(e1m4Scene);
 const rebuiltE1M4Entities = Array.isArray(rebuiltE1M4Logic?.entities) ? rebuiltE1M4Logic.entities : [];
 const e1m6Entities = sceneGameLogicEntities(e1m6Scene);
@@ -206,10 +214,19 @@ const rebuiltQuadPickup141 = rebuiltEntities.find((entity) => entity.entityIndex
 const invulnerabilityPickup244 = entities.find((entity) =>
   entity.entityIndex === 244 && entity.classname === "item_artifact_invulnerability"
 );
+const rebuiltInvulnerabilityPickup244 = rebuiltEntities.find((entity) =>
+  entity.entityIndex === 244 && entity.classname === "item_artifact_invulnerability"
+);
 const envirosuitPickup251 = entities.find((entity) =>
   entity.entityIndex === 251 && entity.classname === "item_artifact_envirosuit"
 );
+const rebuiltEnvirosuitPickup251 = rebuiltEntities.find((entity) =>
+  entity.entityIndex === 251 && entity.classname === "item_artifact_envirosuit"
+);
 const e1m3Invisibility543 = e1m3Entities.find((entity) =>
+  entity.entityIndex === 543 && entity.classname === "item_artifact_invisibility"
+);
+const rebuiltE1M3Invisibility543 = rebuiltE1M3Entities.find((entity) =>
   entity.entityIndex === 543 && entity.classname === "item_artifact_invisibility"
 );
 const megaHealthPickup200 = entities.find((entity) => entity.entityIndex === 200 && entity.classname === "item_health");
@@ -358,11 +375,26 @@ const runtimeHurtSynthetic = buildRuntimeTriggerHurtAudit(quakeTriggerHurtDamage
 const runtimePushSynthetic = buildRuntimeTriggerPushAudit(quakeTriggerPushActivation);
 const runtimeArmorPickup20 = buildRuntimePickupAudit(quakePickupEffectForEntity, quakePickupModelPath, scene, logic, 20);
 const runtimeRocketWeapon201 = buildRuntimePickupAudit(quakePickupEffectForEntity, quakePickupModelPath, scene, logic, 201);
-const runtimeRocketWeaponGrantEffect = weaponAmmoGrantEffect(
+const runtimeRocketWeaponGrantEffect = ammoInventoryEffect(
   rebuiltRocketWeapon201?.resolvedPickup?.behavior?.weapon?.ammoGrant,
 );
 const runtimeRocketAmmo203 = buildRuntimePickupAudit(quakePickupEffectForEntity, quakePickupModelPath, scene, logic, 203);
 const runtimeRottenHealth208 = buildRuntimePickupAudit(quakePickupEffectForEntity, quakePickupModelPath, scene, logic, 208);
+const syntheticAmmoScene = buildSyntheticAmmoPickupScene(scene);
+const syntheticAmmoLogic = buildRebuiltGameLogic(syntheticAmmoScene);
+const syntheticAmmoPickupAudits = AMMO_PICKUP_CLASSNAMES.flatMap((classname, index) =>
+  [false, true].map((big) =>
+    buildSyntheticAmmoPickupAudit(
+      quakePickupEffectForEntity,
+      quakePickupModelPath,
+      syntheticAmmoScene,
+      syntheticAmmoLogic,
+      classname,
+      index,
+      big,
+    )
+  )
+);
 const syntheticWeaponScene = buildSyntheticWeaponPickupScene(scene);
 const syntheticWeaponLogic = buildRebuiltGameLogic(syntheticWeaponScene);
 const syntheticWeaponPickupAudits = WEAPON_PICKUP_CLASSNAMES.map((classname, index) =>
@@ -586,12 +618,9 @@ const checks = [
     armorPickup20?.resolvedPickup?.kind === "item_armor1" &&
       armorPickup20.resolvedPickup.modelPath === "progs/armor.mdl" &&
       JSON.stringify(armorPickup20.resolvedPickup.inventoryDelta) === JSON.stringify({ armor: 100 }) &&
-      JSON.stringify(armorPickup20.resolvedPickup.behavior?.armor) === JSON.stringify({
-        armorType: 0.3,
-        armorValue: 100,
-        itemFlag: 8192,
-        itemFlagExpression: "IT_ARMOR1",
-      }) &&
+      armorPickup20.resolvedPickup.behavior?.armor?.armorType === 0.3 &&
+      armorPickup20.resolvedPickup.behavior.armor.armorValue === 100 &&
+      armorPickup20.resolvedPickup.behavior.armor.itemFlagExpression === "IT_ARMOR1" &&
       armorPickup20.resolvedPickup.feedback?.message === "You got armor" &&
       armorPickup20.resolvedPickup.callbacks.touch === "armor_touch",
     "E1M1 item_armor1 should resolve model, armor behavior/effect, message, and callback facts",
@@ -622,7 +651,16 @@ const checks = [
     "E1M1 armor should resolve QuakeC pickup lifecycle removal and deathmatch respawn facts",
   ],
   [
-    JSON.stringify(armorPickup354?.resolvedPickup?.behavior?.armor) === JSON.stringify({
+    JSON.stringify(rebuiltArmorPickup20?.resolvedPickup?.behavior?.armor) === JSON.stringify({
+      armorType: 0.3,
+      armorValue: 100,
+      replacementScore: 30,
+      replacesWhenCurrentScoreBelow: 30,
+      itemFlag: 8192,
+      itemFlagExpression: "IT_ARMOR1",
+      clearsItemFlagExpression: "IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3",
+    }) &&
+      JSON.stringify(armorPickup354?.resolvedPickup?.behavior?.armor) === JSON.stringify({
       armorType: 0.6,
       armorValue: 150,
       itemFlag: 16384,
@@ -657,6 +695,22 @@ const checks = [
     "E1M1 megahealth should resolve QuakeC model, message, and health/max facts",
   ],
   [
+    JSON.stringify(rebuiltMegaHealthPickup200?.resolvedPickup?.behavior?.health) === JSON.stringify({
+        healAmount: 100,
+        healFunction: "T_Heal",
+        healType: 2,
+        healthMax: 250,
+        ignoreMaxHealth: true,
+        rejectAtOrAboveHealth: 250,
+        megahealth: {
+          itemFlagExpression: "IT_SUPERHEALTH",
+          rotDelaySeconds: 5,
+          rotThink: "item_megahealth_rot",
+        },
+      }),
+    "rebuilt E1M1 megahealth should expose explicit QuakeC health behavior facts",
+  ],
+  [
     rebuiltMegaHealthPickup200?.resolvedPickup?.feedback?.sound === "items/r_item2.wav" &&
       rebuiltMegaHealthPickup200.resolvedPickup.feedback.message === "You receive 100 health" &&
       sceneMegaHealthPickup200 &&
@@ -669,6 +723,17 @@ const checks = [
       rottenHealthPickup208.resolvedPickup.modelPath === "maps/b_bh10.bsp" &&
       JSON.stringify(rottenHealthPickup208.resolvedPickup.inventoryDelta) === JSON.stringify({ health: 15, healthMax: 100 }),
     "E1M1 rotten health should resolve QuakeC model and 15-health fact",
+  ],
+  [
+    JSON.stringify(rebuiltRottenHealthPickup208?.resolvedPickup?.behavior?.health) === JSON.stringify({
+        healAmount: 15,
+        healFunction: "T_Heal",
+        healType: 0,
+        healthMax: 100,
+        ignoreMaxHealth: false,
+        rejectAtOrAboveHealth: 100,
+      }),
+    "rebuilt E1M1 rotten health should expose explicit QuakeC health behavior facts",
   ],
   [
     rebuiltRottenHealthPickup208?.resolvedPickup?.feedback?.sound === "items/r_item1.wav" &&
@@ -706,6 +771,19 @@ const checks = [
       },
     }),
     "prepared key pickup facts should resolve QuakeC coop leave and non-coop removal lifecycle rules",
+  ],
+  [
+    keyBehaviorMatches(e1m2Key114?.resolvedPickup?.behavior?.key, {
+      key: "silver",
+      itemFlag: 131072,
+      itemFlagExpression: "IT_KEY1",
+    }) &&
+      keyBehaviorMatches(e1m6Key19?.resolvedPickup?.behavior?.key, {
+        key: "gold",
+        itemFlag: 262144,
+        itemFlagExpression: "IT_KEY2",
+      }),
+    "rebuilt key pickup behavior facts should expose QuakeC item mutation and owned-key rejection",
   ],
   [
     e1m2Key114?.resolvedPickup?.feedback?.sound === "misc/medkey.wav" &&
@@ -843,14 +921,14 @@ const checks = [
       quadPickup141.resolvedPickup.modelPath === "progs/quaddama.mdl" &&
       JSON.stringify(quadPickup141.resolvedPickup.inventoryDelta) === JSON.stringify({}) &&
       quadPickup141.resolvedPickup.callbacks.touch === "powerup_touch" &&
-      JSON.stringify(quadPickup141.resolvedPickup.behavior?.powerup) === JSON.stringify({
+      powerupBehaviorMatches(quadPickup141.resolvedPickup.behavior?.powerup, {
         activationField: "super_time",
         durationSeconds: 30,
         finishedField: "super_damage_finished",
         itemFlag: 4194304,
         itemFlagExpression: "IT_QUAD",
       }),
-    "E1M1 quad damage should resolve powerup model, callback, and read-only behavior facts",
+    "E1M1 quad damage should resolve powerup model, callback, and behavior facts",
   ],
   [
     JSON.stringify(quadPickup141?.resolvedPickup?.lifecycle?.respawn) === JSON.stringify({
@@ -886,21 +964,21 @@ const checks = [
     "prepared powerup facts should resolve QuakeC short and long deathmatch respawn lifecycle rules",
   ],
   [
-    JSON.stringify(invulnerabilityPickup244?.resolvedPickup?.behavior?.powerup) === JSON.stringify({
+    powerupBehaviorMatches(invulnerabilityPickup244?.resolvedPickup?.behavior?.powerup, {
       activationField: "invincible_time",
       durationSeconds: 30,
       finishedField: "invincible_finished",
       itemFlag: 1048576,
       itemFlagExpression: "IT_INVULNERABILITY",
     }) &&
-      JSON.stringify(envirosuitPickup251?.resolvedPickup?.behavior?.powerup) === JSON.stringify({
+      powerupBehaviorMatches(envirosuitPickup251?.resolvedPickup?.behavior?.powerup, {
         activationField: "rad_time",
         durationSeconds: 30,
         finishedField: "radsuit_finished",
         itemFlag: 2097152,
         itemFlagExpression: "IT_SUIT",
       }) &&
-      JSON.stringify(e1m3Invisibility543?.resolvedPickup?.behavior?.powerup) === JSON.stringify({
+      powerupBehaviorMatches(e1m3Invisibility543?.resolvedPickup?.behavior?.powerup, {
         activationField: "invisible_time",
         durationSeconds: 30,
         finishedField: "invisible_finished",
@@ -908,6 +986,37 @@ const checks = [
         itemFlagExpression: "IT_INVISIBILITY",
       }),
     "prepared powerup facts should resolve QuakeC timer and item flag behavior branches",
+  ],
+  [
+    powerupBehaviorMatches(rebuiltQuadPickup141?.resolvedPickup?.behavior?.powerup, {
+      activationField: "super_time",
+      durationSeconds: 30,
+      finishedField: "super_damage_finished",
+      itemFlag: 4194304,
+      itemFlagExpression: "IT_QUAD",
+    }, { requireMutation: true }) &&
+      powerupBehaviorMatches(rebuiltInvulnerabilityPickup244?.resolvedPickup?.behavior?.powerup, {
+        activationField: "invincible_time",
+        durationSeconds: 30,
+        finishedField: "invincible_finished",
+        itemFlag: 1048576,
+        itemFlagExpression: "IT_INVULNERABILITY",
+      }, { requireMutation: true }) &&
+      powerupBehaviorMatches(rebuiltEnvirosuitPickup251?.resolvedPickup?.behavior?.powerup, {
+        activationField: "rad_time",
+        durationSeconds: 30,
+        finishedField: "radsuit_finished",
+        itemFlag: 2097152,
+        itemFlagExpression: "IT_SUIT",
+      }, { requireMutation: true }) &&
+      powerupBehaviorMatches(rebuiltE1M3Invisibility543?.resolvedPickup?.behavior?.powerup, {
+        activationField: "invisible_time",
+        durationSeconds: 30,
+        finishedField: "invisible_finished",
+        itemFlag: 524288,
+        itemFlagExpression: "IT_INVISIBILITY",
+      }, { requireMutation: true }),
+    "rebuilt powerup behavior facts should expose QuakeC item mutation and timer source expressions",
   ],
   [
     rebuiltQuadPickup141?.resolvedPickup?.feedback?.message === "You got the Quad Damage" &&
@@ -954,6 +1063,18 @@ const checks = [
       JSON.stringify(runtimeRocketAmmo203.poisonedFactEffect) === JSON.stringify({ rockets: 10 }) &&
       JSON.stringify(runtimeRocketAmmo203.poisonedFallbackEffect) === JSON.stringify({ rockets: 5 }),
     "runtime pickup helper should prefer prebaked large ammo facts over poisoned entity spawnflags",
+  ],
+  [
+    syntheticAmmoPickupAudits.length === AMMO_PICKUP_CLASSNAMES.length * 2 &&
+      syntheticAmmoPickupAudits.every((item) =>
+        item.factEntity?.resolvedPickup?.behavior?.ammo &&
+          JSON.stringify(item.factEntity.resolvedPickup.inventoryDelta) === JSON.stringify(item.grantEffect) &&
+          JSON.stringify(item.audit.factEffect) === JSON.stringify(item.grantEffect) &&
+          JSON.stringify(item.audit.fallbackEffect) === JSON.stringify(item.grantEffect) &&
+          JSON.stringify(item.audit.poisonedFactEffect) === JSON.stringify(item.grantEffect) &&
+          JSON.stringify(item.audit.poisonedFallbackEffect) === JSON.stringify(item.poisonedFallbackEffect)
+      ),
+    "runtime pickup helper ammo output should match source-backed small and big ammo facts for every ammo branch",
   ],
   [
     runtimeRottenHealth208.factModelPath === "maps/b_bh10.bsp" &&
@@ -1963,6 +2084,39 @@ function pickupNotifyTextFactMatches(entity, sourceFunction) {
   );
 }
 
+function powerupBehaviorMatches(actual, expected, options = {}) {
+  const baseMatches = Boolean(
+    actual &&
+      actual.activationField === expected.activationField &&
+      actual.durationSeconds === expected.durationSeconds &&
+      actual.finishedField === expected.finishedField &&
+      actual.itemFlag === expected.itemFlag &&
+      actual.itemFlagExpression === expected.itemFlagExpression,
+  );
+  if (!baseMatches) return false;
+  if (!options.requireMutation) return true;
+  return actual.activationValue === 1 &&
+    actual.finishedExpression === "time + 30" &&
+    actual.itemFlagMutation?.expression === "other.items | self.items" &&
+    actual.itemFlagMutation?.sourceField === "self.items" &&
+    actual.itemFlagMutation?.targetField === "other.items";
+}
+
+function keyBehaviorMatches(actual, expected) {
+  return Boolean(
+    actual &&
+      actual.key === expected.key &&
+      actual.itemFlag === expected.itemFlag &&
+      actual.itemFlagExpression === expected.itemFlagExpression &&
+      actual.itemFlagMutation?.expression === "other.items | self.items" &&
+      actual.itemFlagMutation?.sourceField === "self.items" &&
+      actual.itemFlagMutation?.targetField === "other.items" &&
+      actual.ownedKeyReject?.expression === "other.items & self.items" &&
+      actual.ownedKeyReject?.playerField === "items" &&
+      actual.ownedKeyReject?.sourceField === "self.items",
+  );
+}
+
 function triggerCenterprintTextFactMatches(entity, sourceCall, sourceFunction) {
   const trigger = entity?.resolvedTrigger;
   const text = trigger?.messageText;
@@ -2575,13 +2729,52 @@ function buildRuntimePickupAudit(effectForPickup, modelPathForPickup, scene, log
   };
 }
 
+function buildSyntheticAmmoPickupAudit(effectForPickup, modelPathForPickup, scene, logic, classname, index, big) {
+  const entityIndex = syntheticAmmoPickupEntityIndex(index, big);
+  const factEntity = logic.entities.find((entity) => entity.entityIndex === entityIndex && entity.classname === classname);
+  const ammo = factEntity?.resolvedPickup?.behavior?.ammo;
+  return {
+    classname,
+    big,
+    factEntity,
+    grantEffect: ammoInventoryEffect(ammo),
+    poisonedFallbackEffect: ammoInventoryEffect(ammo ? { ...ammo, amount: ammo.smallAmount } : undefined),
+    audit: buildRuntimePickupAudit(effectForPickup, modelPathForPickup, scene, logic, entityIndex),
+  };
+}
+
+function buildSyntheticAmmoPickupScene(inputScene) {
+  const worldspawn = inputScene.entities?.find((entity) => entity.classname === "worldspawn");
+  return {
+    ...inputScene,
+    label: `${inputScene.label ?? "synthetic"}-ammo-pickups`,
+    entities: [
+      ...(worldspawn ? [worldspawn] : []),
+      ...AMMO_PICKUP_CLASSNAMES.flatMap((classname, index) =>
+        [false, true].map((big) => ({
+          index: syntheticAmmoPickupEntityIndex(index, big),
+          classname,
+          origin: { x: index * 16, y: big ? 16 : 0, z: 0 },
+          properties: {
+            spawnflags: big ? "1" : "0",
+          },
+        }))
+      ),
+    ],
+  };
+}
+
+function syntheticAmmoPickupEntityIndex(index, big) {
+  return 9400 + index * 2 + (big ? 1 : 0);
+}
+
 function buildSyntheticWeaponPickupAudit(effectForPickup, modelPathForPickup, scene, logic, classname, index) {
   const entityIndex = syntheticWeaponPickupEntityIndex(index);
   const factEntity = logic.entities.find((entity) => entity.entityIndex === entityIndex && entity.classname === classname);
   return {
     classname,
     factEntity,
-    grantEffect: weaponAmmoGrantEffect(factEntity?.resolvedPickup?.behavior?.weapon?.ammoGrant),
+    grantEffect: ammoInventoryEffect(factEntity?.resolvedPickup?.behavior?.weapon?.ammoGrant),
     audit: buildRuntimePickupAudit(effectForPickup, modelPathForPickup, scene, logic, entityIndex),
   };
 }
@@ -2607,7 +2800,7 @@ function syntheticWeaponPickupEntityIndex(index) {
   return 9300 + index;
 }
 
-function weaponAmmoGrantEffect(ammoGrant) {
+function ammoInventoryEffect(ammoGrant) {
   if (!ammoGrant) return null;
   return { [ammoGrant.inventoryField]: ammoGrant.amount };
 }

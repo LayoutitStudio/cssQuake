@@ -212,8 +212,9 @@ const checks = [
     callbackAssignmentExpression(entities.weapon_rocketlauncher, "weapon_touch", "self.nextthink") === "time + 30" &&
       callbackAssignmentExpression(entities.item_rockets, "ammo_touch", "self.nextthink") === "time + 30" &&
       callbackAssignmentExpression(entities.item_key1, "key_touch", "self.model") === "string_null" &&
+      callbackAssignmentExpression(entities.item_key1, "key_touch", "other.items") === "other.items | self.items" &&
       callbackCalls(entities.item_key1, "key_touch", "SUB_UseTargets"),
-    "weapon, ammo, and key source facts should expose pickup lifecycle callback summaries",
+    "weapon, ammo, and key source facts should expose pickup lifecycle and item mutation callback summaries",
   ],
   [
     armorBranchValue(weaponTouchBranch(entities.weapon_rocketlauncher, "weapon_nailgun"), "new") === 4 &&
@@ -247,6 +248,11 @@ const checks = [
         "other.invisible_finished",
       ) === "time + 30",
     "item artifact source facts should expose powerup_touch timer branches",
+  ],
+  [
+    callbackAssignmentExpression(entities.item_artifact_super_damage, "powerup_touch", "other.items") ===
+      "other.items | self.items",
+    "item artifact source facts should expose powerup item flag mutation",
   ],
   [
     callbackAssignmentExpression(entities.item_artifact_super_damage, "powerup_touch", "self.nextthink") === "time + 60*5" &&
@@ -445,13 +451,19 @@ const checks = [
     "JSON facts should include powerup_touch timer branch assignments",
   ],
   [
+    callbackAssignmentExpression(jsonEntities.item_artifact_invulnerability, "powerup_touch", "other.items") ===
+      "other.items | self.items",
+    "JSON facts should include powerup item flag mutation assignment",
+  ],
+  [
     callbackAssignmentExpression(jsonEntities.weapon_rocketlauncher, "weapon_touch", "self.nextthink") === "time + 30" &&
       callbackCalls(jsonEntities.item_key2, "key_touch", "SUB_UseTargets") &&
+      callbackAssignmentExpression(jsonEntities.item_key2, "key_touch", "other.items") === "other.items | self.items" &&
       armorBranchExpression(
         weaponTouchBranch(jsonEntities.weapon_rocketlauncher, "weapon_supershotgun"),
         "other.ammo_shells",
       ) === "other.ammo_shells + 5",
-    "JSON facts should include pickup lifecycle callback summaries",
+    "JSON facts should include pickup lifecycle callback summaries and key item mutation",
   ],
   [
     jsonEntities.trigger_secret?.defaultAssignments.some((assignment) => assignment.field === "sounds" && assignment.value === 1) &&
