@@ -9,5 +9,4 @@ dist/**
 bench/
 notes/
 scripts/
-netlify.toml
 chrome-trace*.json
