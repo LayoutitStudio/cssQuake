@@ -395,6 +395,25 @@ export interface QuakeGameLogicResolvedPickupRespawnRuleFact {
 }
 
 export interface QuakeGameLogicResolvedPickupBehaviorFact {
+  ammo?: {
+    inventoryField: QuakeGameLogicAmmoInventoryField;
+    playerField: string;
+    amount: number;
+    smallAmount: number;
+    bigAmount: number;
+    box: "small" | "big";
+    spawnflag: {
+      name: "WEAPON_BIG2";
+      value: number;
+      set: boolean;
+    };
+    activeWeapon: {
+      bestWeaponFunction: "W_BestWeapon";
+      clampAmmoFunction: "bound_other_ammo";
+      currentAmmoFunction: "W_SetCurrentAmmo";
+      assignment: "self.weapon = W_BestWeapon()";
+    };
+  };
   armor?: {
     armorType: number;
     armorValue: number;
@@ -1024,11 +1043,13 @@ function quakeResolvedPickupInventoryDelta(
   if (classname === "item_armor1" || classname === "item_armor2" || classname === "item_armorInv") {
     return { armor: behavior?.armor?.armorValue ?? quakeFallbackArmorValue(classname) };
   }
+  const ammoInventoryDelta = quakeResolvedAmmoPickupInventoryDelta(behavior?.ammo);
+  if (ammoInventoryDelta) return ammoInventoryDelta;
   if (classname === "item_shells" || classname === "ammo_shells") return { shells: big ? 40 : 20 };
   if (classname === "item_spikes" || classname === "ammo_nails") return { nails: big ? 50 : 25 };
   if (classname === "item_rockets" || classname === "ammo_rockets") return { rockets: big ? 10 : 5 };
   if (classname === "item_cells" || classname === "ammo_cells") return { cells: big ? 12 : 6 };
-  const weaponInventoryDelta = quakeResolvedWeaponPickupInventoryDelta(behavior?.weapon?.ammoGrant);
+  const weaponInventoryDelta = quakeResolvedAmmoPickupInventoryDelta(behavior?.weapon?.ammoGrant);
   if (weaponInventoryDelta) return weaponInventoryDelta;
   if (classname === "weapon_nailgun" || classname === "weapon_supernailgun") return { nails: 30 };
   if (classname === "weapon_supershotgun") return { shells: 5 };
@@ -1044,12 +1065,14 @@ function quakeResolvedPickupBehavior(
   spawnflags: number,
   programFact: QuakeGameLogicProgramEntityFact,
 ): QuakeGameLogicResolvedPickupBehaviorFact | undefined {
+  const ammo = quakeResolvedAmmoPickupBehavior(classname, spawnflags, programFact);
   const armor = quakeResolvedArmorPickupBehavior(classname, programFact);
   const health = quakeResolvedHealthPickupBehavior(classname, spawnflags, programFact);
   const powerup = quakeResolvedPowerupPickupBehavior(classname, programFact);
   const weapon = quakeResolvedWeaponPickupBehavior(classname, programFact);
-  if (!armor && !health && !powerup && !weapon) return undefined;
+  if (!ammo && !armor && !health && !powerup && !weapon) return undefined;
   return {
+    ...(ammo ? { ammo } : {}),
     ...(armor ? { armor } : {}),
     ...(health ? { health } : {}),
     ...(powerup ? { powerup } : {}),
@@ -1181,6 +1204,90 @@ function quakePickupRespawnOrRemoveRules(
       condition: removeCondition,
     },
   ];
+}
+
+function quakeResolvedAmmoPickupBehavior(
+  classname: QuakeGameLogicResolvedPickupKind,
+  spawnflags: number,
+  programFact: QuakeGameLogicProgramEntityFact,
+): NonNullable<QuakeGameLogicResolvedPickupBehaviorFact["ammo"]> | undefined {
+  if (programFact.callbacks.touch !== "ammo_touch") return undefined;
+  const callbackFact = programFact.callbackFacts?.ammo_touch;
+  if (!callbackFact) return undefined;
+  const inventoryField = quakeAmmoInventoryFieldForPickup(classname, programFact);
+  const amounts = quakeProgramAmmoBoxAmounts(programFact);
+  const spawnflag = programFact.spawnflagChecks.find((check) => check.name === "WEAPON_BIG2");
+  const playerField = inventoryField ? `ammo_${inventoryField}` : undefined;
+  const writesInventoryField = playerField && callbackFact.assignments?.some((assignment) =>
+    assignment.field === `other.${playerField}` &&
+    assignment.expression === `other.${playerField} + self.aflag`
+  );
+  const hasActiveWeaponFacts = quakeProgramCallbackCalls(callbackFact, "W_BestWeapon") &&
+    quakeProgramCallbackCalls(callbackFact, "bound_other_ammo") &&
+    quakeProgramCallbackCalls(callbackFact, "W_SetCurrentAmmo") &&
+    quakeProgramCallbackHasAssignment(callbackFact, "self.weapon", "W_BestWeapon()");
+
+  if (
+    inventoryField === undefined ||
+    playerField === undefined ||
+    amounts === undefined ||
+    spawnflag === undefined ||
+    !writesInventoryField ||
+    !hasActiveWeaponFacts
+  ) {
+    return undefined;
+  }
+
+  const big = (spawnflags & spawnflag.value) !== 0;
+  return {
+    inventoryField,
+    playerField,
+    amount: big ? amounts.bigAmount : amounts.smallAmount,
+    smallAmount: amounts.smallAmount,
+    bigAmount: amounts.bigAmount,
+    box: big ? "big" : "small",
+    spawnflag: {
+      name: "WEAPON_BIG2",
+      value: spawnflag.value,
+      set: big,
+    },
+    activeWeapon: {
+      bestWeaponFunction: "W_BestWeapon",
+      clampAmmoFunction: "bound_other_ammo",
+      currentAmmoFunction: "W_SetCurrentAmmo",
+      assignment: "self.weapon = W_BestWeapon()",
+    },
+  };
+}
+
+function quakeAmmoInventoryFieldForPickup(
+  classname: QuakeGameLogicResolvedPickupKind,
+  programFact: QuakeGameLogicProgramEntityFact,
+): QuakeGameLogicAmmoInventoryField | undefined {
+  const netname = quakeProgramFieldString(programFact, "netname");
+  if (netname === "shells") return "shells";
+  if (netname === "nails") return "nails";
+  if (netname === "rockets") return "rockets";
+  if (netname === "cells") return "cells";
+  if (classname === "ammo_shells") return "shells";
+  if (classname === "ammo_nails") return "nails";
+  if (classname === "ammo_rockets") return "rockets";
+  if (classname === "ammo_cells") return "cells";
+  return undefined;
+}
+
+function quakeProgramAmmoBoxAmounts(
+  programFact: QuakeGameLogicProgramEntityFact,
+): { smallAmount: number; bigAmount: number } | undefined {
+  const values = programFact.fieldAssignments
+    .filter((assignment) => assignment.field === "aflag" && typeof assignment.value === "number")
+    .map((assignment) => assignment.value)
+    .filter((value) => Number.isFinite(value));
+  if (values.length < 2) return undefined;
+  return {
+    smallAmount: Math.min(...values),
+    bigAmount: Math.max(...values),
+  };
 }
 
 function quakeResolvedArmorPickupBehavior(
@@ -1365,8 +1472,8 @@ function quakeAmmoInventoryFieldForPlayerField(playerField: string | undefined):
   return undefined;
 }
 
-function quakeResolvedWeaponPickupInventoryDelta(
-  ammoGrant: NonNullable<QuakeGameLogicResolvedPickupBehaviorFact["weapon"]>["ammoGrant"] | undefined,
+function quakeResolvedAmmoPickupInventoryDelta(
+  ammoGrant: { inventoryField: QuakeGameLogicAmmoInventoryField; amount: number } | undefined,
 ): QuakeGameLogicPickupInventoryDeltaFact | undefined {
   if (!ammoGrant) return undefined;
   if (ammoGrant.inventoryField === "shells") return { shells: ammoGrant.amount };
