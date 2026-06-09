@@ -662,9 +662,10 @@ function trimFixed(value, decimals) {
 function createRenderBundleImageInfoReader(blobUrls) {
   const cache = new Map();
   return async (source) => {
-    const blob = blobUrls.get(source);
+    const blobUrl = renderBundleBlobUrl(source, blobUrls);
+    const blob = blobUrl ? blobUrls.get(blobUrl) : null;
     if (!blob) return null;
-    let promise = cache.get(source);
+    let promise = cache.get(blobUrl);
     if (!promise) {
       promise = (async () => {
         const buffer = Buffer.from(await blob.arrayBuffer());
@@ -676,7 +677,7 @@ function createRenderBundleImageInfoReader(blobUrls) {
           ? { width: info.width, height: info.height, data: new Uint8ClampedArray(data) }
           : null;
       })();
-      cache.set(source, promise);
+      cache.set(blobUrl, promise);
     }
     return promise;
   };
@@ -742,10 +743,18 @@ function createRenderBundleImageClass(blobUrls) {
 }
 
 async function imageSourceForRenderBundleUrl(source, blobUrls) {
-  const blob = blobUrls.get(source);
+  const blobUrl = renderBundleBlobUrl(source, blobUrls);
+  const blob = blobUrl ? blobUrls.get(blobUrl) : null;
   if (!blob) return source;
   const buffer = Buffer.from(await blob.arrayBuffer());
   return `data:${blob.type || "image/png"};base64,${buffer.toString("base64")}`;
+}
+
+function renderBundleBlobUrl(source, blobUrls) {
+  const value = String(source ?? "");
+  if (blobUrls.has(value)) return value;
+  const match = value.match(/blob:quake-render-bundle-\d+/);
+  return match && blobUrls.has(match[0]) ? match[0] : "";
 }
 
 function readCanvasImagePixels(image) {

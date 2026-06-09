@@ -1714,7 +1714,8 @@ function quakeAtlasLeafKey(leaf) {
 }
 
 async function loadQuakeAtlasImageData(url) {
-  let cached = quakeAtlasImageDataCache.get(url);
+  const cacheKey = quakeAtlasImageDataCacheKey(url);
+  let cached = cacheKey ? quakeAtlasImageDataCache.get(cacheKey) : null;
   if (cached) return cached;
   cached = (async () => {
     const imageInfo = await renderBundleImageInfo(url);
@@ -1724,6 +1725,9 @@ async function loadQuakeAtlasImageData(url) {
         height: imageInfo.height,
         data: imageInfo.data,
       };
+    }
+    if (requiresRenderBundleNativeImageInfo(url)) {
+      throw new Error(`Could not read render bundle atlas pixels for ${url}.`);
     }
     const image = new Image();
     image.decoding = "async";
@@ -1744,8 +1748,12 @@ async function loadQuakeAtlasImageData(url) {
       data: context.getImageData(0, 0, canvas.width, canvas.height).data,
     };
   })();
-  quakeAtlasImageDataCache.set(url, cached);
+  if (cacheKey) quakeAtlasImageDataCache.set(cacheKey, cached);
   return cached;
+}
+
+function quakeAtlasImageDataCacheKey(url) {
+  return requiresRenderBundleNativeImageInfo(url) ? "" : url;
 }
 
 async function renderBundleImageInfo(url) {
@@ -1753,6 +1761,10 @@ async function renderBundleImageInfo(url) {
   if (typeof readImageInfo !== "function") return null;
   const info = await readImageInfo(url);
   return info?.width && info.height ? info : null;
+}
+
+function requiresRenderBundleNativeImageInfo(url) {
+  return String(url ?? "").startsWith("blob:") || String(url ?? "").includes("blob:quake-render-bundle-");
 }
 
 function atlasLeafAlphaBounds(atlas, atlasSize, position, backgroundSize) {
