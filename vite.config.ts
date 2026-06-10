@@ -94,37 +94,55 @@ function safePositiveNumber(value: unknown, fallback: string): string {
   return String(number);
 }
 
-function poseFromViewParam(view: string): string {
-  const parts = view.trim().split(/[,_\s]+/).filter(Boolean);
-  return parts.length === 5
-    ? `${parts.slice(0, 3).join(", ")} | ${parts[3]}/${parts[4]}`
-    : view;
+type CapturePoseMode = "css" | "quake";
+
+interface CapturePoseInput {
+  mapName: string | null;
+  mode: CapturePoseMode;
+  pose: string;
 }
 
-function parseCapturePoseInput(value: unknown): { mapName: string | null; pose: string } {
+function quakePoseFromViewParam(view: string): string {
+  const parts = view.trim().split(/[,_\s]+/).filter(Boolean).map((part) => Number(part));
+  if ((parts.length !== 5 && parts.length !== 6) || parts.some((part) => !Number.isFinite(part))) {
+    throw new Error("URL view must be x_y_z_pitch_yaw or x_y_z_pitch_yaw_roll.");
+  }
+  const roll = parts[5] ?? 0;
+  if (Math.abs(roll) > 0.001) {
+    throw new Error("cssQuake URL capture only supports zero roll.");
+  }
+  return [...parts.slice(0, 5), 0].join(" ");
+}
+
+function parseCapturePoseInput(value: unknown): CapturePoseInput {
   const pose = safeString(value, "");
-  if (!pose) return { mapName: null, pose };
+  if (!pose) return { mapName: null, mode: "css", pose };
+  let url: URL | null = null;
   try {
-    const url = new URL(pose, DEFAULT_CSSQUAKE_URL);
+    url = new URL(pose, DEFAULT_CSSQUAKE_URL);
+  } catch {
+    // Keep supporting the plain pose format.
+  }
+  if (url) {
     const view = url.searchParams.get("view");
     if (view) {
       return {
         mapName: url.searchParams.get("map")?.trim().toLowerCase() || null,
-        pose: poseFromViewParam(view),
+        mode: "quake",
+        pose: quakePoseFromViewParam(view),
       };
     }
-  } catch {
-    // Keep supporting the plain pose format.
   }
 
   const parts = pose.split("|").map((part) => part.trim()).filter(Boolean);
   if (parts.length >= 3 && /^[a-z][a-z0-9_]*$/i.test(parts[0])) {
     return {
       mapName: parts[0].toLowerCase(),
+      mode: "css",
       pose: parts.slice(1).join(" | "),
     };
   }
-  return { mapName: null, pose };
+  return { mapName: null, mode: "css", pose };
 }
 
 function captureArgs(input: Record<string, unknown>): string[] {
@@ -146,7 +164,7 @@ function captureArgs(input: Record<string, unknown>): string[] {
   if (useSpawn) {
     args.push("--spawn");
   } else {
-    args.push("--css", pose);
+    args.push(parsedPose.mode === "quake" ? "--quake" : "--css", pose);
   }
   if (input.weaponOnly === true) {
     args.push("--weapon-only");
@@ -158,6 +176,16 @@ function captureArgs(input: Record<string, unknown>): string[] {
   }
   if (input.openFolder === true) args.push("--open");
   return args;
+}
+
+function dryRunCapture(input: Record<string, unknown>): Record<string, unknown> {
+  const args = captureArgs(input);
+  return {
+    ok: true,
+    dryRun: true,
+    command: [process.execPath, ...args].join(" "),
+    args,
+  };
 }
 
 function runCapture(input: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -293,7 +321,7 @@ function localDebugSitePlugin(): Plugin {
               return;
             }
             try {
-              const result = await runCapture(input);
+              const result = input.dryRun === true ? dryRunCapture(input) : await runCapture(input);
               sendJson(res, result.ok === true ? 200 : 500, result);
             } catch (error) {
               sendJson(res, 409, { error: error instanceof Error ? error.message : String(error), activeCapture });

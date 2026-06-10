@@ -31,6 +31,7 @@ import {
   PLAYER_RADIUS,
   QUAKE_BUTTON_USE_RANGE,
   QUAKE_COLLISION_UNIT_SCALE,
+  QUAKE_PLAYER_MINS_Z,
   STEP_HEIGHT,
 } from "./runtime/constants";
 import {
@@ -313,9 +314,10 @@ const QUAKE_BONUS_FLASH_HOLD_MS = 80;
 const QUAKE_URL_VIEW_PART_COUNT = 5;
 const QUAKE_URL_NUMBER_SCALE = 1000;
 const QUAKE_URL_VIEW_ORIGIN_LIMIT = 100000;
-const QUAKE_URL_VIEW_ROT_X_MIN = 0;
-const QUAKE_URL_VIEW_ROT_X_MAX = 180;
-const QUAKE_URL_VIEW_ROT_Y_LIMIT = 36000;
+const QUAKE_URL_VIEW_PITCH_MIN = -90;
+const QUAKE_URL_VIEW_PITCH_MAX = 90;
+const QUAKE_URL_VIEW_ANGLE_LIMIT = 36000;
+const QUAKE_URL_VIEW_ROLL_EPSILON = 0.001;
 const QUAKE_URL_PERSPECTIVE_MAX = 20000;
 const QUAKE_URL_ZOOM_MAX = 1000;
 
@@ -459,6 +461,13 @@ type QuakeUrlUpdateMode = "none" | "push" | "replace";
 
 interface QuakeUrlView {
   origin: [number, number, number];
+  pitch: number;
+  yaw: number;
+  roll: number;
+}
+
+interface QuakeCssView {
+  origin: [number, number, number];
   rotX: number;
   rotY: number;
 }
@@ -466,6 +475,7 @@ interface QuakeUrlView {
 interface QuakeUrlRoute {
   mapName: string;
   mapParamPresent: boolean;
+  mapParamValid: boolean;
   view: QuakeUrlView | null;
 }
 
@@ -695,16 +705,22 @@ function quakeSceneUrlMap(manifest: QuakeAssetManifest): Map<string, string> {
 function quakeUrlRouteFromLocation(): QuakeUrlRoute {
   const params = new URLSearchParams(window.location.search);
   const mapName = quakeUrlMapName(params);
-  const view = quakeUrlView(params);
+  const mapParamPresent = params.has("map");
+  const view = mapName !== null || !mapParamPresent ? quakeUrlView(params) : null;
   return {
     mapName: mapName ?? quakeAssetManifest.startMap,
-    mapParamPresent: params.has("map"),
+    mapParamPresent,
+    mapParamValid: mapName !== null,
     view,
   };
 }
 
 function quakeUrlRouteIsDirect(route: QuakeUrlRoute): boolean {
-  return route.mapParamPresent || route.view !== null;
+  return route.mapParamValid || route.view !== null;
+}
+
+function quakeUrlRouteShouldNormalize(route: QuakeUrlRoute): boolean {
+  return !route.mapParamPresent || route.mapParamValid;
 }
 
 function quakeUrlMapName(params: URLSearchParams): string | null {
@@ -715,23 +731,34 @@ function quakeUrlMapName(params: URLSearchParams): string | null {
 function quakeUrlView(params: URLSearchParams): QuakeUrlView | null {
   const rawValue = params.get("view");
   if (!rawValue) return null;
-  const parts = rawValue.trim().split(/[,_\s]+/).filter(Boolean).map((part) => Number(part));
-  if (parts.length !== QUAKE_URL_VIEW_PART_COUNT || parts.some((part) => !Number.isFinite(part))) return null;
+  const parts = quakeUrlNumberParts(rawValue);
+  if ((parts.length !== QUAKE_URL_VIEW_PART_COUNT && parts.length !== QUAKE_URL_VIEW_PART_COUNT + 1) ||
+    parts.some((part) => !Number.isFinite(part))) {
+    return null;
+  }
   if (parts.slice(0, 3).some((part) => Math.abs(part) > QUAKE_URL_VIEW_ORIGIN_LIMIT)) return null;
-  if (parts[3] < QUAKE_URL_VIEW_ROT_X_MIN || parts[3] > QUAKE_URL_VIEW_ROT_X_MAX) return null;
-  if (Math.abs(parts[4]) > QUAKE_URL_VIEW_ROT_Y_LIMIT) return null;
+  if (parts[3] < QUAKE_URL_VIEW_PITCH_MIN || parts[3] > QUAKE_URL_VIEW_PITCH_MAX) return null;
+  if (Math.abs(parts[4]) > QUAKE_URL_VIEW_ANGLE_LIMIT) return null;
+  if (parts[5] !== undefined && Math.abs(parts[5]) > QUAKE_URL_VIEW_ANGLE_LIMIT) return null;
+  const roll = parts[5] ?? 0;
+  if (Math.abs(roll) > QUAKE_URL_VIEW_ROLL_EPSILON) return null;
   return {
     origin: [parts[0], parts[1], parts[2]],
-    rotX: parts[3],
-    rotY: normalizeQuakeUrlAngle(parts[4]),
+    pitch: parts[3],
+    yaw: normalizeQuakeUrlAngle(parts[4]),
+    roll: 0,
   };
+}
+
+function quakeUrlNumberParts(rawValue: string): number[] {
+  return rawValue.trim().split(/[,_\s]+/).filter(Boolean).map((part) => Number(part));
 }
 
 function normalizeQuakeUrlAngle(value: number): number {
   return (value % 360 + 360) % 360;
 }
 
-function updateQuakeUrl(mapName: string, mode: QuakeUrlUpdateMode, view: QuakeUrlView | null = null): void {
+function updateQuakeUrl(mapName: string, mode: QuakeUrlUpdateMode, view: QuakeCssView | null = null): void {
   if (mode === "none") return;
   const url = quakeUrlFor(mapName, view);
   const state = { cssQuake: true, mapName, view };
@@ -748,9 +775,10 @@ function updateQuakeUrl(mapName: string, mode: QuakeUrlUpdateMode, view: QuakeUr
 
 function clearQuakeGameRoute(): void {
   const url = new URL(window.location.href);
-  const hadGameRoute = url.searchParams.has("map") || url.searchParams.has("view");
+  const hadGameRoute = url.searchParams.has("map") || url.searchParams.has("view") || url.searchParams.has("viewpos");
   url.searchParams.delete("map");
   url.searchParams.delete("view");
+  url.searchParams.delete("viewpos");
   if (!hadGameRoute && url.href === window.location.href) return;
   window.history.replaceState({ cssQuake: true, mapName: null, view: null }, "", url);
 }
@@ -767,11 +795,12 @@ function clearQuakeDebugUrlParams(): void {
   );
 }
 
-function quakeUrlFor(mapName: string, view: QuakeUrlView | null = null): URL {
+function quakeUrlFor(mapName: string, view: QuakeCssView | null = null): URL {
   const url = new URL(window.location.href);
   url.searchParams.set("map", mapName);
+  url.searchParams.delete("viewpos");
   if (view) {
-    url.searchParams.set("view", quakeUrlViewValue(view));
+    url.searchParams.set("view", quakeUrlViewValue(quakeUrlViewFromCssView(view)));
   } else {
     url.searchParams.delete("view");
   }
@@ -781,8 +810,9 @@ function quakeUrlFor(mapName: string, view: QuakeUrlView | null = null): URL {
 function quakeUrlViewValue(view: QuakeUrlView): string {
   return [
     ...view.origin,
-    view.rotX,
-    view.rotY,
+    view.pitch,
+    view.yaw,
+    view.roll,
   ].map(formatQuakeUrlNumber).join("_");
 }
 
@@ -791,7 +821,7 @@ function formatQuakeUrlNumber(value: number): string {
   return String(Object.is(rounded, -0) ? 0 : rounded);
 }
 
-function currentQuakeUrlView(): QuakeUrlView {
+function currentQuakeCssView(): QuakeCssView {
   const origin = controls.getOrigin();
   return {
     origin: [origin[0], origin[1], origin[2]],
@@ -801,7 +831,7 @@ function currentQuakeUrlView(): QuakeUrlView {
 }
 
 function currentQuakeViewUrl(): string {
-  return quakeUrlFor(currentMapName, currentQuakeUrlView()).href;
+  return quakeUrlFor(currentMapName, currentQuakeCssView()).href;
 }
 
 async function copyCurrentQuakeViewUrl(): Promise<string> {
@@ -2714,6 +2744,53 @@ function quakePointToPoly(point: { x: number; y: number; z: number }): Vec3 {
   ];
 }
 
+function quakePolyToPoint(origin: Vec3): { x: number; y: number; z: number } {
+  return {
+    x: origin[0] / QUAKE_COLLISION_UNIT_SCALE + quakeModelPivot.x,
+    y: origin[1] / QUAKE_COLLISION_UNIT_SCALE + quakeModelPivot.y,
+    z: origin[2] / QUAKE_COLLISION_UNIT_SCALE + quakeModelPivot.z,
+  };
+}
+
+function quakeUrlViewFromCssView(view: QuakeCssView): QuakeUrlView {
+  const point = quakePolyToPoint([
+    view.origin[0],
+    view.origin[1],
+    view.origin[2] - QUAKE_PLAYER_MINS_Z - getPlayer().eyeHeight(),
+  ]);
+  return {
+    origin: [point.x, point.y, point.z],
+    pitch: 90 - view.rotX,
+    yaw: normalizeQuakeUrlAngle(view.rotY - 180),
+    roll: 0,
+  };
+}
+
+function quakeCssViewFromUrlView(view: QuakeUrlView): QuakeCssView {
+  const origin = quakePointToPoly({
+    x: view.origin[0],
+    y: view.origin[1],
+    z: view.origin[2],
+  });
+  return {
+    origin: [
+      origin[0],
+      origin[1],
+      origin[2] + QUAKE_PLAYER_MINS_Z + getPlayer().eyeHeight(),
+    ],
+    rotX: 90 - view.pitch,
+    rotY: normalizeQuakeUrlAngle(180 + view.yaw),
+  };
+}
+
+function quakeUrlRouteView(route: QuakeUrlRoute): QuakeCssView | null {
+  return route.view ? quakeCssViewFromUrlView(route.view) : null;
+}
+
+function quakeMapLoadView(options: QuakeMapLoadOptions): QuakeCssView | null {
+  return options.view ? quakeCssViewFromUrlView(options.view) : null;
+}
+
 function disposeCurrentScene(): void {
   clearQuakeAttackInput();
   clearQuakeDebugFlyInput();
@@ -4436,7 +4513,7 @@ function syncQuakeDebugGameplay(origin: [number, number, number]): void {
   syncQuakeCrosshairTarget();
 }
 
-function applyQuakeUrlView(view: QuakeUrlView): void {
+function applyQuakeUrlView(view: QuakeCssView): void {
   clearQuakeWeaponViewPunch(false);
   getPlayer().setDebugOrigin(view.origin);
   syncSceneCameraAt(view.origin, view.rotX, view.rotY);
@@ -4630,8 +4707,9 @@ async function loadQuakeMap(mapName: string, options: QuakeMapLoadOptions = {}):
     currentMapName = nextMapName;
     menu.setCurrentLevel(nextMapName);
     mountQuakeScene(result);
-    if (options.view) applyQuakeUrlView(options.view);
-    updateQuakeUrl(nextMapName, options.urlMode ?? "push", options.view ?? null);
+    const routeView = quakeMapLoadView(options);
+    if (routeView) applyQuakeUrlView(routeView);
+    updateQuakeUrl(nextMapName, options.urlMode ?? "push", routeView);
     if (quakeAppDisposed) return;
     await completeQuakeSceneReadiness(weaponPromise, progress);
     if (quakeAppDisposed) return;
@@ -5189,12 +5267,15 @@ async function loadQuake(): Promise<void> {
   currentMapName = startMap;
   menu.setCurrentLevel(currentMapName);
   mountQuakeScene(result);
-  if (startupRoute.view) applyQuakeUrlView(startupRoute.view);
-  if (quakeUrlRouteIsDirect(startupRoute)) updateQuakeUrl(startMap, "replace", startupRoute.view);
+  const startupView = quakeUrlRouteView(startupRoute);
+  if (startupView) applyQuakeUrlView(startupView);
+  if (quakeUrlRouteIsDirect(startupRoute) && quakeUrlRouteShouldNormalize(startupRoute)) {
+    updateQuakeUrl(startMap, "replace", startupView);
+  }
   if (quakeAppDisposed) return;
   await completeQuakeSceneReadiness(weaponPromise, progress);
   if (quakeAppDisposed) return;
-  syncQuakeRoutePresentation(startupRoute, { preferMenu: true });
+  syncQuakeRoutePresentation(startupRoute);
 }
 
 function syncQuakeRoutePresentation(route: QuakeUrlRoute, options: { preferMenu?: boolean } = {}): void {
@@ -5210,8 +5291,9 @@ function handleQuakePopState(): void {
   if (quakeAppDisposed || quakeAppLoading) return;
   const route = quakeUrlRouteFromLocation();
   if (currentMapName === route.mapName && currentResult) {
-    if (route.view) {
-      applyQuakeUrlView(route.view);
+    const routeView = quakeUrlRouteView(route);
+    if (routeView) {
+      applyQuakeUrlView(routeView);
       syncQuakeRoutePresentation(route);
       return;
     }

@@ -240,6 +240,7 @@ function setQuakeDebugViewpos(
   if (pitch !== undefined && !Number.isFinite(pitch)) return false;
   if (yaw !== undefined && !Number.isFinite(yaw)) return false;
   if (typeof rollOrOptions === "number" && !Number.isFinite(rollOrOptions)) return false;
+  if (!quakeDebugSupportsRoll(rollOrOptions)) return false;
 
   const currentRotation = runtime.cameraRotation();
   const origin = runtime.pointToPoly({ x, y, z });
@@ -268,6 +269,7 @@ function setQuakeDebugGroundViewpos(
   if (pitch !== undefined && !Number.isFinite(pitch)) return false;
   if (yaw !== undefined && !Number.isFinite(yaw)) return false;
   if (typeof rollOrOptions === "number" && !Number.isFinite(rollOrOptions)) return false;
+  if (!quakeDebugSupportsRoll(rollOrOptions)) return false;
 
   const currentRotation = runtime.cameraRotation();
   const playerOrigin = runtime.pointToPoly({ x, y, z });
@@ -287,6 +289,10 @@ function setQuakeDebugGroundViewpos(
   const rotY = yaw === undefined ? currentRotation.rotY : (180 + yaw + 360) % 360;
   const poseOptions = typeof rollOrOptions === "object" ? rollOrOptions : options;
   return setQuakeDebugPose(runtime, eyeOrigin, rotX, rotY, poseOptions);
+}
+
+function quakeDebugSupportsRoll(rollOrOptions?: number | QuakeDebugPoseOptions): boolean {
+  return typeof rollOrOptions !== "number" || Math.abs(rollOrOptions) <= QUAKE_DEBUG_POSE_EPSILON;
 }
 
 function debugVec3Equals(previous: Vec3, next: Vec3): boolean {
