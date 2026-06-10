@@ -16,9 +16,11 @@ export interface QuakeCenterPrintOptions {
 export interface QuakeTextController {
   clear: () => void;
   clearCenterPrint: () => void;
+  clearNotify: () => void;
   notify: (text: string, options?: QuakeNotifyTextOptions) => void;
   centerPrint: (text: string, options?: QuakeCenterPrintOptions) => void;
   setCenterPrint: (text: string) => void;
+  setNotify: (text: string) => void;
 }
 
 interface QuakeNotifyLine {
@@ -65,6 +67,20 @@ export function createQuakeTextController(options: {
     }
   };
 
+  const clearNotify = (): void => {
+    clearNotifyTimer();
+    notifyLines = [];
+    if (!notifyRoot) return;
+    notifyRoot.replaceChildren();
+    notifyRoot.hidden = true;
+  };
+
+  const setNotify = (text: string): void => {
+    clearNotifyTimer();
+    notifyLines = quakeTextLines(text).map((line) => ({ expiresAt: Infinity, text: line }));
+    renderNotify();
+  };
+
   const clearCenterPrintTimer = (): void => {
     if (centerPrintTimer === null) return;
     window.clearTimeout(centerPrintTimer);
@@ -90,15 +106,11 @@ export function createQuakeTextController(options: {
 
   return {
     clear: () => {
-      clearNotifyTimer();
+      clearNotify();
       clearCenterPrint();
-      notifyLines = [];
-      if (notifyRoot) {
-        notifyRoot.replaceChildren();
-        notifyRoot.hidden = true;
-      }
     },
     clearCenterPrint,
+    clearNotify,
     notify: (text, notifyOptions = {}) => {
       const durationMs = quakePositiveDuration(notifyOptions.durationMs, QUAKE_NOTIFY_DEFAULT_MS);
       const expiresAt = Date.now() + durationMs;
@@ -120,6 +132,7 @@ export function createQuakeTextController(options: {
       clearCenterPrintTimer();
       setCenterPrint(text);
     },
+    setNotify,
   };
 }
 

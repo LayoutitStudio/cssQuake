@@ -1055,30 +1055,43 @@ function exposeQuakeRenderBundleGlobals(window, values) {
 }
 
 async function resolveRenderBundleTextureUrls(input, options) {
+  const textureDataUrlByUrl = new Map();
   return {
     ...input,
-    polygons: await resolvePolygonTextureUrls(input.polygons, options),
+    polygons: await resolvePolygonTextureUrls(input.polygons, options, textureDataUrlByUrl),
   };
 }
 
 async function resolveAnimatedRenderBundleTextureUrls(input, options) {
+  const textureDataUrlByUrl = new Map();
   return {
     ...input,
     frames: await Promise.all((input.frames ?? []).map(async (frame) => ({
       ...frame,
-      polygons: await resolvePolygonTextureUrls(frame.polygons, options),
+      polygons: await resolvePolygonTextureUrls(frame.polygons, options, textureDataUrlByUrl),
     }))),
   };
 }
 
-async function resolvePolygonTextureUrls(polygons = [], options = {}) {
+async function resolvePolygonTextureUrls(polygons = [], options = {}, textureDataUrlByUrl = new Map()) {
   if (typeof options.readTextureUrl !== "function") return polygons;
   return Promise.all(polygons.map(async (polygon) => {
     if (typeof polygon?.texture !== "string") return polygon;
-    const source = await options.readTextureUrl(polygon.texture);
-    const dataUrl = typeof source === "string"
-      ? source
-      : `data:${options.contentTypeForTextureUrl?.(polygon.texture) ?? "image/png"};base64,${Buffer.from(source).toString("base64")}`;
+    const dataUrl = await resolveTextureDataUrl(polygon.texture, options, textureDataUrlByUrl);
     return { ...polygon, texture: dataUrl };
   }));
+}
+
+function resolveTextureDataUrl(textureUrl, options, textureDataUrlByUrl) {
+  let dataUrl = textureDataUrlByUrl.get(textureUrl);
+  if (!dataUrl) {
+    dataUrl = (async () => {
+      const source = await options.readTextureUrl(textureUrl);
+      return typeof source === "string"
+        ? source
+        : `data:${options.contentTypeForTextureUrl?.(textureUrl) ?? "image/png"};base64,${Buffer.from(source).toString("base64")}`;
+    })();
+    textureDataUrlByUrl.set(textureUrl, dataUrl);
+  }
+  return dataUrl;
 }

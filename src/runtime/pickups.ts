@@ -3,7 +3,15 @@ import type { Polygon, PolyMeshHandle, Vec3 } from "@layoutit/polycss";
 import type { QuakeGameLogicFacts } from "../prepare/gameLogicFacts";
 import { quakeGameLogicResolvedPickupFact } from "../prepare/gameLogicFacts";
 import type { QuakeEntity, QuakePreparedRenderBundle } from "../prepare/scene";
-import type { QuakeInventoryDelta, QuakeInventoryPowerupBehavior, QuakePlayerInventory } from "./hud";
+import {
+  QUAKE_WEAPON_ITEM_FLAG_EXPRESSIONS,
+  QUAKE_WEAPON_ITEM_FLAGS,
+  quakeInventoryOwnsWeapon,
+  type QuakeInventoryDelta,
+  type QuakeInventoryPowerupBehavior,
+  type QuakePlayerInventory,
+  type QuakeWeaponId,
+} from "./hud";
 import { COLLISION_EPSILON, PLAYER_RADIUS, QUAKE_COLLISION_UNIT_SCALE } from "./constants";
 import { distanceSq3, dotVec3, normalizeVec3 } from "./math";
 import { quakeEntityNumber, quakeEntitySpawnflags } from "./entities";
@@ -27,6 +35,7 @@ const QUAKE_PICKUP_UNMOUNT_DISTANCE_SQ = QUAKE_PICKUP_UNMOUNT_DISTANCE * QUAKE_P
 const QUAKE_PICKUP_MOUNT_VIEW_DOT_MIN = 0.3;
 const QUAKE_PICKUP_UNMOUNT_VIEW_DOT_MIN = 0.15;
 const QUAKE_PICKUP_MIN_VIEW_DEPTH = PLAYER_RADIUS;
+const QUAKE_PICKUP_PAUSED_TIMER_POLL_MS = 100;
 
 export interface QuakePickupModel {
   source: string;
@@ -119,7 +128,10 @@ interface QuakePickupState {
   handle: PolyMeshHandle | null;
   renderRadius: number;
   effect: QuakePickupEffect;
+  feedback?: QuakeRuntimePickupFeedback;
   picked: boolean;
+  removeTimer?: ReturnType<typeof globalThis.setTimeout>;
+  runtime: boolean;
   visible: boolean;
   animation?: QuakePickupAnimationState;
 }
@@ -136,9 +148,10 @@ interface QuakePickupAnimationState {
 
 export interface QuakePickupControllerOptions {
   addMesh: (entity: QuakeEntity, model?: QuakePickupModel, frameIndex?: number) => PolyMeshHandle | null;
-  applyEffect: (effect: QuakePickupEffect, entity: QuakeEntity) => void;
+  applyEffect: (effect: QuakePickupEffect, entity: QuakeEntity, feedback?: QuakeRuntimePickupFeedback) => void;
   canPickup?: (effect: QuakePickupEffect, entity: QuakeEntity) => boolean;
   gameMode?: () => QuakePickupGameMode;
+  isGameplayPaused?: () => boolean;
   leafIndexAt: (origin: Vec3) => number | undefined;
   onRespawnScheduled?: (entity: QuakeEntity, delaySeconds: number) => void;
   playerForward: () => Vec3;
@@ -151,6 +164,21 @@ export interface QuakePickupControllerOptions {
   startPowerup?: (entity: QuakeEntity, powerup: QuakeInventoryPowerupBehavior) => void;
   useTargets?: (entity: QuakeEntity) => boolean | void;
   visibleLeavesAt: (origin: [number, number, number]) => Set<number> | null;
+}
+
+export interface QuakeRuntimePickupFeedback {
+  message?: string;
+  soundPath?: string;
+}
+
+export interface QuakeRuntimePickupInput {
+  effect: QuakePickupEffect;
+  entity: QuakeEntity;
+  feedback?: QuakeRuntimePickupFeedback;
+  modelPath?: string;
+  origin: Vec3;
+  removeAfterSeconds?: number;
+  visibilityOrigin?: [number, number, number];
 }
 
 export interface QuakePickupGameMode {
@@ -167,6 +195,7 @@ export interface QuakePickupLifecycleAction {
 }
 
 export interface QuakePickupController {
+  addRuntimePickup: (input: QuakeRuntimePickupInput) => boolean;
   clear: () => void;
   spawn: (
     entities: QuakeEntity[],
@@ -180,16 +209,25 @@ export interface QuakePickupController {
 export function createQuakePickupController(options: QuakePickupControllerOptions): QuakePickupController {
   let handles: PolyMeshHandle[] = [];
   let pickups: QuakePickupState[] = [];
+  let currentModelLibrary: QuakePickupModelLibrary | null = null;
   let animationTimer: number | null = null;
+  let animationPausedAt = 0;
+  let animationClockOffsetMs = 0;
   let respawnTimers: ReturnType<typeof globalThis.setTimeout>[] = [];
+  let removalTimers: ReturnType<typeof globalThis.setTimeout>[] = [];
 
   const clear = (): void => {
     stopAnimationLoop();
     for (const timer of respawnTimers) globalThis.clearTimeout(timer);
     respawnTimers = [];
+    for (const timer of removalTimers) globalThis.clearTimeout(timer);
+    removalTimers = [];
     for (const handle of handles) handle.remove();
     handles = [];
     pickups = [];
+    currentModelLibrary = null;
+    animationPausedAt = 0;
+    animationClockOffsetMs = 0;
   };
 
   const spawn = (
@@ -198,6 +236,7 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     visibilityOrigin?: [number, number, number],
   ): void => {
     clear();
+    currentModelLibrary = modelLibrary;
     const gameLogic = options.gameLogic();
     const programMetadata = options.programMetadata();
 
@@ -210,29 +249,68 @@ export function createQuakePickupController(options: QuakePickupControllerOption
 
       const origin = options.pointToPoly(entity.origin);
       const model = quakePickupModelForEntity(entity, modelLibrary, programMetadata, gameLogic);
-      const handle = options.addMesh(entity, model);
-      if (handle) {
-        handle.element.hidden = true;
-        handles.push(handle);
-      }
-      const animation = quakePickupAnimationStateForModel(entity, model);
-      pickups.push({
+      addPickupState({
         entity,
-        origin,
-        leafIndex: options.leafIndexAt(origin),
-        radius: QUAKE_PICKUP_RADIUS,
-        height: QUAKE_PICKUP_HEIGHT,
-        ...(model ? { model } : {}),
-        handle,
-        renderRadius: quakePickupHorizontalRadius(model),
         effect: effect ?? {},
-        picked: false,
-        visible: false,
-        ...(animation ? { animation } : {}),
+        model,
+        origin,
+        runtime: false,
       });
     }
     syncVisibility(visibilityOrigin);
     startAnimationLoop();
+  };
+
+  const addRuntimePickup = (input: QuakeRuntimePickupInput): boolean => {
+    const model = input.modelPath ? currentModelLibrary?.models[input.modelPath] : undefined;
+    const pickup = addPickupState({
+      entity: input.entity,
+      effect: input.effect,
+      ...(input.feedback ? { feedback: input.feedback } : {}),
+      model,
+      origin: input.origin,
+      runtime: true,
+    });
+    if (!pickup) return false;
+    scheduleRuntimePickupRemoval(pickup, input.removeAfterSeconds);
+    syncVisibility(input.visibilityOrigin);
+    startAnimationLoop();
+    return true;
+  };
+
+  const addPickupState = (input: {
+    effect: QuakePickupEffect;
+    entity: QuakeEntity;
+    feedback?: QuakeRuntimePickupFeedback;
+    model?: QuakePickupModel;
+    origin: Vec3;
+    runtime: boolean;
+  }): QuakePickupState | null => {
+    const handle = options.addMesh(input.entity, input.model);
+    if (handle) {
+      handle.element.hidden = true;
+      handles.push(handle);
+    }
+    const animation = quakePickupAnimationStateForModel(input.entity, input.model);
+    const pickup: QuakePickupState = {
+      entity: input.entity,
+      origin: input.origin,
+      leafIndex: options.leafIndexAt(input.origin),
+      radius: QUAKE_PICKUP_RADIUS,
+      height: QUAKE_PICKUP_HEIGHT,
+      ...(input.model ? { model: input.model } : {}),
+      handle,
+      renderRadius: quakePickupHorizontalRadius(input.model),
+      effect: input.effect,
+      ...(input.feedback ? { feedback: input.feedback } : {}),
+      picked: false,
+      runtime: input.runtime,
+      visible: false,
+      ...(animation ? { animation } : {}),
+    };
+    if (input.runtime) syncPickupBaseTransform(pickup);
+    pickups.push(pickup);
+    return pickup;
   };
 
   const syncCollision = (
@@ -305,6 +383,17 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     if (visible && pickup.animation) startAnimationLoop();
   };
 
+  const syncPickupBaseTransform = (pickup: QuakePickupState): void => {
+    if (!pickup.handle) return;
+    const animation = pickup.animation;
+    const angle = animation?.baseAngle ?? pickup.entity.angle ?? quakeEntityNumber(pickup.entity, "angle", 0);
+    pickup.handle.setTransform({
+      position: pickup.origin,
+      rotation: [0, 0, angle],
+      scale: 1,
+    });
+  };
+
   const hasActivePickupAnimation = (): boolean =>
     pickups.some((pickup) => Boolean(pickup.animation && !pickup.picked && pickup.visible && pickup.handle));
 
@@ -323,7 +412,19 @@ export function createQuakePickupController(options: QuakePickupControllerOption
   const stepAnimations = (): void => {
     let active = false;
     const now = performance.now();
-    const seconds = now / 1000;
+    if (options.isGameplayPaused?.()) {
+      animationPausedAt ||= now;
+      return;
+    }
+    if (animationPausedAt) {
+      const durationMs = now - animationPausedAt;
+      animationClockOffsetMs += durationMs;
+      for (const pickup of pickups) {
+        if (pickup.animation) pickup.animation.nextFrameAt += durationMs;
+      }
+      animationPausedAt = 0;
+    }
+    const seconds = (now - animationClockOffsetMs) / 1000;
     for (const pickup of pickups) {
       const animation = pickup.animation;
       if (!animation || pickup.picked || !pickup.visible || !pickup.handle) continue;
@@ -345,26 +446,32 @@ export function createQuakePickupController(options: QuakePickupControllerOption
         }
       }
       if (animation.spin) {
-        pickup.handle.setTransform({
-          position: [
-            pickup.origin[0],
-            pickup.origin[1],
-            pickup.origin[2] +
-              Math.sin(seconds * QUAKE_PICKUP_ALIAS_BOB_RADIANS_PER_SECOND + animation.phase) *
-                QUAKE_PICKUP_ALIAS_BOB_AMPLITUDE,
-          ],
-          rotation: [
-            0,
-            0,
-            (animation.baseAngle + seconds * QUAKE_PICKUP_ALIAS_SPIN_DEGREES_PER_SECOND) % 360,
-          ],
-          scale: 1,
-        });
+        syncPickupAnimationTransform(pickup, seconds);
       }
     }
     if (!active) {
       stopAnimationLoop();
     }
+  };
+
+  const syncPickupAnimationTransform = (pickup: QuakePickupState, seconds: number): void => {
+    const animation = pickup.animation;
+    if (!animation || !pickup.handle) return;
+    pickup.handle.setTransform({
+      position: [
+        pickup.origin[0],
+        pickup.origin[1],
+        pickup.origin[2] +
+          Math.sin(seconds * QUAKE_PICKUP_ALIAS_BOB_RADIANS_PER_SECOND + animation.phase) *
+            QUAKE_PICKUP_ALIAS_BOB_AMPLITUDE,
+      ],
+      rotation: [
+        0,
+        0,
+        (animation.baseAngle + seconds * QUAKE_PICKUP_ALIAS_SPIN_DEGREES_PER_SECOND) % 360,
+      ],
+      scale: 1,
+    });
   };
 
   const pickUp = (pickup: QuakePickupState): void => {
@@ -381,7 +488,8 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     pickup.visible = false;
     pickup.handle?.remove();
     handles = handles.filter((handle) => handle !== pickup.handle);
-    options.applyEffect(pickup.effect, pickup.entity);
+    pickup.handle = null;
+    options.applyEffect(pickup.effect, pickup.entity, pickup.feedback);
     const powerup = quakePickupPowerupBehaviorForEntity(pickup.entity, gameLogic);
     if (powerup) {
       options.startPowerup?.(pickup.entity, powerup);
@@ -396,15 +504,61 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     if (lifecycleAction?.action === "respawn" && lifecycleAction.delaySeconds !== undefined) {
       schedulePickupRespawn(pickup, lifecycleAction.delaySeconds);
     }
+    if (pickup.runtime) removeRuntimePickup(pickup);
+  };
+
+  const removeRuntimePickup = (pickup: QuakePickupState): void => {
+    if (!pickup.runtime) return;
+    if (pickup.removeTimer) {
+      globalThis.clearTimeout(pickup.removeTimer);
+      removalTimers = removalTimers.filter((timer) => timer !== pickup.removeTimer);
+      pickup.removeTimer = undefined;
+    }
+    if (pickup.handle) {
+      pickup.handle.remove();
+      handles = handles.filter((handle) => handle !== pickup.handle);
+      pickup.handle = null;
+    }
+    pickups = pickups.filter((entry) => entry !== pickup);
+  };
+
+  const scheduleRuntimePickupRemoval = (
+    pickup: QuakePickupState,
+    delaySeconds: number | undefined,
+  ): void => {
+    if (!pickup.runtime || delaySeconds === undefined) return;
+    if (!Number.isFinite(delaySeconds) || delaySeconds <= 0) return;
+    let timer: ReturnType<typeof globalThis.setTimeout>;
+    const removeAfterDelay = (): void => {
+      removalTimers = removalTimers.filter((entry) => entry !== timer);
+      if (options.isGameplayPaused?.()) {
+        timer = globalThis.setTimeout(removeAfterDelay, QUAKE_PICKUP_PAUSED_TIMER_POLL_MS);
+        pickup.removeTimer = timer;
+        removalTimers.push(timer);
+        return;
+      }
+      pickup.removeTimer = undefined;
+      removeRuntimePickup(pickup);
+    };
+    timer = globalThis.setTimeout(removeAfterDelay, delaySeconds * 1000);
+    pickup.removeTimer = timer;
+    removalTimers.push(timer);
   };
 
   const schedulePickupRespawn = (pickup: QuakePickupState, delaySeconds: number): void => {
     if (!Number.isFinite(delaySeconds) || delaySeconds < 0) return;
     options.onRespawnScheduled?.(pickup.entity, delaySeconds);
-    const timer = globalThis.setTimeout(() => {
+    let timer: ReturnType<typeof globalThis.setTimeout>;
+    const respawnAfterDelay = (): void => {
       respawnTimers = respawnTimers.filter((entry) => entry !== timer);
+      if (options.isGameplayPaused?.()) {
+        timer = globalThis.setTimeout(respawnAfterDelay, QUAKE_PICKUP_PAUSED_TIMER_POLL_MS);
+        respawnTimers.push(timer);
+        return;
+      }
       respawnPickup(pickup);
-    }, delaySeconds * 1000);
+    };
+    timer = globalThis.setTimeout(respawnAfterDelay, delaySeconds * 1000);
     respawnTimers.push(timer);
   };
 
@@ -424,6 +578,7 @@ export function createQuakePickupController(options: QuakePickupControllerOption
   };
 
   return {
+    addRuntimePickup,
     clear,
     spawn,
     syncCollision,
@@ -472,8 +627,18 @@ const QUAKE_PICKUP_MODEL_PATHS: Record<string, string> = {
   weapon_supershotgun: "progs/g_shot.mdl",
   weapon_grenadelauncher: "progs/g_rock.mdl",
   weapon_rocketlauncher: "progs/g_rock2.mdl",
+  weapon_lightning: "progs/g_light.mdl",
   key_silver: "progs/w_s_key.mdl",
   key_gold: "progs/w_g_key.mdl",
+};
+
+const QUAKE_PICKUP_WEAPON_IDS: Record<string, QuakeWeaponId> = {
+  weapon_supershotgun: "supershotgun",
+  weapon_nailgun: "nailgun",
+  weapon_supernailgun: "supernailgun",
+  weapon_grenadelauncher: "grenadelauncher",
+  weapon_rocketlauncher: "rocketlauncher",
+  weapon_lightning: "lightning",
 };
 
 export function quakePickupPolygons(
@@ -618,7 +783,7 @@ export function quakePickupEffectForEntity(
   if (fact) {
     const ammoEffect = quakeAmmoInventoryEffect(fact.behavior?.ammo);
     if (ammoEffect) return ammoEffect;
-    const weaponEffect = quakeAmmoInventoryEffect(fact.behavior?.weapon?.ammoGrant);
+    const weaponEffect = quakeWeaponInventoryEffect(fact.kind, fact.behavior?.weapon);
     if (weaponEffect) return weaponEffect;
     const key = fact.behavior?.key;
     if (key) return { key: key.key };
@@ -640,10 +805,14 @@ export function quakePickupEffectForEntity(
   if (classname === "item_spikes" || classname === "ammo_nails") return { nails: spawnflags & 1 ? 50 : 25 };
   if (classname === "item_rockets" || classname === "ammo_rockets") return { rockets: spawnflags & 1 ? 10 : 5 };
   if (classname === "item_cells" || classname === "ammo_cells") return { cells: spawnflags & 1 ? 12 : 6 };
-  if (classname === "weapon_nailgun" || classname === "weapon_supernailgun") return { nails: 30 };
-  if (classname === "weapon_supershotgun") return { shells: 5 };
-  if (classname === "weapon_grenadelauncher" || classname === "weapon_rocketlauncher") return { rockets: 5 };
-  if (classname === "weapon_lightning") return { cells: 15 };
+  if (classname === "weapon_nailgun" || classname === "weapon_supernailgun") {
+    return quakeFallbackWeaponInventoryEffect(classname, { nails: 30 });
+  }
+  if (classname === "weapon_supershotgun") return quakeFallbackWeaponInventoryEffect(classname, { shells: 5 });
+  if (classname === "weapon_grenadelauncher" || classname === "weapon_rocketlauncher") {
+    return quakeFallbackWeaponInventoryEffect(classname, { rockets: 5 });
+  }
+  if (classname === "weapon_lightning") return quakeFallbackWeaponInventoryEffect(classname, { cells: 15 });
   if (classname === "item_key1" || classname === "key_silver") return { key: "silver" };
   if (classname === "item_key2" || classname === "key_gold") return { key: "gold" };
   if (classname.startsWith("item_artifact_")) return {};
@@ -659,6 +828,46 @@ function quakeAmmoInventoryEffect(
   if (ammoGrant.inventoryField === "nails") return { nails: ammoGrant.amount };
   if (ammoGrant.inventoryField === "rockets") return { rockets: ammoGrant.amount };
   return { cells: ammoGrant.amount };
+}
+
+function quakeWeaponInventoryEffect(
+  classname: string,
+  weapon: {
+    itemFlag: number;
+    itemFlagExpression: string;
+    ammoGrant: { inventoryField: "shells" | "nails" | "rockets" | "cells"; amount: number };
+  } | undefined,
+): QuakePickupEffect | null {
+  if (!weapon) return null;
+  const id = quakeWeaponIdForPickupClassname(classname);
+  if (!id) return quakeAmmoInventoryEffect(weapon.ammoGrant);
+  return {
+    ...(quakeAmmoInventoryEffect(weapon.ammoGrant) ?? {}),
+    weapon: {
+      id,
+      itemFlag: weapon.itemFlag,
+      itemFlagExpression: weapon.itemFlagExpression,
+      select: true,
+    },
+  };
+}
+
+function quakeFallbackWeaponInventoryEffect(classname: string, ammo: QuakePickupEffect): QuakePickupEffect {
+  const id = quakeWeaponIdForPickupClassname(classname);
+  if (!id) return ammo;
+  return {
+    ...ammo,
+    weapon: {
+      id,
+      itemFlag: QUAKE_WEAPON_ITEM_FLAGS[id],
+      itemFlagExpression: QUAKE_WEAPON_ITEM_FLAG_EXPRESSIONS[id],
+      select: true,
+    },
+  };
+}
+
+function quakeWeaponIdForPickupClassname(classname: string): QuakeWeaponId | undefined {
+  return QUAKE_PICKUP_WEAPON_IDS[classname];
 }
 
 export function quakePickupMessageForEntity(
@@ -677,7 +886,7 @@ export function quakePickupFiresTargetsForEntity(
 
 export function quakeCanPickupForInventory(
   entity: QuakeEntity,
-  inventory: Pick<QuakePlayerInventory, "armor" | "armorType" | "health" | "shells" | "nails" | "rockets" | "cells"> &
+  inventory: Pick<QuakePlayerInventory, "armor" | "armorType" | "health" | "itemFlags" | "shells" | "nails" | "rockets" | "cells"> &
     Partial<Pick<QuakePlayerInventory, "keys">>,
   gameLogic: QuakeGameLogicFacts | null = null,
   effect: QuakePickupEffect = quakePickupEffectForEntity(entity, gameLogic) ?? {},
@@ -705,6 +914,18 @@ export function quakeCanPickupForInventory(
   if (key && effect.key === key.key) {
     if (inventory.health <= 0) return false;
     return inventory.keys ? !inventory.keys.has(key.key) : true;
+  }
+  const weapon = quakePickupWeaponBehaviorForEntity(entity, gameLogic);
+  if (effect.weapon) {
+    if (inventory.health <= 0) return false;
+    if (
+      weapon &&
+      quakeInventoryOwnsWeapon(inventory, effect.weapon) &&
+      quakePickupLifecycleConditionMatches(weapon.ownedWeaponReject.condition, { singleplayer: true })
+    ) {
+      return false;
+    }
+    return true;
   }
   return true;
 }
@@ -842,6 +1063,20 @@ export function quakePickupPowerupBehaviorForEntity(
   gameLogic: QuakeGameLogicFacts | null = null,
 ): QuakeInventoryPowerupBehavior | undefined {
   return quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.behavior?.powerup;
+}
+
+export function quakePickupWeaponBehaviorForEntity(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null = null,
+): {
+  itemFlag: number;
+  itemFlagExpression: string;
+  ownedWeaponReject: {
+    condition: "deathmatch == 2 || coop";
+    itemFlagExpression: string;
+  };
+} | undefined {
+  return quakeGameLogicResolvedPickupFact(gameLogic, entity.index)?.behavior?.weapon;
 }
 
 export function quakePickupMegahealthRotDelayForEntity(

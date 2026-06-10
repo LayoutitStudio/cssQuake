@@ -5,6 +5,7 @@ import { QUAKE_PLAYER_MINS_Z, STEP_HEIGHT } from "../constants";
 import type { QuakePlayerInventory } from "../hud";
 import type { QuakeMoversDebugStats } from "../movers";
 import type { QuakeShootablesDebugStats } from "../shootables";
+import type { QuakeResolvedViewmodelTuning, QuakeViewmodelDebugSnapshot, QuakeViewmodelTuning } from "../viewmodel";
 import type { QuakeWorldDebugStats } from "../world";
 
 const QUAKE_DEBUG_PROJECTION_LEAF_BUDGET_PX = 5000;
@@ -22,6 +23,10 @@ export interface QuakeDebugHooks {
   floorAt(x: number, y: number, maxZ?: number, minZ?: number): number | null;
   focusEntity(entityIndex: number, distance?: number, rotX?: number, rotY?: number): boolean;
   loadMap(mapName: string): Promise<boolean>;
+  getWeaponTuning(): QuakeResolvedViewmodelTuning;
+  resetWeaponTuning(): QuakeResolvedViewmodelTuning;
+  setWeaponTuning(tuning: QuakeViewmodelTuning): QuakeResolvedViewmodelTuning;
+  viewmodel(): QuakeViewmodelDebugSnapshot;
   setPose(origin: Vec3, rotX?: number, rotY?: number, options?: QuakeDebugPoseOptions): boolean;
   setGroundViewpos(
     x: number,
@@ -48,6 +53,7 @@ export interface QuakeDebugHooks {
 export interface QuakeDebugPoseOptions {
   collisionBypassMs?: number;
   gameplay?: boolean;
+  stableViewmodel?: boolean;
 }
 
 interface QuakeDebugWindow extends Window {
@@ -80,6 +86,10 @@ export interface QuakeDebugRuntime {
   isLoading(): boolean;
   loadMap(mapName: string): Promise<void>;
   mapExists(mapName: string): boolean;
+  getWeaponTuning(): QuakeResolvedViewmodelTuning;
+  resetWeaponTuning(): QuakeResolvedViewmodelTuning;
+  setWeaponTuning(tuning: QuakeViewmodelTuning): QuakeResolvedViewmodelTuning;
+  viewmodelDebug(): QuakeViewmodelDebugSnapshot;
   moversStats(): QuakeMoversDebugStats;
   playerEyeHeight(): number;
   playerMoveDebug(): Record<string, unknown>;
@@ -91,7 +101,7 @@ export interface QuakeDebugRuntime {
   syncPickupsVisibility(origin: [number, number, number]): void;
   syncSceneCameraAt(origin: [number, number, number], rotX: number, rotY: number): void;
   syncShootablesVisibility(origin: [number, number, number], force?: boolean): void;
-  syncViewmodel(): void;
+  syncViewmodel(options?: { stable?: boolean }): void;
   syncWorldVisibility(force?: boolean): void;
   viewUrl(): string;
   worldStats(): QuakeWorldDebugStats;
@@ -107,7 +117,11 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
     floorAt: (x, y, maxZ, minZ) => runtime.floorAt(x, y, maxZ, minZ),
     focusEntity: (entityIndex, distance, rotX, rotY) =>
       focusQuakeDebugEntity(runtime, entityIndex, distance, rotX, rotY),
+    getWeaponTuning: () => runtime.getWeaponTuning(),
     loadMap: (mapName) => loadQuakeDebugMap(runtime, mapName),
+    resetWeaponTuning: () => runtime.resetWeaponTuning(),
+    setWeaponTuning: (tuning) => runtime.setWeaponTuning(tuning),
+    viewmodel: () => runtime.viewmodelDebug(),
     setGroundViewpos: (x, y, z, pitch, yaw, rollOrOptions, options) =>
       setQuakeDebugGroundViewpos(runtime, x, y, z, pitch, yaw, rollOrOptions, options),
     setPose: (origin, rotX, rotY, options) => setQuakeDebugPose(runtime, origin, rotX, rotY, options),
@@ -193,6 +207,7 @@ function setQuakeDebugPose(
   runtime.hideMainMenu();
   if (!originChanged && !rotationChanged) {
     if (options.gameplay) runtime.syncGameplay(nextOrigin);
+    else if (options.stableViewmodel) runtime.syncViewmodel({ stable: true });
     return true;
   }
   if (originChanged) runtime.controls.setOrigin(nextOrigin);
@@ -206,7 +221,7 @@ function setQuakeDebugPose(
     runtime.syncPickupsVisibility(nextOrigin);
     runtime.syncWorldVisibility(true);
   }
-  runtime.syncViewmodel();
+  runtime.syncViewmodel({ stable: options.stableViewmodel });
   runtime.syncCrosshairTarget();
   return true;
 }
@@ -345,6 +360,7 @@ function buildQuakeDebugStats(runtime: QuakeDebugRuntime): Record<string, unknow
     movers: runtime.moversStats(),
     worldLeaves: worldStats.mountedLeaves,
     worldAtlasLeaves: worldStats.mountedAtlasLeaves,
+    viewmodel: runtime.viewmodelDebug(),
     world: worldStats,
     shootables: shootableStats,
   };

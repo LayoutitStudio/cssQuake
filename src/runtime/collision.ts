@@ -10,7 +10,7 @@ import {
   QUAKE_PLAYER_MINS_Z,
   STEP_HEIGHT,
 } from "./constants";
-import { addVec3, dotVec3, lerpVec3, subtractVec3 } from "./math";
+import { addVec3, crossVec3, dotVec3, lerpVec3, subtractVec3 } from "./math";
 
 interface WalkSurface {
   vertices: Vec3[];
@@ -136,6 +136,10 @@ const COLLISION_WALL_SKIN = 1 * QUAKE_COLLISION_UNIT_SCALE;
 const COLLISION_WALL_FLOOR_CLEARANCE = 2 * QUAKE_COLLISION_UNIT_SCALE;
 const COLLISION_MAX_STEP = 8 * QUAKE_COLLISION_UNIT_SCALE;
 const COLLISION_FLOOR_EDGE_SNAP = 1 * QUAKE_COLLISION_UNIT_SCALE;
+const COLLISION_SLIDE_MAX_BUMPS = 4;
+const COLLISION_SLIDE_MAX_PLANES = 5;
+const COLLISION_UNSTICK_HORIZONTAL_STEPS = 4;
+const COLLISION_UNSTICK_VERTICAL_STEPS = 18;
 
 export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision): QuakeCollisionWorld | null {
   const runtime = collision.runtime;
@@ -656,28 +660,37 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
     let from = [...start] as Vec3;
     let to = [...end] as Vec3;
     let blocked = false;
+    const primalMove = subtractVec3(end, start);
+    const planes: Vec3[] = [];
 
-    for (let bump = 0; bump < 2; bump++) {
+    for (let bump = 0; bump < COLLISION_SLIDE_MAX_BUMPS; bump++) {
       const trace = traceSolids(from, to);
       if (trace.startSolid) {
         recordSolidTouch(trace.brush);
-        return { position: [...start] as Vec3, blocked: true };
+        const unstuck = tryUnstickHullOrigin(start);
+        if (!unstuck) return { position: [...start] as Vec3, blocked: true };
+        from = unstuck;
+        to = addVec3(unstuck, primalMove);
+        planes.length = 0;
+        blocked = true;
+        continue;
       }
       if (trace.fraction >= 1 || !trace.planeNormal) return { position: trace.end, blocked };
 
       blocked = true;
       recordSolidTouch(trace.brush);
-      const remaining: Vec3 = [
-        to[0] - trace.end[0],
-        to[1] - trace.end[1],
-        to[2] - trace.end[2],
-      ];
-      const into = Math.min(0, dotVec3(remaining, trace.planeNormal));
-      to = [
-        trace.end[0] + remaining[0] - trace.planeNormal[0] * into,
-        trace.end[1] + remaining[1] - trace.planeNormal[1] * into,
-        trace.end[2] + remaining[2] - trace.planeNormal[2] * into,
-      ];
+
+      if (planes.length >= COLLISION_SLIDE_MAX_PLANES) {
+        return { position: trace.end, blocked };
+      }
+      planes.push(trace.planeNormal);
+
+      const remaining = subtractVec3(to, trace.end);
+      const clippedRemaining = clipMoveToPlanes(remaining, planes, primalMove);
+      if (!clippedRemaining || distanceSq3(clippedRemaining, [0, 0, 0]) <= COLLISION_EPSILON) {
+        return { position: trace.end, blocked };
+      }
+      to = addVec3(trace.end, clippedRemaining);
       from = [
         trace.end[0] + trace.planeNormal[0] * QUAKE_TRACE_EPSILON,
         trace.end[1] + trace.planeNormal[1] * QUAKE_TRACE_EPSILON,
@@ -687,6 +700,65 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
     }
 
     return { position: from, blocked };
+  }
+
+  function clipMoveToPlanes(move: Vec3, planes: Vec3[], primalMove: Vec3): Vec3 | null {
+    for (let i = 0; i < planes.length; i++) {
+      const plane = planes[i];
+      if (!plane) continue;
+      const clipped = clipMoveToPlane(move, plane);
+      if (planes.every((other, index) => index === i || dotVec3(clipped, other) >= -COLLISION_EPSILON)) {
+        return dotVec3(clipped, primalMove) > COLLISION_EPSILON ? clipped : null;
+      }
+    }
+
+    if (planes.length !== 2 || !planes[0] || !planes[1]) return null;
+    const crease = crossVec3(planes[0], planes[1]);
+    const creaseLengthSq = distanceSq3(crease, [0, 0, 0]);
+    if (creaseLengthSq <= COLLISION_EPSILON) return null;
+    const scale = dotVec3(move, crease) / creaseLengthSq;
+    const clipped: Vec3 = [
+      crease[0] * scale,
+      crease[1] * scale,
+      crease[2] * scale,
+    ];
+    return dotVec3(clipped, primalMove) > COLLISION_EPSILON ? clipped : null;
+  }
+
+  function clipMoveToPlane(move: Vec3, plane: Vec3): Vec3 {
+    const into = Math.min(0, dotVec3(move, plane));
+    return [
+      move[0] - plane[0] * into,
+      move[1] - plane[1] * into,
+      move[2] - plane[2] * into,
+    ];
+  }
+
+  function tryUnstickHullOrigin(origin: Vec3): Vec3 | null {
+    // Mirrors Quake's small stuck-origin probes, widened slightly for rounded debug poses.
+    let best: { origin: Vec3; distanceSq: number } | null = null;
+    for (let z = 0; z <= COLLISION_UNSTICK_VERTICAL_STEPS; z++) {
+      const offsetZ = z * QUAKE_COLLISION_UNIT_SCALE;
+      for (let x = -COLLISION_UNSTICK_HORIZONTAL_STEPS; x <= COLLISION_UNSTICK_HORIZONTAL_STEPS; x++) {
+        for (let y = -COLLISION_UNSTICK_HORIZONTAL_STEPS; y <= COLLISION_UNSTICK_HORIZONTAL_STEPS; y++) {
+          if (x === 0 && y === 0 && z === 0) continue;
+          const candidate: Vec3 = [
+            origin[0] + x * QUAKE_COLLISION_UNIT_SCALE,
+            origin[1] + y * QUAKE_COLLISION_UNIT_SCALE,
+            origin[2] + offsetZ,
+          ];
+          if (!hullOriginClear(candidate)) continue;
+          const distanceSq = distanceSq3(origin, candidate);
+          if (!best || distanceSq < best.distanceSq) best = { origin: candidate, distanceSq };
+        }
+      }
+      if (best) return best.origin;
+    }
+    return null;
+  }
+
+  function hullOriginClear(origin: Vec3): boolean {
+    return !traceSolids(origin, origin).startSolid;
   }
 
   return {

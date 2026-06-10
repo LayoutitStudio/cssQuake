@@ -20,8 +20,15 @@ export type QuakeSoundEvent =
   | "platMove"
   | "powerupPickup"
   | "teleport"
+  | "weaponAxe"
+  | "weaponGrenadeLauncher"
+  | "weaponLightning"
+  | "weaponNailgun"
   | "weaponPickup"
-  | "weaponShotgun";
+  | "weaponRocketLauncher"
+  | "weaponShotgun"
+  | "weaponSuperNailgun"
+  | "weaponSuperShotgun";
 
 export interface QuakeSoundPlayOptions {
   volume?: number;
@@ -32,6 +39,7 @@ export interface QuakeSoundController {
   isMuted(): boolean;
   setManifest(manifest: QuakeSoundManifest | null): void;
   setMuted(muted: boolean): void;
+  setPaused(paused: boolean): void;
   syncAmbientEntities(entities: QuakeEntity[]): void;
   toggleMuted(): boolean;
   unlock(): void;
@@ -58,8 +66,15 @@ const QUAKE_SOUND_EVENT_CANDIDATES: Record<QuakeSoundEvent, string[]> = {
   platMove: ["plats/plat1.wav", "plats/plat2.wav", "doors/doormv1.wav"],
   powerupPickup: ["items/damage.wav", "items/protect.wav", "items/suit.wav", "items/itembk2.wav"],
   teleport: ["misc/r_tele1.wav", "misc/r_tele2.wav", "misc/teleport.wav"],
+  weaponAxe: ["weapons/ax1.wav", "player/axhit2.wav"],
+  weaponGrenadeLauncher: ["weapons/grenade.wav", "weapons/sgun1.wav"],
+  weaponLightning: ["weapons/lhit.wav", "weapons/sgun1.wav"],
+  weaponNailgun: ["weapons/rocket1i.wav", "weapons/tink1.wav"],
   weaponPickup: ["weapons/pkup.wav", "items/itembk2.wav", "items/r_item1.wav"],
-  weaponShotgun: ["weapons/shotgn2.wav", "weapons/guncock.wav", "weapons/sgun1.wav"],
+  weaponRocketLauncher: ["weapons/sgun1.wav", "weapons/r_exp3.wav"],
+  weaponShotgun: ["weapons/guncock.wav", "weapons/sgun1.wav"],
+  weaponSuperNailgun: ["weapons/spike2.wav", "weapons/rocket1i.wav"],
+  weaponSuperShotgun: ["weapons/shotgn2.wav", "weapons/guncock.wav", "weapons/sgun1.wav"],
 };
 
 const QUAKE_AMBIENT_SOUND_CANDIDATES: Record<string, string[]> = {
@@ -78,6 +93,7 @@ const QUAKE_AMBIENT_SOUND_VOLUME = 0.07;
 export function createQuakeSoundController(): QuakeSoundController {
   let unlocked = false;
   let muted = true;
+  let paused = false;
   let sounds = new Map<string, string>();
   const desiredAmbientLoops = new Map<string, QuakeAmbientLoop>();
   const ambientAudio = new Map<string, HTMLAudioElement>();
@@ -94,6 +110,12 @@ export function createQuakeSoundController(): QuakeSoundController {
   function setMuted(nextMuted: boolean): void {
     if (muted === nextMuted) return;
     muted = nextMuted;
+    syncAmbientPlayback();
+  }
+
+  function setPaused(nextPaused: boolean): void {
+    if (paused === nextPaused) return;
+    paused = nextPaused;
     syncAmbientPlayback();
   }
 
@@ -140,7 +162,7 @@ export function createQuakeSoundController(): QuakeSoundController {
   }
 
   function playFirst(candidates: string[], options: QuakeSoundPlayOptions): boolean {
-    if (!unlocked || muted) return false;
+    if (!unlocked || muted || paused) return false;
     const url = soundUrlFor(candidates);
     if (!url) return false;
     const audio = new Audio(url);
@@ -150,7 +172,7 @@ export function createQuakeSoundController(): QuakeSoundController {
   }
 
   function syncAmbientPlayback(): void {
-    if (!unlocked || muted || sounds.size === 0) {
+    if (!unlocked || muted || paused || sounds.size === 0) {
       stopAmbientPlayback();
       return;
     }
@@ -197,6 +219,7 @@ export function createQuakeSoundController(): QuakeSoundController {
     isMuted,
     setManifest,
     setMuted,
+    setPaused,
     syncAmbientEntities,
     toggleMuted,
     unlock,

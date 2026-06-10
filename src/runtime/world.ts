@@ -17,6 +17,7 @@ import {
 import { markQuakeTrace } from "./debug/traceMarks";
 import {
   mountQuakeRenderBundleMesh,
+  registerQuakeRenderBundleDebugOutlineLeaves,
   stripPolyMeshMetadata,
   syncQuakeRenderBundleDebugOutlineLeaves,
 } from "./renderBundleMesh";
@@ -31,8 +32,6 @@ const quakeTextureAnimationMetadataByLeaf = new WeakMap<HTMLElement, QuakeTextur
 const quakeTextureAnimationPresentationObservers = new WeakMap<HTMLElement, MutationObserver>();
 const quakeMeshPresentationObservers = new WeakMap<HTMLElement, MutationObserver>();
 const quakeBackfaceVisibleLeaves = new WeakSet<HTMLElement>();
-
-type QuakeDebugOutlineKind = "world" | "sky" | "special" | "animated" | "lit" | "brush" | "entity" | "lightstyle";
 
 export interface QuakeFaceLeaf {
   faceIndex: number;
@@ -284,9 +283,6 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       syncQuakeTextureAnimationLeafAnimationClock(leaf.element, now);
       insertQuakeLeafInOrder(leaf);
       leaf.element.hidden = false;
-      if (leaf.tagName === "s") {
-        syncQuakeRenderBundleDebugOutlineLeaves(leaf.parent, [leaf.element]);
-      }
     } else {
       leaf.element.remove();
     }
@@ -375,6 +371,10 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     }
     const previousByParent = new Map<HTMLElement, QuakeFaceLeaf>();
     const elements = [...handle.element.querySelectorAll<HTMLElement>("b,i,s,u")];
+    registerQuakeRenderBundleDebugOutlineLeaves(
+      handle.element,
+      elements.filter((element) => element.tagName.toLowerCase() === "s"),
+    );
     if (elements.length !== renderBundle.leafMetadata.length) {
       throw new Error(
         `Quake render bundle metadata mismatch: expected ${elements.length} leaves, got ${renderBundle.leafMetadata.length}.`,
@@ -429,7 +429,6 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
         baseBackgroundPosition: leaf.style.backgroundPosition,
         baseBackgroundSize: leaf.style.backgroundSize,
       };
-      syncQuakeLeafDebugOutlineKind(record);
       if (previous) previous.next = record;
       previousByParent.set(parent, record);
       quakeLeaves.push(record);
@@ -506,22 +505,6 @@ function stripQuakeWorldMeshMetadata(element: HTMLElement): void {
 
 function stripQuakeWorldLeafMetadata(leaf: HTMLElement): void {
   stripQuakeLeafMetadata(leaf);
-}
-
-function syncQuakeLeafDebugOutlineKind(leaf: QuakeFaceLeaf): void {
-  leaf.element.dataset.quakeDebugOutline = quakeDebugOutlineKind(leaf);
-}
-
-function quakeDebugOutlineKind(leaf: QuakeFaceLeaf): QuakeDebugOutlineKind {
-  if (leaf.meshKind === "lightstyle") return "lightstyle";
-  const textureName = leaf.textureName?.toLowerCase() ?? "";
-  if (textureName.startsWith("sky")) return "sky";
-  if (leaf.specialTexture || textureName.startsWith("*")) return "special";
-  if (leaf.textureAnimated || textureName.startsWith("+")) return "animated";
-  if (leaf.modelIndex !== undefined && leaf.modelIndex !== 0) return "brush";
-  if (leaf.entityIndex !== undefined && leaf.entityIndex > 0) return "entity";
-  if (leaf.lightstyleAnimated) return "lit";
-  return "world";
 }
 
 export function injectQuakeWorldAnimations(): void {
@@ -729,19 +712,42 @@ function compactQuakeBackgroundStyle(style: string): string {
   const image = declarations.find((part) => part.name === "background-image");
   const position = declarations.find((part) => part.name === "background-position");
   const size = declarations.find((part) => part.name === "background-size");
-  if (!image || !position || !size) return style;
-  const background = {
-    index: Math.min(image.index, position.index, size.index),
-    name: "background",
-    value: `${image.value} ${position.value}/${size.value}`,
-  };
-  return [...declarations.filter((part) => ![
-    "background-image",
-    "background-position",
-    "background-size",
-    "background-repeat",
-  ].includes(part.name)), background]
-    .sort((a, b) => a.index - b.index)
+  const compactDeclarations = image && position && size
+    ? [
+        ...declarations.filter((part) => ![
+          "background-image",
+          "background-position",
+          "background-size",
+          "background-repeat",
+        ].includes(part.name)),
+        {
+          index: Math.min(image.index, position.index, size.index),
+          name: "background",
+          value: `${image.value} ${position.value}/${size.value}`,
+        },
+      ]
+    : declarations;
+  return orderQuakeStyleDeclarations(compactDeclarations);
+}
+
+function orderQuakeStyleDeclarations(
+  declarations: readonly { index: number; name: string; value: string }[],
+): string {
+  const order = new Map([
+    ["transform", 0],
+    ["width", 1],
+    ["height", 2],
+    ["background", 3],
+  ]);
+  return [...declarations]
+    .sort((a, b) => {
+      const aOrder = order.get(a.name);
+      const bOrder = order.get(b.name);
+      if (aOrder !== undefined && bOrder !== undefined) return aOrder - bOrder;
+      if (aOrder !== undefined) return -1;
+      if (bOrder !== undefined) return 1;
+      return a.index - b.index;
+    })
     .map((part) => `${part.name}:${part.value}`)
     .join(";");
 }

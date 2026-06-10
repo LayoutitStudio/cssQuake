@@ -20,7 +20,7 @@ export interface QuakeRenderBundleFrameSet {
 }
 
 export interface QuakeRenderBundlePreloadProgress {
-  startTask(): () => void;
+  startTask(status?: string): () => void;
 }
 
 export type QuakeRenderBundleFrameSetHandle = PolyMeshHandle & {
@@ -49,12 +49,15 @@ const renderBundleAssetPreloads = new Map<string, {
   image: HTMLImageElement;
   promise: Promise<void>;
 }>();
+const QUAKE_DEBUG_POLY_ID_ATTR = "data-qpid";
 const mountedRenderBundleByElement = new WeakMap<HTMLElement, QuakePreparedRenderBundle>();
 const mountedRenderBundleElements = new Set<HTMLElement>();
 let renderBundleDebugOutlinesEnabled = false;
 let renderBundleDebugTransparentOutlinesEnabled = false;
+let renderBundleDebugLabelsEnabled = false;
 const renderBundleDebugLeafBackgrounds = new WeakMap<HTMLElement, QuakeRenderBundleDebugLeafBackground>();
 const renderBundleDebugLeavesByElement = new WeakMap<HTMLElement, Set<HTMLElement>>();
+const renderBundleDebugOutlineLeavesByElement = new WeakMap<HTMLElement, Set<HTMLElement>>();
 
 type QuakeRenderBundleLeafFrameStylesFile = {
   version: 3;
@@ -106,6 +109,20 @@ interface QuakeRenderBundleDebugLeafBackground {
   backgroundSize: string;
 }
 
+interface QuakeRenderBundleDebugOutlineAssets {
+  outlineByBackgroundVar: Map<string, QuakeRenderBundleDebugOutlineEntry>;
+  outlineBySourcePath: Map<string, QuakeRenderBundleDebugOutlineEntry>;
+  overpainted: boolean;
+  rootVars: Map<string, string>;
+  urls: readonly string[];
+}
+
+interface QuakeRenderBundleDebugOutlineEntry {
+  image: string;
+  position?: string;
+  size?: string;
+}
+
 export function mountQuakeRenderBundleMesh(
   sceneElement: HTMLElement,
   renderBundle: QuakePreparedRenderBundle,
@@ -145,12 +162,16 @@ function syncQuakeRenderBundleDebugLeafIds(
 ): void {
   for (let index = 0; index < leaves.length; index++) {
     const leaf = leaves[index];
-    const id = quakeRenderBundleDebugLeafId(leaf, renderBundle.leafMetadata[index]);
-    if (id === null) {
-      leaf?.removeAttribute("data-quake-poly-id");
+    if (!renderBundleDebugLabelsEnabled) {
+      leaf?.removeAttribute(QUAKE_DEBUG_POLY_ID_ATTR);
       continue;
     }
-    leaf.dataset.quakePolyId = String(id);
+    const id = quakeRenderBundleDebugLeafId(leaf, renderBundle.leafMetadata[index]);
+    if (id === null) {
+      leaf?.removeAttribute(QUAKE_DEBUG_POLY_ID_ATTR);
+      continue;
+    }
+    leaf.setAttribute(QUAKE_DEBUG_POLY_ID_ATTR, String(id));
   }
 }
 
@@ -302,6 +323,24 @@ export interface QuakeRenderBundleDebugOutlineOptions {
   hideTextures?: boolean;
 }
 
+export function syncQuakeRenderBundleDebugLabels(enabled: boolean): void {
+  renderBundleDebugLabelsEnabled = enabled;
+  if (!enabled) {
+    document.querySelectorAll<HTMLElement>(`[${QUAKE_DEBUG_POLY_ID_ATTR}]`).forEach((leaf) => {
+      leaf.removeAttribute(QUAKE_DEBUG_POLY_ID_ATTR);
+    });
+  }
+  for (const element of mountedRenderBundleElements) {
+    if (!element.isConnected) {
+      mountedRenderBundleElements.delete(element);
+      continue;
+    }
+    const renderBundle = mountedRenderBundleByElement.get(element);
+    if (!renderBundle) continue;
+    syncQuakeRenderBundleDebugLeafIds(element.querySelectorAll<HTMLElement>("b,i,s,u"), renderBundle);
+  }
+}
+
 export function syncQuakeRenderBundleDebugOutlines(
   enabled: boolean,
   options: QuakeRenderBundleDebugOutlineOptions = {},
@@ -334,10 +373,21 @@ export function syncQuakeRenderBundleDebugOutlineLeaves(
   const renderBundle = mountedRenderBundleByElement.get(element);
   if (!renderBundle) return;
   const options = { hideTextures: renderBundleDebugTransparentOutlinesEnabled };
-  const urls = quakeRenderBundleDebugOutlineUrls(renderBundle, options);
-  if (!urls?.length) return;
-  setQuakeRenderBundleDebugOutlineRootVars(element, urls);
-  applyQuakeRenderBundleDebugOutlineLeaves(element, renderBundle, urls, options, leaves);
+  const outlineAssets = quakeRenderBundleDebugOutlineAssets(renderBundle, options);
+  if (!outlineAssets) return;
+  setQuakeRenderBundleDebugOutlineRootVars(element, outlineAssets);
+  applyQuakeRenderBundleDebugOutlineLeaves(element, outlineAssets, options, leaves);
+}
+
+export function registerQuakeRenderBundleDebugOutlineLeaves(
+  context: HTMLElement,
+  leaves: Iterable<HTMLElement>,
+): void {
+  const element = quakeRenderBundleMeshElement(context);
+  if (!element) return;
+  renderBundleDebugOutlineLeavesByElement.set(element, new Set(leaves));
+  if (!renderBundleDebugOutlinesEnabled || !element.classList.contains("quake-debug-outline-atlas-ready")) return;
+  syncQuakeRenderBundleDebugOutlineLeaves(element, leaves);
 }
 
 async function enableQuakeRenderBundleDebugOutlines(
@@ -345,8 +395,8 @@ async function enableQuakeRenderBundleDebugOutlines(
   renderBundle: QuakePreparedRenderBundle,
   options: QuakeRenderBundleDebugOutlineOptions,
 ): Promise<void> {
-  const urls = quakeRenderBundleDebugOutlineUrls(renderBundle, options);
-  if (!urls?.length) {
+  const outlineAssets = quakeRenderBundleDebugOutlineAssets(renderBundle, options);
+  if (!outlineAssets) {
     element.classList.remove("quake-debug-outline-atlas-ready");
     restoreQuakeRenderBundleDebugOutlineLeafBackgrounds(element);
     return;
@@ -359,10 +409,9 @@ async function enableQuakeRenderBundleDebugOutlines(
   ) {
     return;
   }
-  setQuakeRenderBundleDebugOutlineRootVars(element, urls);
+  setQuakeRenderBundleDebugOutlineRootVars(element, outlineAssets);
   element.classList.add("quake-debug-outline-atlas-ready");
-  captureQuakeRenderBundleDebugOutlineLeafBackgrounds(element);
-  applyQuakeRenderBundleDebugOutlineLeafBackgrounds(element, renderBundle, urls, options);
+  applyQuakeRenderBundleDebugOutlineLeafBackgrounds(element, outlineAssets, options);
 }
 
 function disableQuakeRenderBundleDebugOutlines(
@@ -370,12 +419,10 @@ function disableQuakeRenderBundleDebugOutlines(
   renderBundle: QuakePreparedRenderBundle,
 ): void {
   element.classList.remove("quake-debug-outline-atlas-ready");
-  const count = Math.max(
-    renderBundle.debugOutlineAssetUrls?.length ?? 0,
-    renderBundle.debugTransparentOutlineAssetUrls?.length ?? 0,
-  );
-  for (let index = 0; index < count; index++) {
-    element.style.removeProperty(`--qdbg${index}`);
+  for (const property of [...Array(element.style.length)].map((_value, index) => element.style.item(index))) {
+    if (/^--qdbg\d+$/.test(property)) {
+      element.style.removeProperty(property);
+    }
   }
   restoreQuakeRenderBundleDebugOutlineLeafBackgrounds(element);
 }
@@ -389,7 +436,9 @@ function preloadQuakeRenderBundleDebugOutlineAssets(
     : renderBundleDebugOutlinePreloads;
   const existing = cache.get(renderBundle);
   if (existing) return existing;
-  const promise = Promise.all((quakeRenderBundleDebugOutlineUrls(renderBundle, options) ?? [])
+  const outlineAssets = quakeRenderBundleDebugOutlineAssets(renderBundle, options);
+  const preloadUrls = outlineAssets ? [...outlineAssets.rootVars.values()] : [];
+  const promise = Promise.all(preloadUrls
     .map(preloadQuakeRenderBundleAsset))
     .then(() => undefined);
   cache.set(renderBundle, promise);
@@ -405,38 +454,99 @@ function quakeRenderBundleDebugOutlineUrls(
     : renderBundle.debugOutlineAssetUrls;
 }
 
+function quakeRenderBundleDebugOutlineSourceUrls(
+  renderBundle: QuakePreparedRenderBundle,
+  options: QuakeRenderBundleDebugOutlineOptions,
+): readonly string[] {
+  const sourceUrls = options.hideTextures === true
+    ? renderBundle.debugTransparentOutlineSourceAssetUrls
+    : renderBundle.debugOutlineSourceAssetUrls;
+  return sourceUrls?.length ? sourceUrls : renderBundle.assetUrls;
+}
+
+function quakeRenderBundleDebugOutlineBackgrounds(
+  renderBundle: QuakePreparedRenderBundle,
+  options: QuakeRenderBundleDebugOutlineOptions,
+): readonly (readonly [string, string] | null)[] {
+  return options.hideTextures === true
+    ? renderBundle.debugTransparentOutlineBackgrounds ?? []
+    : renderBundle.debugOutlineBackgrounds ?? [];
+}
+
+function quakeRenderBundleDebugOutlineAssets(
+  renderBundle: QuakePreparedRenderBundle,
+  options: QuakeRenderBundleDebugOutlineOptions,
+): QuakeRenderBundleDebugOutlineAssets | undefined {
+  const urls = quakeRenderBundleDebugOutlineUrls(renderBundle, options);
+  if (!urls?.length) return undefined;
+  const sourceUrls = quakeRenderBundleDebugOutlineSourceUrls(renderBundle, options);
+  const backgrounds = quakeRenderBundleDebugOutlineBackgrounds(renderBundle, options);
+  const bundleAssetPaths = new Set(renderBundle.assetUrls.map(quakeRenderBundleUrlPath).filter(Boolean));
+  const backgroundVarBySourcePath = quakeRenderBundleBackgroundVarBySourcePath(renderBundle.assetUrls);
+  const outlineByBackgroundVar = new Map<string, QuakeRenderBundleDebugOutlineEntry>();
+  const outlineBySourcePath = new Map<string, QuakeRenderBundleDebugOutlineEntry>();
+  const rootVars = new Map<string, string>();
+  const overpainted = options.hideTextures !== true && renderBundle.debugOutlineOverpainted === true;
+  for (let index = 0; index < urls.length; index++) {
+    const url = urls[index];
+    const sourcePath = quakeRenderBundleUrlPath(sourceUrls[index]);
+    if (!url || !sourcePath) continue;
+    const background = backgrounds[index];
+    const usesRootVar = bundleAssetPaths.has(sourcePath) || Boolean(background);
+    const entry = {
+      image: usesRootVar ? quakeRenderBundleDebugOutlineRootVar(rootVars, url) : quakeRenderBundleCssUrl(url),
+      ...(background ? { position: background[0], size: background[1] } : {}),
+    };
+    outlineBySourcePath.set(sourcePath, entry);
+    const backgroundVar = backgroundVarBySourcePath.get(sourcePath);
+    if (backgroundVar) outlineByBackgroundVar.set(backgroundVar, entry);
+  }
+  return outlineBySourcePath.size ? { outlineByBackgroundVar, outlineBySourcePath, overpainted, rootVars, urls } : undefined;
+}
+
+function quakeRenderBundleDebugOutlineRootVar(rootVars: Map<string, string>, url: string): string {
+  for (const [varName, existingUrl] of rootVars) {
+    if (existingUrl === url) return `var(${varName})`;
+  }
+  const varName = `--qdbg${rootVars.size}`;
+  rootVars.set(varName, url);
+  return `var(${varName})`;
+}
+
 function applyQuakeRenderBundleDebugOutlineLeafBackgrounds(
   element: HTMLElement,
-  renderBundle: QuakePreparedRenderBundle,
-  urls: readonly string[],
+  outlineAssets: QuakeRenderBundleDebugOutlineAssets,
   options: QuakeRenderBundleDebugOutlineOptions,
 ): void {
   applyQuakeRenderBundleDebugOutlineLeaves(
     element,
-    renderBundle,
-    urls,
+    outlineAssets,
     options,
-    element.querySelectorAll<HTMLElement>("s"),
+    quakeRenderBundleDebugOutlineLeaves(element),
   );
 }
 
 function applyQuakeRenderBundleDebugOutlineLeaves(
   element: HTMLElement,
-  renderBundle: QuakePreparedRenderBundle,
-  urls: readonly string[],
+  outlineAssets: QuakeRenderBundleDebugOutlineAssets,
   options: QuakeRenderBundleDebugOutlineOptions,
   leaves: Iterable<HTMLElement>,
 ): void {
-  const assetIndexByPath = quakeRenderBundleAssetIndexByPath(renderBundle.assetUrls);
   for (const leaf of leaves) {
-    const style = getComputedStyle(leaf);
+    const style = leaf.isConnected ? getComputedStyle(leaf) : null;
     captureQuakeRenderBundleDebugOutlineLeafBackground(element, leaf, style, {
       replace: !quakeRenderBundleDebugLeafOverrideIsApplied(leaf),
     });
     const previous = renderBundleDebugLeafBackgrounds.get(leaf);
-    const backgroundImage = previous?.computedBackgroundImage ?? style.backgroundImage;
-    const originalImage = quakeRenderBundleOriginalBackgroundImage(backgroundImage, assetIndexByPath);
-    if (!originalImage || !urls[originalImage.assetIndex]) {
+    const backgroundImage = previous?.computedBackgroundImage ??
+      style?.backgroundImage ??
+      quakeRenderBundleInlineLeafBackgroundImage(leaf);
+    const originalImage = quakeRenderBundleOriginalBackgroundImage(
+      backgroundImage,
+      outlineAssets.outlineBySourcePath,
+      outlineAssets.outlineByBackgroundVar,
+    );
+    if (!originalImage) {
       if (options.hideTextures === true) {
         hideQuakeRenderBundleDebugLeafTexture(leaf);
       } else if (quakeRenderBundleDebugLeafTextureIsHidden(leaf)) {
@@ -445,17 +555,28 @@ function applyQuakeRenderBundleDebugOutlineLeaves(
       continue;
     }
     const position = firstQuakeRenderBundleBackgroundLayerValue(
-      previous?.computedBackgroundPosition ?? style.backgroundPosition,
+      previous?.computedBackgroundPosition ??
+        style?.backgroundPosition ??
+        quakeRenderBundleInlineLeafBackgroundPosition(leaf),
     ) || "0px 0px";
     const size = firstQuakeRenderBundleBackgroundLayerValue(
-      previous?.computedBackgroundSize ?? style.backgroundSize,
+      previous?.computedBackgroundSize ??
+        style?.backgroundSize ??
+        quakeRenderBundleInlineLeafBackgroundSize(leaf),
     ) || "auto";
-    const image = options.hideTextures === true
-      ? `var(--qdbg${originalImage.assetIndex})`
-      : `var(--qdbg${originalImage.assetIndex}), ${originalImage.image}`;
-    const repeat = options.hideTextures === true ? "no-repeat" : "no-repeat, no-repeat";
-    const layeredPosition = options.hideTextures === true ? position : `${position}, ${position}`;
-    const layeredSize = options.hideTextures === true ? size : `${size}, ${size}`;
+    const outlinePosition = originalImage.outlinePosition ?? position;
+    const outlineSize = originalImage.outlineSize ?? size;
+    const overpainted = options.hideTextures !== true && outlineAssets.overpainted;
+    const image = overpainted || options.hideTextures === true
+      ? originalImage.outlineImage
+      : `${originalImage.outlineImage}, ${originalImage.image}`;
+    const repeat = overpainted || options.hideTextures === true ? "no-repeat" : "no-repeat, no-repeat";
+    const layeredPosition = overpainted || options.hideTextures === true
+      ? outlinePosition
+      : `${outlinePosition}, ${position}`;
+    const layeredSize = overpainted || options.hideTextures === true
+      ? outlineSize
+      : `${outlineSize}, ${size}`;
     if (
       leaf.style.backgroundImage === image &&
       leaf.style.backgroundPosition === layeredPosition &&
@@ -481,7 +602,7 @@ function applyQuakeRenderBundleDebugOutlineLeaves(
 }
 
 function captureQuakeRenderBundleDebugOutlineLeafBackgrounds(element: HTMLElement): void {
-  for (const leaf of element.querySelectorAll<HTMLElement>("s")) {
+  for (const leaf of quakeRenderBundleDebugOutlineLeaves(element)) {
     captureQuakeRenderBundleDebugOutlineLeafBackground(element, leaf);
   }
 }
@@ -489,7 +610,7 @@ function captureQuakeRenderBundleDebugOutlineLeafBackgrounds(element: HTMLElemen
 function captureQuakeRenderBundleDebugOutlineLeafBackground(
   element: HTMLElement,
   leaf: HTMLElement,
-  style = getComputedStyle(leaf),
+  style: CSSStyleDeclaration | null = leaf.isConnected ? getComputedStyle(leaf) : null,
   options: { replace?: boolean } = {},
 ): void {
   if (renderBundleDebugLeafBackgrounds.has(leaf) && !options.replace) return;
@@ -501,14 +622,18 @@ function captureQuakeRenderBundleDebugOutlineLeafBackground(
   leaves.add(leaf);
   renderBundleDebugLeafBackgrounds.set(leaf, {
     background: leaf.style.background,
-    computedBackgroundImage: style.backgroundImage,
-    computedBackgroundPosition: style.backgroundPosition,
-    computedBackgroundSize: style.backgroundSize,
+    computedBackgroundImage: style?.backgroundImage || quakeRenderBundleInlineLeafBackgroundImage(leaf),
+    computedBackgroundPosition: style?.backgroundPosition || quakeRenderBundleInlineLeafBackgroundPosition(leaf),
+    computedBackgroundSize: style?.backgroundSize || quakeRenderBundleInlineLeafBackgroundSize(leaf),
     backgroundImage: leaf.style.backgroundImage,
     backgroundPosition: leaf.style.backgroundPosition,
     backgroundRepeat: leaf.style.backgroundRepeat,
     backgroundSize: leaf.style.backgroundSize,
   });
+}
+
+function quakeRenderBundleDebugOutlineLeaves(element: HTMLElement): Iterable<HTMLElement> {
+  return renderBundleDebugOutlineLeavesByElement.get(element) ?? element.querySelectorAll<HTMLElement>("s");
 }
 
 function quakeRenderBundleDebugOutlineBackgroundIsApplied(backgroundImage: string): boolean {
@@ -556,37 +681,95 @@ function restoreQuakeRenderBundleDebugOutlineLeafBackground(leaf: HTMLElement): 
   renderBundleDebugLeafBackgrounds.delete(leaf);
 }
 
-function setQuakeRenderBundleDebugOutlineRootVars(element: HTMLElement, urls: readonly string[]): void {
-  for (let index = 0; index < urls.length; index++) {
-    const url = urls[index];
-    if (!url) continue;
-    element.style.setProperty(`--qdbg${index}`, `url("${url.replace(/["\\\n\r\f]/g, "\\$&")}")`);
+function setQuakeRenderBundleDebugOutlineRootVars(
+  element: HTMLElement,
+  outlineAssets: QuakeRenderBundleDebugOutlineAssets,
+): void {
+  for (const [varName, url] of outlineAssets.rootVars) {
+    element.style.setProperty(varName, quakeRenderBundleCssUrl(url));
   }
+}
+
+function quakeRenderBundleBackgroundVarBySourcePath(assetUrls: readonly string[]): Map<string, string> {
+  const varBySourcePath = new Map<string, string>();
+  for (let index = 0; index < assetUrls.length; index++) {
+    const sourcePath = quakeRenderBundleUrlPath(assetUrls[index]);
+    if (sourcePath) varBySourcePath.set(sourcePath, `--bg${index}`);
+  }
+  return varBySourcePath;
 }
 
 function quakeRenderBundleMeshElement(element: HTMLElement): HTMLElement | null {
   return element.classList.contains("polycss-mesh") ? element : element.closest(".polycss-mesh");
 }
 
-function quakeRenderBundleAssetIndexByPath(assetUrls: readonly string[]): Map<string, number> {
-  const indexes = new Map<string, number>();
-  for (let index = 0; index < assetUrls.length; index++) {
-    const path = quakeRenderBundleUrlPath(assetUrls[index]);
-    if (path) indexes.set(path, index);
-  }
-  return indexes;
-}
-
 function quakeRenderBundleOriginalBackgroundImage(
   backgroundImage: string,
-  assetIndexByPath: Map<string, number>,
-): { assetIndex: number; image: string } | undefined {
+  outlineBySourcePath: Map<string, QuakeRenderBundleDebugOutlineEntry>,
+  outlineByBackgroundVar: Map<string, QuakeRenderBundleDebugOutlineEntry>,
+): { image: string; outlineImage: string; outlinePosition?: string; outlineSize?: string } | undefined {
   for (const match of backgroundImage.matchAll(/url\(["']?([^"')]+)["']?\)/g)) {
     const path = quakeRenderBundleUrlPath(match[1]);
-    const index = path ? assetIndexByPath.get(path) : undefined;
-    if (index !== undefined) return { assetIndex: index, image: match[0] };
+    const outline = path ? outlineBySourcePath.get(path) : undefined;
+    if (outline) {
+      return {
+        image: match[0],
+        outlineImage: outline.image,
+        ...(outline.position ? { outlinePosition: outline.position } : {}),
+        ...(outline.size ? { outlineSize: outline.size } : {}),
+      };
+    }
+  }
+  for (const match of backgroundImage.matchAll(/var\((--bg\d+)\)/g)) {
+    const outline = outlineByBackgroundVar.get(match[1]);
+    if (!outline) continue;
+    return {
+      image: match[0],
+      outlineImage: outline.image,
+      ...(outline.position ? { outlinePosition: outline.position } : {}),
+      ...(outline.size ? { outlineSize: outline.size } : {}),
+    };
   }
   return undefined;
+}
+
+function quakeRenderBundleInlineLeafBackgroundImage(leaf: HTMLElement): string {
+  return leaf.style.backgroundImage ||
+    quakeRenderBundleInlineStyleDeclaration(leaf, "background") ||
+    "";
+}
+
+function quakeRenderBundleInlineLeafBackgroundPosition(leaf: HTMLElement): string {
+  return leaf.style.backgroundPosition ||
+    quakeRenderBundleBackgroundPositionFromShorthand(quakeRenderBundleInlineStyleDeclaration(leaf, "background")) ||
+    "";
+}
+
+function quakeRenderBundleInlineLeafBackgroundSize(leaf: HTMLElement): string {
+  return leaf.style.backgroundSize ||
+    quakeRenderBundleBackgroundSizeFromShorthand(quakeRenderBundleInlineStyleDeclaration(leaf, "background")) ||
+    "";
+}
+
+function quakeRenderBundleInlineStyleDeclaration(leaf: HTMLElement, name: string): string {
+  const style = leaf.getAttribute("style");
+  if (!style?.includes(name)) return "";
+  for (const part of style.split(";")) {
+    const separator = part.indexOf(":");
+    if (separator <= 0 || part.slice(0, separator).trim() !== name) continue;
+    return part.slice(separator + 1).trim();
+  }
+  return "";
+}
+
+function quakeRenderBundleBackgroundPositionFromShorthand(background: string): string {
+  const match = background.match(/(?:url\([^)]*\)|var\(--[^)]+\))\s+([^/;]+?)\s*(?:\/|$)/);
+  return match?.[1]?.trim() ?? "";
+}
+
+function quakeRenderBundleBackgroundSizeFromShorthand(background: string): string {
+  const match = background.match(/\/\s*([^;]+?)(?:\s+(?:repeat|no-repeat|repeat-x|repeat-y|space|round)\b|$)/);
+  return match?.[1]?.trim() ?? "";
 }
 
 function firstQuakeRenderBundleBackgroundLayerValue(value: string): string {
@@ -600,6 +783,10 @@ function quakeRenderBundleUrlPath(url: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function quakeRenderBundleCssUrl(url: string): string {
+  return `url("${url.replace(/["\\\n\r\f]/g, "\\$&")}")`;
 }
 
 function preloadQuakeRenderBundleStyle(renderBundle: QuakePreparedRenderBundle): Promise<void> {

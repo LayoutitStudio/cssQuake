@@ -494,8 +494,13 @@ export interface QuakePreparedRenderBundle {
   styleUrl?: string;
   styleClassName?: string;
   assetUrls: string[];
+  debugOutlineSourceAssetUrls?: string[];
   debugOutlineAssetUrls?: string[];
+  debugOutlineBackgrounds?: QuakeRenderBundleDebugOutlineBackground[];
+  debugOutlineOverpainted?: boolean;
+  debugTransparentOutlineSourceAssetUrls?: string[];
   debugTransparentOutlineAssetUrls?: string[];
+  debugTransparentOutlineBackgrounds?: QuakeRenderBundleDebugOutlineBackground[];
   leafMetadata: QuakeRenderBundleLeafMetadata[];
   leafFrameStyles?: QuakeRenderBundleLeafFrameStyle[];
   leafFrameStylesUrl?: string;
@@ -510,6 +515,8 @@ export type QuakeRenderBundleLeafFrameStyle = [
   background?: string | null,
   extraStyle?: string | null,
 ];
+
+export type QuakeRenderBundleDebugOutlineBackground = [position: string, size: string] | null;
 
 export interface QuakeRenderBundleLeafMetadata {
   f: number;
@@ -912,11 +919,28 @@ function clonePreparedRenderBundle(renderBundle: QuakePreparedRenderBundle): Qua
   return {
     ...renderBundle,
     assetUrls: [...renderBundle.assetUrls],
+    ...(renderBundle.debugOutlineSourceAssetUrls ? {
+      debugOutlineSourceAssetUrls: [...renderBundle.debugOutlineSourceAssetUrls],
+    } : {}),
     ...(renderBundle.debugOutlineAssetUrls ? {
       debugOutlineAssetUrls: [...renderBundle.debugOutlineAssetUrls],
     } : {}),
+    ...(renderBundle.debugOutlineBackgrounds ? {
+      debugOutlineBackgrounds: renderBundle.debugOutlineBackgrounds.map((background) =>
+        background ? [...background] as QuakeRenderBundleDebugOutlineBackground : null
+      ),
+    } : {}),
+    ...(renderBundle.debugOutlineOverpainted ? { debugOutlineOverpainted: true } : {}),
+    ...(renderBundle.debugTransparentOutlineSourceAssetUrls ? {
+      debugTransparentOutlineSourceAssetUrls: [...renderBundle.debugTransparentOutlineSourceAssetUrls],
+    } : {}),
     ...(renderBundle.debugTransparentOutlineAssetUrls ? {
       debugTransparentOutlineAssetUrls: [...renderBundle.debugTransparentOutlineAssetUrls],
+    } : {}),
+    ...(renderBundle.debugTransparentOutlineBackgrounds ? {
+      debugTransparentOutlineBackgrounds: renderBundle.debugTransparentOutlineBackgrounds.map((background) =>
+        background ? [...background] as QuakeRenderBundleDebugOutlineBackground : null
+      ),
     } : {}),
     leafMetadata: renderBundle.leafMetadata.map((leaf) => ({ ...leaf })),
     ...(renderBundle.leafFrameStyles ? {

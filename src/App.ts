@@ -22,7 +22,7 @@ import {
   type QuakeGameLogicGeneratedTextFact,
   type QuakeGameLogicTextFact,
 } from "./prepare/gameLogicFacts";
-import { createQuakeSoundController, type QuakeSoundManifest } from "./runtime/audio";
+import { createQuakeSoundController, type QuakeSoundEvent, type QuakeSoundManifest } from "./runtime/audio";
 import { mountQuakeBitmapText } from "./runtime/bitmapText";
 import {
   COLLISION_EPSILON,
@@ -51,6 +51,7 @@ import {
   clearQuakeInventoryPowerup,
   clearQuakeInventoryPowerups,
   createQuakeHudElements,
+  selectQuakeBestInventoryWeapon,
   syncQuakeHud as syncQuakeHudElements,
   type QuakeInventoryPowerupBehavior,
 } from "./runtime/hud";
@@ -60,11 +61,20 @@ import {
   quakeTriggerHurtDamage,
   type QuakeHazardDamage,
 } from "./runtime/hazards";
+import {
+  QUAKE_POINT_HAZARD_DT_CLAMP,
+  quakeFireballEmitterFromEntity,
+  quakeMovePointHazards,
+  quakeSpawnDueFireballs,
+  type QuakeFireballEmitter,
+  type QuakePointHazard,
+} from "./runtime/fireballs";
 import { distanceSq3, dotVec3, normalizeVec3, subtractVec3 } from "./runtime/math";
 import { createQuakeMenuController } from "./runtime/menu";
 import {
   createQuakeMoversController,
   quakeButtonIsPressed,
+  quakeDoorTerminalState,
   quakeMoverBlockDamage,
   type QuakeMoverState,
 } from "./runtime/movers";
@@ -74,8 +84,14 @@ import {
   quakeShootableModelPath,
   quakeShootableFallbackPolygons,
   type QuakeShootablesDebugStats,
+  type QuakeShootablesControllerOptions,
+  type QuakeShootableBounds,
 } from "./runtime/shootables";
-import { createQuakeTargetsController, type QuakeCounterActivationResult } from "./runtime/targets";
+import { quakeSolidGateActivation } from "./runtime/solidGates";
+import {
+  createQuakeTargetsController,
+  type QuakeCounterActivationResult,
+} from "./runtime/targets";
 import { createQuakeTextController } from "./runtime/text";
 import {
   quakeTriggerChangelevelMap,
@@ -89,7 +105,7 @@ import {
 } from "./runtime/triggerEffects";
 import { createQuakeTriggersController } from "./runtime/triggers";
 import { createQuakeViewmodelController, type QuakeViewmodelModel } from "./runtime/viewmodel";
-import { createQuakeWeaponsController } from "./runtime/weapons";
+import { createQuakeWeaponsController, type QuakeWeaponFireSoundId } from "./runtime/weapons";
 import {
   createQuakeWorldController,
   injectQuakeWorldAnimations,
@@ -116,38 +132,43 @@ import {
   mountQuakeRenderBundleFrameSetMesh,
   mountQuakeRenderBundleMesh,
   preloadQuakeRenderBundleAssets,
+  syncQuakeRenderBundleDebugLabels,
   syncQuakeRenderBundleDebugOutlineLeaves,
   syncQuakeRenderBundleDebugOutlines,
   stripPolyMeshMetadata,
 } from "./runtime/renderBundleMesh";
 
 declare const __CSSQUAKE_VERSION__: string;
+declare const __POLYCSS_VERSION__: string;
 
 const quakeApp = document.getElementById("quake-app") as HTMLElement;
-const host = document.getElementById("quake-host") as HTMLElement;
+const quakeUi = document.getElementById("quake-ui") as HTMLElement | null;
 const viewmodelLayer = document.getElementById("quake-viewmodel-layer") as HTMLElement | null;
 const mainMenu = document.getElementById("quake-main-menu") as HTMLElement | null;
 const mainMenuArt = document.getElementById("quake-main-menu-art") as HTMLElement | null;
 const versionLabel = document.getElementById("cssquake-version") as HTMLElement | null;
-const mainMenuVersionLabel = document.getElementById("quake-main-menu-version") as HTMLElement | null;
 const levelPanel = document.getElementById("quake-level-panel") as HTMLElement | null;
 const levelList = document.getElementById("quake-level-list") as HTMLElement | null;
 const aboutPanel = document.getElementById("quake-about-panel") as HTMLElement | null;
 const optionsPanel = document.getElementById("quake-options-panel") as HTMLElement | null;
+const debugMenuPanel = document.getElementById("quake-debug-menu-panel") as HTMLElement | null;
 const disableSoundOption = document.getElementById("quake-option-disable-sound") as HTMLInputElement | null;
 const disableEnemiesOption = document.getElementById("quake-option-disable-enemies") as HTMLInputElement | null;
 const disableDamageOption = document.getElementById("quake-option-disable-damage") as HTMLInputElement | null;
 const invertMouseOption = document.getElementById("quake-option-invert-mouse") as HTMLInputElement | null;
+const alwaysRunOption = document.getElementById("quake-option-always-run") as HTMLInputElement | null;
+const showGunOption = document.getElementById("quake-option-show-gun") as HTMLInputElement | null;
+const dynamicLightingOption = document.getElementById("quake-option-dynamic-lighting") as HTMLInputElement | null;
 const debugPanel = document.getElementById("quake-debug-panel") as HTMLElement | null;
-const debugPanelClose = document.getElementById("quake-debug-close") as HTMLButtonElement | null;
-const debugHideTexturesOption = document.getElementById("quake-debug-hide-textures") as HTMLInputElement | null;
-const debugStaticLightingOption = document.getElementById("quake-debug-static-lighting") as HTMLInputElement | null;
+const debugEnabledOption = document.getElementById("quake-debug-enabled") as HTMLInputElement | null;
+const debugShowFpsOption = document.getElementById("quake-debug-show-fps") as HTMLInputElement | null;
+const debugShowTexturesOption = document.getElementById("quake-debug-show-textures") as HTMLInputElement | null;
 const debugFlyModeOption = document.getElementById("quake-debug-fly-mode") as HTMLInputElement | null;
 const debugShowOutlinesOption = document.getElementById("quake-debug-show-outlines") as HTMLInputElement | null;
 const debugShowLabelsOption = document.getElementById("quake-debug-show-labels") as HTMLInputElement | null;
 const debugStatElements = new Map(
-  Array.from(document.querySelectorAll<HTMLElement>("[data-quake-debug-stat]"))
-    .map((element) => [element.dataset.quakeDebugStat ?? "", element] as const)
+  Array.from(document.querySelectorAll<HTMLElement>("[data-qstat]"))
+    .map((element) => [element.getAttribute("data-qstat") ?? "", element] as const)
     .filter(([key]) => key.length > 0),
 );
 const loadingOverlay = document.getElementById("quake-loading-overlay") as HTMLElement | null;
@@ -186,8 +207,26 @@ const QUAKE_ASSETS_REGENERATING_STATUS = "Assets regenerating";
 const QUAKE_ASSETS_REGENERATING_ACTION =
   "Wait for pnpm prepare:quake to finish, then reload.";
 const QUAKE_LOADING_PREVIEW_ENABLED = import.meta.env.DEV && new URLSearchParams(window.location.search).has("loading");
+const QUAKE_LOADING_CONSOLE_BOOT_LINES = [
+  "Quake (C) 1996 id Software, Inc.",
+  `PolyCSS renderer v${__POLYCSS_VERSION__}`,
+  "Console initialized.",
+  "Host initialized",
+  "Filesystem ready",
+  "Cache initialized",
+  "Shareware episode",
+] as const;
+const QUAKE_LOADING_CONSOLE_PAK_LINE = "Mounted id1/pak0.pak";
+const QUAKE_LOADING_CONSOLE_LINE_DELAY_MS = 55;
+const QUAKE_LOADING_CONSOLE_MAX_LINES = 28;
 const QUAKE_LOADING_READY_MIN_PRESENTED_FRAMES = 6;
 const QUAKE_LOADING_READY_STABLE_PRESENTED_FRAMES = 3;
+let quakeLoadingConsoleLines: string[] = [];
+let quakeLoadingConsoleLineKeys: (string | null)[] = [];
+let quakeLoadingConsoleLineQueue: { key: string | null; line: string }[] = [];
+let quakeLoadingConsoleLastStatus = "";
+let quakeLoadingConsoleCurrentStatus = "";
+let quakeLoadingConsoleLineTimer: number | null = null;
 
 interface QuakeCrosshairTargetCache {
   actionTrace: QuakeUseTrace | null;
@@ -228,6 +267,7 @@ let quakeAttackInputDown = false;
 let quakeAttackPointerId: number | null = null;
 let quakeAttackFrame = 0;
 let quakePointerLockRetryAt = -Infinity;
+let quakePointerTraceSerial = 0;
 let quakeMobileControlsRoot: HTMLElement | null = null;
 let quakeMobileMoveZone: HTMLElement | null = null;
 let quakeMobileFireButton: HTMLButtonElement | null = null;
@@ -248,7 +288,9 @@ let quakeBonusFlashSerial = 0;
 const QUAKE_LOADING_READY_FRAME_BUDGET_MS = 45;
 const QUAKE_LOADING_READY_TIMEOUT_MS = 1500;
 const QUAKE_DEATH_UNLOCK_MENU_SUPPRESS_MS = 1000;
+const QUAKE_MENU_RESUME_CONTROLS_END_SUPPRESS_MS = 350;
 const QUAKE_POINTER_LOCK_RETRY_MS = 500;
+const QUAKE_POINTER_TRACE_LIMIT = 200;
 const QUAKE_MOBILE_CONTROLS_QUERY = "(any-pointer: coarse), (max-width: 960px) and (orientation: landscape)";
 const quakeMobileControlsMedia = window.matchMedia(QUAKE_MOBILE_CONTROLS_QUERY);
 const QUAKE_WEAPON_VIEW_PUNCH_DEG = 2;
@@ -356,7 +398,6 @@ function clearQuakeBonusOverlay(): void {
 const cssQuakeVersionLabel = `v${__CSSQUAKE_VERSION__}`;
 
 if (versionLabel) versionLabel.textContent = cssQuakeVersionLabel;
-if (mainMenuVersionLabel) mainMenuVersionLabel.textContent = cssQuakeVersionLabel;
 
 interface QuakeAssetManifestMap {
   mapName: string;
@@ -395,7 +436,7 @@ interface QuakeLoadingProgressSnapshot {
 
 interface QuakeLoadingProgressTracker {
   setStatus(status: string): void;
-  startTask(): () => void;
+  startTask(status?: string): () => void;
 }
 
 interface QuakeLoadingReadinessSnapshot {
@@ -430,22 +471,28 @@ interface QuakeMapLoadOptions {
   view?: QuakeUrlView | null;
 }
 
-interface QuakePointHazard {
-  entityIndex: number;
-  origin: Vec3;
-  radiusSq: number;
-  damage: number;
-  kind: QuakeHazardDamage["kind"];
-  velocity?: Vec3;
-  expiresAt?: number;
+type QuakePointerTraceValue = string | number | boolean | null;
+type QuakePointerTraceDetails = Record<string, QuakePointerTraceValue>;
+
+interface QuakePointerTraceEntry {
+  id: number;
+  at: number;
+  kind: string;
+  details: QuakePointerTraceDetails;
 }
 
-interface QuakeFireballEmitter {
-  entityIndex: number;
-  origin: Vec3;
-  speed: number;
-  nextSpawnAt: number;
+interface QuakePointerTraceWindow {
+  __cssQuakePointerTrace?: QuakePointerTraceEntry[];
+  __cssQuakePointerTraceClear?: () => void;
+  __cssQuakePointerTraceDump?: () => string;
 }
+
+type QuakeBossLightningAlignment = Parameters<
+  NonNullable<QuakeShootablesControllerOptions["bossLightningElectrodesReady"]>
+>[1];
+type QuakeBossLightningDischarge = Parameters<
+  NonNullable<QuakeShootablesControllerOptions["bossLightningDischarge"]>
+>[1];
 
 const FALLBACK_QUAKE_ASSET_MANIFEST: QuakeAssetManifest = {
   version: 1,
@@ -534,9 +581,12 @@ const QUAKE_GAMEPLAY_KEY_CODES = new Set([
   "KeyD",
   "KeyS",
   "KeyW",
+  "ShiftLeft",
+  "ShiftRight",
   "Space",
 ]);
 const QUAKE_MOVE_KEY_CODES = new Set(["ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp", "KeyA", "KeyD", "KeyS", "KeyW"]);
+const QUAKE_SPEED_KEY_CODES = new Set(["ShiftLeft", "ShiftRight"]);
 const QUAKE_CROUCH_KEY_CODES = new Set(["ControlLeft", "ControlRight"]);
 const QUAKE_JUMP_VELOCITY = 270 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_GRAVITY = 800 * QUAKE_COLLISION_UNIT_SCALE;
@@ -581,14 +631,17 @@ let quakeMapUrls = quakeSceneUrlMap(quakeAssetManifest);
 let quakeEnemiesDisabled = quakeUrlBoolean("disableEnemies") || (disableEnemiesOption?.checked ?? false);
 let quakeDamageDisabled = disableDamageOption?.checked ?? false;
 let quakeDebugMode = quakeUrlBoolean("debugPolys");
-let quakeDebugHideTextures = debugHideTexturesOption?.checked ?? false;
-let quakeDebugStaticLighting = debugStaticLightingOption?.checked ?? false;
+let quakeDebugShowFps = debugShowFpsOption?.checked ?? true;
+let quakeDebugHideTextures = debugShowTexturesOption ? !debugShowTexturesOption.checked : false;
 let quakeDebugFlyMode = quakeUrlBoolean("debugFly") || (debugFlyModeOption?.checked ?? false);
 let quakeDebugFlyModeActive = false;
-let quakeDebugShowOutlines = debugShowOutlinesOption?.checked ?? true;
+let quakeDebugShowOutlines = debugShowOutlinesOption?.checked ?? false;
 let quakeDebugShowLabels = debugShowLabelsOption?.checked ?? false;
 let quakeDebugPanelStatsTimer: number | null = null;
 let quakeInvertMouse = invertMouseOption?.checked ?? false;
+let quakeAlwaysRun = alwaysRunOption?.checked ?? false;
+let quakeShowGun = showGunOption?.checked ?? true;
+let quakeDynamicLighting = dynamicLightingOption?.checked ?? true;
 let quakeCrouchKeyCodesDown = new Set<string>();
 
 function mountQuakeLevelSelector(renderBitmapText = false): void {
@@ -685,6 +738,27 @@ function updateQuakeUrl(mapName: string, mode: QuakeUrlUpdateMode, view: QuakeUr
   }
 }
 
+function clearQuakeGameRoute(): void {
+  const url = new URL(window.location.href);
+  const hadGameRoute = url.searchParams.has("map") || url.searchParams.has("view");
+  url.searchParams.delete("map");
+  url.searchParams.delete("view");
+  if (!hadGameRoute && url.href === window.location.href) return;
+  window.history.replaceState({ cssQuake: true, mapName: null, view: null }, "", url);
+}
+
+function clearQuakeDebugUrlParams(): void {
+  const url = new URL(window.location.href);
+  const hadDebugParams = url.searchParams.has("debugPolys");
+  if (!hadDebugParams) return;
+  url.searchParams.delete("debugPolys");
+  window.history.replaceState(
+    { cssQuake: true, mapName: currentMapName, view: quakeUrlView(url.searchParams) },
+    "",
+    url,
+  );
+}
+
 function quakeUrlFor(mapName: string, view: QuakeUrlView | null = null): URL {
   const url = new URL(window.location.href);
   url.searchParams.set("map", mapName);
@@ -745,7 +819,7 @@ const camera = createPolyPerspectiveCamera({
   rotY: 270,
   target: [0, 0, 1.72],
 });
-const scene = createPolyScene(host, {
+const scene = createPolyScene(quakeApp, {
   camera,
   ambientLight: { color: "#ffffff", intensity: Math.PI },
   directionalLight: { direction: [-0.4, -0.55, -0.65], color: "#ffffff", intensity: 0 },
@@ -753,18 +827,33 @@ const scene = createPolyScene(host, {
   textureQuality: 1,
   autoCenter: false,
 });
+const host = scene.cameraEl as HTMLElement;
+quakeApp.insertBefore(host, viewmodelLayer ?? quakeUi);
+host.tabIndex = 0;
+// PolyCSS controls read scene.host when they are created; keep that target on the inspectable camera node.
+(scene as unknown as { host: HTMLElement }).host = host;
 const sceneElement = scene.cameraEl.querySelector<HTMLElement>(".polycss-scene");
 if (!sceneElement) throw new Error("Quake scene mount requires a PolyCSS scene element.");
 sceneElement.removeAttribute("data-polycss-lighting");
+let quakeFirstPersonControlsMounted = false;
+let quakeCameraLookEnabled = true;
+let quakeCameraPerspectiveStyle = scene.camera.perspectiveStyle;
 function syncQuakeViewportProjection(): void {
   const { width, height } = quakeViewportSize();
   const perspective = quakeCameraPerspectiveForViewport(width, height);
-  scene.cameraEl.style.perspective = `${Number(perspective.toFixed(6))}px`;
+  quakeCameraPerspectiveStyle = `${Number(perspective.toFixed(6))}px`;
+  if (quakeFirstPersonControlsMounted) {
+    host.style.setProperty("--polycss-fpv-perspective", quakeCameraPerspectiveStyle);
+    host.style.removeProperty("perspective");
+  } else {
+    host.style.perspective = quakeCameraPerspectiveStyle;
+  }
   const centerX = quakeViewportCenterCss(width);
   const centerY = quakeViewportCenterCss(height);
   scene.cameraEl.style.perspectiveOrigin = `${centerX} ${centerY}`;
   sceneElement.style.left = centerX;
   sceneElement.style.top = centerY;
+  compactQuakeCameraInlineStyle();
 }
 syncQuakeViewportProjection();
 const controls = createPolyFirstPersonControls(scene, {
@@ -779,17 +868,27 @@ const controls = createPolyFirstPersonControls(scene, {
   jumpVelocity: QUAKE_JUMP_VELOCITY,
   gravity: 0,
 });
+quakeFirstPersonControlsMounted = true;
+const updateQuakeControls = controls.update.bind(controls);
+controls.update = (partial) => {
+  updateQuakeControls(partial);
+  if (partial.lookEnabled !== undefined) quakeCameraLookEnabled = partial.lookEnabled;
+  compactQuakeCameraInlineStyle();
+};
+compactQuakeCameraInlineStyle();
 let quakeCameraRenderOrigin: Vec3 = [0, 0, 1.72];
 let quakeCameraStepSmoothFrame = 0;
 let quakeCameraStepSmoothAt = 0;
 let quakePlayerDead = false;
 let quakeDeathUnlockMenuSuppressUntil = 0;
+let quakeMenuResumeControlsEndSuppressUntil = 0;
 
 type QuakePickupControllerHandle = ReturnType<typeof createQuakePickupController>;
 type QuakePlayerControllerHandle = ReturnType<typeof createQuakePlayerController>;
 
 let pickups: QuakePickupControllerHandle | null = null;
 let player: QuakePlayerControllerHandle | null = null;
+let quakeRuntimePickupSerial = 0;
 let weaponViewModelPromise: Promise<QuakeViewmodelModel> | null = null;
 
 function getPickups(): QuakePickupControllerHandle {
@@ -818,9 +917,14 @@ const menu = createQuakeMenuController({
   levelPanel,
   aboutPanel,
   optionsPanel,
+  debugPanel: debugMenuPanel,
   onSelectNewGame: startQuakeNewGame,
   onSelectLevel: loadQuakeMap,
-  onSelectDebug: () => setQuakeDebugMode(true),
+  onSelectDebug: handleQuakeMenuDebugToggle,
+  onSelectQuit: quitQuakeToMainMenu,
+  isQuitEnabled: () => quakeGameplayStarted,
+  onMenuPauseChange: setQuakeGamePaused,
+  onResumeMainMenuFromEscape: suppressQuakeMainMenuOnResumeControlsEnd,
   shouldResumeMainMenuOnEscape: shouldResumeQuakeMainMenuOnEscape,
   shouldOpenMainMenuOnControlsEnd: shouldOpenQuakeMainMenuOnControlsEnd,
   clearCrosshairTarget: clearQuakeCrosshairTarget,
@@ -834,13 +938,39 @@ const viewmodel = createQuakeViewmodelController({
   controls,
   getRenderOrigin: currentQuakeCameraRenderOrigin,
   host,
-  hud: classicHud,
   layer: viewmodelLayer,
 });
 const shootables = createQuakeShootablesController({
   addMesh: addQuakeShootableMesh,
+  bossLightningDischarge: quakeBossLightningDischarge,
+  bossLightningElectrodesReady: quakeBossLightningElectrodesReady,
   createMonsterStateRunner: (classname) => createQuakeMonsterStateRunner(classname, { enabled: true }),
   damagePlayer: (amount) => getPlayer().damage(amount),
+  dropBackpack: (drop) => {
+    const origin = drop.sourceEntity.origin ?? { x: 0, y: 0, z: 0 };
+    const entity: QuakeEntity = {
+      index: -300000 - ++quakeRuntimePickupSerial,
+      classname: "item_backpack",
+      origin,
+      properties: {
+        classname: "item_backpack",
+        origin: `${origin.x} ${origin.y} ${origin.z}`,
+      },
+    };
+    return getPickups().addRuntimePickup({
+      effect: drop.ammo,
+      entity,
+      feedback: {
+        ...(drop.message ? { message: drop.message } : {}),
+        ...(drop.soundPath ? { soundPath: drop.soundPath } : {}),
+      },
+      ...(drop.modelPath ? { modelPath: drop.modelPath } : {}),
+      origin: drop.origin,
+      ...(typeof drop.removeAfterSeconds === "number" ? { removeAfterSeconds: drop.removeAfterSeconds } : {}),
+      visibilityOrigin: controls.getOrigin(),
+    });
+  },
+  contentsAt: (point) => currentCollisionWorld?.contentsAt?.(point) ?? null,
   floorAt: (x, y, maxZ, minZ) =>
     currentCollisionWorld?.floorAt(x, y, maxZ, minZ) ??
     currentCollisionWorld?.staticFloorAt(x, y, maxZ, minZ) ??
@@ -850,6 +980,7 @@ const shootables = createQuakeShootablesController({
   getPlayerOrigin: () => getPlayer().currentOrigin(),
   hasLineOfSight: quakeLineOfSight,
   isPlayerInvisible: quakePlayerInvisible,
+  isGameplayPaused: isQuakeGamePaused,
   isInPlayerView: isQuakePointInPlayerView,
   leafIndexAt: world.leafIndexAt,
   monsterRuntimeEnabled: () => QUAKE_MONSTER_RUNTIME_ENABLED && !quakeEnemiesDisabled,
@@ -863,6 +994,7 @@ const shootables = createQuakeShootablesController({
 });
 const targetSystem = createQuakeTargetsController({
   activateEntity: activateQuakeEntity,
+  isGameplayPaused: isQuakeGamePaused,
   onCounterStateChange: showQuakeCounterGeneratedText,
   onUseTargetsMessage: showQuakeUseTargetsMessageText,
 });
@@ -870,7 +1002,8 @@ const movers = createQuakeMoversController({
   applyState: applyMoverState,
   fireTarget: fireQuakeTarget,
   groupUnlocked: quakeMoverGroupUnlocked,
-  playerBlocks: moverBlockedByPlayer,
+  isGameplayPaused: isQuakeGamePaused,
+  playerBlocks: moverBlockedByActor,
 });
 const triggerSystem = createQuakeTriggersController({
   activateCounter: targetSystem.activateCounter,
@@ -891,14 +1024,18 @@ const triggerSystem = createQuakeTriggersController({
 });
 pickups = createQuakePickupController({
   addMesh: addQuakePickupMesh,
-  applyEffect: (effect, entity) => {
+  applyEffect: (effect, entity, feedback) => {
     applyQuakeInventoryDelta(getPlayer().inventory(), effect);
     syncQuakeHud();
     flashQuakeBonusOverlay();
     const gameLogic = currentResult?.gameLogic ?? null;
-    const pickupMessage = quakePickupMessageForEntity(entity, gameLogic);
+    const pickupMessage = feedback?.message ?? quakePickupMessageForEntity(entity, gameLogic);
     if (pickupMessage) showQuakeNotifyText(pickupMessage);
-    audio.playPickup(entity, gameLogic);
+    if (feedback?.soundPath) {
+      audio.playSound(feedback.soundPath);
+    } else {
+      audio.playPickup(entity, gameLogic);
+    }
   },
   canPickup: (effect, entity) =>
     quakeCanPickupForInventory(entity, getPlayer().inventory(), currentResult?.gameLogic ?? null, effect),
@@ -907,6 +1044,7 @@ pickups = createQuakePickupController({
   playerViewDot: quakePlayerViewDot,
   pointToPoly: quakePointToPoly,
   gameLogic: () => currentResult?.gameLogic ?? null,
+  isGameplayPaused: isQuakeGamePaused,
   programMetadata: () => currentProgramMetadata,
   shouldSpawn: shouldSpawnQuakeEntityForCurrentGame,
   startMegahealthRot: startQuakeMegahealthRot,
@@ -922,13 +1060,17 @@ const weapons = createQuakeWeaponsController({
   getCollisionWorld: () => currentCollisionWorld,
   getEntities: () => entityByIndex,
   getShootables: shootables.weaponTargets,
-  getShells: () => getPlayer().inventory().shells,
-  consumeShell: () => {
+  getActiveWeapon: () => getPlayer().inventory().activeWeapon,
+  getAmmo: (field) => getPlayer().inventory()[field],
+  consumeAmmo: (field, amount) => {
     const inventory = getPlayer().inventory();
-    inventory.shells = Math.max(0, inventory.shells - 1);
+    inventory[field] = Math.max(0, inventory[field] - amount);
   },
+  selectBestWeapon: () => selectQuakeBestInventoryWeapon(getPlayer().inventory()),
   syncHud: syncQuakeHud,
-  playFireSound: () => audio.playEvent("weaponShotgun", { volume: 0.74 }),
+  playFireSound: (weapon) => {
+    audio.playEvent(quakeWeaponFireSoundEvent(weapon), { volume: 0.74 });
+  },
   playFireAnimation: playQuakeWeaponFireFeedback,
   damageShootable: shootables.damage,
   damageBrushEntity: damageQuakeBrushEntity,
@@ -936,6 +1078,17 @@ const weapons = createQuakeWeaponsController({
   onHit: flashQuakeCrosshairHit,
   syncCrosshairTarget: queueQuakeCrosshairTargetSync,
 });
+
+function quakeWeaponFireSoundEvent(weapon: QuakeWeaponFireSoundId): QuakeSoundEvent {
+  if (weapon === "axe") return "weaponAxe";
+  if (weapon === "nailgun") return "weaponNailgun";
+  if (weapon === "supernailgun") return "weaponSuperNailgun";
+  if (weapon === "grenadelauncher") return "weaponGrenadeLauncher";
+  if (weapon === "rocketlauncher") return "weaponRocketLauncher";
+  if (weapon === "lightning") return "weaponLightning";
+  return weapon === "supershotgun" ? "weaponSuperShotgun" : "weaponShotgun";
+}
+
 player = createQuakePlayerController({
   activateSolidTouch,
   canUseGameplayInput: canUseQuakeGameplayInput,
@@ -945,6 +1098,8 @@ player = createQuakePlayerController({
   getCollisionWorld: () => currentCollisionWorld,
   getCurrentScene: () => currentResult,
   gravity: QUAKE_GRAVITY,
+  alwaysRun: () => quakeAlwaysRun,
+  isGameplayPaused: isQuakeGamePaused,
   isInvulnerable: quakePlayerInvulnerable,
   jumpVelocity: QUAKE_JUMP_VELOCITY,
   onDamageFlash: (active, feedback) => {
@@ -975,7 +1130,8 @@ player = createQuakePlayerController({
     clearQuakePlayerDeath();
     triggerSystem.resetActive();
     const runtime = result.entityManifest.runtime;
-    shootables.spawn(quakeEntitiesForIndexes(runtime.shootableEntityIndexes), currentPickupModelLibrary, currentProgramMetadata);
+    shootables.spawn(quakeShootableRuntimeEntities(runtime), currentPickupModelLibrary, currentProgramMetadata);
+    setupQuakeMonsterJumpTriggers(result);
     getPickups().spawn(quakeEntitiesForIndexes(runtime.pickupEntityIndexes), currentPickupModelLibrary, previousOrigin);
   },
   pointToPoly: quakePointToPoly,
@@ -1009,6 +1165,7 @@ let quakePointHazardFrame: number | null = null;
 let quakePointHazardTime = 0;
 let quakeCrosshairHitTimer: number | null = null;
 let quakeMegahealthRotTimer: number | null = null;
+let quakeMegahealthRotDueAt: number | null = null;
 let quakePowerupTimers = new Map<string, number>();
 let quakeDoorMessageCooldownUntil = new Map<number, number>();
 let quakeSkill = 1;
@@ -1021,6 +1178,19 @@ let quakeAppLoading = true;
 let quakeDebugCollisionBypassUntil = 0;
 let disposeStatsOverlay: (() => void) | null = null;
 let quakeSoundManifestPromise: Promise<void> | null = null;
+let quakeGamePaused = false;
+let quakeGamePausedAt = 0;
+
+function setQuakeGameplayStarted(started: boolean): void {
+  quakeGameplayStarted = started;
+  document.body.classList.toggle("quake-gameplay-started", started);
+  if (started && loadingOverlay?.classList.contains("quake-loading-console-persisted")) {
+    document.body.classList.remove("quake-loading");
+    loadingOverlay.hidden = true;
+    loadingOverlay.removeAttribute("aria-busy");
+    loadingOverlay.classList.remove("quake-loading-console-persisted");
+  }
+}
 
 interface QuakeStatsPanel {
   value: HTMLElement;
@@ -1050,19 +1220,10 @@ const QUAKE_CHANGELEVEL_DELAY_MS = 850;
 const QUAKE_CENTERPRINT_MS = 2600;
 const QUAKE_NOTIFY_TEXT_MS = 3000;
 const QUAKE_DOOR_MESSAGE_COOLDOWN_MS = 2000;
+const QUAKE_PAUSED_TIMER_POLL_MS = 100;
 const QUAKE_PLAYER_DEFAULT_MAX_HEALTH = 100;
 const QUAKE_MEGAHEALTH_ROT_INTERVAL_MS = 1000;
 const QUAKE_SHAREWARE_REGISTERED = false;
-const QUAKE_FIREBALL_RADIUS = 56 * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_FIREBALL_DEFAULT_SPEED = 1000;
-const QUAKE_FIREBALL_DAMAGE = 20;
-const QUAKE_FIREBALL_LIFETIME_MS = 5000;
-const QUAKE_FIREBALL_INITIAL_DELAY_MS = 5000;
-const QUAKE_FIREBALL_MIN_WAIT_MS = 3000;
-const QUAKE_FIREBALL_WAIT_JITTER_MS = 5000;
-const QUAKE_FIREBALL_DRIFT_SPEED = 50 * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_FIREBALL_SPEED_JITTER = 200 * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_POINT_HAZARD_DT_CLAMP = 0.05;
 const QUAKE_TRAP_SPIKE_RANGE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_TRAP_SPIKE_RADIUS = 36 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_TRAP_SPIKE_DAMAGE = 10;
@@ -1078,20 +1239,111 @@ function syncQuakeHud(): void {
     armor: inventory.armor,
     itemFlags: inventory.itemFlags,
     powerups: Object.keys(inventory.powerups),
+    activeWeapon: inventory.activeWeapon,
+    weapons: [...inventory.weapons],
     shells: inventory.shells,
   });
   syncQuakeHudElements(hudElements, inventory);
+}
+
+function isQuakeGamePaused(): boolean {
+  return quakeGamePaused;
+}
+
+function setQuakeGamePaused(paused: boolean): void {
+  if (quakeGamePaused === paused) {
+    syncQuakeInteractionPresentation();
+    return;
+  }
+  const now = performance.now();
+  quakeGamePaused = paused;
+  document.body.classList.toggle("quake-game-paused", paused);
+  syncQuakeInteractionPresentation();
+  audio.setPaused(paused);
+  if (paused) {
+    quakeGamePausedAt = now;
+    clearQuakeAttackInput();
+    clearQuakeMoveInput();
+    clearQuakeMobileMoveInput();
+    clearQuakeCrouchInput();
+    clearQuakeWeaponViewPunch();
+    controls.update({ moveEnabled: false, jumpEnabled: false, crouchEnabled: false, gravity: 0 });
+    clearQuakeCrosshairTarget();
+    pauseQuakeGameplayTimers();
+    return;
+  }
+
+  const pausedForMs = quakeGamePausedAt ? Math.max(0, now - quakeGamePausedAt) : 0;
+  quakeGamePausedAt = 0;
+  resumeQuakeGameplayTimers(pausedForMs);
+  if (currentResult && !quakeAppLoading && !quakePlayerDead) {
+    const origin = getPlayer().currentOrigin();
+    syncQuakeHazards(origin);
+    getPickups().syncCollision(origin, getPlayer().eyeHeight(), STEP_HEIGHT);
+    shootables.syncMonsterRuntime();
+    if (quakeFireballEmitters.length || quakePointHazards.length) startQuakePointHazards();
+    syncQuakeCrosshairTarget();
+  }
+}
+
+function pauseQuakeGameplayTimers(): void {
+  cancelQuakeMegahealthRotTimer();
+  for (const timer of quakePowerupTimers.values()) window.clearTimeout(timer);
+  quakePowerupTimers = new Map();
+  quakePointHazardTime = 0;
+}
+
+function resumeQuakeGameplayTimers(pausedForMs: number): void {
+  if (pausedForMs > 0) {
+    shiftQuakePointHazardDeadlines(pausedForMs);
+    shiftQuakePowerupDeadlines(pausedForMs);
+    shiftQuakeMapNumberDeadlines(quakeDoorMessageCooldownUntil, pausedForMs);
+    shiftQuakeMapNumberDeadlines(quakeMoverCrushDamageAt, pausedForMs);
+    if (quakeMegahealthRotDueAt !== null) quakeMegahealthRotDueAt += pausedForMs;
+  }
+  scheduleQuakeMegahealthRotTimer();
+  rescheduleQuakePowerupTimers();
+}
+
+function shiftQuakeMapNumberDeadlines(map: Map<number, number>, durationMs: number): void {
+  for (const [key, value] of map) {
+    if (Number.isFinite(value)) map.set(key, value + durationMs);
+  }
+}
+
+function shiftQuakePointHazardDeadlines(durationMs: number): void {
+  for (const emitter of quakeFireballEmitters) emitter.nextSpawnAt += durationMs;
+  for (const hazard of quakePointHazards) {
+    if (hazard.expiresAt !== undefined) hazard.expiresAt += durationMs;
+  }
+}
+
+function shiftQuakePowerupDeadlines(durationMs: number): void {
+  if (!player) return;
+  for (const state of Object.values(player.inventory().powerups)) {
+    state.finishedAt += durationMs;
+  }
+}
+
+function rescheduleQuakePowerupTimers(): void {
+  if (!player) return;
+  for (const finishedField of Object.keys(player.inventory().powerups)) {
+    scheduleQuakePowerupTimer(finishedField);
+  }
 }
 
 function startQuakeMegahealthRot(entity: QuakeEntity, delaySeconds: number): void {
   clearQuakeMegahealthRot();
   if (!Number.isFinite(delaySeconds) || delaySeconds < 0) return;
   markQuakeTrace("pickup-megahealth-rot-start", { entityIndex: entity.index, delaySeconds });
-  quakeMegahealthRotTimer = window.setTimeout(runQuakeMegahealthRot, delaySeconds * 1000);
+  quakeMegahealthRotDueAt = performance.now() + delaySeconds * 1000;
+  scheduleQuakeMegahealthRotTimer();
 }
 
 function runQuakeMegahealthRot(): void {
   quakeMegahealthRotTimer = null;
+  quakeMegahealthRotDueAt = null;
+  if (isQuakeGamePaused()) return;
   if (quakeAppDisposed || !currentResult || quakePlayerDead) return;
   const inventory = getPlayer().inventory();
   if (inventory.health <= QUAKE_PLAYER_DEFAULT_MAX_HEALTH) return;
@@ -1099,14 +1351,29 @@ function runQuakeMegahealthRot(): void {
   markQuakeTrace("pickup-megahealth-rot", { health: inventory.health });
   syncQuakeHud();
   if (inventory.health > QUAKE_PLAYER_DEFAULT_MAX_HEALTH) {
-    quakeMegahealthRotTimer = window.setTimeout(runQuakeMegahealthRot, QUAKE_MEGAHEALTH_ROT_INTERVAL_MS);
+    quakeMegahealthRotDueAt = performance.now() + QUAKE_MEGAHEALTH_ROT_INTERVAL_MS;
+    scheduleQuakeMegahealthRotTimer();
   }
 }
 
-function clearQuakeMegahealthRot(): void {
+function scheduleQuakeMegahealthRotTimer(): void {
+  cancelQuakeMegahealthRotTimer();
+  if (quakeMegahealthRotDueAt === null || isQuakeGamePaused()) return;
+  quakeMegahealthRotTimer = window.setTimeout(
+    runQuakeMegahealthRot,
+    Math.max(0, quakeMegahealthRotDueAt - performance.now()),
+  );
+}
+
+function cancelQuakeMegahealthRotTimer(): void {
   if (quakeMegahealthRotTimer === null) return;
   window.clearTimeout(quakeMegahealthRotTimer);
   quakeMegahealthRotTimer = null;
+}
+
+function clearQuakeMegahealthRot(): void {
+  cancelQuakeMegahealthRotTimer();
+  quakeMegahealthRotDueAt = null;
 }
 
 function startQuakePowerup(entity: QuakeEntity, powerup: QuakeInventoryPowerupBehavior): void {
@@ -1114,11 +1381,7 @@ function startQuakePowerup(entity: QuakeEntity, powerup: QuakeInventoryPowerupBe
   clearQuakePowerupTimer(powerup.finishedField);
   const state = activateQuakeInventoryPowerup(getPlayer().inventory(), powerup, now);
   if (!state) return;
-  const timeoutMs = Math.max(0, state.finishedAt - now);
-  quakePowerupTimers.set(
-    powerup.finishedField,
-    window.setTimeout(() => finishQuakePowerup(powerup.finishedField, "timer"), timeoutMs),
-  );
+  scheduleQuakePowerupTimer(powerup.finishedField);
   markQuakeTrace("pickup-powerup-start", {
     activationField: powerup.activationField,
     durationSeconds: powerup.durationSeconds,
@@ -1133,6 +1396,7 @@ function startQuakePowerup(entity: QuakeEntity, powerup: QuakeInventoryPowerupBe
 
 function finishQuakePowerup(finishedField: string, reason: string): void {
   clearQuakePowerupTimer(finishedField);
+  if (isQuakeGamePaused()) return;
   if (!player) return;
   const state = clearQuakeInventoryPowerup(player.inventory(), finishedField);
   if (!state) return;
@@ -1147,6 +1411,20 @@ function finishQuakePowerup(finishedField: string, reason: string): void {
   syncQuakeHud();
 }
 
+function scheduleQuakePowerupTimer(finishedField: string): void {
+  clearQuakePowerupTimer(finishedField);
+  if (!player || isQuakeGamePaused()) return;
+  const state = player.inventory().powerups[finishedField];
+  if (!state) return;
+  quakePowerupTimers.set(
+    finishedField,
+    window.setTimeout(
+      () => finishQuakePowerup(finishedField, "timer"),
+      Math.max(0, state.finishedAt - performance.now()),
+    ),
+  );
+}
+
 function clearQuakePowerupTimer(finishedField: string): void {
   const timer = quakePowerupTimers.get(finishedField);
   if (timer === undefined) return;
@@ -1159,7 +1437,7 @@ function clearQuakePowerups(): void {
   quakePowerupTimers = new Map();
   if (!player) return;
   const inventory = player.inventory();
-  const hadPowerups = inventory.itemFlags !== 0 || Object.keys(inventory.powerups).length > 0;
+  const hadPowerups = Object.keys(inventory.powerups).length > 0;
   clearQuakeInventoryPowerups(inventory);
   if (hadPowerups) syncQuakeHud();
 }
@@ -1211,23 +1489,78 @@ function setQuakeDamageDisabled(disabled: boolean): void {
   if (disableDamageOption) disableDamageOption.checked = disabled;
 }
 
+function setQuakeDynamicLighting(enabled: boolean): void {
+  quakeDynamicLighting = enabled;
+  if (dynamicLightingOption) dynamicLightingOption.checked = enabled;
+  syncQuakeDynamicLightingOption();
+}
+
+function setQuakeShowGun(enabled: boolean): void {
+  quakeShowGun = enabled;
+  if (showGunOption) showGunOption.checked = enabled;
+  viewmodel.setVisible(enabled);
+}
+
+function syncQuakeDynamicLightingOption(): void {
+  if (dynamicLightingOption) dynamicLightingOption.checked = quakeDynamicLighting;
+  document.body.classList.toggle("quake-static-lighting", !quakeDynamicLighting);
+}
+
 function setQuakeDebugMode(enabled: boolean): void {
   quakeDebugMode = enabled;
-  syncQuakeDebugRenderOptions();
-  syncQuakeDebugFlyMode();
+  if (debugEnabledOption) debugEnabledOption.checked = enabled;
+  syncQuakeInteractionPresentation();
+  syncQuakePointerTraceAccessors();
   syncQuakeDebugPanelVisibility();
-  syncQuakeDebugPointerLockState();
+  if (!enabled) clearQuakeDebugUrlParams();
 }
 
-function setQuakeDebugHideTextures(enabled: boolean): void {
-  quakeDebugHideTextures = enabled;
-  if (debugHideTexturesOption) debugHideTexturesOption.checked = enabled;
-  syncQuakeDebugRenderOptions();
+function toggleQuakeDebugMode(): void {
+  setQuakeDebugMode(!quakeDebugMode);
 }
 
-function setQuakeDebugStaticLighting(enabled: boolean): void {
-  quakeDebugStaticLighting = enabled;
-  if (debugStaticLightingOption) debugStaticLightingOption.checked = enabled;
+function setQuakeDebugShowFps(enabled: boolean): void {
+  quakeDebugShowFps = enabled;
+  if (debugShowFpsOption) debugShowFpsOption.checked = enabled;
+  syncQuakeStatsOverlayAvailability();
+}
+
+function syncQuakeInteractionPresentation(): void {
+  const menuSurfaceOpen = menu.isMainMenuOpen() || menu.isMenuPanelOpen();
+  const debugPointerUnlocked = quakeDebugMode && document.pointerLockElement !== host;
+  document.body.classList.toggle("quake-debug-active", quakeDebugMode);
+  document.body.classList.toggle("quake-debug-pointer-unlocked", debugPointerUnlocked);
+  document.body.classList.toggle("quake-ui-unlocked", menuSurfaceOpen || debugPointerUnlocked);
+}
+
+function handleQuakeMenuDebugToggle(): void {
+  toggleQuakeDebugMode();
+  clearQuakeMoveInput();
+  clearQuakeAttackInput();
+  clearQuakeCrouchInput();
+  menu.hideMainMenu();
+}
+
+function quitQuakeToMainMenu(): void {
+  if (!quakeGameplayStarted) return;
+  clearQuakeMoveInput();
+  clearQuakeAttackInput();
+  clearQuakeCrouchInput();
+  clearQuakeMobileMoveInput();
+  clearQuakeDebugFlyInput();
+  clearQuakeWeaponViewPunch();
+  clearQuakeLevelComplete();
+  clearQuakeDeathOverlay();
+  if (document.pointerLockElement === host) document.exitPointerLock();
+  clearQuakeGameRoute();
+  setQuakeGameplayStarted(false);
+  setQuakeLoading(false);
+  menu.showMainMenu();
+}
+
+function setQuakeDebugShowTextures(enabled: boolean): void {
+  quakeDebugHideTextures = !enabled;
+  if (debugShowTexturesOption) debugShowTexturesOption.checked = enabled;
   syncQuakeDebugRenderOptions();
 }
 
@@ -1249,21 +1582,20 @@ function setQuakeDebugShowLabels(enabled: boolean): void {
 
 function syncQuakeDebugRenderOptions(): void {
   const effectiveShowOutlines = quakeDebugEffectiveShowOutlines();
-  if (debugHideTexturesOption) debugHideTexturesOption.checked = quakeDebugHideTextures;
-  if (debugStaticLightingOption) debugStaticLightingOption.checked = quakeDebugStaticLighting;
+  if (debugShowTexturesOption) debugShowTexturesOption.checked = !quakeDebugHideTextures;
   if (debugShowOutlinesOption) {
     debugShowOutlinesOption.checked = effectiveShowOutlines;
     debugShowOutlinesOption.disabled = quakeDebugHideTextures;
   }
   if (debugShowLabelsOption) debugShowLabelsOption.checked = quakeDebugShowLabels;
-  syncQuakeRenderBundleDebugOutlines(quakeDebugMode && effectiveShowOutlines, {
+  syncQuakeRenderBundleDebugOutlines(effectiveShowOutlines, {
     hideTextures: quakeDebugHideTextures,
   });
+  syncQuakeRenderBundleDebugLabels(quakeDebugShowLabels);
   document.body.classList.remove("quake-poly-debug");
-  document.body.classList.toggle("quake-debug-no-textures", quakeDebugMode && quakeDebugHideTextures);
-  document.body.classList.toggle("quake-debug-static-lighting", quakeDebugMode && quakeDebugStaticLighting);
-  document.body.classList.toggle("quake-debug-outlines", quakeDebugMode && effectiveShowOutlines);
-  document.body.classList.toggle("quake-debug-labels", quakeDebugMode && quakeDebugShowLabels);
+  document.body.classList.toggle("quake-debug-no-textures", quakeDebugHideTextures);
+  document.body.classList.toggle("quake-debug-outlines", effectiveShowOutlines);
+  document.body.classList.toggle("quake-debug-labels", quakeDebugShowLabels);
 }
 
 function quakeDebugEffectiveShowOutlines(): boolean {
@@ -1272,7 +1604,7 @@ function quakeDebugEffectiveShowOutlines(): boolean {
 
 function syncQuakeDebugFlyMode(): void {
   if (debugFlyModeOption) debugFlyModeOption.checked = quakeDebugFlyMode;
-  const requested = quakeDebugMode && quakeDebugFlyMode;
+  const requested = quakeDebugFlyMode;
   const wasActive = quakeDebugFlyModeActive;
   quakeDebugFlyModeActive = requested;
   document.body.classList.toggle("quake-debug-fly", requested);
@@ -1306,15 +1638,10 @@ function respawnQuakePlayerFromFlyMode(): boolean {
   return true;
 }
 
-function syncQuakeDebugPointerLockState(): void {
-  document.body.classList.toggle("quake-debug-pointer-free", quakeDebugMode && document.pointerLockElement !== host);
-}
-
 function syncQuakeDebugPanelVisibility(): void {
   if (!debugPanel) return;
   debugPanel.hidden = !quakeDebugMode;
   if (quakeDebugMode) {
-    menu.hideMainMenu();
     syncQuakeDebugPanelStats();
     startQuakeDebugPanelStats();
     return;
@@ -1343,8 +1670,7 @@ function syncQuakeDebugPanelStats(): void {
   const pickupMeshes = Array.from(document.querySelectorAll<HTMLElement>(".polycss-mesh.pickup"));
   const activePickupMeshes = pickupMeshes.filter((element) => !element.hidden);
 
-  setQuakeDebugStat("map", `${currentMapName.toUpperCase()} leaf ${debugStatValue(worldStats.currentLeafIndex)}`);
-  setQuakeDebugStat("pose", `${quakeDebugVec3(origin)} | ${rotX.toFixed(1)}/${rotY.toFixed(1)}`);
+  setQuakeDebugStat("capture", quakeDebugCapturePose(currentMapName, origin, rotX, rotY));
   setQuakeDebugStat(
     "visible",
     `${debugStatValue(worldStats.visibleLeafCount)} leaves, ${debugStatValue(worldStats.pvsFaceCount)} faces`,
@@ -1379,6 +1705,10 @@ function quakeDebugVec3(value: Vec3): string {
   return value.map((component) => component.toFixed(1)).join(", ");
 }
 
+function quakeDebugCapturePose(mapName: string, origin: Vec3, rotX: number, rotY: number): string {
+  return `${mapName} | ${quakeDebugVec3(origin)} | ${rotX.toFixed(1)}/${rotY.toFixed(1)}`;
+}
+
 function setQuakeDebugStat(name: string, value: string): void {
   const element = debugStatElements.get(name);
   if (element) element.textContent = value;
@@ -1394,6 +1724,11 @@ function setQuakeInvertMouse(invert: boolean): void {
   controls.update({ invertY: invert });
 }
 
+function setQuakeAlwaysRun(alwaysRun: boolean): void {
+  quakeAlwaysRun = alwaysRun;
+  if (alwaysRunOption) alwaysRunOption.checked = alwaysRun;
+}
+
 function syncQuakeOptionControls(): void {
   syncQuakeAudioToggle();
   if (disableEnemiesOption) disableEnemiesOption.checked = quakeEnemiesDisabled;
@@ -1401,7 +1736,11 @@ function syncQuakeOptionControls(): void {
   setQuakeDebugMode(quakeDebugMode);
   syncQuakeDebugRenderOptions();
   syncQuakeDebugFlyMode();
+  syncQuakeDynamicLightingOption();
   if (invertMouseOption) invertMouseOption.checked = quakeInvertMouse;
+  if (alwaysRunOption) alwaysRunOption.checked = quakeAlwaysRun;
+  setQuakeShowGun(quakeShowGun);
+  setQuakeDebugShowFps(quakeDebugShowFps);
 }
 
 function clearQuakeLevelLoadTimer(): void {
@@ -1442,6 +1781,15 @@ function showQuakeNotifyText(message: string, duration = QUAKE_NOTIFY_TEXT_MS): 
   const text = message.trim();
   if (!text || !quakeHud || quakePlayerDead) return;
   quakeText.notify(text, { durationMs: duration });
+}
+
+function setQuakeNotifyText(text: string): void {
+  if (!text.trim() || !quakeHud) return;
+  quakeText.setNotify(text);
+}
+
+function clearQuakeNotifyText(): void {
+  quakeText.clearNotify();
 }
 
 function showQuakeCenterPrint(message: string, duration = QUAKE_CENTERPRINT_MS): void {
@@ -1525,19 +1873,43 @@ function suppressQuakeMainMenuOnNextControlsEnd(): void {
   quakeDeathUnlockMenuSuppressUntil = performance.now() + QUAKE_DEATH_UNLOCK_MENU_SUPPRESS_MS;
 }
 
+function suppressQuakeMainMenuOnResumeControlsEnd(): void {
+  quakeMenuResumeControlsEndSuppressUntil = performance.now() + QUAKE_MENU_RESUME_CONTROLS_END_SUPPRESS_MS;
+}
+
 function clearQuakeMainMenuControlsEndSuppression(): void {
   quakeDeathUnlockMenuSuppressUntil = 0;
+  // Resume suppression must expire by time; the same Escape resume can create a rapid start/end pair.
 }
 
 function shouldOpenQuakeMainMenuOnControlsEnd(): boolean {
-  if (quakeDebugMode) return false;
-  if (quakeAppLoading || isQuakeLevelTransitionActive()) return false;
+  if (quakeAppLoading) {
+    quakePointerTrace("controls-end-menu-gate", { allow: false, reason: "loading" });
+    return false;
+  }
+  if (isQuakeLevelTransitionActive()) {
+    quakePointerTrace("controls-end-menu-gate", { allow: false, reason: "level-transition" });
+    return false;
+  }
+  if (quakeMenuResumeControlsEndSuppressUntil > 0) {
+    const suppress = performance.now() <= quakeMenuResumeControlsEndSuppressUntil;
+    quakeMenuResumeControlsEndSuppressUntil = 0;
+    if (suppress) {
+      quakePointerTrace("controls-end-menu-gate", { allow: false, reason: "resume-suppress" });
+      return false;
+    }
+  }
   if (quakeDeathUnlockMenuSuppressUntil > 0) {
     const suppress = performance.now() <= quakeDeathUnlockMenuSuppressUntil;
     quakeDeathUnlockMenuSuppressUntil = 0;
-    if (suppress) return false;
+    if (suppress) {
+      quakePointerTrace("controls-end-menu-gate", { allow: false, reason: "death-suppress" });
+      return false;
+    }
   }
-  return !quakePlayerDead;
+  const allow = !quakePlayerDead;
+  quakePointerTrace("controls-end-menu-gate", { allow, reason: allow ? "allow" : "dead" });
+  return allow;
 }
 
 function showQuakePlayerDeath(): void {
@@ -1588,16 +1960,20 @@ function clearQuakePlayerDeath(): void {
 
 function showQuakeDeathOverlay(): void {
   if (!loadingOverlay) return;
+  clearQuakeLoadingConsoleQueue();
   loadingOverlay.hidden = false;
   loadingOverlay.classList.add("quake-loading-death");
   loadingOverlay.setAttribute("aria-busy", "false");
-  if (loadingStatus) loadingStatus.textContent = "you died";
+  quakeLoadingConsoleLines = ["you died"];
+  quakeLoadingConsoleLineKeys = [null];
+  quakeLoadingConsoleLastStatus = "you died";
+  quakeLoadingConsoleCurrentStatus = "you died";
+  renderQuakeLoadingConsole();
   if (loadingProgress) loadingProgress.hidden = true;
   if (loadingAction) {
     loadingAction.textContent = "";
     loadingAction.hidden = true;
   }
-  mountQuakeBitmapText(loadingStatus?.parentElement ?? loadingOverlay);
 }
 
 function clearQuakeDeathOverlay(): void {
@@ -1632,12 +2008,12 @@ function startQuakeNewGame(): void {
   clearQuakeMobileMoveInput();
   clearQuakeLevelComplete();
   getPlayer().respawn();
-  quakeGameplayStarted = true;
+  setQuakeGameplayStarted(true);
 }
 
 function resumeQuakeGameplayAfterMapLoad(): void {
   if (!currentResult || quakeAppLoading || quakePlayerDead) return;
-  quakeGameplayStarted = true;
+  setQuakeGameplayStarted(true);
   menu.hideMainMenu();
   syncPlayerCollision();
 }
@@ -1665,7 +2041,7 @@ function shouldResumeQuakeMainMenuOnEscape(): boolean {
 }
 
 function isQuakeDebugFlyModeActive(): boolean {
-  return quakeDebugMode && quakeDebugFlyMode && canUseQuakeGameplayInput();
+  return quakeDebugFlyMode && canUseQuakeGameplayInput();
 }
 
 function isEditableKeyboardTarget(target: EventTarget | null): boolean {
@@ -1681,9 +2057,116 @@ function shouldPreventQuakeGameplayKeyDefault(event: KeyboardEvent): boolean {
 }
 
 function isQuakeDebugPanelTarget(target: EventTarget | null): boolean {
-  return debugPanel !== null &&
-    target instanceof Node &&
+  return target instanceof Node &&
+    debugPanel !== null &&
     debugPanel.contains(target);
+}
+
+function quakeDomNodeLabel(element: Element): string {
+  const tag = element.tagName.toLowerCase();
+  const id = element.id ? `#${element.id}` : "";
+  const classes = Array.from(element.classList)
+    .slice(0, 2)
+    .map((className) => `.${className}`)
+    .join("");
+  return `${tag}${id}${classes}`;
+}
+
+function quakeEventTargetLabel(target: EventTarget | null): string | null {
+  if (!target) return null;
+  if (target === window) return "window";
+  if (target === document) return "document";
+  if (target instanceof Element) return quakeDomNodeLabel(target);
+  if (target instanceof Node) return target.nodeName.toLowerCase();
+  return target.constructor?.name ?? typeof target;
+}
+
+function quakePointerLockElementLabel(): string | null {
+  return quakeEventTargetLabel(document.pointerLockElement);
+}
+
+function quakeUserActivationTraceDetails(): QuakePointerTraceDetails {
+  const activation = (navigator as Navigator & {
+    userActivation?: {
+      hasBeenActive: boolean;
+      isActive: boolean;
+    };
+  }).userActivation;
+  return {
+    userActivationActive: activation?.isActive ?? null,
+    userActivationHasBeenActive: activation?.hasBeenActive ?? null,
+  };
+}
+
+function quakePointerErrorTraceDetails(error: unknown): QuakePointerTraceDetails {
+  if (error instanceof Error) {
+    return {
+      errorName: error.name,
+      errorMessage: error.message.slice(0, 200),
+    };
+  }
+  return {
+    errorName: typeof error,
+    errorMessage: String(error).slice(0, 200),
+  };
+}
+
+function shouldCaptureQuakePointerTrace(): boolean {
+  return quakeDebugMode || isQuakeDebugHooksEnabled();
+}
+
+function syncQuakePointerTraceAccessors(): QuakePointerTraceWindow | null {
+  if (!shouldCaptureQuakePointerTrace()) return null;
+  const traceWindow = window as unknown as QuakePointerTraceWindow;
+  traceWindow.__cssQuakePointerTrace ??= [];
+  traceWindow.__cssQuakePointerTraceDump = () => JSON.stringify(traceWindow.__cssQuakePointerTrace ?? [], null, 2);
+  traceWindow.__cssQuakePointerTraceClear = () => {
+    quakePointerTraceSerial = 0;
+    traceWindow.__cssQuakePointerTrace = [];
+    syncQuakePointerTraceDom([]);
+  };
+  syncQuakePointerTraceDom(traceWindow.__cssQuakePointerTrace);
+  return traceWindow;
+}
+
+function syncQuakePointerTraceDom(trace: readonly QuakePointerTraceEntry[]): void {
+  let element = document.getElementById("quake-pointer-trace-dump") as HTMLScriptElement | null;
+  if (!element) {
+    element = document.createElement("script");
+    element.id = "quake-pointer-trace-dump";
+    element.type = "application/json";
+    document.body.appendChild(element);
+  }
+  element.dataset.count = String(trace.length);
+  element.textContent = JSON.stringify(trace);
+}
+
+function quakePointerTrace(kind: string, details: QuakePointerTraceDetails = {}): void {
+  const traceWindow = syncQuakePointerTraceAccessors();
+  if (!traceWindow) return;
+  const trace = traceWindow.__cssQuakePointerTrace ?? [];
+  const entry: QuakePointerTraceEntry = {
+    id: ++quakePointerTraceSerial,
+    at: Math.round(performance.now() * 10) / 10,
+      kind,
+      details: {
+        debug: quakeDebugMode,
+        pointerLocked: document.pointerLockElement === host,
+        pointerLock: quakePointerLockElementLabel(),
+      active: document.activeElement === host ? "host" : quakeEventTargetLabel(document.activeElement),
+      menuOpen: menu.isMainMenuOpen(),
+      panelOpen: menu.isMenuPanelOpen(),
+      loading: quakeAppLoading,
+      canInput: canUseQuakeGameplayInput(),
+      bodyClass: document.body.className,
+      ...details,
+    },
+  };
+  trace.push(entry);
+  if (trace.length > QUAKE_POINTER_TRACE_LIMIT) trace.splice(0, trace.length - QUAKE_POINTER_TRACE_LIMIT);
+  traceWindow.__cssQuakePointerTrace = trace;
+  syncQuakePointerTraceDom(trace);
+  console.debug(`cssquake:pointer ${JSON.stringify(entry)}`);
 }
 
 function syncQuakeCrouchInput(): void {
@@ -1696,8 +2179,8 @@ function clearQuakeMoveInput(): void {
 }
 
 function handleQuakeMoveKey(event: KeyboardEvent, pressed: boolean): boolean {
-  if (quakeDebugMode && quakeDebugFlyMode) return false;
-  if (!QUAKE_MOVE_KEY_CODES.has(event.code) && event.code !== "Space") return false;
+  if (quakeDebugFlyMode) return false;
+  if (!QUAKE_MOVE_KEY_CODES.has(event.code) && !QUAKE_SPEED_KEY_CODES.has(event.code) && event.code !== "Space") return false;
   if (pressed && (!canUseQuakeGameplayInput() || isEditableKeyboardTarget(event.target))) return false;
   if (!player?.handleMoveKey(event.code, pressed)) return false;
   return true;
@@ -1710,7 +2193,7 @@ function clearQuakeCrouchInput(): void {
 }
 
 function handleQuakeCrouchKey(event: KeyboardEvent, pressed: boolean): boolean {
-  if (quakeDebugMode && quakeDebugFlyMode) return false;
+  if (quakeDebugFlyMode) return false;
   if (!QUAKE_CROUCH_KEY_CODES.has(event.code)) return false;
   if (pressed) {
     if (!canUseQuakeGameplayInput() || isEditableKeyboardTarget(event.target)) return false;
@@ -1731,7 +2214,7 @@ function clearQuakeDebugFlyInput(): void {
 }
 
 function handleQuakeDebugFlyKey(event: KeyboardEvent, pressed: boolean): boolean {
-  if (!quakeDebugMode || !quakeDebugFlyMode || !quakeDebugFlyKeyCode(event.code)) return false;
+  if (!quakeDebugFlyMode || !quakeDebugFlyKeyCode(event.code)) return false;
   if (!canUseQuakeGameplayInput() || isEditableKeyboardTarget(event.target)) return false;
   event.preventDefault();
   event.stopPropagation();
@@ -1758,11 +2241,26 @@ function createQuakeLoadingProgressTracker(status = "Loading"): QuakeLoadingProg
   let total = 0;
   let currentStatus = status;
   let visualProgress = 0;
+  const groups = new Map<string, { completed: number; total: number }>();
+
+  const groupForStatus = (groupStatus: string) => {
+    let group = groups.get(groupStatus);
+    if (!group) {
+      group = { completed: 0, total: 0 };
+      groups.set(groupStatus, group);
+    }
+    return group;
+  };
 
   const render = () => {
     const actualProgress = total > 0 ? completed / total : 0;
     visualProgress = total > 0 ? Math.max(visualProgress, actualProgress) : 0;
-    updateQuakeLoadingDisplay(currentStatus, { completed, total, visualProgress });
+    const group = groups.get(currentStatus);
+    updateQuakeLoadingDisplay(currentStatus, {
+      completed: group?.completed ?? completed,
+      total: group?.total ?? total,
+      visualProgress,
+    });
   };
 
   return {
@@ -1770,18 +2268,199 @@ function createQuakeLoadingProgressTracker(status = "Loading"): QuakeLoadingProg
       currentStatus = nextStatus;
       render();
     },
-    startTask() {
+    startTask(taskStatus = currentStatus) {
       let done = false;
+      const group = groupForStatus(taskStatus);
+      currentStatus = taskStatus;
+      group.total++;
       total++;
       render();
       return () => {
         if (done) return;
         done = true;
+        currentStatus = taskStatus;
+        group.completed = Math.min(group.total, group.completed + 1);
         completed = Math.min(total, completed + 1);
         render();
       };
     },
   };
+}
+
+function quakeLoadingProgressGroup(
+  progress: QuakeLoadingProgressTracker | undefined,
+  status: string,
+): QuakeLoadingProgressTracker | undefined {
+  if (!progress) return undefined;
+  return {
+    setStatus(nextStatus) {
+      progress.setStatus(nextStatus);
+    },
+    startTask(taskStatus = status) {
+      return progress.startTask(taskStatus);
+    },
+  };
+}
+
+function resetQuakeLoadingConsole(status = "Loading"): void {
+  clearQuakeLoadingConsoleQueue();
+  quakeLoadingConsoleLines = [];
+  quakeLoadingConsoleLineKeys = [];
+  quakeLoadingConsoleLastStatus = "";
+  quakeLoadingConsoleCurrentStatus = "";
+  renderQuakeLoadingConsole();
+  if (!currentResult && status === "Loading") {
+    for (const line of QUAKE_LOADING_CONSOLE_BOOT_LINES) {
+      queueQuakeLoadingConsoleLine(line);
+    }
+  }
+  if (!currentResult && status === "Loading") return;
+  updateQuakeLoadingConsoleStatus(status, 0, 0);
+}
+
+function clearQuakeLoadingConsoleQueue(): void {
+  if (quakeLoadingConsoleLineTimer !== null) {
+    window.clearTimeout(quakeLoadingConsoleLineTimer);
+    quakeLoadingConsoleLineTimer = null;
+  }
+  quakeLoadingConsoleLineQueue = [];
+}
+
+function queueQuakeLoadingConsoleLine(status: string, key: string | null = null): void {
+  const line = status.replace(/\s+/g, " ").trim();
+  if (!line) return;
+  if (key && (replaceDisplayedQuakeLoadingConsoleLine(key, line) || replaceQueuedQuakeLoadingConsoleLine(key, line))) return;
+  const lastQueuedLine = quakeLoadingConsoleLineQueue[quakeLoadingConsoleLineQueue.length - 1]?.line;
+  if (!key && (line === quakeLoadingConsoleLastStatus || lastQueuedLine === line)) return;
+  quakeLoadingConsoleLineQueue.push({ key, line });
+  scheduleQuakeLoadingConsoleLine();
+}
+
+function replaceDisplayedQuakeLoadingConsoleLine(key: string, line: string): boolean {
+  const index = quakeLoadingConsoleLineKeys.lastIndexOf(key);
+  if (index < 0) return false;
+  if (quakeLoadingConsoleLines[index] === line) return true;
+  quakeLoadingConsoleLines[index] = line;
+  if (index === quakeLoadingConsoleLines.length - 1) {
+    quakeLoadingConsoleLastStatus = line;
+    quakeLoadingConsoleCurrentStatus = key;
+  }
+  renderQuakeLoadingConsole();
+  return true;
+}
+
+function replaceQueuedQuakeLoadingConsoleLine(key: string, line: string): boolean {
+  for (const queued of quakeLoadingConsoleLineQueue) {
+    if (queued.key !== key) continue;
+    queued.line = line;
+    return true;
+  }
+  return false;
+}
+
+function scheduleQuakeLoadingConsoleLine(): void {
+  if (quakeLoadingConsoleLineTimer !== null || quakeLoadingConsoleLineQueue.length === 0) return;
+  const delay = quakeLoadingConsoleLines.length === 0 ? 0 : QUAKE_LOADING_CONSOLE_LINE_DELAY_MS;
+  quakeLoadingConsoleLineTimer = window.setTimeout(flushQuakeLoadingConsoleLine, delay);
+}
+
+function flushQuakeLoadingConsoleLine(): void {
+  quakeLoadingConsoleLineTimer = null;
+  const queued = quakeLoadingConsoleLineQueue.shift();
+  if (queued) appendQuakeLoadingConsoleLineNow(queued.line, queued.key);
+  scheduleQuakeLoadingConsoleLine();
+}
+
+function appendQuakeLoadingConsoleLineNow(line: string, key: string | null): void {
+  if (key) quakeLoadingConsoleCurrentStatus = key;
+  quakeLoadingConsoleLastStatus = line;
+  quakeLoadingConsoleLines.push(line);
+  quakeLoadingConsoleLineKeys.push(key);
+  if (quakeLoadingConsoleLines.length > QUAKE_LOADING_CONSOLE_MAX_LINES) {
+    quakeLoadingConsoleLines = quakeLoadingConsoleLines.slice(-QUAKE_LOADING_CONSOLE_MAX_LINES);
+    quakeLoadingConsoleLineKeys = quakeLoadingConsoleLineKeys.slice(-QUAKE_LOADING_CONSOLE_MAX_LINES);
+  }
+  renderQuakeLoadingConsole();
+}
+
+function renderQuakeLoadingConsole(): void {
+  if (!loadingStatus) return;
+  loadingStatus.textContent = "";
+  const fragment = document.createDocumentFragment();
+  for (const line of quakeLoadingConsoleLines) {
+    const element = document.createElement("span");
+    element.className = "quake-loading-console-line quake-bm-copy";
+    element.textContent = line;
+    fragment.append(element);
+  }
+  loadingStatus.append(fragment);
+  loadingStatus.setAttribute("aria-label", quakeLoadingConsoleLines.join("\n"));
+  mountQuakeBitmapText(loadingStatus);
+}
+
+function updateQuakeLoadingConsoleStatus(status: string, completed: number, total: number): void {
+  const key = status.replace(/\s+/g, " ").trim() || "Loading";
+  const line = formatQuakeLoadingConsoleStatus(key, completed, total);
+  if (
+    key === quakeLoadingConsoleCurrentStatus &&
+    quakeLoadingConsoleLines.length > 0 &&
+    quakeLoadingConsoleLineKeys[quakeLoadingConsoleLineKeys.length - 1] === key
+  ) {
+    if (quakeLoadingConsoleLines[quakeLoadingConsoleLines.length - 1] === line) return;
+    quakeLoadingConsoleLines[quakeLoadingConsoleLines.length - 1] = line;
+    quakeLoadingConsoleLastStatus = line;
+    renderQuakeLoadingConsole();
+    return;
+  }
+  queueQuakeLoadingConsoleLine(line, key);
+}
+
+function formatQuakeLoadingConsoleStatus(status: string, completed: number, total: number): string {
+  const label = quakeLoadingConsoleStatusLabel(status);
+  if (label.startsWith("error:")) return label;
+  if (total <= 1) return label;
+  return `${label} ${completed}/${total}`;
+}
+
+function quakeLoadingConsoleStatusLabel(status: string): string {
+  const label = status.replace(/\s+/g, " ").trim() || "Loading";
+  switch (label) {
+    case "Loading":
+      return "Loading Quake data";
+    case "Manifest":
+      return "Loaded manifest";
+    case "Loading manifest":
+      return "Loaded manifest";
+    case "Game logic":
+      return "Game logic: progs.dat";
+    case "Pickup definitions":
+      return "Pickup definitions";
+    case "Weapon model":
+      return "Weapon model";
+    case "Pickup models":
+      return "Pickup models";
+    case "Monster models":
+      return "Monster models";
+    case "Map model assets":
+      return "Brush/submodels";
+    case "Loading models":
+      return "Models";
+    case "Preparing view":
+      return "Rendered first frame";
+    case "Load failed":
+      return "Load failed";
+    case QUAKE_ASSETS_REGENERATING_STATUS:
+      return QUAKE_ASSETS_REGENERATING_STATUS;
+    default:
+      break;
+  }
+  const worldBspMatch = /^World ([a-z0-9_]+)\.bsp$/i.exec(label);
+  if (worldBspMatch) return `World BSP: ${worldBspMatch[1].toLowerCase()}.bsp`;
+  const mapModelsMatch = /^Loading ([a-z0-9_]+) models$/i.exec(label);
+  if (mapModelsMatch) return `Precache ${mapModelsMatch[1].toLowerCase()} models`;
+  const mapMatch = /^Loading ([a-z0-9_]+)$/i.exec(label);
+  if (mapMatch) return `World ${mapMatch[1].toLowerCase()}.bsp`;
+  return label;
 }
 
 function setQuakeLoading(active: boolean, status = "Loading"): void {
@@ -1796,7 +2475,11 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
     clearQuakeBonusOverlay();
     hideQuakeStatsOverlay();
     document.body.classList.add("quake-loading");
-    updateQuakeLoadingDisplay(status, { completed: 0, total: 0 });
+    loadingOverlay?.classList.remove("quake-loading-console-persisted");
+    resetQuakeLoadingConsole(status);
+    if (!(status === "Loading" && !currentResult)) {
+      updateQuakeLoadingDisplay(status, { completed: 0, total: 0 });
+    }
     if (loadingAction) {
       loadingAction.textContent = "";
       loadingAction.hidden = true;
@@ -1810,17 +2493,19 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
     return;
   }
 
-  if (QUAKE_LOADING_PREVIEW_ENABLED) {
+  if (QUAKE_LOADING_PREVIEW_ENABLED || !quakeGameplayStarted) {
     document.body.classList.add("quake-loading");
     if (loadingOverlay) {
       loadingOverlay.hidden = false;
       loadingOverlay.setAttribute("aria-busy", "false");
+      loadingOverlay.classList.add("quake-loading-console-persisted");
     }
   } else {
     document.body.classList.remove("quake-loading");
     if (loadingOverlay) {
       loadingOverlay.hidden = true;
       loadingOverlay.removeAttribute("aria-busy");
+      loadingOverlay.classList.remove("quake-loading-console-persisted");
     }
   }
   if (loadingAction) {
@@ -1845,6 +2530,7 @@ function setQuakeLoadingError(): void {
   clearQuakeWeaponViewPunch();
   clearQuakeBonusOverlay();
   document.body.classList.add("quake-loading");
+  resetQuakeLoadingConsole("Load failed");
   updateQuakeLoadingDisplay("Load failed", { completed: 0, total: 0 });
   if (loadingAction) {
     loadingAction.textContent = "";
@@ -1868,10 +2554,12 @@ function setQuakeAssetsRegenerating(message = QUAKE_ASSETS_REGENERATING_ACTION):
   clearQuakeWeaponViewPunch();
   clearQuakeBonusOverlay();
   document.body.classList.add("quake-loading");
+  resetQuakeLoadingConsole(QUAKE_ASSETS_REGENERATING_STATUS);
   updateQuakeLoadingDisplay(QUAKE_ASSETS_REGENERATING_STATUS, { completed: 0, total: 0 });
   if (loadingAction) {
     loadingAction.textContent = message;
     loadingAction.hidden = false;
+    mountQuakeBitmapText(loadingAction);
   }
   if (loadingOverlay) {
     loadingOverlay.hidden = false;
@@ -1887,12 +2575,7 @@ function updateQuakeLoadingDisplay(status: string, progress: QuakeLoadingProgres
   const actualProgress = total > 0 ? completed / total : 0;
   const visualProgress = Math.max(0, Math.min(1, progress.visualProgress ?? actualProgress));
   const percent = Math.round(visualProgress * 100);
-  const root = loadingStatus?.parentElement ?? document;
-  const displayStatus = status === "Load failed" || status === QUAKE_ASSETS_REGENERATING_STATUS
-    ? status
-    : "Loading";
-
-  if (loadingStatus) loadingStatus.textContent = displayStatus;
+  updateQuakeLoadingConsoleStatus(status, completed, total);
   if (loadingProgress) {
     loadingProgress.style.setProperty("--quake-loading-progress", String(percent / 100));
     if (total > 0) {
@@ -1906,7 +2589,6 @@ function updateQuakeLoadingDisplay(status: string, progress: QuakeLoadingProgres
     }
   }
   if (loadingProgressFill) loadingProgressFill.hidden = false;
-  mountQuakeBitmapText(root);
 }
 
 function addQuakePickupMesh(entity: QuakeEntity, model?: QuakePickupModel, frameIndex = 0): PolyMeshHandle | null {
@@ -2218,7 +2900,7 @@ function playQuakeDamageViewFeedback(feedback: QuakePlayerDamageFeedback | undef
 }
 
 function lookOffset(): number {
-  const value = Number.parseFloat(scene.cameraEl.style.perspective || scene.camera.perspectiveStyle);
+  const value = Number.parseFloat(quakeCameraPerspectiveStyle || scene.camera.perspectiveStyle);
   return (Number.isFinite(value) && value > 0 ? value : 900) / BASE_TILE;
 }
 
@@ -2233,13 +2915,13 @@ function forwardDirection(rotX: number, rotY: number): Vec3 {
 }
 
 function scheduleQuakeDebugFlyFrame(): void {
-  if (quakeAppDisposed || quakeDebugFlyFrame || !quakeDebugMode || !quakeDebugFlyMode) return;
+  if (quakeAppDisposed || quakeDebugFlyFrame || !quakeDebugFlyMode) return;
   quakeDebugFlyFrame = window.requestAnimationFrame(runQuakeDebugFlyFrame);
 }
 
 function runQuakeDebugFlyFrame(now: number): void {
   quakeDebugFlyFrame = 0;
-  if (!quakeDebugMode || !quakeDebugFlyMode) {
+  if (!quakeDebugFlyMode) {
     quakeDebugFlyTime = 0;
     return;
   }
@@ -2358,7 +3040,8 @@ function mountQuakeScene(result: QuakeScene): void {
   const runtime = result.entityManifest.runtime;
   audio.syncAmbientEntities(quakeEntitiesForIndexes(runtime.ambientEntityIndexes));
   setCamera(result.spawn);
-  shootables.spawn(quakeEntitiesForIndexes(runtime.shootableEntityIndexes), currentPickupModelLibrary, currentProgramMetadata);
+  shootables.spawn(quakeShootableRuntimeEntities(runtime), currentPickupModelLibrary, currentProgramMetadata);
+  setupQuakeMonsterJumpTriggers(result);
   getPlayer().resetInventory();
   const origin = getPlayer().currentOrigin();
   shootables.syncVisibility(origin, true);
@@ -2407,6 +3090,22 @@ function quakeEntitiesForIndexes(indexes: readonly number[]): QuakeEntity[] {
     if (entity) out.push(entity);
   }
   return out;
+}
+
+function quakeShootableRuntimeEntities(runtime: QuakeScene["entityManifest"]["runtime"]): QuakeEntity[] {
+  return quakeEntitiesForIndexes([
+    ...runtime.shootableEntityIndexes,
+    ...runtime.moverSupportEntityIndexes,
+  ]);
+}
+
+function setupQuakeMonsterJumpTriggers(result: QuakeScene): void {
+  shootables.setupMonsterJumpTriggers(
+    result.entities.filter((entity) => entity.classname === "trigger_monsterjump"),
+    result.models,
+    result.collision?.pivot ?? quakeModelPivot,
+    result.gameLogic,
+  );
 }
 
 function activateQuakeTeleport(trigger: QuakeEntity): boolean {
@@ -2497,6 +3196,9 @@ function activateQuakeEntity(entityIndex: number, sourceEntityIndex?: number): b
     syncTouchedTriggers(controls.getOrigin());
     return true;
   }
+  if (entity.classname.startsWith("monster_")) {
+    return shootables.activate(entity.index, { skill: quakeSkill });
+  }
   if (shootables.has(entity.index)) {
     shootables.destroy(entity.index);
     return true;
@@ -2514,7 +3216,49 @@ function activateQuakeSpecialEntity(entity: QuakeEntity): boolean {
     activateQuakeSpikeShooter(entity);
     return true;
   }
+  if (entity.classname === "event_lightning") {
+    return shootables.triggerBossLightning({ skill: quakeSkill });
+  }
   return false;
+}
+
+function quakeBossLightningElectrodesReady(
+  targetName: string,
+  alignment: QuakeBossLightningAlignment,
+): boolean {
+  if (alignment.targetField !== "target") return false;
+  const states = quakeBossLightningElectrodeStates(targetName);
+  if (states.length < 2) return false;
+  const firstState = states[0];
+  const secondState = states[1];
+  if (!alignment.validStates.includes(firstState) || !alignment.validStates.includes(secondState)) return false;
+  if (alignment.requiresMatchingState && firstState !== secondState) return false;
+  return firstState === alignment.damageState;
+}
+
+function quakeBossLightningDischarge(targetName: string, lightning: QuakeBossLightningDischarge): void {
+  const resetAfterMs = lightning.resetAfterMs;
+  if (resetAfterMs === undefined || resetAfterMs <= 0) return;
+  movers.forceDoorsDownAfter(targetName, resetAfterMs);
+}
+
+function quakeBossLightningElectrodeStates(targetName: string): Array<NonNullable<ReturnType<typeof quakeDoorTerminalState>>> {
+  const entities = [...entityByIndex.values()]
+    .filter((entity) => entity.properties.target === targetName)
+    .sort((a, b) => a.index - b.index)
+    .slice(0, 2);
+  const states: Array<NonNullable<ReturnType<typeof quakeDoorTerminalState>>> = [];
+  for (const entity of entities) {
+    const terminalState = quakeDoorTerminalStateForEntity(entity.index);
+    if (!terminalState) return [];
+    states.push(terminalState);
+  }
+  return states;
+}
+
+function quakeDoorTerminalStateForEntity(entityIndex: number): ReturnType<typeof quakeDoorTerminalState> {
+  const mover = movers.get(entityIndex);
+  return mover ? quakeDoorTerminalState(mover) : null;
 }
 
 function activateQuakeSpecialTrigger(entity: QuakeEntity): boolean {
@@ -2583,15 +3327,10 @@ function quakeRuntimeTriggerWait(entity: QuakeEntity, fallback: number): number 
 }
 
 function activateQuakeSolidGate(entity: QuakeEntity): boolean {
-  if (entity.classname === "func_episodegate") {
-    showQuakeCenterPrint(quakeEntityMessage(entity, "THIS EPISODE IS LOCKED"));
-    return true;
-  }
-  if (entity.classname === "func_bossgate") {
-    showQuakeCenterPrint(quakeEntityMessage(entity, "YOU MUST COMPLETE THE EPISODES FIRST"));
-    return true;
-  }
-  return false;
+  const activation = quakeSolidGateActivation(entity);
+  if (!activation) return false;
+  showQuakeCenterPrint(activation.message);
+  return true;
 }
 
 function quakeEntityMessage(entity: QuakeEntity, fallback: string): string {
@@ -2614,13 +3353,8 @@ function setupQuakePointHazards(entityIndexes: readonly number[]): void {
   for (const entityIndex of entityIndexes) {
     const entity = entityByIndex.get(entityIndex);
     if (!entity || targetSystem.isDisabled(entity.index) || !entity.origin) continue;
-    const rawSpeed = quakeEntityNumber(entity, "speed", QUAKE_FIREBALL_DEFAULT_SPEED);
-    quakeFireballEmitters.push({
-      entityIndex: entity.index,
-      origin: quakePointToPoly(entity.origin),
-      speed: (rawSpeed > 0 ? rawSpeed : QUAKE_FIREBALL_DEFAULT_SPEED) * QUAKE_COLLISION_UNIT_SCALE,
-      nextSpawnAt: now + Math.random() * QUAKE_FIREBALL_INITIAL_DELAY_MS,
-    });
+    const emitter = quakeFireballEmitterFromEntity(entity, quakePointToPoly, now);
+    if (emitter) quakeFireballEmitters.push(emitter);
   }
   if (quakeFireballEmitters.length) startQuakePointHazards();
 }
@@ -2638,6 +3372,11 @@ function tickQuakePointHazards(_frameNow: number): void {
   }
 
   const now = performance.now();
+  if (isQuakeGamePaused()) {
+    quakePointHazardTime = 0;
+    quakePointHazardFrame = window.requestAnimationFrame(tickQuakePointHazards);
+    return;
+  }
   const dt = Math.min(QUAKE_POINT_HAZARD_DT_CLAMP, quakePointHazardTime ? (now - quakePointHazardTime) / 1000 : 0.0167);
   quakePointHazardTime = now;
   spawnDueQuakeFireballs(now);
@@ -2647,50 +3386,22 @@ function tickQuakePointHazards(_frameNow: number): void {
 }
 
 function spawnDueQuakeFireballs(now: number): void {
-  for (const emitter of quakeFireballEmitters) {
-    if (targetSystem.isDisabled(emitter.entityIndex)) continue;
-    if (now < emitter.nextSpawnAt) continue;
-    spawnQuakeFireballHazard(emitter, now);
-    emitter.nextSpawnAt = now + QUAKE_FIREBALL_MIN_WAIT_MS + Math.random() * QUAKE_FIREBALL_WAIT_JITTER_MS;
-  }
-}
-
-function spawnQuakeFireballHazard(emitter: QuakeFireballEmitter, now: number): void {
-  quakePointHazards.push({
-    entityIndex: emitter.entityIndex,
-    origin: [...emitter.origin] as Vec3,
-    radiusSq: QUAKE_FIREBALL_RADIUS * QUAKE_FIREBALL_RADIUS,
-    damage: QUAKE_FIREBALL_DAMAGE,
-    kind: "fireball",
-    velocity: [
-      quakeRandomRange(-QUAKE_FIREBALL_DRIFT_SPEED, QUAKE_FIREBALL_DRIFT_SPEED),
-      quakeRandomRange(-QUAKE_FIREBALL_DRIFT_SPEED, QUAKE_FIREBALL_DRIFT_SPEED),
-      emitter.speed + Math.random() * QUAKE_FIREBALL_SPEED_JITTER,
-    ],
-    expiresAt: now + QUAKE_FIREBALL_LIFETIME_MS,
-  });
+  quakeSpawnDueFireballs(
+    quakeFireballEmitters,
+    quakePointHazards,
+    now,
+    (entityIndex) => targetSystem.isDisabled(entityIndex),
+  );
 }
 
 function moveQuakePointHazards(dt: number, now: number): void {
-  const active: QuakePointHazard[] = [];
-  for (const hazard of quakePointHazards) {
-    if (targetSystem.isDisabled(hazard.entityIndex)) continue;
-    if (hazard.expiresAt !== undefined && hazard.expiresAt <= now) continue;
-    if (hazard.velocity) {
-      hazard.velocity[2] -= QUAKE_GRAVITY * dt;
-      hazard.origin = [
-        hazard.origin[0] + hazard.velocity[0] * dt,
-        hazard.origin[1] + hazard.velocity[1] * dt,
-        hazard.origin[2] + hazard.velocity[2] * dt,
-      ];
-    }
-    active.push(hazard);
-  }
-  quakePointHazards = active;
-}
-
-function quakeRandomRange(min: number, max: number): number {
-  return min + Math.random() * (max - min);
+  quakePointHazards = quakeMovePointHazards(
+    quakePointHazards,
+    dt,
+    now,
+    QUAKE_GRAVITY,
+    (entityIndex) => targetSystem.isDisabled(entityIndex),
+  );
 }
 
 function quakePointHazardAt(origin: [number, number, number]): QuakeHazardDamage | null {
@@ -2795,12 +3506,19 @@ function scheduleQuakeDamageableBrushReset(entity: QuakeEntity): void {
     targetSystem.disableEntity(entity.index);
     return;
   }
-  const timer = window.setTimeout(() => {
+  let timer = 0;
+  const resetBrush = (): void => {
     quakeDamageableBrushResetTimers = quakeDamageableBrushResetTimers.filter((item) => item !== timer);
+    if (isQuakeGamePaused()) {
+      timer = window.setTimeout(resetBrush, QUAKE_PAUSED_TIMER_POLL_MS);
+      quakeDamageableBrushResetTimers.push(timer);
+      return;
+    }
     if (!targetSystem.isDisabled(entity.index)) {
       quakeDamageableBrushHealth.set(entity.index, quakeDamageableBrushMaxHealth(entity));
     }
-  }, wait * 1000);
+  };
+  timer = window.setTimeout(resetBrush, wait * 1000);
   quakeDamageableBrushResetTimers.push(timer);
 }
 
@@ -2870,6 +3588,11 @@ function quakeMoverGroupEntityIndexes(state: QuakeMoverState): number[] {
   return entityIndexes;
 }
 
+function moverBlockedByActor(state: QuakeMoverState, nextOffset: Vec3, delta: Vec3): boolean {
+  return moverBlockedByPlayer(state, nextOffset, delta) ||
+    moverBlockedByMonster(state, nextOffset, delta);
+}
+
 function moverBlockedByPlayer(state: QuakeMoverState, nextOffset: Vec3, delta: Vec3): boolean {
   if (isQuakeDebugFlyModeActive()) return false;
   if (state.kind === "button" || shouldCarryPlayerWithMover(state, delta)) return false;
@@ -2882,6 +3605,15 @@ function moverBlockedByPlayer(state: QuakeMoverState, nextOffset: Vec3, delta: V
   )) return false;
   if (moverPushClearsPlayer(state, nextOffset, delta, origin)) return false;
   damageQuakePlayerForMoverBlock(state);
+  return true;
+}
+
+function moverBlockedByMonster(state: QuakeMoverState, nextOffset: Vec3, delta: Vec3): boolean {
+  if (state.kind !== "train") return false;
+  if (distanceSq3(delta, [0, 0, 0]) <= COLLISION_EPSILON) return false;
+  const blockerEntityIndex = shootables.firstMonsterOverlappingBounds(quakeMoverBoundsAtOffsetBounds(state, nextOffset));
+  if (blockerEntityIndex === null) return false;
+  damageQuakeMonsterForMoverBlock(state, blockerEntityIndex);
   return true;
 }
 
@@ -2905,13 +3637,21 @@ function moverPushClearsPlayer(
 }
 
 function damageQuakePlayerForMoverBlock(state: QuakeMoverState): void {
+  damageQuakeActorForMoverBlock(state, (amount) => getPlayer().damage(amount));
+}
+
+function damageQuakeMonsterForMoverBlock(state: QuakeMoverState, entityIndex: number): void {
+  damageQuakeActorForMoverBlock(state, (amount) => shootables.damage(entityIndex, amount));
+}
+
+function damageQuakeActorForMoverBlock(state: QuakeMoverState, applyDamage: (amount: number) => boolean): void {
   const now = performance.now();
   const lastDamageAt = quakeMoverCrushDamageAt.get(state.entity.index) ?? -Infinity;
   if (now - lastDamageAt < 500) return;
   const amount = quakeMoverBlockDamage(state);
   if (amount <= 0) return;
   quakeMoverCrushDamageAt.set(state.entity.index, now);
-  getPlayer().damage(amount);
+  applyDamage(amount);
 }
 
 function applyMoverState(state: QuakeMoverState, movePlayer = true): void {
@@ -3021,6 +3761,14 @@ function quakeMoverBoundsAtOffset(
   };
 }
 
+function quakeMoverBoundsAtOffsetBounds(state: QuakeMoverState, offset: Vec3): QuakeShootableBounds {
+  const bounds = quakeMoverBoundsAtOffset(state, offset);
+  return {
+    min: [bounds.minX, bounds.minY, bounds.minZ],
+    max: [bounds.maxX, bounds.maxY, bounds.maxZ],
+  };
+}
+
 function carryPlayerWithMover(state: QuakeMoverState, delta: Vec3): void {
   getPlayer().carryWithMover(delta, state.entity.index);
 }
@@ -3029,9 +3777,11 @@ function applyMoverLeafTransform(leaf: QuakeFaceLeaf): void {
   const state = leaf.entityIndex !== undefined ? movers.get(leaf.entityIndex) : undefined;
   if (!state || distanceSq3(state.offset, [0, 0, 0]) <= COLLISION_EPSILON) {
     leaf.element.style.transform = leaf.baseTransform;
+    compactQuakeInlineStyle(leaf.element);
     return;
   }
   leaf.element.style.transform = `${quakeOffsetCss(state.offset)} ${leaf.baseTransform}`;
+  compactQuakeInlineStyle(leaf.element);
 }
 
 function syncQuakeButtonLeafVisual(leaf: QuakeFaceLeaf): void {
@@ -3069,8 +3819,23 @@ function applyQuakeButtonLeafVisual(leaf: QuakeFaceLeaf, pressed: boolean): void
 }
 
 function handleQuakeUsePointerDown(event: PointerEvent): void {
-  if (event.button !== 0 || !event.isPrimary) return;
+  quakePointerTrace("host-pointerdown", {
+    button: event.button,
+    primary: event.isPrimary,
+    pointerId: event.pointerId,
+    target: quakeEventTargetLabel(event.target),
+    defaultPrevented: event.defaultPrevented,
+  });
+  if (event.button !== 0 || !event.isPrimary) {
+    quakePointerTrace("host-pointerdown-ignored", {
+      button: event.button,
+      primary: event.isPrimary,
+      reason: "button-or-non-primary",
+    });
+    return;
+  }
   if (quakePlayerDead) {
+    quakePointerTrace("host-pointerdown-respawn", { pointerId: event.pointerId });
     event.preventDefault();
     event.stopPropagation();
     clearQuakeAttackInput();
@@ -3078,13 +3843,22 @@ function handleQuakeUsePointerDown(event: PointerEvent): void {
     respawnQuakePlayerFromDeath();
     return;
   }
-  if (!canUseQuakeGameplayInput()) return;
+  if (!canUseQuakeGameplayInput()) {
+    quakePointerTrace("host-pointerdown-ignored", { pointerId: event.pointerId, reason: "cannot-input" });
+    return;
+  }
   event.preventDefault();
+  const now = performance.now();
+  if (document.pointerLockElement !== host) {
+    clearQuakeAttackInput();
+    engageQuakePointerControls(now);
+    queueQuakeCrosshairTargetSync();
+    return;
+  }
   if (quakeAttackInputDown) {
     scheduleQuakeAttackFrame();
     return;
   }
-  const now = performance.now();
   const actionTrace = quakePointerActionTrace();
   if (activateQuakeButtonAtCrosshair(actionTrace)) {
     clearQuakeAttackInput();
@@ -3101,8 +3875,27 @@ function engageQuakePointerControls(now = performance.now()): void {
   if (document.activeElement !== host) host.focus({ preventScroll: true });
   if (document.pointerLockElement !== host && now >= quakePointerLockRetryAt) {
     quakePointerLockRetryAt = now + QUAKE_POINTER_LOCK_RETRY_MS;
+    quakePointerTrace("controls-lock-request", {
+      retryAt: Math.round(quakePointerLockRetryAt * 10) / 10,
+      ...quakeUserActivationTraceDetails(),
+    });
     controls.lock();
   }
+}
+
+function handleQuakePointerLockError(event: Event): void {
+  quakePointerTrace("pointerlockerror", { target: quakeEventTargetLabel(event.target) });
+}
+
+function handleQuakeControlsStart(): void {
+  syncQuakeInteractionPresentation();
+  quakePointerTrace("controls-start");
+  clearQuakeMainMenuControlsEndSuppression();
+}
+
+function handleQuakeControlsEndTrace(): void {
+  syncQuakeInteractionPresentation();
+  quakePointerTrace("controls-end");
 }
 
 function startQuakeAttackInput(pointerId: number, now = performance.now()): void {
@@ -3409,29 +4202,28 @@ function handleQuakeDisableDamageOptionChange(event: Event): void {
   setQuakeDamageDisabled((event.currentTarget as HTMLInputElement).checked);
 }
 
-function exitQuakeDebugToMainMenu(): void {
-  setQuakeDebugMode(false);
-  menu.showMainMenu();
+function handleQuakeDynamicLightingOptionChange(event: Event): void {
+  setQuakeDynamicLighting((event.currentTarget as HTMLInputElement).checked);
 }
 
-function handleQuakeDebugCloseClick(): void {
-  exitQuakeDebugToMainMenu();
+function handleQuakeAlwaysRunOptionChange(event: Event): void {
+  setQuakeAlwaysRun((event.currentTarget as HTMLInputElement).checked);
 }
 
-function handleQuakeDebugEscape(event: KeyboardEvent): boolean {
-  if (event.code !== "Escape" || !quakeDebugMode || document.pointerLockElement === host) return false;
-  event.preventDefault();
-  event.stopPropagation();
-  exitQuakeDebugToMainMenu();
-  return true;
+function handleQuakeShowGunOptionChange(event: Event): void {
+  setQuakeShowGun((event.currentTarget as HTMLInputElement).checked);
 }
 
-function handleQuakeDebugHideTexturesOptionChange(event: Event): void {
-  setQuakeDebugHideTextures((event.currentTarget as HTMLInputElement).checked);
+function handleQuakeDebugEnabledOptionChange(event: Event): void {
+  setQuakeDebugMode((event.currentTarget as HTMLInputElement).checked);
 }
 
-function handleQuakeDebugStaticLightingOptionChange(event: Event): void {
-  setQuakeDebugStaticLighting((event.currentTarget as HTMLInputElement).checked);
+function handleQuakeDebugShowFpsOptionChange(event: Event): void {
+  setQuakeDebugShowFps((event.currentTarget as HTMLInputElement).checked);
+}
+
+function handleQuakeDebugShowTexturesOptionChange(event: Event): void {
+  setQuakeDebugShowTextures((event.currentTarget as HTMLInputElement).checked);
 }
 
 function handleQuakeDebugFlyModeOptionChange(event: Event): void {
@@ -3455,6 +4247,61 @@ function quakeOffsetCss(offset: Vec3): string {
   const y = offset[0] * BASE_TILE;
   const z = offset[2] * BASE_TILE;
   return `translate3d(${x.toFixed(3)}px, ${y.toFixed(3)}px, ${z.toFixed(3)}px)`;
+}
+
+function compactQuakeInlineStyle(element: HTMLElement): void {
+  const style = element.getAttribute("style");
+  if (!style) return;
+  const order = new Map([
+    ["transform", 0],
+    ["width", 1],
+    ["height", 2],
+    ["background", 3],
+  ]);
+  const declarations = style
+    .split(";")
+    .map((part, index) => {
+      const separator = part.indexOf(":");
+      if (separator <= 0) return null;
+      const name = part.slice(0, separator).trim();
+      const value = part.slice(separator + 1).trim();
+      return value ? { index, name, value } : null;
+    })
+    .filter((part): part is { index: number; name: string; value: string } => part !== null);
+  const nextStyle = declarations
+    .sort((a, b) => {
+      const aOrder = order.get(a.name);
+      const bOrder = order.get(b.name);
+      if (aOrder !== undefined && bOrder !== undefined) return aOrder - bOrder;
+      if (aOrder !== undefined) return -1;
+      if (bOrder !== undefined) return 1;
+      return a.index - b.index;
+    })
+    .map((part) => `${part.name}:${part.value}`)
+    .join(";");
+  if (nextStyle && nextStyle !== style) element.setAttribute("style", nextStyle);
+}
+
+function compactQuakeCameraInlineStyle(): void {
+  document.body.classList.toggle("quake-camera-look-enabled", quakeCameraLookEnabled);
+  host.style.removeProperty("cursor");
+  if (quakeFirstPersonControlsMounted) {
+    host.style.setProperty("--polycss-fpv-perspective", quakeCameraPerspectiveStyle);
+    host.style.removeProperty("perspective");
+  }
+  const perspective = host.style.getPropertyValue("perspective").trim();
+  const perspectiveOrigin = host.style.getPropertyValue("perspective-origin").trim();
+  const fpvPerspective = host.style.getPropertyValue("--polycss-fpv-perspective").trim();
+  const declarations = [
+    ...(perspective ? [`perspective:${perspective}`] : []),
+    ...(perspectiveOrigin ? [`perspective-origin:${perspectiveOrigin}`] : []),
+    ...(fpvPerspective ? [`--polycss-fpv-perspective:${fpvPerspective}`] : []),
+  ];
+  if (declarations.length) {
+    host.setAttribute("style", declarations.join(";"));
+  } else {
+    host.removeAttribute("style");
+  }
 }
 
 function currentQuakeTouchedTriggers(origin: [number, number, number]): QuakeTouchedTrigger[] {
@@ -3547,7 +4394,7 @@ function hideQuakeStatsOverlay(): void {
 }
 
 function syncQuakeStatsOverlayAvailability(): void {
-  if (quakeAppDisposed || quakeAppLoading || quakeMobileControlsMedia.matches) {
+  if (!quakeDebugShowFps || quakeAppDisposed || quakeAppLoading || quakeMobileControlsMedia.matches) {
     hideQuakeStatsOverlay();
     return;
   }
@@ -3575,7 +4422,7 @@ function mountStatsOverlay(): () => void {
   const fpsPanel = createStatsPanel("FPS", STATS_FPS_FOREGROUND, STATS_FPS_BACKGROUND, 100);
   const msPanel = createStatsPanel("MS", STATS_MS_FOREGROUND, STATS_MS_BACKGROUND, 200);
   statsContainer.append(fpsPanel.element, msPanel.element);
-  document.body.appendChild(statsContainer);
+  (quakeUi ?? quakeApp).appendChild(statsContainer);
 
   let lastFrame = performance.now();
   let fpsSampleStart = lastFrame;
@@ -3684,7 +4531,9 @@ async function fetchQuakeScene(
   mapName?: string,
   progress?: QuakeLoadingProgressTracker,
 ): Promise<QuakeScene> {
-  const completeSceneTask = progress?.startTask();
+  const worldStatus = mapName ? `World ${mapName.toLowerCase()}.bsp` : "World BSP";
+  const worldProgress = quakeLoadingProgressGroup(progress, worldStatus);
+  const completeSceneTask = progress?.startTask(worldStatus);
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}.`);
   const prepared = await response.json() as QuakePreparedScene;
@@ -3692,8 +4541,8 @@ async function fetchQuakeScene(
     throw new Error(`Prepared Quake map ${mapName.toUpperCase()} is missing its render bundle.`);
   }
   const renderBundlePreloads = [
-    ...(prepared.renderBundle ? [preloadQuakeRenderBundleAssets(prepared.renderBundle, progress)] : []),
-    ...(prepared.lightstyleRenderBundle ? [preloadQuakeRenderBundleAssets(prepared.lightstyleRenderBundle, progress)] : []),
+    ...(prepared.renderBundle ? [preloadQuakeRenderBundleAssets(prepared.renderBundle, worldProgress)] : []),
+    ...(prepared.lightstyleRenderBundle ? [preloadQuakeRenderBundleAssets(prepared.lightstyleRenderBundle, worldProgress)] : []),
   ];
   completeSceneTask?.();
   await Promise.all(renderBundlePreloads);
@@ -3704,8 +4553,7 @@ async function loadQuakeMap(mapName: string, options: QuakeMapLoadOptions = {}):
   const nextMapName = mapName.trim().toLowerCase();
   const url = quakeSceneUrl(nextMapName);
   if (!url) throw new Error(`No prepared Quake map registered for ${nextMapName}.`);
-  const loadingStatus = options.loadingStatus ?? `Loading ${nextMapName.toUpperCase()}`;
-  const loadingModelsStatus = options.loadingStatus ? "Loading models" : `Loading ${nextMapName.toUpperCase()} models`;
+  const loadingStatus = options.loadingStatus ?? `World ${nextMapName}.bsp`;
   const progress = createQuakeLoadingProgressTracker(loadingStatus);
   setQuakeLoading(true, loadingStatus);
   try {
@@ -3713,9 +4561,8 @@ async function loadQuakeMap(mapName: string, options: QuakeMapLoadOptions = {}):
     const weaponPromise = preloadWeaponViewModel(progress);
     const result = await scenePromise;
     if (quakeAppDisposed) return;
-    progress.setStatus(loadingModelsStatus);
-    await preloadQuakeMapModelRenderBundleAssets(nextMapName, progress);
     await preloadQuakeSceneModelRenderBundleAssets(result, progress);
+    await preloadQuakeMapModelRenderBundleAssets(nextMapName, progress);
     if (quakeAppDisposed) return;
     currentMapName = nextMapName;
     menu.setCurrentLevel(nextMapName);
@@ -3723,11 +4570,10 @@ async function loadQuakeMap(mapName: string, options: QuakeMapLoadOptions = {}):
     if (options.view) applyQuakeUrlView(options.view);
     updateQuakeUrl(nextMapName, options.urlMode ?? "push", options.view ?? null);
     if (quakeAppDisposed) return;
-    progress.setStatus("Preparing view");
     await completeQuakeSceneReadiness(weaponPromise, progress);
     if (quakeAppDisposed) return;
     if (options.resumeGameplay) resumeQuakeGameplayAfterMapLoad();
-    quakeGameplayStarted = true;
+    setQuakeGameplayStarted(true);
   } catch (error) {
     if (!quakeAppDisposed) setQuakeLoading(false);
     throw error;
@@ -3740,14 +4586,12 @@ function preloadWeaponViewModel(progress?: QuakeLoadingProgressTracker): Promise
 }
 
 async function fetchWeaponViewModel(progress?: QuakeLoadingProgressTracker): Promise<QuakeViewmodelModel> {
-  const completeWeaponTask = progress?.startTask();
+  const completeWeaponTask = progress?.startTask("Weapon model");
   const url = quakeAssetManifest.assets.weaponModelUrl;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}.`);
   const model = await response.json() as QuakeViewmodelModel;
-  const renderBundlePreload = preloadQuakeRenderBundleAssets(model.renderBundle, progress);
   completeWeaponTask?.();
-  await renderBundlePreload;
   return model;
 }
 
@@ -3763,7 +4607,7 @@ async function completeQuakeSceneReadiness(
 ): Promise<void> {
   await mountWeaponViewModel(modelPromise);
   if (quakeAppDisposed) return;
-  const completeReadinessTask = progress?.startTask();
+  const completeReadinessTask = progress?.startTask("Rendered first frame");
   const readiness = await waitForQuakeLoadingReadiness();
   completeReadinessTask?.();
   if (quakeAppDisposed) return;
@@ -3906,6 +4750,10 @@ function installQuakeAppDebugHooks(): void {
     isLoading: () => quakeAppLoading,
     loadMap: loadQuakeMap,
     mapExists: (mapName) => Boolean(quakeSceneUrl(mapName)),
+    getWeaponTuning: () => viewmodel.getTuning(),
+    resetWeaponTuning: () => viewmodel.resetTuning(),
+    setWeaponTuning: (tuning) => viewmodel.setTuning(tuning),
+    viewmodelDebug: () => viewmodel.debugSnapshot(),
     moversStats: () => movers.debugStats(),
     playerEyeHeight: () => getPlayer().eyeHeight(),
     playerMoveDebug: () => getPlayer().debugMovement(),
@@ -3919,7 +4767,7 @@ function installQuakeAppDebugHooks(): void {
     syncPickupsVisibility: (origin) => getPickups().syncVisibility(origin),
     syncSceneCameraAt,
     syncShootablesVisibility: (origin, force) => shootables.syncVisibility(origin, force),
-    syncViewmodel: () => viewmodel.syncTransform(),
+    syncViewmodel: (options) => viewmodel.syncTransform(options),
     syncWorldVisibility: (force) => world.syncVisibility(force),
     viewUrl: currentQuakeViewUrl,
     worldStats: () => world.debugStats(),
@@ -3927,7 +4775,7 @@ function installQuakeAppDebugHooks(): void {
 }
 
 async function loadPickupModels(progress?: QuakeLoadingProgressTracker): Promise<void> {
-  const completePickupTask = progress?.startTask();
+  const completePickupTask = progress?.startTask("Pickup definitions");
   const url = quakeAssetManifest.assets.pickupModelsUrl;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}.`);
@@ -3948,7 +4796,11 @@ async function preloadQuakeMapModelRenderBundleAssets(
   if (!modelPaths) {
     return;
   }
-  await preloadQuakePickupModelRenderBundleAssets(library, modelPaths, progress);
+  await preloadQuakePickupModelRenderBundleAssets(
+    library,
+    modelPaths,
+    quakeLoadingProgressGroup(progress, "Map model assets"),
+  );
 }
 
 async function preloadQuakeSceneModelRenderBundleAssets(
@@ -3957,22 +4809,34 @@ async function preloadQuakeSceneModelRenderBundleAssets(
 ): Promise<void> {
   const library = currentPickupModelLibrary;
   if (!library) return;
-  const modelPaths = new Set<string>();
+  const pickupModelPaths = new Set<string>();
+  const monsterModelPaths = new Set<string>();
   const runtime = result.entityManifest.runtime;
   const entitiesByIndex = new Map(result.entities.map((entity) => [entity.index, entity]));
   const pickupEntities = quakeSceneEntitiesForIndexes(entitiesByIndex, runtime.pickupEntityIndexes);
   for (const entity of pickupEntities) {
     if (!shouldSpawnQuakeEntityForCurrentGame(entity)) continue;
     const modelPath = quakePickupModelPath(entity, currentProgramMetadata, result.gameLogic);
-    if (modelPath) modelPaths.add(modelPath);
+    if (modelPath) pickupModelPaths.add(modelPath);
   }
   const shootableEntities = quakeSceneEntitiesForIndexes(entitiesByIndex, runtime.shootableEntityIndexes);
   for (const entity of shootableEntities) {
     if (!shouldSpawnQuakeEntityForCurrentGame(entity)) continue;
     const modelPath = quakeShootableModelPath(entity, currentProgramMetadata);
-    if (modelPath) modelPaths.add(modelPath);
+    if (modelPath) monsterModelPaths.add(modelPath);
   }
-  await preloadQuakePickupModelRenderBundleAssets(library, modelPaths, progress);
+  await Promise.all([
+    preloadQuakePickupModelRenderBundleAssets(
+      library,
+      pickupModelPaths,
+      quakeLoadingProgressGroup(progress, "Pickup models"),
+    ),
+    preloadQuakePickupModelRenderBundleAssets(
+      library,
+      monsterModelPaths,
+      quakeLoadingProgressGroup(progress, "Monster models"),
+    ),
+  ]);
 }
 
 function quakeSceneEntitiesForIndexes(
@@ -4010,7 +4874,7 @@ async function preloadQuakePickupModelRenderBundleAssets(
 }
 
 async function loadProgramMetadata(progress?: QuakeLoadingProgressTracker): Promise<void> {
-  const completeMetadataTask = progress?.startTask();
+  const completeMetadataTask = progress?.startTask("Game logic");
   const url = quakeAssetManifest.assets.programMetadataUrl;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}.`);
@@ -4145,13 +5009,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 async function loadQuake(): Promise<void> {
   const progress = createQuakeLoadingProgressTracker("Loading");
   setQuakeLoading(true);
-  progress.setStatus("Loading manifest");
-  setQuakeAssetManifest(await fetchQuakeAssetManifest());
+  const completeManifestTask = progress.startTask("Manifest");
+  try {
+    const manifest = await fetchQuakeAssetManifest();
+    setQuakeAssetManifest(manifest);
+    if (manifest.maps.some((map) => map.pakPath)) {
+      queueQuakeLoadingConsoleLine(QUAKE_LOADING_CONSOLE_PAK_LINE);
+    }
+  } finally {
+    completeManifestTask();
+  }
   const startupRoute = quakeUrlRouteFromLocation();
   const startMap = startupRoute.mapName;
   const startupSceneUrl = quakeSceneUrl(startMap);
   if (!startupSceneUrl) throw new Error(`No prepared Quake start map registered for ${startMap}.`);
-  progress.setStatus(`Loading ${startMap.toUpperCase()}`);
   const programMetadataPromise = loadProgramMetadata(progress);
   const pickupModelsPromise = loadPickupModels(progress);
   const startupScenePromise = fetchQuakeScene(startupSceneUrl, startMap, progress);
@@ -4160,9 +5031,8 @@ async function loadQuake(): Promise<void> {
   if (quakeAppDisposed) return;
   const result = await startupScenePromise;
   if (quakeAppDisposed) return;
-  progress.setStatus(`Loading ${startMap.toUpperCase()} models`);
-  await preloadQuakeMapModelRenderBundleAssets(startMap, progress);
   await preloadQuakeSceneModelRenderBundleAssets(result, progress);
+  await preloadQuakeMapModelRenderBundleAssets(startMap, progress);
   if (quakeAppDisposed) return;
   currentMapName = startMap;
   menu.setCurrentLevel(currentMapName);
@@ -4170,17 +5040,16 @@ async function loadQuake(): Promise<void> {
   if (startupRoute.view) applyQuakeUrlView(startupRoute.view);
   if (quakeUrlRouteIsDirect(startupRoute)) updateQuakeUrl(startMap, "replace", startupRoute.view);
   if (quakeAppDisposed) return;
-  progress.setStatus("Preparing view");
   await completeQuakeSceneReadiness(weaponPromise, progress);
   if (quakeAppDisposed) return;
-  syncQuakeRoutePresentation(startupRoute);
+  syncQuakeRoutePresentation(startupRoute, { preferMenu: true });
 }
 
-function syncQuakeRoutePresentation(route: QuakeUrlRoute): void {
-  if (QUAKE_MENU_ENABLED && !quakeUrlRouteIsDirect(route)) {
+function syncQuakeRoutePresentation(route: QuakeUrlRoute, options: { preferMenu?: boolean } = {}): void {
+  if (QUAKE_MENU_ENABLED && (options.preferMenu || !quakeUrlRouteIsDirect(route))) {
     menu.showMainMenu();
   } else {
-    quakeGameplayStarted = true;
+    setQuakeGameplayStarted(true);
     menu.hideMainMenu();
   }
 }
@@ -4229,18 +5098,38 @@ function handleWindowKeyDown(event: KeyboardEvent): void {
     toggleQuakeAudioMuted();
     return;
   }
-  if (handleQuakeDebugEscape(event)) {
-    return;
-  }
   if (quakeAppLoading) {
     event.preventDefault();
     event.stopPropagation();
+    return;
+  }
+  if (event.code === "KeyX" && !isEditableKeyboardTarget(event.target)) {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleQuakeDebugMode();
     return;
   }
   if (menu.handleKeyDown(event)) {
     clearQuakeMoveInput();
     clearQuakeCrouchInput();
     clearQuakeAttackInput();
+    return;
+  }
+  if (
+    event.code === "Escape" &&
+    !isEditableKeyboardTarget(event.target) &&
+    document.pointerLockElement === null &&
+    !menu.isMainMenuOpen() &&
+    !menu.isMenuPanelOpen()
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (shouldOpenQuakeMainMenuOnControlsEnd()) {
+      clearQuakeMoveInput();
+      clearQuakeCrouchInput();
+      clearQuakeAttackInput();
+      menu.showMainMenu();
+    }
     return;
   }
   if (handleQuakeDebugFlyKey(event, true)) {
@@ -4266,7 +5155,10 @@ function handleWindowKeyUp(event: KeyboardEvent): void {
   }
   handleQuakeMoveKey(event, false);
   handleQuakeCrouchKey(event, false);
-  if (QUAKE_MOVE_KEY_CODES.has(event.code) && !isEditableKeyboardTarget(event.target)) {
+  if (
+    (QUAKE_MOVE_KEY_CODES.has(event.code) || QUAKE_SPEED_KEY_CODES.has(event.code)) &&
+    !isEditableKeyboardTarget(event.target)
+  ) {
     viewmodel.syncTransform();
   }
 }
@@ -4321,19 +5213,25 @@ function disposeQuakeApp(): void {
   disableSoundOption?.removeEventListener("change", handleQuakeDisableSoundOptionChange);
   disableEnemiesOption?.removeEventListener("change", handleQuakeDisableEnemiesOptionChange);
   disableDamageOption?.removeEventListener("change", handleQuakeDisableDamageOptionChange);
-  debugPanelClose?.removeEventListener("click", handleQuakeDebugCloseClick);
-  debugHideTexturesOption?.removeEventListener("change", handleQuakeDebugHideTexturesOptionChange);
-  debugStaticLightingOption?.removeEventListener("change", handleQuakeDebugStaticLightingOptionChange);
+  dynamicLightingOption?.removeEventListener("change", handleQuakeDynamicLightingOptionChange);
+  alwaysRunOption?.removeEventListener("change", handleQuakeAlwaysRunOptionChange);
+  showGunOption?.removeEventListener("change", handleQuakeShowGunOptionChange);
+  debugEnabledOption?.removeEventListener("change", handleQuakeDebugEnabledOptionChange);
+  debugShowFpsOption?.removeEventListener("change", handleQuakeDebugShowFpsOptionChange);
+  debugShowTexturesOption?.removeEventListener("change", handleQuakeDebugShowTexturesOptionChange);
   debugFlyModeOption?.removeEventListener("change", handleQuakeDebugFlyModeOptionChange);
   debugShowOutlinesOption?.removeEventListener("change", handleQuakeDebugShowOutlinesOptionChange);
   debugShowLabelsOption?.removeEventListener("change", handleQuakeDebugShowLabelsOptionChange);
   invertMouseOption?.removeEventListener("change", handleQuakeInvertMouseOptionChange);
   stopQuakeDebugPanelStats();
-  document.removeEventListener("pointerlockchange", syncQuakeDebugPointerLockState);
+  document.removeEventListener("pointerlockchange", syncQuakeInteractionPresentation);
+  document.removeEventListener("pointerlockerror", handleQuakePointerLockError);
   controls.removeEventListener("change", syncPlayerCollision);
-  controls.removeEventListener("start", clearQuakeMainMenuControlsEndSuppression);
+  controls.removeEventListener("start", handleQuakeControlsStart);
+  controls.removeEventListener("end", handleQuakeControlsEndTrace);
   controls.removeEventListener("end", clearQuakeCrouchInput);
   controls.removeEventListener("end", clearQuakeAttackInput);
+  controls.destroy();
   menu.dispose();
   audio.dispose();
   hideQuakeStatsOverlay();
@@ -4349,26 +5247,33 @@ window.addEventListener("popstate", handleQuakePopState);
 window.addEventListener("resize", handleViewportResize);
 window.visualViewport?.addEventListener("resize", handleViewportResize);
 quakeMobileControlsMedia.addEventListener("change", syncQuakeMobileControlsAvailability);
-document.addEventListener("pointerlockchange", syncQuakeDebugPointerLockState);
+document.addEventListener("pointerlockchange", syncQuakeInteractionPresentation);
+document.addEventListener("pointerlockerror", handleQuakePointerLockError);
 
 host.addEventListener("pointerdown", handleQuakeUsePointerDown, { capture: true });
 disableSoundOption?.addEventListener("change", handleQuakeDisableSoundOptionChange);
 disableEnemiesOption?.addEventListener("change", handleQuakeDisableEnemiesOptionChange);
 disableDamageOption?.addEventListener("change", handleQuakeDisableDamageOptionChange);
-debugPanelClose?.addEventListener("click", handleQuakeDebugCloseClick);
-debugHideTexturesOption?.addEventListener("change", handleQuakeDebugHideTexturesOptionChange);
-debugStaticLightingOption?.addEventListener("change", handleQuakeDebugStaticLightingOptionChange);
+dynamicLightingOption?.addEventListener("change", handleQuakeDynamicLightingOptionChange);
+alwaysRunOption?.addEventListener("change", handleQuakeAlwaysRunOptionChange);
+showGunOption?.addEventListener("change", handleQuakeShowGunOptionChange);
+debugEnabledOption?.addEventListener("change", handleQuakeDebugEnabledOptionChange);
+debugShowFpsOption?.addEventListener("change", handleQuakeDebugShowFpsOptionChange);
+debugShowTexturesOption?.addEventListener("change", handleQuakeDebugShowTexturesOptionChange);
 debugFlyModeOption?.addEventListener("change", handleQuakeDebugFlyModeOptionChange);
 debugShowOutlinesOption?.addEventListener("change", handleQuakeDebugShowOutlinesOptionChange);
 debugShowLabelsOption?.addEventListener("change", handleQuakeDebugShowLabelsOptionChange);
 invertMouseOption?.addEventListener("change", handleQuakeInvertMouseOptionChange);
 controls.addEventListener("change", syncPlayerCollision);
-controls.addEventListener("start", clearQuakeMainMenuControlsEndSuppression);
+controls.addEventListener("start", handleQuakeControlsStart);
+controls.addEventListener("end", handleQuakeControlsEndTrace);
 controls.addEventListener("end", clearQuakeCrouchInput);
 controls.addEventListener("end", clearQuakeAttackInput);
 
 syncQuakeHud();
 syncQuakeOptionControls();
+if (debugMenuPanel) mountQuakeBitmapText(debugMenuPanel);
+if (debugPanel) mountQuakeBitmapText(debugPanel);
 syncQuakeMobileControlsAvailability();
 installQuakeAppDebugHooks();
 

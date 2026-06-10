@@ -615,9 +615,20 @@ export interface QuakeGameLogicProgramCallbackClassnameBranchFact {
 
 export interface QuakeGameLogicProgramCallbackFact {
   assignments?: QuakeGameLogicProgramAssignment[];
+  assetRefs?: QuakeGameLogicProgramAssetRef[];
   calls?: string[];
   classnameBranches?: QuakeGameLogicProgramCallbackClassnameBranchFact[];
+  radiusDamage?: QuakeGameLogicProgramRadiusDamageFact[];
   sourceRefs: QuakeGameLogicProgramSourceRef[];
+}
+
+export interface QuakeGameLogicProgramRadiusDamageFact {
+  attacker: string;
+  call: "T_RadiusDamage";
+  damageUnits: number;
+  ignore: string;
+  inflictor: string;
+  sourceRef?: QuakeGameLogicProgramSourceRef;
 }
 
 export interface QuakeGameLogicProgramAssetRef {
@@ -3143,10 +3154,35 @@ function normalizedProgramCallbackFacts(input: unknown): [string, QuakeGameLogic
     const record = value as Record<string, unknown>;
     out.push([callbackName, {
       assignments: normalizedProgramAssignments(record.assignments),
+      assetRefs: normalizedProgramAssetRefs(record.assetRefs),
       calls: normalizedStringArray(record.calls),
       classnameBranches: normalizedProgramCallbackClassnameBranches(record.classnameBranches),
+      radiusDamage: normalizedProgramRadiusDamageFacts(record.radiusDamage),
       sourceRefs: normalizedSourceRefs(record.sourceRefs),
     }]);
+  }
+  return out;
+}
+
+function normalizedProgramRadiusDamageFacts(input: unknown): QuakeGameLogicProgramRadiusDamageFact[] {
+  if (!Array.isArray(input)) return [];
+  const out: QuakeGameLogicProgramRadiusDamageFact[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const damageUnits = typeof record.damageUnits === "number" && Number.isFinite(record.damageUnits)
+      ? record.damageUnits
+      : undefined;
+    if (damageUnits === undefined) continue;
+    const sourceRef = normalizeSourceRef(record.sourceRef);
+    out.push({
+      attacker: asString(record.attacker) ?? "",
+      call: "T_RadiusDamage",
+      damageUnits,
+      ignore: asString(record.ignore) ?? "",
+      inflictor: asString(record.inflictor) ?? "",
+      ...(sourceRef ? { sourceRef } : {}),
+    });
   }
   return out;
 }

@@ -21,8 +21,8 @@ import {
   QUAKE_PMOVE_EDGE_DROP,
   QUAKE_PMOVE_EDGE_FRICTION,
   QUAKE_PMOVE_FORWARD_SPEED,
-  QUAKE_PMOVE_MAX_SPEED,
   QUAKE_PMOVE_SIDE_SPEED,
+  QUAKE_PMOVE_SPEED_KEY_MULTIPLIER,
   updateQuakePlayerPhysics,
   type QuakePlayerMoveCommand,
 } from "./playerPhysics";
@@ -44,11 +44,13 @@ const QUAKE_BACK_KEY_CODES = new Set(["ArrowDown", "KeyS"]);
 const QUAKE_LEFT_KEY_CODES = new Set(["ArrowLeft", "KeyA"]);
 const QUAKE_RIGHT_KEY_CODES = new Set(["ArrowRight", "KeyD"]);
 const QUAKE_JUMP_KEY_CODES = new Set(["Space"]);
+const QUAKE_SPEED_KEY_CODES = new Set(["ShiftLeft", "ShiftRight"]);
 const QUAKE_MOVE_FORWARD_BIT = 1 << 0;
 const QUAKE_MOVE_BACK_BIT = 1 << 1;
 const QUAKE_MOVE_LEFT_BIT = 1 << 2;
 const QUAKE_MOVE_RIGHT_BIT = 1 << 3;
 const QUAKE_MOVE_JUMP_BIT = 1 << 4;
+const QUAKE_MOVE_SPEED_BIT = 1 << 5;
 const QUAKE_MOVE_DIRECTION_BITS =
   QUAKE_MOVE_FORWARD_BIT |
   QUAKE_MOVE_BACK_BIT |
@@ -61,6 +63,7 @@ function quakeMoveKeyBit(code: string): number {
   if (QUAKE_LEFT_KEY_CODES.has(code)) return QUAKE_MOVE_LEFT_BIT;
   if (QUAKE_RIGHT_KEY_CODES.has(code)) return QUAKE_MOVE_RIGHT_BIT;
   if (QUAKE_JUMP_KEY_CODES.has(code)) return QUAKE_MOVE_JUMP_BIT;
+  if (QUAKE_SPEED_KEY_CODES.has(code)) return QUAKE_MOVE_SPEED_BIT;
   return 0;
 }
 
@@ -73,6 +76,8 @@ export interface QuakePlayerControllerOptions {
   getCollisionWorld: () => QuakeCollisionWorld | null;
   getCurrentScene: () => QuakeScene | null;
   gravity: number;
+  alwaysRun?: () => boolean;
+  isGameplayPaused?: () => boolean;
   isInvulnerable?: () => boolean;
   jumpVelocity: number;
   onDamageFlash: (active: boolean, feedback?: QuakePlayerDamageFeedback) => void;
@@ -85,6 +90,7 @@ export interface QuakePlayerControllerOptions {
     result: { origin: [number, number, number]; groundZ: number; grounded: boolean; touches?: QuakeTouchedTrigger[] },
     previous: [number, number, number],
     eyeHeight: number,
+    validateOrigin?: (origin: [number, number, number]) => boolean,
   ) => { origin: [number, number, number]; groundZ: number; grounded: boolean; touches?: QuakeTouchedTrigger[] };
   syncCrosshairTarget: () => void;
   syncHazards: (origin?: [number, number, number], triggers?: QuakeTouchedTrigger[]) => boolean;
@@ -189,6 +195,8 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   let damageFlashActive = false;
   let lastGroundEntityIndex: number | null = null;
   let dead = false;
+
+  const gameplayPaused = (): boolean => options.isGameplayPaused?.() === true;
 
   const resetInventory = (): void => {
     inventory = createInitialInventory();
@@ -528,8 +536,14 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     if (moveKeyBits & QUAKE_MOVE_BACK_BIT) forwardMove -= QUAKE_PMOVE_BACK_SPEED;
     if (moveKeyBits & QUAKE_MOVE_RIGHT_BIT) sideMove += QUAKE_PMOVE_SIDE_SPEED;
     if (moveKeyBits & QUAKE_MOVE_LEFT_BIT) sideMove -= QUAKE_PMOVE_SIDE_SPEED;
-    forwardMove += moveAnalogY * QUAKE_PMOVE_MAX_SPEED;
-    sideMove += moveAnalogX * QUAKE_PMOVE_MAX_SPEED;
+    forwardMove += moveAnalogY >= 0
+      ? moveAnalogY * QUAKE_PMOVE_FORWARD_SPEED
+      : moveAnalogY * QUAKE_PMOVE_BACK_SPEED;
+    sideMove += moveAnalogX * QUAKE_PMOVE_SIDE_SPEED;
+    if (Boolean(moveKeyBits & QUAKE_MOVE_SPEED_BIT) !== (options.alwaysRun?.() === true)) {
+      forwardMove *= QUAKE_PMOVE_SPEED_KEY_MULTIPLIER;
+      sideMove *= QUAKE_PMOVE_SPEED_KEY_MULTIPLIER;
+    }
     moveCommand.forwardMove = forwardMove;
     moveCommand.jump = jumpQueued;
     moveCommand.sideMove = sideMove;
@@ -584,10 +598,11 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
       origin[2] + moveVelocity[2] * dt,
     ];
     const collisionResolved = collisionWorld.resolve(target, origin, currentEyeHeight, currentGroundZ, !physicsGrounded);
-    let resolved = options.resolveShootablesCollision(
+    let resolved = resolveDynamicCollision(
+      collisionWorld,
       collisionResolved,
       origin,
-      currentEyeHeight,
+      !physicsGrounded,
     );
     let upwardGroundSnapIgnored = false;
     if (!physicsGrounded && moveVelocity[2] > 0 && resolved.grounded) {
@@ -650,15 +665,42 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   const syncCollision = (): void => {
     if (dead) return;
     const collisionWorld = options.getCollisionWorld();
+    if (gameplayPaused()) return;
     if (syncingCollision || moveFrame !== null || pushFrame !== null || fallingFrame !== null || !collisionWorld) return;
     const origin = options.controls.getOrigin();
-    const resolved = options.resolveShootablesCollision(
+    const resolved = resolveDynamicCollision(
+      collisionWorld,
       collisionWorld.resolve(origin, lastValidOrigin, currentEyeHeight, currentGroundZ, !currentGrounded),
       lastValidOrigin,
-      currentEyeHeight,
+      !currentGrounded,
     );
     applyCollisionResult(resolved, origin);
   };
+
+  function resolveDynamicCollision(
+    collisionWorld: QuakeCollisionWorld,
+    resolved: { origin: [number, number, number]; groundZ: number; grounded: boolean; touches?: QuakeTouchedTrigger[] },
+    previous: [number, number, number],
+    forceAir = false,
+  ): { origin: [number, number, number]; groundZ: number; grounded: boolean; touches?: QuakeTouchedTrigger[] } {
+    const dynamicResolved = options.resolveShootablesCollision(
+      resolved,
+      previous,
+      currentEyeHeight,
+      (origin) => distanceSq3(
+        collisionWorld.resolve(origin, previous, currentEyeHeight, resolved.groundZ, forceAir).origin,
+        origin,
+      ) <= COLLISION_EPSILON,
+    );
+    if (distanceSq3(dynamicResolved.origin, resolved.origin) <= COLLISION_EPSILON) return dynamicResolved;
+    return collisionWorld.resolve(
+      dynamicResolved.origin,
+      previous,
+      currentEyeHeight,
+      dynamicResolved.groundZ,
+      forceAir,
+    );
+  }
 
   function applyCollisionResult(
     resolved: { origin: [number, number, number]; groundZ: number; grounded: boolean; touches?: QuakeTouchedTrigger[] },
@@ -706,7 +748,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   }
 
   const scheduleHazardTick = (delay: number): void => {
-    if (hazardTimer !== null) return;
+    if (hazardTimer !== null || gameplayPaused()) return;
     hazardTimer = window.setTimeout(() => {
       hazardTimer = null;
       if (!options.getCollisionWorld()) return;
@@ -716,6 +758,11 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
 
   const syncHazard = (hazard: QuakeHazardDamage | null): boolean => {
     if (dead) {
+      clearHazardTimer();
+      options.onHazardState(null);
+      return false;
+    }
+    if (gameplayPaused()) {
       clearHazardTimer();
       options.onHazardState(null);
       return false;
@@ -832,6 +879,11 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   const tickFalling = (_frameNow: number): void => {
     const collisionWorld = options.getCollisionWorld();
     if (fallingFrame === null || !collisionWorld) return;
+    if (gameplayPaused()) {
+      fallingTime = 0;
+      fallingFrame = window.requestAnimationFrame(tickFalling);
+      return;
+    }
     const now = performance.now();
     const dt = Math.min(FALL_DT_CLAMP, fallingTime ? (now - fallingTime) / 1000 : 0.0167);
     fallingTime = now;
@@ -876,6 +928,11 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
       stopPush();
       return;
     }
+    if (gameplayPaused()) {
+      pushTime = 0;
+      pushFrame = window.requestAnimationFrame(tickPush);
+      return;
+    }
 
     const now = performance.now();
     const dt = Math.min(PUSH_DT_CLAMP, pushTime ? (now - pushTime) / 1000 : 0.0167);
@@ -888,10 +945,10 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
       origin[1] + pushVelocity[1] * dt,
       origin[2] + pushVelocity[2] * dt,
     ];
-    const resolved = options.resolveShootablesCollision(
+    const resolved = resolveDynamicCollision(
+      collisionWorld,
       collisionWorld.resolve(target, origin, currentEyeHeight, currentGroundZ),
       origin,
-      currentEyeHeight,
     );
     const actualDelta = subtractVec3(resolved.origin, origin);
     const intendedDelta = subtractVec3(target, origin);

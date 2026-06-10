@@ -25,16 +25,25 @@ export interface QuakeMenuControllerOptions {
   levelPanel: HTMLElement | null;
   aboutPanel: HTMLElement | null;
   optionsPanel: HTMLElement | null;
+  debugPanel: HTMLElement | null;
   onSelectNewGame?(): void | Promise<void>;
   onSelectLevel?(mapName: string): void | Promise<void>;
   onSelectDebug?(): void;
+  onSelectQuit?(): void;
+  isQuitEnabled?(): boolean;
+  onMenuPauseChange?(paused: boolean): void;
+  onResumeMainMenuFromEscape?(): void;
   shouldResumeMainMenuOnEscape?(): boolean;
   shouldOpenMainMenuOnControlsEnd?(): boolean;
   clearCrosshairTarget(): void;
   syncCrosshairTarget(): void;
 }
 
-const QUAKE_MAIN_MENU_ROWS = [0, 1, 2, 3, 4];
+type QuakeMainMenuAction = "single-player" | "level-select" | "options" | "debug" | "quit";
+
+const QUAKE_MAIN_MENU_ACTION_ATTRIBUTE = "data-quake-main-menu-action";
+const QUAKE_MAIN_MENU_SELECTABLE_CLASS = "quake-main-menu-item-selectable";
+const QUAKE_MAIN_MENU_DISABLED_CLASS = "quake-main-menu-item-disabled";
 
 export function createQuakeMenuController({
   enabled,
@@ -45,9 +54,14 @@ export function createQuakeMenuController({
   levelPanel,
   aboutPanel,
   optionsPanel,
+  debugPanel,
   onSelectNewGame,
   onSelectLevel,
   onSelectDebug,
+  onSelectQuit,
+  isQuitEnabled,
+  onMenuPauseChange,
+  onResumeMainMenuFromEscape,
   shouldResumeMainMenuOnEscape,
   shouldOpenMainMenuOnControlsEnd,
   clearCrosshairTarget,
@@ -68,8 +82,10 @@ export function createQuakeMenuController({
     levelPanel?.setAttribute("hidden", "");
     aboutPanel?.setAttribute("hidden", "");
     optionsPanel?.setAttribute("hidden", "");
+    debugPanel?.setAttribute("hidden", "");
     mainMenu.hidden = false;
     document.body.classList.add("quake-menu-open");
+    onMenuPauseChange?.(true);
     clearCrosshairTarget();
     mainMenu.focus({ preventScroll: true });
   }
@@ -81,7 +97,9 @@ export function createQuakeMenuController({
     levelPanel?.setAttribute("hidden", "");
     aboutPanel?.setAttribute("hidden", "");
     optionsPanel?.setAttribute("hidden", "");
+    debugPanel?.setAttribute("hidden", "");
     document.body.classList.remove("quake-menu-open");
+    onMenuPauseChange?.(false);
     host.focus({ preventScroll: true });
     syncCrosshairTarget();
   }
@@ -131,8 +149,13 @@ export function createQuakeMenuController({
     return Boolean(optionsPanel && !optionsPanel.hidden);
   }
 
+  function isDebugPanelOpen(): boolean {
+    if (!enabled) return false;
+    return Boolean(debugPanel && !debugPanel.hidden);
+  }
+
   function isMenuPanelOpen(): boolean {
-    return isLevelPanelOpen() || isAboutPanelOpen() || isOptionsPanelOpen();
+    return isLevelPanelOpen() || isAboutPanelOpen() || isOptionsPanelOpen() || isDebugPanelOpen();
   }
 
   function showMenuPanel(panel: HTMLElement): void {
@@ -142,8 +165,10 @@ export function createQuakeMenuController({
     levelPanel?.setAttribute("hidden", "");
     aboutPanel?.setAttribute("hidden", "");
     optionsPanel?.setAttribute("hidden", "");
+    debugPanel?.setAttribute("hidden", "");
     panel.hidden = false;
     document.body.classList.add("quake-menu-open");
+    onMenuPauseChange?.(true);
     panel.focus({ preventScroll: true });
   }
 
@@ -156,19 +181,20 @@ export function createQuakeMenuController({
     (currentLevelButton() ?? firstLevelButton())?.focus({ preventScroll: true });
   }
 
-  function showAboutPanel(): void {
-    if (!enabled || !aboutPanel) return;
-    showMenuPanel(aboutPanel);
-  }
-
   function showOptionsPanel(): void {
     if (!enabled || !optionsPanel) return;
     showMenuPanel(optionsPanel);
+    firstMenuOptionToggle()?.focus({ preventScroll: true });
   }
 
   function showDebugPanel(): void {
-    if (!enabled || !onSelectDebug) return;
-    onSelectDebug();
+    if (!enabled) return;
+    if (debugPanel) {
+      showMenuPanel(debugPanel);
+      firstMenuOptionToggle()?.focus({ preventScroll: true });
+      return;
+    }
+    onSelectDebug?.();
   }
 
   function closeMenuPanel(): void {
@@ -181,14 +207,9 @@ export function createQuakeMenuController({
     return element?.closest("#quake-about-source-links a") as HTMLAnchorElement | null;
   }
 
-  function mainMenuBrandLinkFor(target: EventTarget | null): HTMLAnchorElement | null {
-    const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
-    return element?.closest("#quake-main-menu-brand-meta a") as HTMLAnchorElement | null;
-  }
-
   function menuBackButtonFor(target: EventTarget | null): HTMLButtonElement | null {
     const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
-    return element?.closest("#quake-level-back, #quake-about-back, #quake-options-back") as HTMLButtonElement | null;
+    return element?.closest("#quake-level-back, #quake-about-back, #quake-options-back, #quake-debug-menu-back") as HTMLButtonElement | null;
   }
 
   function menuCardFor(target: EventTarget | null): HTMLElement | null {
@@ -196,48 +217,109 @@ export function createQuakeMenuController({
     return element?.closest(".quake-menu-card") as HTMLElement | null;
   }
 
+  function menuOptionToggleFor(target: EventTarget | null): HTMLElement | null {
+    const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+    return element?.closest(".quake-option-toggle") as HTMLElement | null;
+  }
+
   function levelButtonFor(target: EventTarget | null): HTMLButtonElement | null {
     const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
     return element?.closest(".quake-level-button") as HTMLButtonElement | null;
   }
 
+  function currentOptionPanel(): HTMLElement | null {
+    if (isOptionsPanelOpen()) return optionsPanel;
+    if (isDebugPanelOpen()) return debugPanel;
+    return null;
+  }
+
+  function menuOptionToggles(): HTMLElement[] {
+    const panel = currentOptionPanel();
+    if (!panel) return [];
+    return Array.from(panel.querySelectorAll<HTMLElement>(".quake-option-toggle"));
+  }
+
+  function firstMenuOptionToggle(): HTMLElement | null {
+    return menuOptionToggles()[0] ?? null;
+  }
+
+  function currentMenuOptionToggle(): HTMLElement | null {
+    const panel = currentOptionPanel();
+    const active = menuOptionToggleFor(document.activeElement);
+    if (!panel || !active || !panel.contains(active)) return firstMenuOptionToggle();
+    return active;
+  }
+
+  function focusMenuOptionToggle(delta: number): void {
+    const toggles = menuOptionToggles();
+    if (!toggles.length) return;
+    const current = currentMenuOptionToggle() ?? toggles[0];
+    const index = Math.max(0, toggles.indexOf(current));
+    toggles[(index + delta + toggles.length) % toggles.length]?.focus({ preventScroll: true });
+  }
+
+  function toggleMenuOption(toggle: HTMLElement | null): void {
+    const input = toggle?.querySelector<HTMLInputElement>("input[type=\"checkbox\"]");
+    if (!input || input.disabled) return;
+    input.click();
+  }
+
+  function syncMainMenuItemAvailability(): void {
+    const quitItem = mainMenuArt?.querySelector<HTMLElement>(
+      `[${QUAKE_MAIN_MENU_ACTION_ATTRIBUTE}="quit"]`,
+    );
+    if (!quitItem) return;
+    const enabled = Boolean(isQuitEnabled?.());
+    quitItem.classList.toggle(QUAKE_MAIN_MENU_SELECTABLE_CLASS, enabled);
+    quitItem.classList.toggle(QUAKE_MAIN_MENU_DISABLED_CLASS, !enabled);
+    quitItem.setAttribute("aria-disabled", String(!enabled));
+    if (!enabled) quitItem.classList.remove("quake-main-menu-item-active");
+  }
+
   function mainMenuItems(): HTMLElement[] {
     if (!mainMenuArt) return [];
-    return Array.from(mainMenuArt.querySelectorAll<HTMLElement>(".quake-main-menu-item-selectable"));
+    syncMainMenuItemAvailability();
+    return Array.from(mainMenuArt.querySelectorAll<HTMLElement>(`.${QUAKE_MAIN_MENU_SELECTABLE_CLASS}`))
+      .filter((item) => !item.classList.contains(QUAKE_MAIN_MENU_DISABLED_CLASS));
   }
 
   function updateMainMenuCursor(): void {
-    const row = QUAKE_MAIN_MENU_ROWS[mainMenuSelectionIndex] ?? 0;
     const items = mainMenuItems();
+    if (items.length > 0) {
+      mainMenuSelectionIndex = Math.min(Math.max(mainMenuSelectionIndex, 0), items.length - 1);
+    } else {
+      mainMenuSelectionIndex = 0;
+    }
     for (let index = 0; index < items.length; index++) {
-      items[index]?.classList.toggle("quake-main-menu-item-active", index === row);
+      items[index]?.classList.toggle("quake-main-menu-item-active", index === mainMenuSelectionIndex);
     }
   }
 
   function selectMainMenuRow(row: number): boolean {
-    const index = QUAKE_MAIN_MENU_ROWS.indexOf(row);
-    if (index < 0) return false;
-    if (mainMenuSelectionIndex !== index) {
-      mainMenuSelectionIndex = index;
+    const items = mainMenuItems();
+    if (row < 0 || row >= items.length) return false;
+    if (mainMenuSelectionIndex !== row) {
+      mainMenuSelectionIndex = row;
       updateMainMenuCursor();
     }
     return true;
   }
 
   function moveMainMenuCursor(delta: number): void {
-    mainMenuSelectionIndex = (
-      mainMenuSelectionIndex + delta + QUAKE_MAIN_MENU_ROWS.length
-    ) % QUAKE_MAIN_MENU_ROWS.length;
+    const items = mainMenuItems();
+    if (!items.length) return;
+    mainMenuSelectionIndex = (mainMenuSelectionIndex + delta + items.length) % items.length;
     updateMainMenuCursor();
   }
 
   function activateMainMenuSelection(): void {
-    const row = QUAKE_MAIN_MENU_ROWS[mainMenuSelectionIndex] ?? 0;
-    if (row === 0) selectNewGame();
-    if (row === 1) showLevelPanel();
-    if (row === 2) showDebugPanel();
-    if (row === 3) showOptionsPanel();
-    if (row === 4) showAboutPanel();
+    const item = mainMenuItems()[mainMenuSelectionIndex];
+    const action = item?.getAttribute(QUAKE_MAIN_MENU_ACTION_ATTRIBUTE) as QuakeMainMenuAction | null;
+    if (action === "single-player") selectNewGame();
+    if (action === "level-select") showLevelPanel();
+    if (action === "options") showOptionsPanel();
+    if (action === "debug") showDebugPanel();
+    if (action === "quit" && isQuitEnabled?.()) onSelectQuit?.();
   }
 
   function levelButtons(): HTMLButtonElement[] {
@@ -365,6 +447,7 @@ export function createQuakeMenuController({
     if (!isMenuPanelOpen()) return false;
     if (handleLevelPanelKey(event)) return true;
     const sourceLink = aboutSourceLinkFor(event.target);
+    const optionToggle = menuOptionToggleFor(event.target);
     switch (event.code) {
       case "Escape":
       case "Backspace":
@@ -373,6 +456,12 @@ export function createQuakeMenuController({
         closeMenuPanel();
         return true;
       case "Enter":
+        if (optionToggle) {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleMenuOption(optionToggle);
+          return true;
+        }
         if (sourceLink) return false;
         event.preventDefault();
         event.stopPropagation();
@@ -381,22 +470,33 @@ export function createQuakeMenuController({
       case "Space":
         event.preventDefault();
         event.stopPropagation();
-        if (sourceLink) {
+        if (optionToggle) {
+          toggleMenuOption(optionToggle);
+        } else if (sourceLink) {
           sourceLink.click();
         } else {
           closeMenuPanel();
         }
         return true;
       case "ArrowDown":
+      case "KeyS":
+        event.preventDefault();
+        event.stopPropagation();
+        if (currentOptionPanel()) focusMenuOptionToggle(1);
+        return true;
       case "ArrowUp":
+      case "KeyW":
+        event.preventDefault();
+        event.stopPropagation();
+        if (currentOptionPanel()) focusMenuOptionToggle(-1);
+        return true;
       case "ArrowLeft":
       case "ArrowRight":
       case "KeyA":
       case "KeyD":
-      case "KeyS":
-      case "KeyW":
         event.preventDefault();
         event.stopPropagation();
+        if (currentOptionPanel()) toggleMenuOption(currentMenuOptionToggle());
         return true;
       default:
         return false;
@@ -420,7 +520,6 @@ export function createQuakeMenuController({
 
   function handleMainMenuKey(event: KeyboardEvent): boolean {
     if (!isMainMenuOpen()) return false;
-    const brandLink = mainMenuBrandLinkFor(event.target);
     switch (event.code) {
       case "ArrowDown":
       case "KeyS":
@@ -435,7 +534,6 @@ export function createQuakeMenuController({
         moveMainMenuCursor(-1);
         return true;
       case "Enter":
-        if (brandLink) return false;
         event.preventDefault();
         event.stopPropagation();
         activateMainMenuSelection();
@@ -443,16 +541,15 @@ export function createQuakeMenuController({
       case "Space":
         event.preventDefault();
         event.stopPropagation();
-        if (brandLink) {
-          brandLink.click();
-        } else {
-          activateMainMenuSelection();
-        }
+        activateMainMenuSelection();
         return true;
       case "Escape":
         event.preventDefault();
         event.stopPropagation();
-        if (shouldResumeMainMenuOnEscape?.()) startFromMainMenu();
+        if (shouldResumeMainMenuOnEscape?.()) {
+          onResumeMainMenuFromEscape?.();
+          startFromMainMenu();
+        }
         return true;
       default:
         return false;
@@ -464,9 +561,13 @@ export function createQuakeMenuController({
   }
 
   function handleMainMenuClick(event: MouseEvent): void {
-    if (mainMenuBrandLinkFor(event.target)) return;
     const row = mainMenuPointerRow(event);
-    if (row === null || !selectMainMenuRow(row)) return;
+    if (row === null) {
+      const target = event.target instanceof Node ? event.target : null;
+      if (!mainMenuItemFor(target)) hideMainMenu();
+      return;
+    }
+    if (!selectMainMenuRow(row)) return;
     activateMainMenuSelection();
   }
 
@@ -485,7 +586,8 @@ export function createQuakeMenuController({
 
   function mainMenuPointerRow(event: MouseEvent): number | null {
     if (!mainMenuArt) return null;
-    for (const item of mainMenuItems()) {
+    const items = mainMenuItems();
+    for (const item of items) {
       const itemRect = item.getBoundingClientRect();
       const cursor = item.querySelector<HTMLElement>(".quake-main-menu-item-cursor");
       const cursorRect = cursor && getComputedStyle(cursor).display !== "none"
@@ -501,11 +603,16 @@ export function createQuakeMenuController({
         event.clientY >= top &&
         event.clientY <= bottom
       ) {
-        const row = mainMenuItems().indexOf(item);
+        const row = items.indexOf(item);
         return row >= 0 ? row : null;
       }
     }
     return null;
+  }
+
+  function mainMenuItemFor(target: EventTarget | null): HTMLElement | null {
+    const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+    return element?.closest(".quake-main-menu-item") as HTMLElement | null;
   }
 
   function focusCurrent(): void {
@@ -515,6 +622,8 @@ export function createQuakeMenuController({
       aboutPanel?.focus({ preventScroll: true });
     } else if (isOptionsPanelOpen()) {
       optionsPanel?.focus({ preventScroll: true });
+    } else if (isDebugPanelOpen()) {
+      debugPanel?.focus({ preventScroll: true });
     } else if (isMainMenuOpen()) {
       mainMenu?.focus({ preventScroll: true });
     } else {
@@ -538,6 +647,7 @@ export function createQuakeMenuController({
     levelPanel?.removeEventListener("click", handleMenuPanelClick);
     aboutPanel?.removeEventListener("click", handleMenuPanelClick);
     optionsPanel?.removeEventListener("click", handleMenuPanelClick);
+    debugPanel?.removeEventListener("click", handleMenuPanelClick);
     controls.removeEventListener("start", handleControlsStart);
     controls.removeEventListener("end", handleControlsEnd);
   }
@@ -549,6 +659,7 @@ export function createQuakeMenuController({
     levelPanel?.addEventListener("click", handleMenuPanelClick);
     aboutPanel?.addEventListener("click", handleMenuPanelClick);
     optionsPanel?.addEventListener("click", handleMenuPanelClick);
+    debugPanel?.addEventListener("click", handleMenuPanelClick);
     controls.addEventListener("start", handleControlsStart);
     controls.addEventListener("end", handleControlsEnd);
   }

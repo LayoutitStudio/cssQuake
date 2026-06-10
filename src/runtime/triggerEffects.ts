@@ -34,12 +34,21 @@ export interface QuakeTriggerPushActivation {
   velocity: [number, number, number];
 }
 
+export interface QuakeTriggerMonsterJumpActivation {
+  direction: [number, number, number];
+  height: number;
+  speed: number;
+  velocity: [number, number, number];
+}
+
 const QUAKE_TRIGGER_SECRET_DEFAULT_MESSAGE = "You found a secret area!";
 const QUAKE_TRIGGER_SECRET_DEFAULT_SOUND = "misc/secret.wav";
 const QUAKE_TRIGGER_HURT_DEFAULT_DMG = 5;
 const QUAKE_TRIGGER_PUSH_DEFAULT_SPEED = 1000;
 const QUAKE_TRIGGER_PUSH_ONCE = 1;
 const QUAKE_TRIGGER_PUSH_VELOCITY_MULTIPLIER = 10;
+const QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_SPEED = 200;
+const QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_HEIGHT = 200;
 
 export function quakeTriggerSecretActivation(
   entity: QuakeEntity,
@@ -154,6 +163,33 @@ export function quakeTriggerPushActivation(
     oneShot: fact?.kind === "trigger_push" ? fact.oneShot : (quakeEntitySpawnflags(entity) & QUAKE_TRIGGER_PUSH_ONCE) !== 0,
     speed,
     velocity,
+  };
+}
+
+export function quakeTriggerMonsterJumpActivation(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null | undefined,
+): QuakeTriggerMonsterJumpActivation | null {
+  if (entity.classname !== "trigger_monsterjump") return null;
+  const fact = quakeGameLogicResolvedTriggerFact(gameLogic, entity.index);
+  const direction = fact?.kind === "trigger_monsterjump" && fact.moveDirection
+    ? quakeVectorTuple(fact.moveDirection)
+    : quakeTriggerMoveDirection(entity);
+  const speed = fact?.kind === "trigger_monsterjump"
+    ? quakeFiniteNumber(fact.speed ?? QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_SPEED, QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_SPEED)
+    : quakeDefaultedNumber(entity.properties.speed, QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_SPEED);
+  const height = fact?.kind === "trigger_monsterjump"
+    ? quakeFiniteNumber(fact.height ?? QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_HEIGHT, QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_HEIGHT)
+    : quakeDefaultedNumber(entity.properties.height, QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_HEIGHT);
+  return {
+    direction,
+    height,
+    speed,
+    velocity: [
+      direction[0] * speed,
+      direction[1] * speed,
+      height,
+    ],
   };
 }
 

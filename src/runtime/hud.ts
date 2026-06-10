@@ -1,15 +1,81 @@
 export type QuakeKey = "silver" | "gold";
+export type QuakeAmmoField = "shells" | "nails" | "rockets" | "cells";
+export type QuakeWeaponId =
+  | "axe"
+  | "shotgun"
+  | "supershotgun"
+  | "nailgun"
+  | "supernailgun"
+  | "grenadelauncher"
+  | "rocketlauncher"
+  | "lightning";
 
 const QUAKE_MAX_SHELLS = 100;
 const QUAKE_MAX_NAILS = 200;
 const QUAKE_MAX_ROCKETS = 100;
 const QUAKE_MAX_CELLS = 100;
+const QUAKE_DEFAULT_WEAPONS: readonly QuakeWeaponId[] = ["axe", "shotgun"];
+
+export const QUAKE_WEAPON_ITEM_FLAGS: Record<QuakeWeaponId, number> = {
+  shotgun: 1,
+  supershotgun: 2,
+  nailgun: 4,
+  supernailgun: 8,
+  grenadelauncher: 16,
+  rocketlauncher: 32,
+  lightning: 64,
+  axe: 4096,
+};
+
+export const QUAKE_WEAPON_ITEM_FLAG_EXPRESSIONS: Record<QuakeWeaponId, string> = {
+  shotgun: "IT_SHOTGUN",
+  supershotgun: "IT_SUPER_SHOTGUN",
+  nailgun: "IT_NAILGUN",
+  supernailgun: "IT_SUPER_NAILGUN",
+  grenadelauncher: "IT_GRENADE_LAUNCHER",
+  rocketlauncher: "IT_ROCKET_LAUNCHER",
+  lightning: "IT_LIGHTNING",
+  axe: "IT_AXE",
+};
+
+const QUAKE_WEAPON_AMMO_FIELDS: Record<QuakeWeaponId, QuakeAmmoField | null> = {
+  axe: null,
+  shotgun: "shells",
+  supershotgun: "shells",
+  nailgun: "nails",
+  supernailgun: "nails",
+  grenadelauncher: "rockets",
+  rocketlauncher: "rockets",
+  lightning: "cells",
+};
+const QUAKE_WEAPON_AMMO_MINIMUMS: Record<QuakeWeaponId, number> = {
+  axe: 0,
+  shotgun: 1,
+  supershotgun: 2,
+  nailgun: 1,
+  supernailgun: 2,
+  grenadelauncher: 1,
+  rocketlauncher: 1,
+  lightning: 1,
+};
+const QUAKE_WEAPON_IMPULSES: Record<number, QuakeWeaponId> = {
+  1: "axe",
+  2: "shotgun",
+  3: "supershotgun",
+  4: "nailgun",
+  5: "supernailgun",
+  6: "grenadelauncher",
+  7: "rocketlauncher",
+  8: "lightning",
+};
 
 export interface QuakePlayerInventory {
   health: number;
   armor: number;
   armorType: number;
   itemFlags: number;
+  activeWeapon: QuakeWeaponId;
+  weapons: Set<QuakeWeaponId>;
   shells: number;
   nails: number;
   rockets: number;
@@ -23,11 +89,19 @@ export interface QuakeInventoryDelta {
   healthMax?: number;
   armor?: number;
   armorType?: number;
+  weapon?: QuakeInventoryWeaponDelta;
   shells?: number;
   nails?: number;
   rockets?: number;
   cells?: number;
   key?: QuakeKey;
+}
+
+export interface QuakeInventoryWeaponDelta {
+  id: QuakeWeaponId;
+  itemFlag: number;
+  itemFlagExpression?: string;
+  select?: boolean;
 }
 
 export interface QuakeInventoryPowerupBehavior {
@@ -63,6 +137,12 @@ export interface QuakeInventoryDamageResult {
 
 export interface QuakeInventoryDamageOptions {
   applyHealth?: boolean;
+}
+
+export interface QuakeWeaponChangeResult {
+  changed: boolean;
+  message?: "no weapon." | "not enough ammo.";
+  weapon: QuakeWeaponId;
 }
 
 export type QuakeHudNumberReadoutId = "armor" | "health" | "healthDamage" | "ammo";
@@ -153,11 +233,14 @@ export const QUAKE_HUD_SLOT_DEFINITIONS: readonly QuakeHudSlotDefinition[] = [
 ];
 
 export function createInitialInventory(): QuakePlayerInventory {
+  const weapons = new Set(QUAKE_DEFAULT_WEAPONS);
   return {
     health: 100,
     armor: 0,
     armorType: 0,
-    itemFlags: 0,
+    itemFlags: QUAKE_DEFAULT_WEAPONS.reduce((flags, weapon) => flags | QUAKE_WEAPON_ITEM_FLAGS[weapon], 0),
+    activeWeapon: "shotgun",
+    weapons,
     shells: 25,
     nails: 0,
     rockets: 0,
@@ -185,14 +268,14 @@ export function createQuakeHudElements(sources: QuakeHudElementSources): QuakeHu
 export function syncQuakeHud(elements: QuakeHudElements, inventory: QuakePlayerInventory): void {
   const armor = formatHudNumber(inventory.armor);
   const health = formatHudNumber(inventory.health);
-  const ammo = formatHudNumber(inventory.shells);
+  const ammo = formatHudNumber(quakeInventoryAmmoForWeapon(inventory, inventory.activeWeapon));
   setHudValue(elements.readouts.armor, armor);
   setHudValue(elements.readouts.health, health);
   setHudValue(elements.readouts.healthDamage, health);
   setHudValue(elements.readouts.ammo, ammo);
   syncQuakeHudArmorSlot(elements, inventory);
   syncQuakeHudFaceSlot(elements, inventory);
-  syncQuakeHudAmmoSlot(elements, "ammo-shells");
+  syncQuakeHudAmmoSlot(elements, quakeHudAmmoSlotForWeapon(inventory.activeWeapon));
   setHudSlotActive(elements.slots["key-silver"], inventory.keys.has("silver"));
   setHudSlotActive(elements.slots["key-gold"], inventory.keys.has("gold"));
   setHudSlotActive(elements.slots["powerup-invisibility"], quakeHudPowerupActive(inventory, QUAKE_HUD_POWERUP_FIELDS.invisibility));
@@ -200,7 +283,7 @@ export function syncQuakeHud(elements: QuakeHudElements, inventory: QuakePlayerI
   setHudSlotActive(elements.slots["powerup-biosuit"], quakeHudPowerupActive(inventory, QUAKE_HUD_POWERUP_FIELDS.biosuit));
   setHudSlotActive(elements.slots["powerup-quad"], quakeHudPowerupActive(inventory, QUAKE_HUD_POWERUP_FIELDS.quad));
   if (elements.root) {
-    const label = `Quake status: armor ${Math.max(0, Math.round(inventory.armor))}, health ${Math.max(0, Math.round(inventory.health))}, shells ${Math.max(0, Math.round(inventory.shells))}`;
+    const label = `Quake status: armor ${Math.max(0, Math.round(inventory.armor))}, health ${Math.max(0, Math.round(inventory.health))}, ${inventory.activeWeapon} ammo ${Math.max(0, Math.round(quakeInventoryAmmoForWeapon(inventory, inventory.activeWeapon)))}`;
     if (elements.root.getAttribute("aria-label") !== label) elements.root.setAttribute("aria-label", label);
   }
 }
@@ -221,7 +304,76 @@ export function applyQuakeInventoryDelta(inventory: QuakePlayerInventory, delta:
   inventory.nails = Math.min(QUAKE_MAX_NAILS, inventory.nails + (delta.nails ?? 0));
   inventory.rockets = Math.min(QUAKE_MAX_ROCKETS, inventory.rockets + (delta.rockets ?? 0));
   inventory.cells = Math.min(QUAKE_MAX_CELLS, inventory.cells + (delta.cells ?? 0));
+  if (delta.weapon) {
+    inventory.weapons.add(delta.weapon.id);
+    inventory.itemFlags |= delta.weapon.itemFlag;
+    if (delta.weapon.select) inventory.activeWeapon = delta.weapon.id;
+  }
   if (delta.key) inventory.keys.add(delta.key);
+}
+
+export function quakeInventoryAmmoFieldForWeapon(weapon: QuakeWeaponId): QuakeAmmoField | null {
+  return QUAKE_WEAPON_AMMO_FIELDS[weapon];
+}
+
+export function quakeInventoryAmmoForWeapon(inventory: QuakePlayerInventory, weapon: QuakeWeaponId): number {
+  const field = quakeInventoryAmmoFieldForWeapon(weapon);
+  return field ? inventory[field] : 0;
+}
+
+export function quakeWeaponForImpulse(impulse: number): QuakeWeaponId | null {
+  return QUAKE_WEAPON_IMPULSES[impulse] ?? null;
+}
+
+export function changeQuakeInventoryWeaponByImpulse(
+  inventory: QuakePlayerInventory,
+  impulse: number,
+): QuakeWeaponChangeResult | null {
+  const weapon = quakeWeaponForImpulse(impulse);
+  return weapon ? changeQuakeInventoryWeapon(inventory, weapon) : null;
+}
+
+export function changeQuakeInventoryWeapon(
+  inventory: QuakePlayerInventory,
+  weapon: QuakeWeaponId,
+): QuakeWeaponChangeResult {
+  if (!quakeInventoryHasWeapon(inventory, weapon)) {
+    return { changed: false, message: "no weapon.", weapon };
+  }
+  if (quakeInventoryAmmoForWeapon(inventory, weapon) < QUAKE_WEAPON_AMMO_MINIMUMS[weapon]) {
+    return { changed: false, message: "not enough ammo.", weapon };
+  }
+  inventory.activeWeapon = weapon;
+  return { changed: true, weapon };
+}
+
+export function quakeBestInventoryWeapon(inventory: QuakePlayerInventory): QuakeWeaponId {
+  if (inventory.cells >= 1 && quakeInventoryHasWeapon(inventory, "lightning")) return "lightning";
+  if (inventory.nails >= 2 && quakeInventoryHasWeapon(inventory, "supernailgun")) return "supernailgun";
+  if (inventory.shells >= 2 && quakeInventoryHasWeapon(inventory, "supershotgun")) return "supershotgun";
+  if (inventory.nails >= 1 && quakeInventoryHasWeapon(inventory, "nailgun")) return "nailgun";
+  if (inventory.shells >= 1 && quakeInventoryHasWeapon(inventory, "shotgun")) return "shotgun";
+  return "axe";
+}
+
+export function selectQuakeBestInventoryWeapon(inventory: QuakePlayerInventory): QuakeWeaponId {
+  const weapon = quakeBestInventoryWeapon(inventory);
+  inventory.activeWeapon = weapon;
+  return weapon;
+}
+
+export function quakeInventoryHasWeapon(
+  inventory: Pick<QuakePlayerInventory, "itemFlags"> & Partial<Pick<QuakePlayerInventory, "weapons">>,
+  weapon: QuakeWeaponId,
+): boolean {
+  return inventory.weapons?.has(weapon) === true || (inventory.itemFlags & QUAKE_WEAPON_ITEM_FLAGS[weapon]) !== 0;
+}
+
+export function quakeInventoryOwnsWeapon(
+  inventory: Pick<QuakePlayerInventory, "itemFlags"> & Partial<Pick<QuakePlayerInventory, "weapons">>,
+  weapon: QuakeInventoryWeaponDelta,
+): boolean {
+  return inventory.weapons?.has(weapon.id) === true || (inventory.itemFlags & weapon.itemFlag) !== 0;
 }
 
 export function applyQuakeDamageToInventory(
@@ -304,8 +456,10 @@ export function clearQuakeInventoryPowerup(
 }
 
 export function clearQuakeInventoryPowerups(inventory: QuakePlayerInventory): void {
+  for (const state of Object.values(inventory.powerups)) {
+    inventory.itemFlags &= ~state.itemFlag;
+  }
   inventory.powerups = {};
-  inventory.itemFlags = 0;
 }
 
 function formatHudNumber(value: number): string {
@@ -326,7 +480,7 @@ function cacheQuakeHudSlots(elements: QuakeHudElements): void {
   if (!root) return;
   root.style.setProperty("--quake-hud-icons-width", String(QUAKE_HUD_ICON_SHEET_WIDTH));
   for (const definition of QUAKE_HUD_SLOT_DEFINITIONS) {
-    const slot = root.querySelector<HTMLElement>(`[data-quake-hud-slot="${definition.id}"]`);
+    const slot = root.querySelector<HTMLElement>(`[data-qslot="${definition.id}"]`);
     if (!slot) continue;
     slot.style.setProperty("--quake-hud-slot-source-x", String(definition.sourceX));
     slot.style.setProperty("--quake-hud-slot-source-y", String(definition.sourceY));
@@ -334,7 +488,6 @@ function cacheQuakeHudSlots(elements: QuakeHudElements): void {
     slot.style.setProperty("--quake-hud-slot-y", String(definition.y));
     slot.style.setProperty("--quake-hud-slot-width", String(definition.width));
     slot.style.setProperty("--quake-hud-slot-height", String(definition.height));
-    slot.dataset.quakeHudQpic = definition.qpic;
     elements.slots[definition.id] = slot;
   }
 }
@@ -379,7 +532,7 @@ function syncQuakeHudFaceSlot(elements: QuakeHudElements, inventory: QuakePlayer
   );
 }
 
-function syncQuakeHudAmmoSlot(elements: QuakeHudElements, activeSlot: QuakeHudSlotId): void {
+function syncQuakeHudAmmoSlot(elements: QuakeHudElements, activeSlot: QuakeHudSlotId | null): void {
   setExclusiveHudSlot(elements, ["ammo-shells", "ammo-nails", "ammo-rockets", "ammo-cells"], activeSlot);
 }
 
@@ -402,6 +555,15 @@ function quakeHudArmorSlot(armorType: number): QuakeHudSlotId {
   if (armorType >= 0.8) return "armor-red";
   if (armorType >= 0.6) return "armor-yellow";
   return "armor-green";
+}
+
+function quakeHudAmmoSlotForWeapon(weapon: QuakeWeaponId): QuakeHudSlotId | null {
+  const field = quakeInventoryAmmoFieldForWeapon(weapon);
+  if (field === "shells") return "ammo-shells";
+  if (field === "nails") return "ammo-nails";
+  if (field === "rockets") return "ammo-rockets";
+  if (field === "cells") return "ammo-cells";
+  return null;
 }
 
 function quakeHudPowerupActive(inventory: QuakePlayerInventory, finishedField: string): boolean {

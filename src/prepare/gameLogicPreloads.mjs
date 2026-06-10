@@ -166,8 +166,10 @@ function quakeGameLogicMonsterModelPaths(entity, gameLogic) {
     : programModels.find(isQuakeMonsterBodyModel) ??
       programModels.find((modelPath) => modelPath.startsWith("progs/") && modelPath.endsWith(".mdl")) ??
       expected;
+  const sourceExtraModelPaths = programModels.filter((modelPath) => modelPath !== bodyModelPath);
   return [
     bodyModelPath,
+    ...sourceExtraModelPaths,
     QUAKE_MONSTER_PROJECTILE_MODEL_PATHS[entity.classname],
   ].filter(Boolean);
 }
@@ -189,8 +191,11 @@ function quakeGameLogicEntityAssetRefs(entity, gameLogic) {
   const sourceFact = gameLogic?.programFacts?.entities?.[entity.classname] ??
     gameLogic?.programFacts?.entities?.[classname];
   const sourceAssets = normalizeAssetRefs(sourceFact?.assetRefs);
+  const callbackAssets = normalizeCallbackAssetRefs(sourceFact?.callbackFacts);
   const behaviorAssets = quakeGameLogicEntityBehaviorAssetRefs(entity);
-  if (sourceAssets.length) return dedupeAssetRefs([...sourceAssets, ...behaviorAssets]);
+  if (sourceAssets.length || callbackAssets.length) {
+    return dedupeAssetRefs([...sourceAssets, ...callbackAssets, ...behaviorAssets]);
+  }
   const entityAssets = normalizeAssetRefs(entity.dependencyAssets);
   if (entityAssets.length) return dedupeAssetRefs([...entityAssets, ...behaviorAssets]);
   return dedupeAssetRefs([
@@ -198,6 +203,22 @@ function quakeGameLogicEntityAssetRefs(entity, gameLogic) {
     ...legacyAssetRefs(sourceFact?.dependencies?.sounds ?? entity.dependencySounds, "sound"),
     ...behaviorAssets,
   ]);
+}
+
+function normalizeCallbackAssetRefs(callbackFacts) {
+  if (!callbackFacts || typeof callbackFacts !== "object") return [];
+  return Object.values(callbackFacts).flatMap((fact) => {
+    const assets = normalizeAssetRefs(fact?.assetRefs);
+    const hasDeathOutputAsset = assets.some((asset) =>
+      asset.kind === "model" && (
+        asset.call === "DropBackpack" ||
+        asset.call === "ThrowHead" ||
+        asset.call === "ThrowGib"
+      ) ||
+      asset.kind === "sound" && asset.call === "BackpackTouch"
+    );
+    return hasDeathOutputAsset ? assets : [];
+  });
 }
 
 function quakeGameLogicEntityBehaviorAssetRefs(entity) {

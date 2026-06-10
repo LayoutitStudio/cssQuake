@@ -9,6 +9,7 @@ import { quakeEntityNumber } from "./entities";
 
 export interface QuakeTargetsControllerOptions {
   activateEntity: (entityIndex: number, sourceEntityIndex?: number) => boolean | void;
+  isGameplayPaused?: () => boolean;
   onCounterStateChange?: (entity: QuakeEntity, result: QuakeCounterActivationResult) => void;
   onUseTargetsMessage?: (entity: QuakeEntity, text: QuakeGameLogicTextFact) => void;
 }
@@ -40,6 +41,7 @@ export function createQuakeTargetsController(options: QuakeTargetsControllerOpti
 
   const QUAKE_TARGET_MAX_DEPTH = 32;
   const QUAKE_TARGET_MAX_ACTIVATIONS = 256;
+  const QUAKE_TARGET_PAUSED_TIMER_POLL_MS = 100;
 
   const clear = (): void => {
     for (const timer of pendingUseTimers) window.clearTimeout(timer);
@@ -91,10 +93,17 @@ export function createQuakeTargetsController(options: QuakeTargetsControllerOpti
     const triggerFact = triggerTargetUseFacts.get(entity.index);
     const delay = Math.max(0, triggerFact?.targetUse.delay ?? quakeEntityNumber(entity, "delay", 0));
     if (delay > 0) {
-      const timer = window.setTimeout(() => {
+      let timer = 0;
+      const fireDelayedUse = (): void => {
         pendingUseTimers = pendingUseTimers.filter((item) => item !== timer);
+        if (options.isGameplayPaused?.()) {
+          timer = window.setTimeout(fireDelayedUse, QUAKE_TARGET_PAUSED_TIMER_POLL_MS);
+          pendingUseTimers.push(timer);
+          return;
+        }
         useTargetsNow(entity, true, triggerFact);
-      }, delay * 1000);
+      };
+      timer = window.setTimeout(fireDelayedUse, delay * 1000);
       pendingUseTimers.push(timer);
       return true;
     }

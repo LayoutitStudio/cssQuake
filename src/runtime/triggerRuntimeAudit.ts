@@ -49,6 +49,12 @@ export interface QuakeTriggerRuntimeAuditCoverage {
   changelevelChecks: number;
   specialChecks: number;
   targetUseChecks: number;
+  targetMonsterUseChecks: number;
+  targetMonsterActivationChecks: number;
+  targetMonsterImmediateActivationChecks: number;
+  targetMonsterDelayedActivationChecks: number;
+  targetMonsterKilltargetFilteredChecks: number;
+  targetMonsterSelfFilteredChecks: number;
   unsupportedPlayerTouchChecks: number;
 }
 
@@ -84,6 +90,7 @@ interface QuakeTriggerRuntimeAuditHarness {
   targetSystem: QuakeTargetsController;
   triggerSystem: QuakeTriggersController;
   activateEntity(entityIndex: number, sourceEntityIndex?: number): boolean;
+  flushTimers(): void;
   touchEntity(entity: QuakeEntity): void;
   disabledEntityIndexes(): number[];
 }
@@ -105,6 +112,9 @@ interface QuakeTriggerRuntimeBranch {
 }
 
 type QuakeTriggerCallbackName = keyof QuakeGameLogicResolvedTriggerFact["callbacks"];
+type QuakeTriggerAuditWindow = Window & {
+  __quakeTriggerAuditFlushTimers?: () => void;
+};
 
 const QUAKE_TRIGGER_MULTIPLE_DEFAULT_WAIT = 0.2;
 const QUAKE_TRIGGER_COUNTER_DEFAULT_COUNT = 2;
@@ -129,6 +139,12 @@ const EMPTY_COVERAGE: QuakeTriggerRuntimeAuditCoverage = {
   changelevelChecks: 0,
   specialChecks: 0,
   targetUseChecks: 0,
+  targetMonsterUseChecks: 0,
+  targetMonsterActivationChecks: 0,
+  targetMonsterImmediateActivationChecks: 0,
+  targetMonsterDelayedActivationChecks: 0,
+  targetMonsterKilltargetFilteredChecks: 0,
+  targetMonsterSelfFilteredChecks: 0,
   unsupportedPlayerTouchChecks: 0,
 };
 
@@ -181,7 +197,7 @@ function auditQuakeTriggerRuntimeFactsWithWindow(
     }
 
     auditBranchFacts(findings, coverage, input.gameLogic, entity, factEntity.resolvedTrigger);
-    auditTargetUseFacts(findings, coverage, input.runtime, factByIndex, factEntity, input.mode ?? "singleplayer:normal");
+    auditTargetUseFacts(findings, coverage, input, input.runtime, factByIndex, factEntity, input.mode ?? "singleplayer:normal");
     auditRuntimeControllerBehavior(findings, coverage, input, entity, factEntity.resolvedTrigger);
     auditCallbackConsumption(findings, coverage, entity, factEntity.resolvedTrigger);
   }
@@ -193,10 +209,22 @@ function withQuakeTriggerAuditWindow<T>(callback: () => T): T {
   const auditGlobal = globalThis as typeof globalThis & { window?: Window };
   if (auditGlobal.window) return callback();
   let nextTimer = 1;
+  const timers = new Map<number, () => void>();
   auditGlobal.window = {
-    setTimeout: (() => nextTimer++) as unknown as Window["setTimeout"],
-    clearTimeout: (() => undefined) as unknown as Window["clearTimeout"],
-  } as Window;
+    setTimeout: ((handler: TimerHandler) => {
+      const id = nextTimer++;
+      if (typeof handler === "function") timers.set(id, handler as () => void);
+      return id;
+    }) as unknown as Window["setTimeout"],
+    clearTimeout: ((id?: number) => {
+      if (typeof id === "number") timers.delete(id);
+    }) as unknown as Window["clearTimeout"],
+    __quakeTriggerAuditFlushTimers: () => {
+      const callbacks = [...timers.values()];
+      timers.clear();
+      for (const timer of callbacks) timer();
+    },
+  } as QuakeTriggerAuditWindow;
   try {
     return callback();
   } finally {
@@ -296,6 +324,7 @@ function runtimeConsumedTriggerCallbacks(trigger: QuakeGameLogicResolvedTriggerF
 function auditTargetUseFacts(
   findings: QuakeTriggerRuntimeAuditFinding[],
   coverage: QuakeTriggerRuntimeAuditCoverage,
+  input: QuakeTriggerRuntimeAuditInput,
   runtime: QuakeEntityRuntimeManifest,
   factByIndex: Map<number, QuakeGameLogicEntityFact>,
   factEntity: QuakeGameLogicEntityFact & { resolvedTrigger: QuakeGameLogicResolvedTriggerFact },
@@ -305,6 +334,7 @@ function auditTargetUseFacts(
   const targetUse = trigger.targetUse;
   if (targetUse.target) {
     coverage.targetUseChecks += 1;
+    coverage.targetMonsterUseChecks += monsterTargetIndexes(input, targetUse.targetEntityIndexes).length;
     const runtimeTargetIndexes = runtime.targetEntities[targetUse.target] ?? [];
     compare(findings, factEntity, "target-index-mismatch", targetUse.targetEntityIndexes, runtimeTargetIndexes);
     const active = targetUse.activeTargetEntityIndexesByMode[modeEntityIndexSetKey(mode)];
@@ -496,7 +526,7 @@ function auditUseTargets(
   harness.activateEntity(entity.index);
   if (trigger.oneShot) auditOneShotDisabled(findings, coverage, entity, harness.disabledEntityIndexes());
   auditUseTargetsMessage(findings, entity, trigger, harness.events);
-  auditTargetActivationIndexes(findings, entity, trigger, harness.events);
+  auditTargetActivationIndexes(findings, coverage, input, entity, trigger, harness);
 }
 
 function auditUseTargetsMessage(
@@ -545,7 +575,7 @@ function auditCounterUse(
   }
   harness.activateEntity(entity.index);
   requireEvent(findings, entity, harness.events, "counter-complete");
-  auditTargetActivationIndexes(findings, entity, trigger, harness.events);
+  auditTargetActivationIndexes(findings, coverage, input, entity, trigger, harness);
   const completed = harness.events.filter((event) => event.type === "counter-complete").length;
   harness.activateEntity(entity.index);
   const completedAfterReuse = harness.events.filter((event) => event.type === "counter-complete").length;
@@ -605,11 +635,23 @@ function auditOneShotDisabled(
 
 function auditTargetActivationIndexes(
   findings: QuakeTriggerRuntimeAuditFinding[],
+  coverage: QuakeTriggerRuntimeAuditCoverage,
+  input: QuakeTriggerRuntimeAuditInput,
   entity: QuakeEntity,
   trigger: QuakeGameLogicResolvedTriggerFact,
-  events: readonly QuakeTriggerRuntimeAuditEvent[],
+  harness: QuakeTriggerRuntimeAuditHarness,
 ): void {
   if (!trigger.targetUse.target) return;
+  const events = harness.events;
+  const targetMonsterIndexes = monsterTargetIndexes(input, trigger.targetUse.targetEntityIndexes);
+  const killtargetIndexes = new Set(trigger.targetUse.killtargetEntityIndexes ?? []);
+  const selfFilteredMonsterIndexes = targetMonsterIndexes.filter((index) => index === entity.index);
+  const killtargetFilteredMonsterIndexes = targetMonsterIndexes.filter((index) =>
+    index !== entity.index && killtargetIndexes.has(index)
+  );
+  coverage.targetMonsterSelfFilteredChecks += selfFilteredMonsterIndexes.length;
+  coverage.targetMonsterKilltargetFilteredChecks += killtargetFilteredMonsterIndexes.length;
+
   if (trigger.targetUse.delay > 0) {
     const delayedUseAccepted = events.some((event) =>
       event.type === "use-targets" &&
@@ -627,16 +669,8 @@ function auditTargetActivationIndexes(
       ));
       return;
     }
-    findings.push(finding(
-      "info",
-      "delayed-target-use-not-fired-in-audit",
-      entity,
-      "Runtime target dispatch is delayed; the read-only audit confirms scheduling but does not run timers.",
-      trigger.targetUse.delay,
-    ));
-    return;
+    harness.flushTimers();
   }
-  const killtargetIndexes = new Set(trigger.targetUse.killtargetEntityIndexes ?? []);
   const expected = trigger.targetUse.targetEntityIndexes.filter((index) =>
     index !== entity.index && !killtargetIndexes.has(index)
   );
@@ -654,6 +688,21 @@ function auditTargetActivationIndexes(
     .filter((event) => event.sourceEntityIndex === entity.index)
     .map((event) => event.entityIndex);
   compare(findings, entity, "runtime-target-activation-index-mismatch", expected, actual);
+  const expectedMonsterIndexes = monsterTargetIndexes(input, expected);
+  if (!expectedMonsterIndexes.length) return;
+  const actualMonsterIndexes = actual.filter((index) => expectedMonsterIndexes.includes(index));
+  coverage.targetMonsterActivationChecks += actualMonsterIndexes.length;
+  if (trigger.targetUse.delay > 0) {
+    coverage.targetMonsterDelayedActivationChecks += actualMonsterIndexes.length;
+  } else {
+    coverage.targetMonsterImmediateActivationChecks += actualMonsterIndexes.length;
+  }
+  compare(findings, entity, "runtime-monster-target-activation-mismatch", expectedMonsterIndexes, actualMonsterIndexes);
+}
+
+function monsterTargetIndexes(input: QuakeTriggerRuntimeAuditInput, indexes: readonly number[]): number[] {
+  const entityByIndex = new Map(input.entities.map((entity) => [entity.index, entity]));
+  return indexes.filter((index) => entityByIndex.get(index)?.classname.startsWith("monster_"));
 }
 
 function createAuditHarness(input: QuakeTriggerRuntimeAuditInput): QuakeTriggerRuntimeAuditHarness {
@@ -783,6 +832,9 @@ function createAuditHarness(input: QuakeTriggerRuntimeAuditInput): QuakeTriggerR
     targetSystem,
     triggerSystem,
     activateEntity,
+    flushTimers() {
+      (window as QuakeTriggerAuditWindow).__quakeTriggerAuditFlushTimers?.();
+    },
     touchEntity(entity) {
       touchedEntity = entity;
       triggerSystem.sync([0, 0, 0]);

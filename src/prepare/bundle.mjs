@@ -36,6 +36,23 @@ const QUAKE_TRIANGLE_ATLAS_BASIS_ANGLE_STEP_DEGREES = 5;
 const QUAKE_TRIANGLE_ATLAS_BASIS_PADDING = 1;
 const QUAKE_TRIANGLE_ATLAS_BASIS_MIN_SAVED_AREA = 4;
 const QUAKE_TRIANGLE_ATLAS_BASIS_MIN_SAVED_RATIO = 0.01;
+const quakeRenderBundleAnimationShadow = process.env.QUAKE_RENDER_BUNDLE_ANIMATION_SHADOW === "1";
+const quakeRenderBundleAnimationShadowStrict = process.env.QUAKE_RENDER_BUNDLE_ANIMATION_SHADOW_STRICT === "1";
+const quakeRenderBundleStableFrameStyleOrder = process.env.QUAKE_RENDER_BUNDLE_STABLE_FRAME_STYLE_ORDER === "1";
+const quakeRenderBundleStepTiming = process.env.QUAKE_RENDER_BUNDLE_STEP_TIMING === "1";
+const quakeRenderBundleDirectFrameStyles = process.env.QUAKE_RENDER_BUNDLE_DIRECT_FRAME_STYLES === "1";
+const quakeRenderBundleDirectFrameStylesDisabled = process.env.QUAKE_RENDER_BUNDLE_DIRECT_FRAME_STYLES === "0";
+const quakeRenderBundleDirectFrameStylesShadow = process.env.QUAKE_RENDER_BUNDLE_DIRECT_FRAME_STYLES_SHADOW === "1";
+const quakeRenderBundleDirectFrameStylesShadowStrict = process.env.QUAKE_RENDER_BUNDLE_DIRECT_FRAME_STYLES_SHADOW_STRICT === "1";
+const quakeRenderBundleDirectFrameStylesDebug = process.env.QUAKE_RENDER_BUNDLE_DIRECT_FRAME_STYLES_DEBUG === "1";
+const quakeRenderBundleObservedDirectFrameStyles = process.env.QUAKE_RENDER_BUNDLE_OBSERVED_DIRECT_FRAME_STYLES === "1";
+const quakeRenderBundleStepTimings = new Map();
+const quakeRenderBundleDirectFrameStyleSkips = new Map();
+const quakeRenderBundleDirectFrameStyleBundleAllowlist = new Set();
+const quakeRenderBundleObservedDirectFrameStyleBundleAllowlist = new Set([
+  "boss",
+  "shambler",
+]);
 
 window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
   polygons,
@@ -196,6 +213,23 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
     const outFrames = [];
     let baseLeafFrameStylesByClass = new Map();
     let baseTightAtlasBoundsByKey = null;
+    let baseTightAtlasPlan = null;
+    const animationShadowStats = createAnimatedRenderBundleShadowStats();
+    const directFrameStyleShadowStats = createAnimatedRenderBundleCandidateFrameStyleStats(
+      quakeRenderBundleDirectFrameStylesShadow,
+    );
+    const animationBundleName = frames[0]?.name?.replace(/\/f0$/, "") ?? "animated";
+    const isObservedDirectFrameStyleBundle =
+      quakeRenderBundleObservedDirectFrameStyleBundleAllowlist.has(animationBundleName);
+    const useObservedDirectFrameStylesForBundle =
+      isObservedDirectFrameStyleBundle &&
+      (quakeRenderBundleDirectFrameStyles ||
+        quakeRenderBundleObservedDirectFrameStyles ||
+        quakeRenderBundleDirectFrameStylesShadow);
+    const useDirectFrameStylesForBundle = quakeRenderBundleDirectFrameStyles ||
+      (!quakeRenderBundleDirectFrameStylesDisabled &&
+        (quakeRenderBundleDirectFrameStyleBundleAllowlist.has(animationBundleName) ||
+          (quakeRenderBundleObservedDirectFrameStyles && isObservedDirectFrameStyleBundle)));
     await runQuakeRenderBundleStepAsync("initial-texture-wait", () =>
       waitForBakedTextureLeaves(handle.element)
     );
@@ -240,72 +274,114 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
           applyQuakeAnimatedTriangleAtlasBasisPlan(handle.element, animatedTriangleAtlasBasisPlan)
         );
       }
-      if (tightenAtlasLeaves) {
-        baseTightAtlasBoundsByKey = await runQuakeRenderBundleStepAsync("frame-tighten-atlas", () =>
-          tightenQuakeAtlasLeaves(handle.element, baseTightAtlasBoundsByKey)
+      const directFrameStyleCandidate = runQuakeRenderBundleStep("frame-direct-style-candidate", () =>
+        index > 0 &&
+          fastFrameStyles &&
+          !adaptiveAtlasLeafSize &&
+          (useDirectFrameStylesForBundle || quakeRenderBundleDirectFrameStylesShadow)
+          ? extractRenderBundleFrameStylesDirectlyFromStableTightenPlan(handle.element, {
+              baseLeafFrameStylesByClass,
+              collectMutations: useDirectFrameStylesForBundle,
+              observeStyleMutations: useObservedDirectFrameStylesForBundle,
+              tightAtlasPlan: baseTightAtlasPlan,
+              tightenAtlasLeaves,
+            })
+          : null
+      );
+      let adaptiveAtlasLeafSizeStats = null;
+      let transformSnapStats = null;
+      let atlasBackgroundSnapStats = null;
+      let frameStyleResult = null;
+      if (directFrameStyleCandidate && useDirectFrameStylesForBundle) {
+        applyDirectFrameStyleMutations(directFrameStyleCandidate.mutations);
+        frameStyleResult = directFrameStyleCandidate;
+      } else {
+        if (tightenAtlasLeaves) {
+          baseTightAtlasBoundsByKey = await runQuakeRenderBundleStepAsync("frame-tighten-atlas", () =>
+            tightenQuakeAtlasLeaves(handle.element, baseTightAtlasBoundsByKey)
+          );
+          if (index === 0) {
+            baseTightAtlasPlan = createQuakeAtlasLeafStableTightenPlan(handle.element, baseTightAtlasBoundsByKey);
+          }
+        }
+        adaptiveAtlasLeafSizeStats = runQuakeRenderBundleStep("frame-adaptive-atlas-size", () =>
+          adaptiveAtlasLeafSize
+            ? applyAdaptiveQuakeAtlasLeafSizes(handle.element)
+            : null
         );
-      }
-      const adaptiveAtlasLeafSizeStats = runQuakeRenderBundleStep("frame-adaptive-atlas-size", () =>
-        adaptiveAtlasLeafSize
-          ? applyAdaptiveQuakeAtlasLeafSizes(handle.element)
-          : null
-      );
-      const transformSnapStats = runQuakeRenderBundleStep("frame-snap-transforms", () =>
-        snapQuakeLeafTransformsToStableGrid(handle.element)
-      );
-      const inheritedFrameStyleResult = runQuakeRenderBundleStep("frame-inherited-style-probe", () =>
-        index > 0 && fastFrameStyles
-          ? extractRenderBundleFrameStylesFromInheritedBase(handle.element, baseLeafFrameStylesByClass)
-          : null
-      );
-      const atlasBackgroundSnapStats = runQuakeRenderBundleStep("frame-snap-backgrounds", () =>
-        inheritedFrameStyleResult
-          ? null
-          : snapQuakeAtlasLeafBackgroundsToIntegerPx(handle.element)
-      );
-      if (index === 0) {
-        const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await runQuakeRenderBundleStepAsync("frame-serialize-first",
-          () => serializeMeshWithAssets(handle.element, {
-            extractLeafStyles,
-            normalizeAtlasLeafImagePixelBoxes: true,
+        transformSnapStats = runQuakeRenderBundleStep("frame-snap-transforms", () =>
+          snapQuakeLeafTransformsToStableGrid(handle.element)
+        );
+        const inheritedFrameStyleResult = runQuakeRenderBundleStep("frame-inherited-style-probe", () =>
+          index > 0 && fastFrameStyles
+            ? extractRenderBundleFrameStylesFromInheritedBase(handle.element, baseLeafFrameStylesByClass)
+            : null
+        );
+        atlasBackgroundSnapStats = runQuakeRenderBundleStep("frame-snap-backgrounds", () =>
+          inheritedFrameStyleResult
+            ? null
+            : snapQuakeAtlasLeafBackgroundsToIntegerPx(handle.element)
+        );
+        if (index === 0) {
+          const { meshHtml, meshCss, assets, leafMetadata, leafFrameStyles } = await runQuakeRenderBundleStepAsync("frame-serialize-first",
+            () => serializeMeshWithAssets(handle.element, {
+              extractLeafStyles,
+              normalizeAtlasLeafImagePixelBoxes: true,
+              styleClassName: frame.styleClassName,
+            }),
+          );
+          baseLeafFrameStylesByClass = new Map(leafFrameStyles);
+          outFrames.push({
+            name,
             styleClassName: frame.styleClassName,
-          }),
+            meshHtml,
+            meshCss,
+            assets,
+            leafMetadata,
+            leafFrameStyles,
+            leafCount: handle.element.querySelectorAll("b,i,s,u").length,
+            atlasLeafCount: handle.element.querySelectorAll("s").length,
+            polygonCount: frame.polygons.length,
+            ...(adaptiveAtlasLeafSizeStats ? { adaptiveAtlasLeafSizeStats } : {}),
+            ...(transformSnapStats.snappedLeaves || transformSnapStats.precisionLeaves ? { transformSnapStats } : {}),
+            ...(atlasBackgroundSnapStats.snappedLeaves ? { atlasBackgroundSnapStats } : {}),
+            ...(atlasLeafBasisRotationPlan?.stats?.rotatedPolygons
+              ? { atlasLeafBasisOptimizationStats: atlasLeafBasisRotationPlan.stats }
+              : {}),
+            ...(animatedAtlasLeafHomographyPlan?.stats?.optimizedLeaves
+              ? { atlasLeafHomographyOptimizationStats: animatedAtlasLeafHomographyPlan.stats }
+              : {}),
+            ...(animatedTriangleAtlasBasisPlan?.stats?.optimizedLeaves
+              ? { triangleAtlasBasisOptimizationStats: animatedTriangleAtlasBasisPlan.stats }
+              : {}),
+          });
+          continue;
+        }
+        frameStyleResult = inheritedFrameStyleResult ?? runQuakeRenderBundleStep("frame-extract-styles", () =>
+          (fastFrameStyles
+            ? extractRenderBundleFrameStylesReadOnly
+            : extractRenderBundleFrameStyles)(handle.element, {
+            styleClassName: frame.styleClassName,
+            baseLeafFrameStylesByClass,
+          })
         );
-        baseLeafFrameStylesByClass = new Map(leafFrameStyles);
-        outFrames.push({
-          name,
-          styleClassName: frame.styleClassName,
-          meshHtml,
-          meshCss,
-          assets,
-          leafMetadata,
-          leafFrameStyles,
-          leafCount: handle.element.querySelectorAll("b,i,s,u").length,
-          atlasLeafCount: handle.element.querySelectorAll("s").length,
-          polygonCount: frame.polygons.length,
-          ...(adaptiveAtlasLeafSizeStats ? { adaptiveAtlasLeafSizeStats } : {}),
-          ...(transformSnapStats.snappedLeaves || transformSnapStats.precisionLeaves ? { transformSnapStats } : {}),
-          ...(atlasBackgroundSnapStats.snappedLeaves ? { atlasBackgroundSnapStats } : {}),
-          ...(atlasLeafBasisRotationPlan?.stats?.rotatedPolygons
-            ? { atlasLeafBasisOptimizationStats: atlasLeafBasisRotationPlan.stats }
-            : {}),
-          ...(animatedAtlasLeafHomographyPlan?.stats?.optimizedLeaves
-            ? { atlasLeafHomographyOptimizationStats: animatedAtlasLeafHomographyPlan.stats }
-            : {}),
-          ...(animatedTriangleAtlasBasisPlan?.stats?.optimizedLeaves
-            ? { triangleAtlasBasisOptimizationStats: animatedTriangleAtlasBasisPlan.stats }
-            : {}),
-        });
-        continue;
       }
-      const frameStyleResult = inheritedFrameStyleResult ?? runQuakeRenderBundleStep("frame-extract-styles", () =>
-        (fastFrameStyles
-          ? extractRenderBundleFrameStylesReadOnly
-          : extractRenderBundleFrameStyles)(handle.element, {
-          styleClassName: frame.styleClassName,
-          baseLeafFrameStylesByClass,
-        })
-      );
+      shadowCompareAnimatedRenderBundleCandidateFrameStyles({
+        actual: frameStyleResult,
+        candidate: directFrameStyleCandidate,
+        bundleName: animationBundleName,
+        frameIndex: index,
+        label: "direct frame style",
+        stats: directFrameStyleShadowStats,
+      });
+      shadowCompareAnimatedRenderBundleFrameStyles({
+        actual: frameStyleResult,
+        baseLeafFrameStylesByClass,
+        bundleName: animationBundleName,
+        frameIndex: index,
+        mesh: handle.element,
+        stats: animationShadowStats,
+      });
       const { leafFrameStyles } = frameStyleResult;
       outFrames.push({
         name,
@@ -316,18 +392,54 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
         polygonCount: frame.polygons.length,
       });
     }
+    logAnimatedRenderBundleShadowStats(animationShadowStats, animationBundleName);
+    logAnimatedRenderBundleCandidateFrameStyleStats(
+      directFrameStyleShadowStats,
+      animationBundleName,
+      "direct frame styles",
+    );
+    logQuakeRenderBundleDirectFrameStyleSkips(animationBundleName);
+    logQuakeRenderBundleStepTimings(animationBundleName);
     return { frames: outFrames };
   } finally {
     host.remove();
   }
 };
 
-async function runQuakeRenderBundleStepAsync(_label, callback) {
-  return await callback();
+async function runQuakeRenderBundleStepAsync(label, callback) {
+  if (!quakeRenderBundleStepTiming) return await callback();
+  const startedAt = performance.now();
+  try {
+    return await callback();
+  } finally {
+    recordQuakeRenderBundleStepTiming(label, performance.now() - startedAt);
+  }
 }
 
-function runQuakeRenderBundleStep(_label, callback) {
-  return callback();
+function runQuakeRenderBundleStep(label, callback) {
+  if (!quakeRenderBundleStepTiming) return callback();
+  const startedAt = performance.now();
+  try {
+    return callback();
+  } finally {
+    recordQuakeRenderBundleStepTiming(label, performance.now() - startedAt);
+  }
+}
+
+function recordQuakeRenderBundleStepTiming(label, durationMs) {
+  const stats = quakeRenderBundleStepTimings.get(label) ?? { count: 0, totalMs: 0 };
+  stats.count++;
+  stats.totalMs += durationMs;
+  quakeRenderBundleStepTimings.set(label, stats);
+}
+
+function logQuakeRenderBundleStepTimings(name) {
+  if (!quakeRenderBundleStepTiming || !quakeRenderBundleStepTimings.size) return;
+  const lines = [...quakeRenderBundleStepTimings.entries()]
+    .sort((a, b) => b[1].totalMs - a[1].totalMs)
+    .map(([label, stats]) => `${label} ${(stats.totalMs / 1000).toFixed(2)}s x${stats.count}`);
+  console.log(`Render bundle timing for ${name}:\n${lines.join("\n")}`);
+  quakeRenderBundleStepTimings.clear();
 }
 
 function createQuakeRenderHost() {
@@ -1438,6 +1550,21 @@ function quakeVecNormalize(value) {
 
 const quakeAtlasImageDataCache = new Map();
 
+function createQuakeAtlasLeafStableTightenPlan(mesh, boundsByKey) {
+  if (!boundsByKey?.size) return null;
+  const boundsByPolyIndex = new Map();
+  for (const leaf of mesh.querySelectorAll("s")) {
+    const polyIndex = renderBundleIntegerAttr(leaf, "data-poly-index");
+    if (polyIndex === undefined || polyIndex < 0) continue;
+    const key = quakeAtlasLeafKey(leaf);
+    const bounds = key ? boundsByKey.get(key) : null;
+    if (!bounds) continue;
+    if (boundsByPolyIndex.has(polyIndex)) return null;
+    boundsByPolyIndex.set(polyIndex, bounds);
+  }
+  return boundsByPolyIndex.size ? { boundsByPolyIndex } : null;
+}
+
 async function tightenQuakeAtlasLeaves(mesh, boundsByKey = null) {
   const leaves = [...mesh.querySelectorAll("s")];
   if (!leaves.length) return boundsByKey ?? new Map();
@@ -2004,6 +2131,10 @@ function extractRenderBundleFrameStylesReadOnly(mesh, options = {}) {
 
 function extractRenderBundleFrameStylesFromInheritedBase(mesh, baseLeafFrameStylesByClass) {
   if (!baseLeafFrameStylesByClass?.size) return null;
+  if (quakeRenderBundleStableFrameStyleOrder) {
+    const stableOrderResult = extractRenderBundleFrameStylesFromStableBaseOrder(mesh, baseLeafFrameStylesByClass);
+    if (stableOrderResult) return stableOrderResult;
+  }
   const leafFrameStyles = [];
   const usedLeafClasses = new Set();
   let fallbackLeafIndex = 0;
@@ -2043,6 +2174,474 @@ function extractRenderBundleFrameStylesFromInheritedBase(mesh, baseLeafFrameStyl
       baseLeafFrameStylesByClass,
     ),
   };
+}
+
+function createAnimatedRenderBundleShadowStats() {
+  return quakeRenderBundleAnimationShadow
+    ? {
+        frames: 0,
+        matches: 0,
+        mismatches: 0,
+        skipped: 0,
+      }
+    : null;
+}
+
+function shadowCompareAnimatedRenderBundleFrameStyles({
+  actual,
+  baseLeafFrameStylesByClass,
+  bundleName,
+  frameIndex,
+  mesh,
+  stats,
+}) {
+  if (!stats || !actual?.leafFrameStyles?.length) return;
+  stats.frames++;
+  const candidate = extractRenderBundleFrameStylesFromStableBaseOrder(mesh, baseLeafFrameStylesByClass);
+  if (!candidate) {
+    stats.skipped++;
+    return;
+  }
+  const diff = firstAnimatedRenderBundleShadowDiff(actual, candidate);
+  if (!diff) {
+    stats.matches++;
+    return;
+  }
+  stats.mismatches++;
+  const message =
+    `Animated render bundle shadow mismatch for ${bundleName} frame ${frameIndex}: ` +
+    `${diff.path} expected=${JSON.stringify(diff.expected)} actual=${JSON.stringify(diff.actual)}`;
+  if (quakeRenderBundleAnimationShadowStrict) throw new Error(message);
+  if (stats.mismatches <= 3) console.warn(message);
+}
+
+function logAnimatedRenderBundleShadowStats(stats, bundleName) {
+  if (!stats) return;
+  console.log(
+    `Animated render bundle shadow for ${bundleName}: ` +
+    `${stats.matches}/${stats.frames} frame style matches, ` +
+    `${stats.skipped} skipped, ${stats.mismatches} mismatched`,
+  );
+}
+
+function createAnimatedRenderBundleCandidateFrameStyleStats(enabled) {
+  return enabled
+    ? {
+        frames: 0,
+        matches: 0,
+        mismatches: 0,
+        skipped: 0,
+      }
+    : null;
+}
+
+function shadowCompareAnimatedRenderBundleCandidateFrameStyles({
+  actual,
+  bundleName,
+  candidate,
+  frameIndex,
+  label,
+  stats,
+}) {
+  if (!stats) return;
+  stats.frames++;
+  if (!candidate) {
+    stats.skipped++;
+    return;
+  }
+  const diff = firstAnimatedRenderBundleShadowDiff(actual, candidate);
+  if (!diff) {
+    stats.matches++;
+    return;
+  }
+  stats.mismatches++;
+  const message =
+    `Animated render bundle ${label} mismatch for ${bundleName} frame ${frameIndex}: ` +
+    `${diff.path} expected=${JSON.stringify(diff.expected)} actual=${JSON.stringify(diff.actual)}`;
+  if (quakeRenderBundleDirectFrameStylesShadowStrict) throw new Error(message);
+  if (stats.mismatches <= 3) console.warn(message);
+}
+
+function logAnimatedRenderBundleCandidateFrameStyleStats(stats, bundleName, label) {
+  if (!stats) return;
+  console.log(
+    `Animated render bundle ${label} shadow for ${bundleName}: ` +
+    `${stats.matches}/${stats.frames} frame style matches, ` +
+    `${stats.skipped} skipped, ${stats.mismatches} mismatched`,
+  );
+}
+
+function firstAnimatedRenderBundleShadowDiff(actual, candidate) {
+  for (const key of ["leafCount", "atlasLeafCount"]) {
+    if ((actual?.[key] ?? null) !== (candidate?.[key] ?? null)) {
+      return { path: key, expected: actual?.[key] ?? null, actual: candidate?.[key] ?? null };
+    }
+  }
+  const actualStyles = actual.leafFrameStyles ?? [];
+  const candidateStyles = candidate.leafFrameStyles ?? [];
+  if (actualStyles.length !== candidateStyles.length) {
+    return {
+      path: "leafFrameStyles.length",
+      expected: actualStyles.length,
+      actual: candidateStyles.length,
+    };
+  }
+  for (let index = 0; index < actualStyles.length; index++) {
+    const actualEntry = actualStyles[index];
+    const candidateEntry = candidateStyles[index];
+    if (JSON.stringify(actualEntry) !== JSON.stringify(candidateEntry)) {
+      return {
+        path: `leafFrameStyles[${index}]`,
+        expected: actualEntry,
+        actual: candidateEntry,
+      };
+    }
+  }
+  return null;
+}
+
+function extractRenderBundleFrameStylesDirectlyFromStableTightenPlan(mesh, options = {}) {
+  const baseLeafFrameStylesByClass = options.baseLeafFrameStylesByClass ?? new Map();
+  const baseEntries = stableBaseFrameStyleEntries(baseLeafFrameStylesByClass);
+  if (!baseEntries) return skipDirectFrameStyleCandidate("missing-stable-base");
+  if (options.tightenAtlasLeaves && !options.tightAtlasPlan) return skipDirectFrameStyleCandidate("missing-tight-plan");
+  const leaves = mesh.querySelectorAll("b,i,s,u");
+  if (leaves.length !== baseEntries.length) return skipDirectFrameStyleCandidate("leaf-count-mismatch");
+  const leafFrameStyles = [];
+  const mutations = options.collectMutations ? [] : null;
+  let leafCount = 0;
+  let atlasLeafCount = 0;
+  for (let index = 0; index < leaves.length; index++) {
+    const leaf = leaves[index];
+    const baseEntry = baseEntries[index];
+    leafCount++;
+    const tagName = leaf.tagName?.toLowerCase();
+    if (tagName === "s") atlasLeafCount++;
+    const rawStyle = leaf.getAttribute("style") ?? "";
+    if (!rawStyle) continue;
+    const polyIndex = renderBundleIntegerAttr(leaf, "data-poly-index");
+    if (polyIndex !== baseEntry.polyIndex) return skipDirectFrameStyleCandidate("poly-index-mismatch");
+    const frameStyle = directRenderBundleInheritedLeafFrameStyle(leaf, {
+      baseFrameStyle: baseEntry.frameStyle,
+      mutations,
+      observeStyleMutations: options.observeStyleMutations,
+      polyIndex,
+      tightAtlasPlan: options.tightAtlasPlan,
+      tightenAtlasLeaves: options.tightenAtlasLeaves,
+    });
+    if (!frameStyle) return skipDirectFrameStyleCandidate("leaf-style-mismatch");
+    leafFrameStyles.push([baseEntry.leafClass, frameStyle]);
+  }
+  return {
+    atlasLeafCount,
+    leafCount,
+    leafFrameStyles: inheritRenderBundleFrameStyleBackgrounds(
+      leafFrameStyles,
+      baseLeafFrameStylesByClass,
+    ),
+    ...(mutations ? { mutations } : {}),
+  };
+}
+
+function directRenderBundleInheritedLeafFrameStyle(leaf, options) {
+  if (options.observeStyleMutations) {
+    return directObservedRenderBundleInheritedLeafFrameStyle(leaf, options);
+  }
+  const isAtlasLeaf = leaf.tagName?.toLowerCase() === "s";
+  if (isAtlasLeaf && options.tightenAtlasLeaves) {
+    const bounds = options.tightAtlasPlan?.boundsByPolyIndex?.get(options.polyIndex);
+    if (bounds) {
+      const tightenedFrameStyle = directTightenedAtlasLeafFrameStyle(leaf, bounds, options.baseFrameStyle, {
+        mutations: options.mutations,
+      });
+      if (tightenedFrameStyle === null) return skipDirectFrameStyleCandidate("tightened-atlas-style-incomplete");
+      if (tightenedFrameStyle) return tightenedFrameStyle;
+    }
+  }
+  const rawStyle = leaf.getAttribute("style") ?? "";
+  const snapResult = directSnappedQuakeLeafTransformStyle(rawStyle);
+  if (options.mutations && snapResult.transform) {
+    options.mutations.push(() => {
+      leaf.style.transform = snapResult.transform;
+    });
+  }
+  const snappedStyle = snapResult.style;
+  const rawFrameStyle = renderBundleStyleNeedsMetadataStrip(snappedStyle)
+    ? stripRenderBundleStyleMetadata(snappedStyle)
+    : snappedStyle;
+  const style = renderBundleLeafStyleWithExplicitAtlasSize(leaf, rawFrameStyle, {
+    baseFrameStyle: options.baseFrameStyle,
+  });
+  return compactRenderBundleInheritedLeafFrameStyle(style);
+}
+
+function directObservedRenderBundleInheritedLeafFrameStyle(leaf, options) {
+  const observedLeaf = leaf.cloneNode(false);
+  applyObservedDirectFrameStyleLeafMutations(observedLeaf, options);
+  const observedStyle = observedLeaf.getAttribute("style") ?? "";
+  if (!observedStyle) return ["", "", ""];
+  const rawFrameStyle = renderBundleStyleNeedsMetadataStrip(observedStyle)
+    ? stripRenderBundleStyleMetadata(observedStyle)
+    : observedStyle;
+  const style = renderBundleLeafStyleWithExplicitAtlasSize(observedLeaf, rawFrameStyle, {
+    baseFrameStyle: options.baseFrameStyle,
+  });
+  if (options.mutations) {
+    const nextStyle = observedLeaf.getAttribute("style") ?? "";
+    options.mutations.push(() => {
+      if (nextStyle) {
+        leaf.setAttribute("style", nextStyle);
+      } else {
+        leaf.removeAttribute("style");
+      }
+    });
+  }
+  return compactRenderBundleInheritedLeafFrameStyle(style);
+}
+
+function applyObservedDirectFrameStyleLeafMutations(leaf, options) {
+  if (leaf.tagName?.toLowerCase() === "s" && options.tightenAtlasLeaves) {
+    const bounds = options.tightAtlasPlan?.boundsByPolyIndex?.get(options.polyIndex);
+    if (bounds) applyKnownQuakeAtlasLeafBounds(leaf, bounds);
+  }
+  snapQuakeLeafTransformToStableGrid(leaf);
+}
+
+function applyKnownQuakeAtlasLeafBounds(leaf, bounds) {
+  const win = leaf.ownerDocument.defaultView ?? window;
+  let computedStyle = null;
+  const style = () => {
+    computedStyle ??= win.getComputedStyle(leaf);
+    return computedStyle;
+  };
+  const atlasSize = cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
+    cssPixelValue(leaf.style.width) ||
+    cssPixelValue(style().width) ||
+    64;
+  const position = cssPixelPair(
+    leaf.style.backgroundPosition,
+    leaf.style.backgroundPositionX,
+    leaf.style.backgroundPositionY,
+  ) ?? cssPixelPair(style().backgroundPosition, style().backgroundPositionX, style().backgroundPositionY);
+  const size = cssPixelPair(leaf.style.backgroundSize) ?? cssPixelPair(style().backgroundSize);
+  const matrix = parseMatrix3d(leaf.style.transform || style().transform);
+  if (!position || !size || !matrix || atlasSize <= 0 || size[0] <= 0 || size[1] <= 0) return;
+  if (!quakeAtlasLeafBoundsAreTight(bounds, atlasSize)) return;
+  const nextMatrix = translateMatrix3d(matrix, bounds.x, bounds.y);
+  if (!quakeProjectiveMatrixHasStableCornerW(nextMatrix, bounds.width, bounds.height)) return;
+  leaf.style.transform = formatMatrix3d(nextMatrix);
+  leaf.style.width = `${roundCssPx(bounds.width)}px`;
+  leaf.style.height = `${roundCssPx(bounds.height)}px`;
+  leaf.style.background = `${leaf.style.backgroundImage || style().backgroundImage} ` +
+    `${roundCssPx(position[0] - bounds.x)}px ` +
+    `${roundCssPx(position[1] - bounds.y)}px / ${roundCssPx(size[0])}px ${roundCssPx(size[1])}px no-repeat`;
+}
+
+function directTightenedAtlasLeafFrameStyle(leaf, bounds, baseFrameStyle, options = {}) {
+  const atlasSize = cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
+    cssPixelValue(leaf.style.width) ||
+    64;
+  const position = cssPixelPair(
+    leaf.style.backgroundPosition,
+    leaf.style.backgroundPositionX,
+    leaf.style.backgroundPositionY,
+  );
+  const size = cssPixelPair(leaf.style.backgroundSize);
+  const matrix = parseMatrix3d(leaf.style.transform);
+  const backgroundImage = leaf.style.backgroundImage;
+  if (
+    !position ||
+    !size ||
+    !matrix ||
+    !backgroundImage ||
+    backgroundImage === "none" ||
+    atlasSize <= 0 ||
+    size[0] <= 0 ||
+    size[1] <= 0
+  ) {
+    return skipDirectFrameStyleCandidate("missing-tightened-inline-style");
+  }
+  if (!quakeAtlasLeafBoundsAreTight(bounds, atlasSize)) return undefined;
+  const nextMatrix = translateMatrix3d(matrix, bounds.x, bounds.y);
+  if (!quakeProjectiveMatrixHasStableCornerW(nextMatrix, bounds.width, bounds.height)) return undefined;
+  const width = roundCssPx(bounds.width);
+  const height = roundCssPx(bounds.height);
+  const baseWidth = renderBundleLeafFrameStyleSize(baseFrameStyle, "width");
+  const baseHeight = renderBundleLeafFrameStyleSize(baseFrameStyle, "height");
+  const tightenedTransform = formatMatrix3d(nextMatrix);
+  const tightenedMatrix = parseMatrix3d(tightenedTransform);
+  if (!tightenedMatrix) return skipDirectFrameStyleCandidate("tightened-transform-format-mismatch");
+  let transform = directSnappedQuakeMatrix3d(tightenedMatrix, tightenedTransform);
+  const domTransform = transform;
+  const domWidth = width;
+  const domHeight = height;
+  const domBackground = `${backgroundImage} ` +
+    `${roundCssPx(position[0] - bounds.x)}px ` +
+    `${roundCssPx(position[1] - bounds.y)}px / ` +
+    `${roundCssPx(size[0])}px ${roundCssPx(size[1])}px no-repeat`;
+  let outputWidth = width;
+  let outputHeight = height;
+  if (baseWidth && baseHeight) {
+    const snappedMatrix = parseMatrix3d(transform);
+    if (!snappedMatrix) return skipDirectFrameStyleCandidate("tightened-transform-scale-mismatch");
+    transform = scaleRenderBundleLeafMatrix(snappedMatrix, width, height, baseWidth, baseHeight);
+    outputWidth = roundCssPx(baseWidth);
+    outputHeight = roundCssPx(baseHeight);
+  }
+  const matrixBody = transform.match(/^matrix3d\((.*)\)$/)?.[1] ?? transform;
+  const extras = directTightenedAtlasLeafExtraStyle(leaf.getAttribute("style") ?? "");
+  if (options.mutations) {
+    options.mutations.push(() => {
+      leaf.style.transform = domTransform;
+      leaf.style.width = `${domWidth}px`;
+      leaf.style.height = `${domHeight}px`;
+      leaf.style.background = domBackground;
+    });
+  }
+  return [
+    matrixBody,
+    "",
+    [...extras, `width:${outputWidth}px`, `height:${outputHeight}px`].join(";"),
+  ];
+}
+
+function directTightenedAtlasLeafExtraStyle(rawStyle) {
+  const strippedStyle = renderBundleStyleNeedsMetadataStrip(rawStyle)
+    ? stripRenderBundleStyleMetadata(rawStyle)
+    : rawStyle;
+  return renderBundleStyleDeclarations(strippedStyle)
+    .filter((part) =>
+      part.name !== "transform" &&
+      part.name !== "background" &&
+      part.name !== "background-image" &&
+      part.name !== "background-position" &&
+      part.name !== "background-size" &&
+      part.name !== "background-repeat" &&
+      part.name !== "width" &&
+      part.name !== "height"
+    )
+    .map((part) => `${part.name}:${part.value}`);
+}
+
+function directSnappedQuakeLeafTransformStyle(style) {
+  const declarations = renderBundleStyleDeclarations(style);
+  const transform = declarations.find((part) => part.name === "transform");
+  const matrix = parseMatrix3d(transform?.value);
+  if (!transform || !matrix) return { style, transform: "" };
+  const nextTransform = directSnappedQuakeMatrix3d(matrix, transform.value);
+  if (nextTransform === transform.value) return { style, transform: "" };
+  transform.value = nextTransform;
+  return {
+    style: formatRenderBundleStyleDeclarations(declarations),
+    transform: nextTransform,
+  };
+}
+
+function directSnappedQuakeMatrix3d(matrix, sourceTransform) {
+  let snappedValues = 0;
+  const next = matrix.map((value, index) => {
+    const snapped = index >= 12 && index <= 14
+      ? snapQuakeMatrixTranslation(value)
+      : snapQuakeMatrixLinear(value);
+    if (snapped !== value) snappedValues++;
+    return snapped;
+  });
+  const formatted = formatMatrix3d(next);
+  const precisionChanged = compactCssTransform(sourceTransform) !== compactCssTransform(formatted);
+  return snappedValues || precisionChanged ? formatted : sourceTransform;
+}
+
+function formatRenderBundleStyleDeclarations(declarations) {
+  return declarations.map((part) => `${part.name}:${part.value}`).join(";");
+}
+
+function renderBundleStyleNeedsMetadataStrip(style) {
+  return (
+    style.includes("--pn") ||
+    style.includes("--polycss-atlas-size") ||
+    style.includes("background-repeat")
+  );
+}
+
+function skipDirectFrameStyleCandidate(reason) {
+  if (quakeRenderBundleDirectFrameStylesDebug) {
+    quakeRenderBundleDirectFrameStyleSkips.set(
+      reason,
+      (quakeRenderBundleDirectFrameStyleSkips.get(reason) ?? 0) + 1,
+    );
+  }
+  return null;
+}
+
+function logQuakeRenderBundleDirectFrameStyleSkips(name) {
+  if (!quakeRenderBundleDirectFrameStylesDebug || !quakeRenderBundleDirectFrameStyleSkips.size) return;
+  const summary = [...quakeRenderBundleDirectFrameStyleSkips.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, count]) => `${reason} x${count}`)
+    .join(", ");
+  console.log(`Direct frame style skips for ${name}: ${summary}`);
+  quakeRenderBundleDirectFrameStyleSkips.clear();
+}
+
+function applyDirectFrameStyleMutations(mutations) {
+  if (!Array.isArray(mutations)) return;
+  for (const mutate of mutations) mutate();
+}
+
+function extractRenderBundleFrameStylesFromStableBaseOrder(mesh, baseLeafFrameStylesByClass) {
+  const baseEntries = stableBaseFrameStyleEntries(baseLeafFrameStylesByClass);
+  if (!baseEntries) return null;
+  const leaves = mesh.querySelectorAll("b,i,s,u");
+  if (leaves.length !== baseEntries.length) return null;
+  const leafFrameStyles = [];
+  let leafCount = 0;
+  let atlasLeafCount = 0;
+  for (let index = 0; index < leaves.length; index++) {
+    const leaf = leaves[index];
+    const baseEntry = baseEntries[index];
+    leafCount++;
+    if (leaf.tagName?.toLowerCase() === "s") atlasLeafCount++;
+    const rawStyle = leaf.getAttribute("style") ?? "";
+    if (!rawStyle) continue;
+    const polyIndex = renderBundleIntegerAttr(leaf, "data-poly-index");
+    if (polyIndex !== baseEntry.polyIndex) return null;
+    const rawFrameStyle = (
+      rawStyle.includes("--pn") ||
+      rawStyle.includes("--polycss-atlas-size") ||
+      rawStyle.includes("background-repeat")
+    )
+      ? stripRenderBundleStyleMetadata(rawStyle)
+      : rawStyle;
+    const style = renderBundleLeafStyleWithExplicitAtlasSize(leaf, rawFrameStyle, {
+      baseFrameStyle: baseEntry.frameStyle,
+    });
+    leafFrameStyles.push([baseEntry.leafClass, compactRenderBundleInheritedLeafFrameStyle(style)]);
+  }
+  return {
+    atlasLeafCount,
+    leafCount,
+    leafFrameStyles: inheritRenderBundleFrameStyleBackgrounds(
+      leafFrameStyles,
+      baseLeafFrameStylesByClass,
+    ),
+  };
+}
+
+function stableBaseFrameStyleEntries(baseLeafFrameStylesByClass) {
+  const entries = [];
+  for (const [leafClass, frameStyle] of baseLeafFrameStylesByClass) {
+    const polyIndex = renderBundleLeafClassPolyIndex(leafClass);
+    if (polyIndex === undefined) return null;
+    entries.push({ leafClass, frameStyle, polyIndex });
+  }
+  return entries;
+}
+
+function renderBundleLeafClassPolyIndex(leafClass) {
+  const match = String(leafClass ?? "").match(/^q([a-z0-9]+)$/i);
+  if (!match) return undefined;
+  const polyIndex = Number.parseInt(match[1], 36);
+  return Number.isInteger(polyIndex) && polyIndex >= 0 ? polyIndex : undefined;
 }
 
 function renderBundleHoistedStylesByElement(mesh) {

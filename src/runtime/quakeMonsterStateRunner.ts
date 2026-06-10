@@ -1,5 +1,6 @@
 import {
   QUAKE_MONSTER_LOGIC,
+  type QuakeMonsterAiMovementCall,
   type QuakeMonsterFrameState,
   type QuakeMonsterFrameEvent,
   type QuakeMonsterLogicDefinition,
@@ -21,6 +22,7 @@ export interface QuakeMonsterStateStep {
   events: readonly QuakeMonsterFrameEvent[];
   frame: string;
   frameIndex: number;
+  movement: readonly QuakeMonsterAiMovementCall[];
   next: string;
   sounds: readonly string[];
   stateName: string;
@@ -90,6 +92,7 @@ class QuakeMonsterGeneratedStateRunner implements QuakeMonsterStateRunner {
       events: state.events ?? [],
       frame: state.frame,
       frameIndex: state.frameIndex,
+      movement: state.movement ?? [],
       next: state.next,
       sounds: state.sounds,
       stateName: state.name,

@@ -39,6 +39,24 @@ const monsterTargets = [
       ["pain_c", "army_painc1"],
       ["death_c", "army_cdie1"],
     ],
+    reactionProfile: {
+      pain: {
+        sourceFunction: "army_pain",
+        branches: [
+          { chain: "pain_a", randomLessThan: 0.2, cooldownMs: 600 },
+          { chain: "pain_b", randomLessThan: 0.6, cooldownMs: 1100 },
+          { chain: "pain_c", otherwise: true, cooldownMs: 1100 },
+        ],
+      },
+      death: {
+        sourceFunction: "army_die",
+        gibHealthBelow: -35,
+        regularBranches: [
+          { chain: "death_a", randomLessThan: 0.5 },
+          { chain: "death_c", otherwise: true },
+        ],
+      },
+    },
   },
   {
     checkAttackFunction: "DogCheckAttack",
@@ -48,6 +66,27 @@ const monsterTargets = [
     primaryAttackCallback: "th_missile",
     sourcePath: "qcc/v101qc/dog.qc",
     spawnFunction: "monster_dog",
+    extraChains: [
+      ["pain_b", "dog_painb1"],
+      ["death_b", "dog_dieb1"],
+    ],
+    reactionProfile: {
+      pain: {
+        sourceFunction: "dog_pain",
+        branches: [
+          { chain: "pain_a", randomGreaterThan: 0.5 },
+          { chain: "pain_b", otherwise: true },
+        ],
+      },
+      death: {
+        sourceFunction: "dog_die",
+        gibHealthBelow: -35,
+        regularBranches: [
+          { chain: "death_a", randomGreaterThan: 0.5 },
+          { chain: "death_b", otherwise: true },
+        ],
+      },
+    },
   },
   {
     classname: "monster_knight",
@@ -55,6 +94,28 @@ const monsterTargets = [
     modelPath: "progs/knight.mdl",
     sourcePath: "qcc/v101qc/knight.qc",
     spawnFunction: "monster_knight",
+    extraChains: [
+      ["pain_b", "knight_painb1"],
+      ["death_b", "knight_dieb1"],
+    ],
+    reactionProfile: {
+      pain: {
+        sourceFunction: "knight_pain",
+        cooldownMs: 1000,
+        branches: [
+          { chain: "pain_a", randomLessThan: 0.85 },
+          { chain: "pain_b", otherwise: true },
+        ],
+      },
+      death: {
+        sourceFunction: "knight_die",
+        gibHealthBelow: -40,
+        regularBranches: [
+          { chain: "death_a", randomLessThan: 0.5 },
+          { chain: "death_b", otherwise: true },
+        ],
+      },
+    },
   },
   {
     checkAttackFunction: "OgreCheckAttack",
@@ -64,6 +125,33 @@ const monsterTargets = [
     primaryAttackCallback: "th_missile",
     sourcePath: "qcc/v101qc/ogre.qc",
     spawnFunction: "monster_ogre",
+    extraChains: [
+      ["pain_b", "ogre_painb1"],
+      ["pain_c", "ogre_painc1"],
+      ["pain_d", "ogre_paind1"],
+      ["pain_e", "ogre_paine1"],
+      ["death_b", "ogre_bdie1"],
+    ],
+    reactionProfile: {
+      pain: {
+        sourceFunction: "ogre_pain",
+        branches: [
+          { chain: "pain_a", randomLessThan: 0.25, cooldownMs: 1000 },
+          { chain: "pain_b", randomLessThan: 0.5, cooldownMs: 1000 },
+          { chain: "pain_c", randomLessThan: 0.75, cooldownMs: 1000 },
+          { chain: "pain_d", randomLessThan: 0.88, cooldownMs: 2000 },
+          { chain: "pain_e", otherwise: true, cooldownMs: 2000 },
+        ],
+      },
+      death: {
+        sourceFunction: "ogre_die",
+        gibHealthBelow: -80,
+        regularBranches: [
+          { chain: "death_a", randomLessThan: 0.5 },
+          { chain: "death_b", otherwise: true },
+        ],
+      },
+    },
   },
   {
     checkAttackFunction: "DemonCheckAttack",
@@ -73,6 +161,20 @@ const monsterTargets = [
     primaryAttackCallback: "th_missile",
     sourcePath: "qcc/v101qc/demon.qc",
     spawnFunction: "monster_demon1",
+    reactionProfile: {
+      pain: {
+        sourceFunction: "demon1_pain",
+        cooldownMs: 1000,
+        cooldownOnFailedFlinch: true,
+        flinchDamageRandomScale: 200,
+        branches: [{ chain: "pain_a" }],
+      },
+      death: {
+        sourceFunction: "demon_die",
+        gibHealthBelow: -80,
+        regularBranches: [{ chain: "death_a" }],
+      },
+    },
   },
   {
     checkAttackFunction: "WizardCheckAttack",
@@ -81,6 +183,18 @@ const monsterTargets = [
     modelPath: "progs/wizard.mdl",
     sourcePath: "qcc/v101qc/wizard.qc",
     spawnFunction: "monster_wizard",
+    reactionProfile: {
+      pain: {
+        sourceFunction: "Wiz_Pain",
+        flinchDamageRandomScale: 70,
+        branches: [{ chain: "pain_a" }],
+      },
+      death: {
+        sourceFunction: "wiz_die",
+        gibHealthBelow: -40,
+        regularBranches: [{ chain: "death_a" }],
+      },
+    },
   },
   {
     checkAttackFunction: "ShamCheckAttack",
@@ -95,6 +209,19 @@ const monsterTargets = [
       ["melee_swing_left", "sham_swingl1"],
       ["melee_swing_right", "sham_swingr1"],
     ],
+    reactionProfile: {
+      pain: {
+        sourceFunction: "sham_pain",
+        cooldownMs: 2000,
+        flinchDamageRandomScale: 400,
+        branches: [{ chain: "pain_a" }],
+      },
+      death: {
+        sourceFunction: "sham_die",
+        gibHealthBelow: -60,
+        regularBranches: [{ chain: "death_a" }],
+      },
+    },
   },
   {
     classname: "monster_zombie",
@@ -109,6 +236,8 @@ const monsterTargets = [
       ["pain_light_d", "zombie_paind1"],
       ["pain_down", "zombie_paine1"],
     ],
+    deathOutputFunction: "zombie_die",
+    deathOutputGibDamageAtLeast: 60,
   },
   {
     callbackOverrides: {
@@ -141,48 +270,56 @@ const programFactTargets = [
     sourcePath: "qcc/v101qc/world.qc",
   },
   {
+    callbackFactFunctions: ["army_die"],
     classname: "monster_army",
     functionName: "monster_army",
     kind: "monster",
     sourcePath: "qcc/v101qc/soldier.qc",
   },
   {
+    callbackFactFunctions: ["dog_die"],
     classname: "monster_dog",
     functionName: "monster_dog",
     kind: "monster",
     sourcePath: "qcc/v101qc/dog.qc",
   },
   {
+    callbackFactFunctions: ["knight_die"],
     classname: "monster_knight",
     functionName: "monster_knight",
     kind: "monster",
     sourcePath: "qcc/v101qc/knight.qc",
   },
   {
+    callbackFactFunctions: ["ogre_die"],
     classname: "monster_ogre",
     functionName: "monster_ogre",
     kind: "monster",
     sourcePath: "qcc/v101qc/ogre.qc",
   },
   {
+    callbackFactFunctions: ["demon_die"],
     classname: "monster_demon1",
     functionName: "monster_demon1",
     kind: "monster",
     sourcePath: "qcc/v101qc/demon.qc",
   },
   {
+    callbackFactFunctions: ["wiz_die"],
     classname: "monster_wizard",
     functionName: "monster_wizard",
     kind: "monster",
     sourcePath: "qcc/v101qc/wizard.qc",
   },
   {
+    callbackFactFunctions: ["sham_die"],
     classname: "monster_shambler",
     functionName: "monster_shambler",
     kind: "monster",
     sourcePath: "qcc/v101qc/shambler.qc",
   },
   {
+    callbackFactFunctions: ["zombie_die"],
     classname: "monster_zombie",
     functionName: "monster_zombie",
     kind: "monster",
@@ -540,7 +677,10 @@ const sharedProgramFactSourcePaths = [
 const sourceTextCache = new Map();
 
 const sharedSources = {
+  combat: await fetchSourceText("qcc/v101qc/combat.qc"),
   fight: await fetchSourceText("qcc/v101qc/fight.qc"),
+  items: await fetchSourceText("qcc/v101qc/items.qc"),
+  player: await fetchSourceText("qcc/v101qc/player.qc"),
   weapons: await fetchSourceText("qcc/v101qc/weapons.qc"),
 };
 const extractedMonsters = [];
@@ -548,8 +688,9 @@ for (const target of monsterTargets) {
   extractedMonsters.push(await extractMonsterLogic(target, sharedSources));
 }
 
-const programFacts = await extractProgramFacts(programFactTargets);
-const generatedLogic = renderGeneratedLogic(extractedMonsters);
+const programFacts = await extractProgramFacts(programFactTargets, sharedSources);
+const shootableLogic = extractShootableLogic(programFacts, sharedSources.combat);
+const generatedLogic = renderGeneratedLogic(extractedMonsters, shootableLogic);
 const generatedProgramFacts = renderGeneratedProgramFacts(programFacts);
 const monstersReport = renderMonstersReport(extractedMonsters);
 const programFactsReport = renderProgramFactsReport(programFacts);
@@ -571,7 +712,7 @@ console.log(`Wrote ${path.relative(projectRoot, generatedLogicPath)}`);
 console.log(`Wrote ${path.relative(projectRoot, generatedProgramFactsJsonPath)}`);
 console.log(`Wrote ${path.relative(projectRoot, generatedProgramFactsPath)}`);
 
-async function extractProgramFacts(targets) {
+async function extractProgramFacts(targets, shared = {}) {
   const sharedConstants = new Map();
   for (const sourcePath of sharedProgramFactSourcePaths) {
     const source = await fetchSourceText(sourcePath);
@@ -581,7 +722,7 @@ async function extractProgramFacts(targets) {
   }
   const entities = {};
   for (const target of targets) {
-    const entityFact = await extractProgramEntityFact(target, sharedConstants);
+    const entityFact = await extractProgramEntityFact(target, sharedConstants, shared);
     entities[entityFact.classname] = entityFact;
   }
   return {
@@ -590,11 +731,12 @@ async function extractProgramFacts(targets) {
       repository: quakeToolsRepositoryUrl,
       revision: quakeToolsRevision,
     },
+    playerWeapons: extractPlayerWeaponFireFacts(shared),
     entities,
   };
 }
 
-async function extractProgramEntityFact(target, sharedConstants) {
+async function extractProgramEntityFact(target, sharedConstants, shared = {}) {
   const source = await fetchSourceText(target.sourcePath);
   const functionDefinition = extractFunctionDefinition(source, target.functionName);
   if (!functionDefinition) {
@@ -608,7 +750,7 @@ async function extractProgramEntityFact(target, sharedConstants) {
   const assignments = extractSelfAssignments(body, functionDefinition, target, constants);
   const callbacks = extractCallbackAssignments(assignments);
   const assetRefs = target.includeAssets === false ? [] : extractProgramAssetRefs(body, functionDefinition, target);
-  const callbackFacts = extractProgramCallbackFacts(source, target, constants, callbacks);
+  const callbackFacts = extractProgramCallbackFacts(source, target, constants, callbacks, shared);
   return {
     assetRefs,
     ...(Object.keys(callbackFacts).length ? { callbackFacts } : {}),
@@ -648,16 +790,19 @@ async function extractMonsterLogic(target, shared) {
     ...(target.callbackOverrides ?? {}),
   };
   const spawnProfile = extractMonsterSpawnProfile(source, target);
+  const scriptedLifecycle = extractMonsterScriptedLifecycle(source, states, target);
   const eventSemantics = {
     fireBullets: extractFireBulletsSemantics(shared.weapons),
     sharedFightSource: shared.fight,
   };
   const chains = buildMonsterChains({ callbacks, eventSemantics, source, states, target });
   const combatPolicy = buildCombatPolicy({ callbacks, chains, shared, source, target });
+  const deathOutput = extractMonsterDeathOutput(source, states, chains, target, shared.items);
   return {
     callbacks,
     chains,
     combatPolicy,
+    deathOutput,
     frameMap,
     source,
     sourceMetadata: {
@@ -668,6 +813,7 @@ async function extractMonsterLogic(target, shared) {
       sourceSha256: sha256(source),
       sourceUrl,
     },
+    scriptedLifecycle,
     spawnProfile,
     states,
     target,
@@ -716,6 +862,7 @@ function parseStates(sourceText, frames) {
       calls: extractCalls(body),
       frame,
       frameIndex: frames.get(frame) ?? null,
+      movement: extractAiMovementCalls(body),
       name,
       next,
       sounds: extractSounds(body),
@@ -742,13 +889,165 @@ function extractMonsterSpawnProfile(sourceText, target) {
     min: parseQuakeVectorExpression(setsize[1]),
     max: parseQuakeVectorExpression(setsize[2]),
   } : null;
+  const health = extractMonsterSpawnHealth(body);
   const startKind = monsterStartKind(body);
   return {
     ...(bounds?.min && bounds?.max ? { bounds } : {}),
     dropToFloor: startKind === "walk",
+    ...(health !== null ? { health } : {}),
     modelPath,
     startKind,
   };
+}
+
+function extractMonsterSpawnHealth(body) {
+  const match = /self\.health\s*=\s*([-+]?[0-9.]+)\s*;/.exec(body);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function extractMonsterDeathOutput(sourceText, states, chains, target, itemsSource = "") {
+  const sourceFunction = target.reactionProfile?.death?.sourceFunction ?? target.deathOutputFunction;
+  const functionDefinition = sourceFunction ? extractFunctionDefinition(sourceText, sourceFunction) : null;
+  const gib = functionDefinition ? extractMonsterDeathGibOutput(functionDefinition, target) : null;
+  const backpackDrops = extractMonsterDeathBackpackDrops(states, chains);
+  const backpack = backpackDrops.length ? extractMonsterDeathBackpackProfile(itemsSource) : null;
+  const solidNotStates = extractMonsterDeathSolidNotStates(states, chains);
+  if (!gib && backpackDrops.length === 0 && solidNotStates.length === 0) return null;
+  return {
+    ...(backpack ? { backpack } : {}),
+    ...(gib ? { gib } : {}),
+    ...(backpackDrops.length ? { backpackDrops } : {}),
+    ...(solidNotStates.length ? { solidNotStates } : {}),
+  };
+}
+
+function extractMonsterDeathGibOutput(functionDefinition, target) {
+  const calls = extractDeathOutputModelCalls(functionDefinition.body);
+  const gibModelPaths = calls
+    .filter((call) => call.call === "ThrowGib")
+    .map((call) => call.modelPath);
+  const headModelPath = calls.find((call) => call.call === "ThrowHead")?.modelPath;
+  if (!headModelPath && gibModelPaths.length === 0) return null;
+  const modelPaths = [...new Set([headModelPath, ...gibModelPaths].filter(Boolean))].sort();
+  const soundPath = extractRuntimeSoundPath(functionDefinition.body);
+  return {
+    sourceFunction: functionDefinition.functionName,
+    ...(typeof target.reactionProfile?.death?.gibHealthBelow === "number"
+      ? { healthBelow: target.reactionProfile.death.gibHealthBelow }
+      : {}),
+    ...(typeof target.deathOutputGibDamageAtLeast === "number"
+      ? { damageAtLeast: target.deathOutputGibDamageAtLeast }
+      : {}),
+    ...(soundPath ? { soundPath } : {}),
+    ...(headModelPath ? { headModelPath } : {}),
+    gibModelPaths,
+    modelPaths,
+    pieces: calls,
+  };
+}
+
+function extractDeathOutputModelCalls(body) {
+  const calls = [];
+  for (const match of body.matchAll(/\b(ThrowHead|ThrowGib)\s*\(\s*"([^"]+)"\s*,/g)) {
+    calls.push({
+      call: match[1],
+      modelPath: match[2].toLowerCase(),
+    });
+  }
+  return calls;
+}
+
+function extractRuntimeSoundPath(body) {
+  return /\bsound\s*\([^,]+,\s*[^,]+,\s*"([^"]+)"/.exec(body)?.[1]?.toLowerCase() ?? null;
+}
+
+function extractMonsterDeathBackpackDrops(states, chains) {
+  const out = [];
+  for (const [chainName, chain] of Object.entries(chains)) {
+    if (!chainName.startsWith("death")) continue;
+    for (const [frameIndex, state] of (chain.states ?? []).entries()) {
+      if (!state.calls?.includes("DropBackpack")) continue;
+      const rawState = states.get(state.name);
+      out.push({
+        chain: chainName,
+        stateName: state.name,
+        frameIndex,
+        ...monsterBackpackAmmoFact(rawState?.body ?? ""),
+      });
+    }
+  }
+  return out;
+}
+
+function monsterBackpackAmmoFact(body) {
+  const ammo = {};
+  for (const match of body.matchAll(/\bself\.ammo_([A-Za-z_]\w*)\s*=\s*([-+]?[0-9.]+)\s*;/g)) {
+    const amount = Number(match[2]);
+    if (Number.isFinite(amount)) ammo[match[1]] = amount;
+  }
+  return Object.keys(ammo).length ? { ammo } : {};
+}
+
+function extractMonsterDeathBackpackProfile(itemsSource) {
+  const dropDefinition = extractFunctionDefinition(itemsSource, "DropBackpack");
+  const touchDefinition = extractFunctionDefinition(itemsSource, "BackpackTouch");
+  if (!dropDefinition) return null;
+  const modelPath = /setmodel\s*\(\s*item\s*,\s*"([^"]+)"/.exec(dropDefinition.body)?.[1]?.toLowerCase();
+  if (!modelPath) return null;
+  const originOffsetUnits = extractBackpackOriginOffsetUnits(dropDefinition.body);
+  const bounds = extractBackpackBounds(dropDefinition.body);
+  const removeAfterSeconds = extractBackpackRemoveAfterSeconds(dropDefinition.body);
+  const pickupSoundPath = touchDefinition
+    ? extractRuntimeSoundPath(touchDefinition.body)
+    : null;
+  return {
+    sourceFunction: "DropBackpack",
+    touchFunction: "BackpackTouch",
+    modelPath,
+    ...(pickupSoundPath ? { pickupSoundPath } : {}),
+    ...(Number.isFinite(removeAfterSeconds) ? { removeAfterSeconds } : {}),
+    ...(originOffsetUnits ? { originOffsetUnits } : {}),
+    ...(bounds ? { bounds } : {}),
+  };
+}
+
+function extractBackpackOriginOffsetUnits(body) {
+  const match = /item\.origin\s*=\s*self\.origin\s*-\s*('[^']+')/.exec(body);
+  const vector = match ? parseQuakeVectorExpression(match[1]) : null;
+  if (!vector) return null;
+  return vector.map((value) => -value);
+}
+
+function extractBackpackBounds(body) {
+  const match = /setsize\s*\(\s*item\s*,\s*([^,]+)\s*,\s*([^)]+)\)/.exec(body);
+  if (!match) return null;
+  const min = parseQuakeVectorExpression(match[1]);
+  const max = parseQuakeVectorExpression(match[2]);
+  return min && max ? { min, max } : null;
+}
+
+function extractBackpackRemoveAfterSeconds(body) {
+  const match = /item\.nextthink\s*=\s*time\s*\+\s*([-+]?[0-9.]+)/.exec(body);
+  const value = Number(match?.[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function extractMonsterDeathSolidNotStates(states, chains) {
+  const out = [];
+  for (const [chainName, chain] of Object.entries(chains)) {
+    if (!chainName.startsWith("death")) continue;
+    for (const [frameIndex, state] of (chain.states ?? []).entries()) {
+      if (!/\bself\.solid\s*=\s*SOLID_NOT\s*;/.test(states.get(state.name)?.body ?? "")) continue;
+      out.push({
+        chain: chainName,
+        stateName: state.name,
+        frameIndex,
+      });
+    }
+  }
+  return out;
 }
 
 function monsterStartKind(body) {
@@ -756,6 +1055,88 @@ function monsterStartKind(body) {
   if (/\bflymonster_start\s*\(/.test(body)) return "fly";
   if (/\bswimmonster_start\s*\(/.test(body)) return "swim";
   return "unknown";
+}
+
+function extractMonsterScriptedLifecycle(sourceText, states, target) {
+  if (target.classname !== "monster_boss") return null;
+  return extractBossScriptedLifecycle(sourceText, states);
+}
+
+function extractBossScriptedLifecycle(sourceText, states) {
+  const spawnBody = extractFunctionBody(sourceText, "monster_boss") ?? "";
+  const awakeBody = extractFunctionBody(sourceText, "boss_awake") ?? "";
+  const lightningBody = extractFunctionBody(sourceText, "lightning_use") ?? "";
+  const lightningFireBody = extractFunctionBody(sourceText, "lightning_fire") ?? "";
+  const deathState = states.get("boss_death10");
+  const spawnUseFunction = /self\.use\s*=\s*(\w+)\s*;/.exec(spawnBody)?.[1];
+  const healthBySkill = extractBossAwakeHealthBySkill(awakeBody);
+  const awakeModelPath = /setmodel\s*\(\s*self\s*,\s*"([^"]+)"\s*\)/.exec(awakeBody)?.[1];
+  const awakeSetsize = /setsize\s*\(\s*self\s*,\s*([^,]+)\s*,\s*([^)]+)\)/.exec(awakeBody);
+  const awakeBounds = awakeSetsize ? {
+    min: parseQuakeVectorExpression(awakeSetsize[1]),
+    max: parseQuakeVectorExpression(awakeSetsize[2]),
+  } : null;
+  const damagePerUse = Number(/self\.health\s*=\s*self\.health\s*-\s*([-+]?[0-9.]+)\s*;/.exec(lightningBody)?.[1] ?? 0);
+  const resetAfterSeconds = Number(/lightning_end\s*=\s*time\s*\+\s*([-+]?[0-9.]+)\s*;/.exec(lightningBody)?.[1] ?? 0);
+  const fireIntervalSeconds = Number(/self\.nextthink\s*=\s*time\s*\+\s*([-+]?[0-9.]+)\s*;/.exec(lightningFireBody)?.[1] ?? 0);
+  if (!spawnUseFunction || !healthBySkill || !awakeModelPath || !Number.isFinite(damagePerUse) || damagePerUse <= 0) {
+    return null;
+  }
+  return {
+    kind: "boss",
+    spawnUseFunction,
+    awake: {
+      functionName: "boss_awake",
+      ...(awakeBounds?.min && awakeBounds?.max ? { bounds: awakeBounds } : {}),
+      healthBySkill,
+      modelPath: awakeModelPath,
+      startFunction: "boss_rise1",
+      takedamage: "DAMAGE_NO",
+    },
+    lightning: {
+      alignment: {
+        damageState: "STATE_TOP",
+        requiresMatchingState: /\ble1\.state\s*!=\s*le2\.state\b/.test(lightningBody),
+        targetField: "target",
+        validStates: ["STATE_TOP", "STATE_BOTTOM"],
+      },
+      bossLookupClassname: "monster_boss",
+      damagePerUse,
+      electrodeTargetName: "lightning",
+      eventClassname: "event_lightning",
+      ...(fireIntervalSeconds > 0 ? { fireIntervalMs: fireIntervalSeconds * 1000 } : {}),
+      painBranches: [
+        { afterHealthMin: 2, chain: "pain", functionName: "boss_shocka1" },
+        { afterHealth: 1, chain: "shock_b", functionName: "boss_shockb1" },
+        { afterHealth: 0, chain: "shock_c", functionName: "boss_shockc1" },
+      ],
+      painSoundPath: /"boss1\/pain\.wav"/.test(lightningBody) ? "boss1/pain.wav" : undefined,
+      resetAfterMs: resetAfterSeconds > 0 ? resetAfterSeconds * 1000 : undefined,
+      resetFunction: /\bdoor_go_down\s*\(/.test(lightningFireBody) ? "door_go_down" : undefined,
+      soundPath: /sound\s*\(\s*self\s*,\s*CHAN_VOICE\s*,\s*"([^"]+)"/.exec(lightningBody)?.[1],
+      tempEntity: /\bTE_LIGHTNING3\b/.exec(lightningFireBody)?.[0],
+      useFunction: "lightning_use",
+    },
+    death: {
+      incrementsKilledMonsters: deathState?.body.includes("killed_monsters = killed_monsters + 1") === true,
+      removesSelf: deathState?.calls.includes("remove") === true,
+      terminalState: "boss_death10",
+      usesTargets: deathState?.calls.includes("SUB_UseTargets") === true,
+    },
+  };
+}
+
+function extractBossAwakeHealthBySkill(body) {
+  const match = /if\s*\(\s*skill\s*==\s*0\s*\)\s*self\.health\s*=\s*([-+]?[0-9.]+)\s*;\s*else\s*self\.health\s*=\s*([-+]?[0-9.]+)\s*;/m.exec(body);
+  if (!match) return null;
+  const easy = Number(match[1]);
+  const normalHard = Number(match[2]);
+  if (!Number.isFinite(easy) || !Number.isFinite(normalHard)) return null;
+  return {
+    easy,
+    normal: normalHard,
+    hard: normalHard,
+  };
 }
 
 function parseQuakeVectorExpression(expression) {
@@ -782,13 +1163,18 @@ function parseQuakeConstants(sourceText) {
   return constants;
 }
 
-function extractProgramAssetRefs(body, functionDefinition, target) {
+function extractProgramAssetRefs(body, functionDefinition, target, options = {}) {
   const refs = [];
   const patterns = [
     /\b(precache_model2?)\s*\(\s*"([^"]+)"\s*\)/g,
     /\b(setmodel)\s*\(\s*[^,]+,\s*"([^"]+)"\s*\)/g,
     /\b(precache_sound2?)\s*\(\s*"([^"]+)"\s*\)/g,
   ];
+  if (options.includeRuntimeCalls) {
+    patterns.push(
+      /\b(ThrowHead|ThrowGib)\s*\(\s*"([^"]+)"\s*,/g,
+    );
+  }
   for (const pattern of patterns) {
     for (const match of body.matchAll(pattern)) {
       const call = match[1];
@@ -801,7 +1187,35 @@ function extractProgramAssetRefs(body, functionDefinition, target) {
       });
     }
   }
+  if (options.includeRuntimeCalls) {
+    refs.push(...extractDeathOutputSoundAssetRefs(body, functionDefinition, target));
+  }
   return dedupeProgramRefs(refs);
+}
+
+function extractDeathOutputSoundAssetRefs(body, functionDefinition, target) {
+  const firstDeathOutputCall = firstDeathOutputCallIndex(body);
+  if (firstDeathOutputCall === null) return [];
+  const refs = [];
+  const prefix = body.slice(0, firstDeathOutputCall);
+  for (const match of prefix.matchAll(/\b(sound)\s*\([^,]+,\s*[^,]+,\s*"([^"]+)"/g)) {
+    const path = match[2].toLowerCase();
+    refs.push({
+      call: match[1],
+      kind: quakeProgramAssetKind(path, match[1]),
+      path,
+      sourceRef: sourceRefForBodyIndex(functionDefinition, target, match.index ?? 0),
+    });
+  }
+  return refs;
+}
+
+function firstDeathOutputCallIndex(body) {
+  const indexes = [];
+  for (const match of body.matchAll(/\b(?:ThrowHead|ThrowGib)\s*\(/g)) {
+    if (Number.isInteger(match.index)) indexes.push(match.index);
+  }
+  return indexes.length ? Math.min(...indexes) : null;
 }
 
 function legacyProgramDependencyRefs(assetRefs, kind) {
@@ -857,7 +1271,7 @@ function extractCallbackAssignments(assignments) {
   return callbacks;
 }
 
-function extractProgramCallbackFacts(source, target, constants, callbacks) {
+function extractProgramCallbackFacts(source, target, constants, callbacks, shared = {}) {
   const facts = {};
   if (!target.callbackFactFunctions?.length) return facts;
   const allowedCallbacks = new Set(target.callbackFactFunctions);
@@ -874,15 +1288,708 @@ function extractProgramCallbackFacts(source, target, constants, callbacks) {
     const assignments = extractLocalAssignments(functionDefinition.body, functionDefinition, callbackTarget, constants);
     const calls = extractCalls(functionDefinition.body);
     const classnameBranches = extractClassnameBranchAssignments(functionDefinition, callbackTarget, constants);
-    if (!assignments.length && !calls.length && !classnameBranches.length) continue;
+    const radiusDamage = extractRadiusDamageCalls(functionDefinition, callbackTarget);
+    const assetRefs = dedupeProgramRefs([
+      ...extractProgramAssetRefs(functionDefinition.body, functionDefinition, callbackTarget, {
+        includeRuntimeCalls: true,
+      }),
+      ...extractProgramLinkedRuntimeAssetRefs(source, functionDefinition, shared),
+    ]);
+    if (!assignments.length && !calls.length && !classnameBranches.length && !radiusDamage.length && !assetRefs.length) continue;
     facts[callbackName] = {
       assignments,
+      ...(assetRefs.length ? { assetRefs } : {}),
       calls,
       ...(classnameBranches.length ? { classnameBranches } : {}),
+      ...(radiusDamage.length ? { radiusDamage } : {}),
       sourceRefs: [sourceRefForBodyIndex(functionDefinition, callbackTarget, 0)],
     };
   }
   return facts;
+}
+
+function extractProgramLinkedRuntimeAssetRefs(source, functionDefinition, shared = {}) {
+  const refs = [];
+  if (shared.items && callbackStateChainsIncludeCall(source, functionDefinition, "DropBackpack")) {
+    refs.push(...extractDropBackpackAssetRefs(shared.items));
+  }
+  return refs;
+}
+
+function callbackStateChainsIncludeCall(source, functionDefinition, callName) {
+  const states = parseStates(source, parseFrameMap(source));
+  if (!states.size) return false;
+  const starts = extractCalls(functionDefinition.body).filter((call) => states.has(call));
+  for (const start of starts) {
+    if (chainFrom(states, start).some((state) => state.calls?.includes(callName))) return true;
+  }
+  return false;
+}
+
+function extractDropBackpackAssetRefs(itemsSource) {
+  const refs = [];
+  const dropDefinition = extractFunctionDefinition(itemsSource, "DropBackpack");
+  const touchDefinition = extractFunctionDefinition(itemsSource, "BackpackTouch");
+  if (dropDefinition) {
+    const target = { sourcePath: "qcc/v101qc/items.qc", functionName: "DropBackpack" };
+    for (const match of dropDefinition.body.matchAll(/\b(setmodel)\s*\(\s*item\s*,\s*"([^"]+)"/g)) {
+      const path = match[2].toLowerCase();
+      refs.push({
+        call: "DropBackpack",
+        kind: quakeProgramAssetKind(path, match[1]),
+        path,
+        sourceRef: sourceRefForBodyIndex(dropDefinition, target, match.index ?? 0),
+      });
+    }
+  }
+  if (touchDefinition) {
+    const target = { sourcePath: "qcc/v101qc/items.qc", functionName: "BackpackTouch" };
+    for (const match of touchDefinition.body.matchAll(/\b(sound)\s*\([^,]+,\s*[^,]+,\s*"([^"]+)"/g)) {
+      const path = match[2].toLowerCase();
+      refs.push({
+        call: "BackpackTouch",
+        kind: quakeProgramAssetKind(path, match[1]),
+        path,
+        sourceRef: sourceRefForBodyIndex(touchDefinition, target, match.index ?? 0),
+      });
+    }
+  }
+  return dedupeProgramRefs(refs);
+}
+
+function extractRadiusDamageCalls(functionDefinition, target) {
+  const out = [];
+  const pattern = /\bT_RadiusDamage\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([-+]?[0-9.]+)\s*,\s*([^)]+)\)\s*;/g;
+  for (const match of functionDefinition.body.matchAll(pattern)) {
+    const damage = Number(match[3]);
+    if (!Number.isFinite(damage)) continue;
+    out.push({
+      attacker: match[2].trim(),
+      call: "T_RadiusDamage",
+      damageUnits: damage,
+      ignore: match[4].trim(),
+      inflictor: match[1].trim(),
+      sourceRef: sourceRefForBodyIndex(functionDefinition, target, match.index ?? 0),
+    });
+  }
+  return out;
+}
+
+function extractRadiusDamageSemantics(combatSource) {
+  const body = extractFunctionBody(combatSource, "T_RadiusDamage") ?? "";
+  const radiusAdd = Number(/findradius\s*\(\s*inflictor\.origin\s*,\s*damage\s*\+\s*([-+]?[0-9.]+)\s*\)/.exec(body)?.[1] ?? 0);
+  const distanceScale = Number(/points\s*=\s*([-+]?[0-9.]+)\s*\*\s*vlen\s*\(/.exec(body)?.[1] ?? 1);
+  const attackerSelfScale = Number(/head\s*==\s*attacker[\s\S]*?points\s*=\s*points\s*\*\s*([-+]?[0-9.]+)/.exec(body)?.[1] ?? 1);
+  const shamblerScale = Number(/head\.classname\s*==\s*"monster_shambler"[\s\S]*?points\s*\*\s*([-+]?[0-9.]+)/.exec(body)?.[1] ?? 1);
+  return {
+    attackerSelfScale: Number.isFinite(attackerSelfScale) ? attackerSelfScale : 1,
+    distanceScale: Number.isFinite(distanceScale) ? distanceScale : 1,
+    radiusAddUnits: Number.isFinite(radiusAdd) ? radiusAdd : 0,
+    requiresCanDamage: /\bCanDamage\s*\(\s*head\s*,\s*inflictor\s*\)/.test(body),
+    shamblerScale: Number.isFinite(shamblerScale) ? shamblerScale : 1,
+  };
+}
+
+function extractShootableLogic(programFacts, combatSource) {
+  const semantics = extractRadiusDamageSemantics(combatSource);
+  const out = {};
+  for (const classname of ["misc_explobox", "misc_explobox2"]) {
+    const entity = programFacts.entities[classname];
+    const deathCallback = entity?.callbacks?.th_die;
+    const radiusDamage = deathCallback
+      ? entity?.callbackFacts?.[deathCallback]?.radiusDamage?.[0]
+      : null;
+    if (!entity || !deathCallback || !radiusDamage) continue;
+    out[classname] = {
+      classname,
+      death: {
+        callback: deathCallback,
+        radiusDamage: {
+          ...radiusDamage,
+          ...semantics,
+          radiusUnits: radiusDamage.damageUnits + semantics.radiusAddUnits,
+        },
+      },
+    };
+  }
+  return out;
+}
+
+function extractPlayerWeaponFireFacts(shared) {
+  const weaponsSource = shared.weapons ?? "";
+  const playerSource = shared.player ?? "";
+  const radiusDamageSemantics = extractRadiusDamageSemantics(shared.combat ?? "");
+  const fireBullets = extractFireBulletsSemantics(weaponsSource);
+  const attackFacts = extractPlayerWeaponAttackFacts(weaponsSource);
+  const nailFrameFacts = extractPlayerNailFrameFacts(playerSource);
+  const lightningFrameFacts = extractPlayerLightningFrameFacts(playerSource);
+
+  const defs = Object.fromEntries(
+    [
+      "W_FireAxe",
+      "W_FireShotgun",
+      "W_FireSuperShotgun",
+      "W_FireSpikes",
+      "W_FireSuperSpikes",
+      "spike_touch",
+      "superspike_touch",
+      "W_FireRocket",
+      "T_MissileTouch",
+      "W_FireGrenade",
+      "GrenadeExplode",
+      "GrenadeTouch",
+      "W_FireLightning",
+      "LightningDamage",
+    ].map((functionName) => [functionName, requireFunctionDefinition(weaponsSource, functionName, "qcc/v101qc/weapons.qc")]),
+  );
+  const launchSpike = requireFunctionDefinition(weaponsSource, "launch_spike", "qcc/v101qc/weapons.qc");
+
+  const missileTouchRadiusDamage = enrichedRadiusDamageFact(
+    extractRadiusDamageCalls(defs.T_MissileTouch, sourceTarget("qcc/v101qc/weapons.qc", "T_MissileTouch"))[0],
+    radiusDamageSemantics,
+  );
+  const grenadeRadiusDamage = enrichedRadiusDamageFact(
+    extractRadiusDamageCalls(defs.GrenadeExplode, sourceTarget("qcc/v101qc/weapons.qc", "GrenadeExplode"))[0],
+    radiusDamageSemantics,
+  );
+
+  return {
+    radiusDamageSemantics,
+    noAmmoFallback: extractNoAmmoFallbackFacts(weaponsSource),
+    profiles: {
+      axe: {
+        weapon: "axe",
+        itemFlag: "IT_AXE",
+        runtimeKind: "melee-trace",
+        sourceFunction: "W_FireAxe",
+        cooldownMs: attackFacts.axe.cooldownMs,
+        fireSound: attackFacts.axe.fireSound,
+        melee: {
+          damage: extractDamageCallUnits(defs.W_FireAxe.body, "T_Damage") ?? 20,
+          rangeUnits: extractTraceRangeUnits(defs.W_FireAxe.body, "v_forward") ?? 64,
+          sourceOffsetUnits: { up: 16 },
+          wallImpactSoundPath: extractSoundPath(defs.W_FireAxe.body),
+        },
+        sourceRefs: profileSourceRefs(defs.W_FireAxe, attackFacts.axe.sourceRef),
+      },
+      shotgun: {
+        weapon: "shotgun",
+        itemFlag: "IT_SHOTGUN",
+        runtimeKind: "hitscan-pellets",
+        sourceFunction: "W_FireShotgun",
+        ammo: extractWeaponAmmoSpend(defs.W_FireShotgun.body),
+        cooldownMs: attackFacts.shotgun.cooldownMs,
+        fireSound: extractWeaponFireSound(defs.W_FireShotgun, "qcc/v101qc/weapons.qc"),
+        hitscan: {
+          aimRangeUnits: extractAimRangeUnits(defs.W_FireShotgun.body),
+          ...extractFireBulletsCall(defs.W_FireShotgun.body, fireBullets),
+          sourceOffsetUnits: {
+            forward: 10,
+            zExpression: "self.absmin_z + self.size_z * 0.7",
+          },
+        },
+        sourceRefs: profileSourceRefs(defs.W_FireShotgun, attackFacts.shotgun.sourceRef),
+      },
+      supershotgun: {
+        weapon: "supershotgun",
+        itemFlag: "IT_SUPER_SHOTGUN",
+        runtimeKind: "hitscan-pellets",
+        sourceFunction: "W_FireSuperShotgun",
+        ammo: extractWeaponAmmoSpend(defs.W_FireSuperShotgun.body),
+        cooldownMs: attackFacts.supershotgun.cooldownMs,
+        fireSound: extractWeaponFireSound(defs.W_FireSuperShotgun, "qcc/v101qc/weapons.qc"),
+        fallback: {
+          condition: "self.currentammo == 1",
+          sourceFunction: "W_FireShotgun",
+          profile: "shotgun",
+        },
+        hitscan: {
+          aimRangeUnits: extractAimRangeUnits(defs.W_FireSuperShotgun.body),
+          ...extractFireBulletsCall(defs.W_FireSuperShotgun.body, fireBullets),
+          sourceOffsetUnits: {
+            forward: 10,
+            zExpression: "self.absmin_z + self.size_z * 0.7",
+          },
+        },
+        sourceRefs: profileSourceRefs(defs.W_FireSuperShotgun, attackFacts.supershotgun.sourceRef),
+      },
+      nailgun: {
+        weapon: "nailgun",
+        itemFlag: "IT_NAILGUN",
+        runtimeKind: "projectile",
+        sourceFunction: "W_FireSpikes",
+        ammo: extractWeaponAmmoSpend(defs.W_FireSpikes.body),
+        cooldownMs: nailFrameFacts.cooldownMs ?? parseSelfAttackFinishedCooldownMs(defs.W_FireSpikes.body),
+        fireSound: extractWeaponFireSound(defs.W_FireSpikes, "qcc/v101qc/weapons.qc"),
+        projectile: {
+          damage: extractTouchDamageUnits(defs.spike_touch?.body ?? "") ?? 9,
+          lifetimeMs: extractNextThinkLifetimeMs(launchSpike.body, "newmis"),
+          modelPath: extractSetmodelPathForVar(launchSpike.body, "newmis"),
+          movetype: extractAssignmentExpression(launchSpike.body, "newmis.movetype"),
+          sourceOffsetUnits: {
+            up: 16,
+            alternatingRight: nailFrameFacts.offsets,
+          },
+          speedUnits: extractVelocityScaleUnits(launchSpike.body, "newmis.velocity"),
+          touchFunction: "spike_touch",
+        },
+        sourceRefs: profileSourceRefs(defs.W_FireSpikes, launchSpike, ...nailFrameFacts.sourceRefs),
+      },
+      supernailgun: {
+        weapon: "supernailgun",
+        itemFlag: "IT_SUPER_NAILGUN",
+        runtimeKind: "projectile",
+        sourceFunction: "W_FireSuperSpikes",
+        ammo: extractWeaponAmmoSpend(defs.W_FireSuperSpikes.body),
+        cooldownMs: parseSelfAttackFinishedCooldownMs(defs.W_FireSuperSpikes.body),
+        fireSound: extractWeaponFireSound(defs.W_FireSuperSpikes, "qcc/v101qc/weapons.qc"),
+        fallback: {
+          condition: "self.ammo_nails < 2",
+          sourceFunction: "W_FireSpikes",
+          profile: "nailgun",
+        },
+        projectile: {
+          damage: extractTouchDamageUnits(defs.superspike_touch?.body ?? "") ?? 18,
+          lifetimeMs: extractNextThinkLifetimeMs(launchSpike.body, "newmis"),
+          modelPath: extractSetmodelPathForVar(defs.W_FireSuperSpikes.body, "newmis"),
+          movetype: extractAssignmentExpression(launchSpike.body, "newmis.movetype"),
+          sourceOffsetUnits: { up: 16 },
+          speedUnits: extractVelocityScaleUnits(launchSpike.body, "newmis.velocity"),
+          touchFunction: "superspike_touch",
+        },
+        sourceRefs: profileSourceRefs(defs.W_FireSuperSpikes, launchSpike),
+      },
+      grenadelauncher: {
+        weapon: "grenadelauncher",
+        itemFlag: "IT_GRENADE_LAUNCHER",
+        runtimeKind: "projectile",
+        sourceFunction: "W_FireGrenade",
+        ammo: extractWeaponAmmoSpend(defs.W_FireGrenade.body),
+        cooldownMs: attackFacts.grenadelauncher.cooldownMs,
+        fireSound: extractWeaponFireSound(defs.W_FireGrenade, "qcc/v101qc/weapons.qc"),
+        projectile: {
+          angularVelocityUnits: parseQuakeVectorExpression("'300 300 300'"),
+          bounceSoundPath: extractSoundPath(defs.GrenadeTouch.body),
+          classname: extractAssignmentString(defs.W_FireGrenade.body, "missile.classname"),
+          explodeFunction: "GrenadeExplode",
+          lifetimeMs: extractNextThinkLifetimeMs(defs.W_FireGrenade.body, "missile"),
+          modelPath: extractSetmodelPathForVar(defs.W_FireGrenade.body, "missile"),
+          movetype: extractAssignmentExpression(defs.W_FireGrenade.body, "missile.movetype"),
+          radiusDamage: grenadeRadiusDamage,
+          randomVelocityUnits: { right: 10, up: 10 },
+          speedUnits: extractVelocityScaleUnits(defs.W_FireGrenade.body, "missile.velocity") ?? 600,
+          sourceOffsetUnits: {},
+          touchFunction: "GrenadeTouch",
+          verticalVelocityUnits: extractVelocityZUnits(defs.W_FireGrenade.body, "missile.velocity_z") ?? 200,
+        },
+        sourceRefs: profileSourceRefs(defs.W_FireGrenade, defs.GrenadeTouch, defs.GrenadeExplode, attackFacts.grenadelauncher.sourceRef),
+      },
+      rocketlauncher: {
+        weapon: "rocketlauncher",
+        itemFlag: "IT_ROCKET_LAUNCHER",
+        runtimeKind: "projectile",
+        sourceFunction: "W_FireRocket",
+        ammo: extractWeaponAmmoSpend(defs.W_FireRocket.body),
+        cooldownMs: attackFacts.rocketlauncher.cooldownMs,
+        fireSound: extractWeaponFireSound(defs.W_FireRocket, "qcc/v101qc/weapons.qc"),
+        projectile: {
+          directDamage: extractRocketDirectDamage(defs.T_MissileTouch.body),
+          lifetimeMs: extractNextThinkLifetimeMs(defs.W_FireRocket.body, "missile"),
+          modelPath: extractSetmodelPathForVar(defs.W_FireRocket.body, "missile"),
+          movetype: extractAssignmentExpression(defs.W_FireRocket.body, "missile.movetype"),
+          radiusDamage: missileTouchRadiusDamage,
+          speedUnits: extractVelocityScaleUnits(defs.W_FireRocket.body, "missile.velocity"),
+          sourceOffsetUnits: { forward: 8, up: 16 },
+          touchFunction: "T_MissileTouch",
+        },
+        sourceRefs: profileSourceRefs(defs.W_FireRocket, defs.T_MissileTouch, attackFacts.rocketlauncher.sourceRef),
+      },
+      lightning: {
+        weapon: "lightning",
+        itemFlag: "IT_LIGHTNING",
+        runtimeKind: "beam",
+        sourceFunction: "W_FireLightning",
+        ammo: extractWeaponAmmoSpend(defs.W_FireLightning.body),
+        cooldownMs: lightningFrameFacts.cooldownMs ?? attackFacts.lightning.cooldownMs,
+        attackStartCooldownMs: attackFacts.lightning.cooldownMs,
+        startSound: attackFacts.lightning.fireSound,
+        fireSound: {
+          ...extractWeaponFireSound(defs.W_FireLightning, "qcc/v101qc/weapons.qc"),
+          cooldownMs: extractTimeWidthCooldownMs(defs.W_FireLightning.body),
+        },
+        beam: {
+          damage: extractLightningDamageUnits(defs.W_FireLightning.body),
+          damageEndForwardOffsetUnits: extractLightningDamageEndOffsetUnits(defs.W_FireLightning.body),
+          damageTraceOffsetUnits: extractLightningTraceOffsetUnits(defs.LightningDamage.body),
+          duplicateEntitySuppression: true,
+          rangeUnits: extractTraceRangeUnits(defs.W_FireLightning.body, "v_forward"),
+          sourceOffsetUnits: { up: 16 },
+          startOffsetUnits: {},
+          tempEntity: extractTempEntity(defs.W_FireLightning.body),
+          traceCount: 3,
+        },
+        unsupportedBranches: [extractLightningUnderwaterBranch(defs.W_FireLightning, radiusDamageSemantics)].filter(Boolean),
+        sourceRefs: profileSourceRefs(defs.W_FireLightning, defs.LightningDamage, ...lightningFrameFacts.sourceRefs),
+      },
+    },
+  };
+}
+
+function sourceTarget(sourcePath, functionName) {
+  return { sourcePath, functionName };
+}
+
+function requireFunctionDefinition(sourceText, functionName, sourcePath) {
+  const definition = extractFunctionDefinition(sourceText, functionName);
+  if (!definition) throw new Error(`Could not find QuakeC function ${functionName} in ${sourcePath}.`);
+  return definition;
+}
+
+function profileSourceRefs(...items) {
+  const out = [];
+  const seen = new Set();
+  for (const item of items.flat()) {
+    const sourceRef = item?.bodyStartIndex !== undefined
+      ? sourceRefForBodyIndex(item, sourceTarget("qcc/v101qc/weapons.qc", item.functionName), 0)
+      : item;
+    if (!sourceRef?.sourceFile || !sourceRef?.functionName || !sourceRef?.line) continue;
+    const key = `${sourceRef.sourceFile}:${sourceRef.functionName}:${sourceRef.line}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(sourceRef);
+  }
+  return out;
+}
+
+function extractPlayerWeaponAttackFacts(weaponsSource) {
+  const definition = requireFunctionDefinition(weaponsSource, "W_Attack", "qcc/v101qc/weapons.qc");
+  const byWeapon = {};
+  for (const [weapon, itemFlag] of Object.entries({
+    axe: "IT_AXE",
+    shotgun: "IT_SHOTGUN",
+    supershotgun: "IT_SUPER_SHOTGUN",
+    nailgun: "IT_NAILGUN",
+    supernailgun: "IT_SUPER_NAILGUN",
+    grenadelauncher: "IT_GRENADE_LAUNCHER",
+    rocketlauncher: "IT_ROCKET_LAUNCHER",
+    lightning: "IT_LIGHTNING",
+  })) {
+    const branch = extractIfBlock(definition.body, new RegExp(`self\\.weapon\\s*==\\s*${itemFlag}`));
+    const sourceRef = branch
+      ? sourceRefForBodyIndex(definition, sourceTarget("qcc/v101qc/weapons.qc", "W_Attack"), branch.index)
+      : sourceRefForBodyIndex(definition, sourceTarget("qcc/v101qc/weapons.qc", "W_Attack"), 0);
+    const branchDefinition = branch
+      ? {
+          ...definition,
+          body: branch.body,
+          bodyStartIndex: definition.bodyStartIndex + branch.bodyIndex,
+          functionName: "W_Attack",
+        }
+      : null;
+    byWeapon[weapon] = {
+      cooldownMs: branch ? parseSelfAttackFinishedCooldownMs(branch.body) : 0,
+      fireSound: branchDefinition ? extractWeaponFireSound(branchDefinition, "qcc/v101qc/weapons.qc") : undefined,
+      sourceRef,
+    };
+  }
+  return byWeapon;
+}
+
+function extractIfBlock(body, conditionPattern) {
+  const source = stripQuakeLineComments(body);
+  for (const match of source.matchAll(/(?:^|\belse\s+)?if\s*\(([^)]*)\)\s*\{/g)) {
+    if (!conditionPattern.test(match[1])) continue;
+    const braceIndex = (match.index ?? 0) + match[0].lastIndexOf("{");
+    const end = findMatchingBrace(source, braceIndex);
+    if (end < 0) continue;
+    return {
+      body: source.slice(braceIndex + 1, end),
+      bodyIndex: braceIndex + 1,
+      index: match.index ?? 0,
+    };
+  }
+  return null;
+}
+
+function extractPlayerNailFrameFacts(playerSource) {
+  const states = parseStates(playerSource, parseFrameMap(playerSource));
+  const sourceRefs = [];
+  const offsets = [];
+  let cooldownMs = 0;
+  for (const stateName of ["player_nail1", "player_nail2"]) {
+    const state = states.get(stateName);
+    if (!state) continue;
+    const offset = Number(/W_FireSpikes\s*\(\s*([-+]?[0-9.]+)\s*\)/.exec(state.body)?.[1]);
+    if (Number.isFinite(offset)) offsets.push(offset);
+    cooldownMs = Math.max(cooldownMs, parseSelfAttackFinishedCooldownMs(state.body));
+    const line = lineNumberForState(playerSource, stateName);
+    if (line) sourceRefs.push({ sourceFile: "qcc/v101qc/player.qc", functionName: stateName, line });
+  }
+  return {
+    cooldownMs,
+    offsets,
+    sourceRefs,
+  };
+}
+
+function extractPlayerLightningFrameFacts(playerSource) {
+  const states = parseStates(playerSource, parseFrameMap(playerSource));
+  const sourceRefs = [];
+  let cooldownMs = 0;
+  for (const stateName of ["player_light1", "player_light2"]) {
+    const state = states.get(stateName);
+    if (!state) continue;
+    cooldownMs = Math.max(cooldownMs, parseSelfAttackFinishedCooldownMs(state.body));
+    const line = lineNumberForState(playerSource, stateName);
+    if (line) sourceRefs.push({ sourceFile: "qcc/v101qc/player.qc", functionName: stateName, line });
+  }
+  return {
+    cooldownMs,
+    sourceRefs,
+  };
+}
+
+function lineNumberForState(sourceText, stateName) {
+  const match = new RegExp(`\\bvoid\\s*\\(\\s*\\)\\s*${escapeRegExp(stateName)}\\b`).exec(sourceText);
+  return match ? lineNumberAt(sourceText, match.index) : null;
+}
+
+function extractWeaponAmmoSpend(body) {
+  const match = /self\.currentammo\s*=\s*self\.(ammo_[A-Za-z_]\w*)\s*=\s*self\.\1\s*-\s*([-+]?[0-9.]+)/.exec(body);
+  if (!match) return undefined;
+  const cost = Number(match[2]);
+  return {
+    cost: Number.isFinite(cost) ? cost : 0,
+    field: quakeAmmoFieldName(match[1]),
+    sourceField: match[1],
+  };
+}
+
+function quakeAmmoFieldName(sourceField) {
+  return sourceField.replace(/^ammo_/, "");
+}
+
+function extractWeaponFireSound(functionDefinition, sourcePath) {
+  const match = /\bsound\s*\(\s*self\s*,\s*(CHAN_[A-Z_]+)\s*,\s*"([^"]+)"/.exec(functionDefinition.body);
+  if (!match) return undefined;
+  return {
+    channel: match[1],
+    path: match[2],
+    sourceRef: sourceRefForBodyIndex(functionDefinition, sourceTarget(sourcePath, functionDefinition.functionName), match.index ?? 0),
+  };
+}
+
+function extractSoundPath(body) {
+  return /\bsound\s*\([^,]+,\s*[^,]+,\s*"([^"]+)"/.exec(body)?.[1];
+}
+
+function parseSelfAttackFinishedCooldownMs(body) {
+  const match = /self\.attack_finished\s*=\s*time\s*\+\s*([-+]?[0-9.]+)/.exec(body);
+  const seconds = Number(match?.[1]);
+  return Number.isFinite(seconds) ? Math.round(seconds * 1000) : 0;
+}
+
+function extractTimeWidthCooldownMs(body) {
+  const match = /self\.t_width\s*=\s*time\s*\+\s*([-+]?[0-9.]+)/.exec(body);
+  const seconds = Number(match?.[1]);
+  return Number.isFinite(seconds) ? Math.round(seconds * 1000) : undefined;
+}
+
+function extractFireBulletsCall(body, semantics) {
+  const match = /FireBullets\s*\(\s*([-+]?[0-9.]+)\s*,[^,]+,\s*('[^']+')\s*\)/.exec(body);
+  const spread = match ? parseQuakeVectorExpression(match[2]) : null;
+  return {
+    pelletCount: Number(match?.[1] ?? 0),
+    pelletDamage: semantics.pelletDamage,
+    spread,
+    traceRangeUnits: semantics.traceRangeUnits,
+  };
+}
+
+function extractAimRangeUnits(body) {
+  const match = /\baim\s*\(\s*self\s*,\s*([-+]?[0-9.]+)/.exec(body);
+  const value = Number(match?.[1]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function extractTraceRangeUnits(body, vectorName) {
+  const match = new RegExp(`${escapeRegExp(vectorName)}\\s*\\*\\s*([-+]?[0-9.]+)`).exec(body);
+  const value = Number(match?.[1]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function extractDamageCallUnits(body, callName) {
+  const match = new RegExp(`${escapeRegExp(callName)}\\s*\\([^)]*,\\s*([-+]?[0-9.]+)\\s*\\)`).exec(body);
+  const value = Number(match?.[1]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function extractTouchDamageUnits(body) {
+  const match = /\bT_Damage\s*\([^,]+,[^,]+,[^,]+,\s*([-+]?[0-9.]+)\s*\)/.exec(body) ??
+    /\bspawn_touchblood\s*\(\s*([-+]?[0-9.]+)/.exec(body);
+  const value = Number(match?.[1]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function extractSetmodelPathForVar(body, variableName) {
+  const match = new RegExp(`\\bsetmodel\\s*\\(\\s*${escapeRegExp(variableName)}\\s*,\\s*"([^"]+)"`).exec(body);
+  return match?.[1];
+}
+
+function extractAssignmentExpression(body, field) {
+  const match = new RegExp(`\\b${escapeRegExp(field)}\\s*=\\s*([^;]+);`).exec(body);
+  return match ? normalizeQuakeExpression(match[1]) : undefined;
+}
+
+function extractAssignmentString(body, field) {
+  const expression = extractAssignmentExpression(body, field);
+  return /^"([^"]+)"$/.exec(expression ?? "")?.[1];
+}
+
+function extractNextThinkLifetimeMs(body, variableName) {
+  const match = new RegExp(`\\b${escapeRegExp(variableName)}\\.nextthink\\s*=\\s*time\\s*\\+\\s*([-+]?[0-9.]+)`).exec(body);
+  const seconds = Number(match?.[1]);
+  return Number.isFinite(seconds) ? Math.round(seconds * 1000) : undefined;
+}
+
+function extractVelocityScaleUnits(body, field) {
+  const selfScale = Number(
+    new RegExp(`\\b${escapeRegExp(field)}\\s*=\\s*${escapeRegExp(field)}\\s*\\*\\s*([-+]?[0-9.]+)\\s*;`).exec(body)?.[1],
+  );
+  if (Number.isFinite(selfScale)) return selfScale;
+
+  const directScale = Number(
+    new RegExp(`\\b${escapeRegExp(field)}\\s*=\\s*[^;]*?\\*\\s*([-+]?[0-9.]+)\\b[^;]*;`).exec(body)?.[1],
+  );
+  return Number.isFinite(directScale) ? directScale : undefined;
+}
+
+function extractVelocityZUnits(body, field) {
+  const match = new RegExp(`\\b${escapeRegExp(field)}\\s*=\\s*([-+]?[0-9.]+)\\s*;`).exec(body);
+  const value = Number(match?.[1]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function enrichedRadiusDamageFact(radiusDamage, semantics) {
+  if (!radiusDamage) return undefined;
+  return {
+    ...radiusDamage,
+    ...semantics,
+    radiusUnits: radiusDamage.damageUnits + semantics.radiusAddUnits,
+  };
+}
+
+function extractRocketDirectDamage(body) {
+  const match = /damg\s*=\s*([-+]?[0-9.]+)\s*\+\s*random\s*\(\s*\)\s*\*\s*([-+]?[0-9.]+)/.exec(body);
+  return {
+    base: Number(match?.[1] ?? 0),
+    randomAdd: Number(match?.[2] ?? 0),
+    halfDamageClassnames: body.includes("monster_shambler") ? ["monster_shambler"] : [],
+  };
+}
+
+function extractLightningDamageUnits(body) {
+  const match = /LightningDamage\s*\([^,]+,[^,]+,[^,]+,\s*([-+]?[0-9.]+)\s*\)/.exec(body);
+  const value = Number(match?.[1]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function extractLightningDamageEndOffsetUnits(body) {
+  const match = /trace_endpos\s*\+\s*v_forward\s*\*\s*([-+]?[0-9.]+)/.exec(body);
+  const value = Number(match?.[1]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function extractLightningTraceOffsetUnits(body) {
+  const match = /\bf\s*=\s*f\s*\*\s*([-+]?[0-9.]+)/.exec(body);
+  const value = Number(match?.[1]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function extractTempEntity(body) {
+  return /\bWriteByte\s*\(\s*MSG_BROADCAST\s*,\s*(TE_[A-Z0-9_]+)\s*\)/.exec(body)?.[1];
+}
+
+function extractLightningUnderwaterBranch(functionDefinition, semantics) {
+  const branch = extractIfBlock(functionDefinition.body, /self\.waterlevel\s*>\s*1/);
+  if (!branch) return null;
+  const radiusMatch = /T_RadiusDamage\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\)/.exec(branch.body);
+  const damagePerCell = Number(/([-+]?[0-9.]+)\s*\*\s*self\.ammo_cells/.exec(radiusMatch?.[3] ?? "")?.[1]);
+  return {
+    id: "lightning-underwater-discharge",
+    condition: "self.waterlevel > 1",
+    runtime: "unsupported-modeled-branch",
+    radiusDamage: {
+      attacker: radiusMatch?.[2]?.trim() ?? "self",
+      call: "T_RadiusDamage",
+      damageExpression: normalizeQuakeExpression(radiusMatch?.[3] ?? "35*self.ammo_cells"),
+      ...(Number.isFinite(damagePerCell) ? { damagePerAmmoCell: damagePerCell } : {}),
+      ignore: radiusMatch?.[4]?.trim() ?? "world",
+      inflictor: radiusMatch?.[1]?.trim() ?? "self",
+      ...semantics,
+    },
+    clearsAmmoField: "cells",
+    calls: extractCalls(branch.body),
+    sourceRef: sourceRefForBodyIndex(functionDefinition, sourceTarget("qcc/v101qc/weapons.qc", "W_FireLightning"), branch.index),
+  };
+}
+
+function extractNoAmmoFallbackFacts(weaponsSource) {
+  const checkDefinition = requireFunctionDefinition(weaponsSource, "W_CheckNoAmmo", "qcc/v101qc/weapons.qc");
+  return {
+    sourceFunction: "W_CheckNoAmmo",
+    currentAmmoPassCondition: "self.currentammo > 0",
+    axeAlwaysAllowed: /self\.weapon\s*==\s*IT_AXE[\s\S]*?return\s+TRUE/.test(checkDefinition.body),
+    fallbackFunction: "W_BestWeapon",
+    setCurrentAmmoFunction: "W_SetCurrentAmmo",
+    bestWeaponOrder: extractBestWeaponOrder(weaponsSource),
+    sourceRefs: [
+      sourceRefForBodyIndex(checkDefinition, sourceTarget("qcc/v101qc/weapons.qc", "W_CheckNoAmmo"), 0),
+      sourceRefForBodyIndex(
+        requireFunctionDefinition(weaponsSource, "W_BestWeapon", "qcc/v101qc/weapons.qc"),
+        sourceTarget("qcc/v101qc/weapons.qc", "W_BestWeapon"),
+        0,
+      ),
+    ],
+  };
+}
+
+function extractBestWeaponOrder(weaponsSource) {
+  const definition = requireFunctionDefinition(weaponsSource, "W_BestWeapon", "qcc/v101qc/weapons.qc");
+  const body = stripQuakeLineComments(definition.body.replace(/\/\*[\s\S]*?\*\//g, ""));
+  const out = [];
+  for (const match of body.matchAll(/self\.ammo_([A-Za-z_]\w*)\s*>=\s*([-+]?[0-9.]+)\s*&&\s*\(\s*it\s*&\s*(IT_[A-Z_]+)\s*\)[\s\S]*?return\s+(IT_[A-Z_]+)/g)) {
+    out.push({
+      ammoField: match[1],
+      minAmmo: Number(match[2]),
+      itemFlag: match[3],
+      returns: match[4],
+      weapon: playerWeaponIdForItemFlag(match[4]),
+    });
+  }
+  const fallback = /return\s+(IT_[A-Z_]+)\s*;/.exec(body.slice(body.lastIndexOf("return")));
+  if (fallback) {
+    out.push({
+      itemFlag: fallback[1],
+      returns: fallback[1],
+      weapon: playerWeaponIdForItemFlag(fallback[1]),
+      fallback: true,
+    });
+  }
+  return out;
+}
+
+function playerWeaponIdForItemFlag(itemFlag) {
+  return ({
+    IT_AXE: "axe",
+    IT_SHOTGUN: "shotgun",
+    IT_SUPER_SHOTGUN: "supershotgun",
+    IT_NAILGUN: "nailgun",
+    IT_SUPER_NAILGUN: "supernailgun",
+    IT_GRENADE_LAUNCHER: "grenadelauncher",
+    IT_ROCKET_LAUNCHER: "rocketlauncher",
+    IT_LIGHTNING: "lightning",
+  })[itemFlag] ?? itemFlag;
 }
 
 function extractClassnameBranchAssignments(functionDefinition, target, constants) {
@@ -1121,6 +2228,7 @@ function buildCombatPolicy({ callbacks, chains, shared, source, target }) {
       chain: "attack",
       ...(branches.length > 0 ? { branches } : {}),
       ...(damage > 0 ? { damage } : {}),
+      ...attackSideEffectRandomChecks(shared.fight, target.checkAttackFunction, source),
       usesFrameEvents: true,
     },
   };
@@ -1161,6 +2269,21 @@ function extractCheckAttackPolicy(sourceText, functionName, fallbackSourceText =
     },
     ...(body.includes("trace_ent != targ") ? { requiresClearShot: true } : {}),
   };
+}
+
+function attackSideEffectRandomChecks(sourceText, functionName, fallbackSourceText = "") {
+  const body = extractFunctionBody(sourceText, functionName) ?? extractFunctionBody(fallbackSourceText, functionName);
+  if (!body) return {};
+  const checks = [];
+  for (const match of body.matchAll(/if\s*\(\s*random\s*\(\s*\)\s*<\s*([0-9.]+)\s*\)\s*self\.([A-Za-z_]\w*)\s*=\s*!\s*self\.\2\s*;/g)) {
+    checks.push({
+      chance: Number(match[1]),
+      field: match[2],
+      effect: "toggle",
+      runtime: "rng-only",
+    });
+  }
+  return checks.length > 0 ? { sideEffectRandomChecks: checks } : {};
 }
 
 function extractAttackBranches({ checkAttackFunction, shared, source }) {
@@ -1419,8 +2542,20 @@ function extractCalls(body) {
   return calls;
 }
 
+function extractAiMovementCalls(body) {
+  const source = stripQuakeLineComments(body);
+  return [...source.matchAll(/\b(ai_(?:back|charge|face|forward|melee|pain|painforward|run|stand|walk))\s*\(([^)]*)\)/g)]
+    .map((match) => {
+      const distance = Number(match[2].split(",")[0]?.trim() ?? "");
+      return {
+        call: match[1],
+        ...(Number.isFinite(distance) ? { distanceUnits: distance } : {}),
+      };
+    });
+}
+
 function stripQuakeLineComments(source) {
-  return source.replace(/\/\/.*$/gm, "");
+  return source.replace(/\/\/.*$/gm, (match) => " ".repeat(match.length));
 }
 
 function extractSounds(body) {
@@ -1530,6 +2665,23 @@ function renderProgramFactsReport(programFacts) {
     entity.defaultAssignments.map((assignment) => `\`${assignment.field}=${assignment.expression}\``).join(", "),
     entity.spawnflagChecks.map((check) => `\`${check.name}${check.value !== undefined ? `:${check.value}` : ""}\``).join(", "),
   ]);
+  const playerWeaponRows = Object.values(programFacts.playerWeapons?.profiles ?? {}).map((profile) => [
+    `\`${profile.weapon}\``,
+    profile.runtimeKind,
+    `\`${profile.sourceFunction}\``,
+    profile.ammo ? `\`${profile.ammo.field}:${profile.ammo.cost}\`` : "",
+    profile.cooldownMs,
+    profile.fireSound?.path ? `\`${profile.fireSound.path}\`` : "",
+    profile.hitscan
+      ? `pellets:${profile.hitscan.pelletCount}`
+      : profile.projectile
+        ? `projectile:${profile.projectile.modelPath ?? profile.projectile.touchFunction ?? ""}`
+        : profile.beam
+          ? `beam:${profile.beam.rangeUnits ?? ""}`
+          : profile.melee
+            ? `melee:${profile.melee.rangeUnits}`
+            : "",
+  ]);
 
   return `# QuakeC Program Facts Extraction Report
 
@@ -1557,6 +2709,7 @@ Parsed for representative entities:
 - legacy model/sound dependency arrays preserved for current consumers
 - \`setsize\`
 - spawnflag checks with constant values when available in the same source or shared \`defs.qc\`
+- player weapon fire profile facts from \`weapons.qc\` and player firing frame cadence from \`player.qc\`
 
 Not parsed as executable semantics yet:
 
@@ -1565,6 +2718,13 @@ Not parsed as executable semantics yet:
 - target graph resolution
 - BSP brush model bounds
 - runtime mover or trigger behavior
+- selected weapon attacks, sampled spread/random damage, projectile flight outcomes, line of sight, collision, and other playthrough outcomes
+
+## Player Weapon Fire Facts
+
+| Weapon | Kind | Source function | Ammo | Cooldown ms | Fire sound | Shape |
+| --- | --- | --- | --- | ---: | --- | --- |
+${playerWeaponRows.map((row) => `| ${row.join(" | ")} |`).join("\n")}
 
 ## Extracted Entities
 
@@ -1635,7 +2795,7 @@ function renderChainRow(state) {
   return `| \`${state.name}\` | \`${state.frame}\` | ${state.frameIndex ?? ""} | \`${state.next}\` | ${formatInlineList(state.calls)} | ${formatInlineList(state.sounds)} |`;
 }
 
-function renderGeneratedLogic(extracted) {
+function renderGeneratedLogic(extracted, shootableLogic = {}) {
   const sources = Object.fromEntries(
     extracted.map(({ sourceMetadata, target }) => [target.classname, sourceMetadata]),
   );
@@ -1645,13 +2805,16 @@ function renderGeneratedLogic(extracted) {
       .map(({ combatPolicy, target }) => [target.classname, combatPolicy]),
   );
   const monsters = Object.fromEntries(
-    extracted.map(({ callbacks, chains, spawnProfile, target }) => [
+    extracted.map(({ callbacks, chains, deathOutput, scriptedLifecycle, spawnProfile, target }) => [
       target.classname,
       {
         callbacks,
         chains,
         classname: target.classname,
+        ...(deathOutput ? { deathOutput } : {}),
         modelPath: target.modelPath,
+        ...(target.reactionProfile ? { reactionProfile: target.reactionProfile } : {}),
+        ...(scriptedLifecycle ? { scriptedLifecycle } : {}),
         spawnProfile,
       },
     ]),
@@ -1685,6 +2848,13 @@ export interface QuakeMonsterAttackRangeUnits {
   near: number;
 }
 
+export interface QuakeMonsterAttackSideEffectRandomCheck {
+  chance: number;
+  effect: "toggle";
+  field: string;
+  runtime: "rng-only";
+}
+
 export interface QuakeMonsterAttackBranchPolicy {
   chain: string;
   chanceBeyondMaxRange?: number;
@@ -1710,11 +2880,17 @@ export interface QuakeMonsterAttackPolicy {
   rangeChances: QuakeMonsterAttackRangeChances;
   rangeUnits: QuakeMonsterAttackRangeUnits;
   requiresClearShot?: boolean;
+  sideEffectRandomChecks?: readonly QuakeMonsterAttackSideEffectRandomCheck[];
   usesFrameEvents?: boolean;
 }
 
 export interface QuakeMonsterCombatPolicy {
   attack?: QuakeMonsterAttackPolicy;
+}
+
+export interface QuakeMonsterAiMovementCall {
+  call: string;
+  distanceUnits?: number;
 }
 
 export type QuakeMonsterStartKind = "fly" | "swim" | "unknown" | "walk";
@@ -1727,9 +2903,91 @@ export interface QuakeMonsterBoundsUnits {
 export interface QuakeMonsterSpawnProfile {
   bounds?: QuakeMonsterBoundsUnits;
   dropToFloor: boolean;
+  health?: number;
   modelPath: string;
   startKind: QuakeMonsterStartKind;
 }
+
+export interface QuakeShootableRadiusDamageFact {
+  attacker: string;
+  attackerSelfScale: number;
+  call: "T_RadiusDamage";
+  damageUnits: number;
+  distanceScale: number;
+  ignore: string;
+  inflictor: string;
+  radiusAddUnits: number;
+  radiusUnits: number;
+  requiresCanDamage: boolean;
+  shamblerScale: number;
+  sourceRef?: {
+    sourceFile: string;
+    functionName: string;
+    line: number;
+  };
+}
+
+export interface QuakeShootableLogicDefinition {
+  classname: string;
+  death?: {
+    callback: string;
+    radiusDamage?: QuakeShootableRadiusDamageFact;
+  };
+}
+
+export interface QuakeMonsterBossLifecycleHealthBySkill {
+  easy: number;
+  normal: number;
+  hard: number;
+}
+
+export interface QuakeMonsterBossLifecyclePainBranch {
+  afterHealth?: number;
+  afterHealthMin?: number;
+  chain: string;
+  functionName: string;
+}
+
+export interface QuakeMonsterBossScriptedLifecycle {
+  kind: "boss";
+  spawnUseFunction: string;
+  awake: {
+    bounds?: QuakeMonsterBoundsUnits;
+    functionName: "boss_awake";
+    healthBySkill: QuakeMonsterBossLifecycleHealthBySkill;
+    modelPath: string;
+    startFunction: "boss_rise1";
+    takedamage: "DAMAGE_NO";
+  };
+  lightning: {
+    alignment: {
+      damageState: "STATE_TOP";
+      requiresMatchingState: boolean;
+      targetField: "target";
+      validStates: readonly ["STATE_TOP", "STATE_BOTTOM"];
+    };
+    bossLookupClassname: "monster_boss";
+    damagePerUse: number;
+    electrodeTargetName: "lightning";
+    eventClassname: "event_lightning";
+    fireIntervalMs?: number;
+    painBranches: readonly QuakeMonsterBossLifecyclePainBranch[];
+    painSoundPath?: string;
+    resetAfterMs?: number;
+    resetFunction?: "door_go_down";
+    soundPath?: string;
+    tempEntity?: "TE_LIGHTNING3";
+    useFunction: "lightning_use";
+  };
+  death: {
+    incrementsKilledMonsters: boolean;
+    removesSelf: boolean;
+    terminalState: "boss_death10";
+    usesTargets: boolean;
+  };
+}
+
+export type QuakeMonsterScriptedLifecycle = QuakeMonsterBossScriptedLifecycle;
 
 export interface QuakeMonsterFireBulletsFrameEvent {
   call: string;
@@ -1805,6 +3063,7 @@ export interface QuakeMonsterFrameState {
   events?: readonly QuakeMonsterFrameEvent[];
   frame: string;
   frameIndex: number;
+  movement?: readonly QuakeMonsterAiMovementCall[];
   name: string;
   next: string;
   sounds: readonly string[];
@@ -1815,11 +3074,90 @@ export interface QuakeMonsterStateChain {
   states: readonly QuakeMonsterFrameState[];
 }
 
+export interface QuakeMonsterDeathGibOutput {
+  damageAtLeast?: number;
+  gibModelPaths: readonly string[];
+  headModelPath?: string;
+  healthBelow?: number;
+  modelPaths: readonly string[];
+  pieces: readonly QuakeMonsterDeathOutputPiece[];
+  soundPath?: string;
+  sourceFunction: string;
+}
+
+export interface QuakeMonsterDeathOutputPiece {
+  call: "ThrowGib" | "ThrowHead";
+  modelPath: string;
+}
+
+export interface QuakeMonsterDeathBackpackProfile {
+  bounds?: {
+    min: readonly [number, number, number];
+    max: readonly [number, number, number];
+  };
+  modelPath: string;
+  originOffsetUnits?: readonly [number, number, number];
+  pickupSoundPath?: string;
+  removeAfterSeconds?: number;
+  sourceFunction: "DropBackpack";
+  touchFunction: "BackpackTouch";
+}
+
+export interface QuakeMonsterDeathBackpackDrop {
+  ammo?: Readonly<Record<string, number>>;
+  chain: string;
+  frameIndex: number;
+  stateName: string;
+}
+
+export interface QuakeMonsterDeathSolidNotState {
+  chain: string;
+  frameIndex: number;
+  stateName: string;
+}
+
+export interface QuakeMonsterDeathOutputProfile {
+  backpack?: QuakeMonsterDeathBackpackProfile;
+  backpackDrops?: readonly QuakeMonsterDeathBackpackDrop[];
+  gib?: QuakeMonsterDeathGibOutput;
+  solidNotStates?: readonly QuakeMonsterDeathSolidNotState[];
+}
+
+export interface QuakeMonsterRandomBranch {
+  chain: string;
+  cooldownMs?: number;
+  otherwise?: boolean;
+  randomGreaterThan?: number;
+  randomLessThan?: number;
+}
+
+export interface QuakeMonsterPainReactionProfile {
+  branches: readonly QuakeMonsterRandomBranch[];
+  cooldownMs?: number;
+  cooldownOnFailedFlinch?: boolean;
+  flinchDamageRandomScale?: number;
+  sourceFunction: string;
+}
+
+export interface QuakeMonsterDeathReactionProfile {
+  gibHealthBelow?: number;
+  regularBranches: readonly QuakeMonsterRandomBranch[];
+  sourceFunction: string;
+}
+
+export interface QuakeMonsterReactionProfile {
+  death?: QuakeMonsterDeathReactionProfile;
+  pain?: QuakeMonsterPainReactionProfile;
+}
+
 export interface QuakeMonsterLogicDefinition {
   callbacks: Readonly<Record<string, string>>;
   chains: Readonly<Record<string, QuakeMonsterStateChain>>;
   classname: string;
+  deathOutput?: QuakeMonsterDeathOutputProfile;
   modelPath: string;
+  reactionProfile?: QuakeMonsterReactionProfile;
+  scriptedLifecycle?: QuakeMonsterScriptedLifecycle;
   spawnProfile: QuakeMonsterSpawnProfile;
 }
 
@@ -1828,6 +3166,8 @@ export const QUAKE_MONSTER_LOGIC_SOURCES = ${json(sources)} as const satisfies R
 export const QUAKE_MONSTER_LOGIC_SOURCE = QUAKE_MONSTER_LOGIC_SOURCES.monster_army;
 
 export const QUAKE_MONSTER_COMBAT_POLICIES = ${json(combatPolicies)} as const satisfies Readonly<Record<string, QuakeMonsterCombatPolicy>>;
+
+export const QUAKE_SHOOTABLE_LOGIC = ${json(shootableLogic)} as const satisfies Readonly<Record<string, QuakeShootableLogicDefinition>>;
 
 export const QUAKE_MONSTER_LOGIC = ${json(monsters)} as const satisfies Readonly<Record<string, QuakeMonsterLogicDefinition>>;
 `;
@@ -1931,9 +3271,195 @@ export interface QuakeProgramCallbackClassnameBranchFact {
 
 export interface QuakeProgramCallbackFact {
   assignments?: readonly QuakeProgramFieldAssignment[];
+  assetRefs?: readonly QuakeProgramAssetRef[];
   calls?: readonly string[];
   classnameBranches?: readonly QuakeProgramCallbackClassnameBranchFact[];
+  radiusDamage?: readonly QuakeProgramRadiusDamageFact[];
   sourceRefs: readonly QuakeProgramSourceRef[];
+}
+
+export interface QuakeProgramRadiusDamageFact {
+  attacker: string;
+  call: "T_RadiusDamage";
+  damageUnits: number;
+  ignore: string;
+  inflictor: string;
+  sourceRef: QuakeProgramSourceRef;
+}
+
+export type QuakePlayerWeaponId =
+  "axe" |
+  "shotgun" |
+  "supershotgun" |
+  "nailgun" |
+  "supernailgun" |
+  "grenadelauncher" |
+  "rocketlauncher" |
+  "lightning";
+
+export type QuakePlayerAmmoField = "cells" | "nails" | "rockets" | "shells";
+
+export type QuakePlayerWeaponRuntimeKind = "beam" | "hitscan-pellets" | "melee-trace" | "projectile";
+
+export interface QuakePlayerWeaponAmmoFact {
+  cost: number;
+  field: QuakePlayerAmmoField;
+  sourceField: string;
+}
+
+export interface QuakePlayerWeaponSoundFact {
+  channel: string;
+  cooldownMs?: number;
+  path: string;
+  sourceRef?: QuakeProgramSourceRef;
+}
+
+export interface QuakePlayerWeaponOffsetFact {
+  alternatingRight?: readonly number[];
+  forward?: number;
+  right?: number;
+  up?: number;
+  zExpression?: string;
+}
+
+export interface QuakePlayerWeaponRadiusDamageFact {
+  attacker: string;
+  attackerSelfScale?: number;
+  call: "T_RadiusDamage";
+  damageExpression?: string;
+  damagePerAmmoCell?: number;
+  damageUnits?: number;
+  distanceScale?: number;
+  ignore: string;
+  inflictor: string;
+  radiusAddUnits?: number;
+  radiusUnits?: number;
+  requiresCanDamage?: boolean;
+  shamblerScale?: number;
+  sourceRef?: QuakeProgramSourceRef;
+}
+
+export interface QuakePlayerWeaponHitscanFact {
+  aimRangeUnits?: number;
+  pelletCount: number;
+  pelletDamage: number;
+  sourceOffsetUnits?: QuakePlayerWeaponOffsetFact;
+  spread: readonly [number, number, number] | null;
+  traceRangeUnits: number;
+}
+
+export interface QuakePlayerWeaponMeleeFact {
+  damage: number;
+  rangeUnits: number;
+  sourceOffsetUnits?: QuakePlayerWeaponOffsetFact;
+  wallImpactSoundPath?: string;
+}
+
+export interface QuakePlayerWeaponDirectDamageFact {
+  base: number;
+  halfDamageClassnames?: readonly string[];
+  randomAdd?: number;
+}
+
+export interface QuakePlayerWeaponProjectileFact {
+  angularVelocityUnits?: readonly [number, number, number] | null;
+  bounceSoundPath?: string;
+  classname?: string;
+  directDamage?: QuakePlayerWeaponDirectDamageFact;
+  damage?: number;
+  explodeFunction?: string;
+  lifetimeMs?: number;
+  modelPath?: string;
+  movetype?: string;
+  radiusDamage?: QuakePlayerWeaponRadiusDamageFact;
+  randomVelocityUnits?: {
+    right?: number;
+    up?: number;
+  };
+  sourceOffsetUnits?: QuakePlayerWeaponOffsetFact;
+  speedUnits?: number;
+  touchFunction?: string;
+  verticalVelocityUnits?: number;
+}
+
+export interface QuakePlayerWeaponBeamFact {
+  damage?: number;
+  damageEndForwardOffsetUnits?: number;
+  damageTraceOffsetUnits?: number;
+  duplicateEntitySuppression?: boolean;
+  rangeUnits?: number;
+  sourceOffsetUnits?: QuakePlayerWeaponOffsetFact;
+  startOffsetUnits?: QuakePlayerWeaponOffsetFact;
+  tempEntity?: string;
+  traceCount?: number;
+}
+
+export interface QuakePlayerWeaponFallbackFact {
+  condition: string;
+  profile: QuakePlayerWeaponId;
+  sourceFunction: string;
+}
+
+export interface QuakePlayerWeaponUnsupportedBranchFact {
+  calls?: readonly string[];
+  clearsAmmoField?: QuakePlayerAmmoField;
+  condition: string;
+  id: string;
+  radiusDamage?: QuakePlayerWeaponRadiusDamageFact;
+  runtime: "unsupported-modeled-branch";
+  sourceRef?: QuakeProgramSourceRef;
+}
+
+export interface QuakePlayerWeaponFireProfileFact {
+  ammo?: QuakePlayerWeaponAmmoFact;
+  attackStartCooldownMs?: number;
+  beam?: QuakePlayerWeaponBeamFact;
+  cooldownMs: number;
+  fallback?: QuakePlayerWeaponFallbackFact;
+  fireSound?: QuakePlayerWeaponSoundFact;
+  hitscan?: QuakePlayerWeaponHitscanFact;
+  itemFlag: string;
+  melee?: QuakePlayerWeaponMeleeFact;
+  projectile?: QuakePlayerWeaponProjectileFact;
+  runtimeKind: QuakePlayerWeaponRuntimeKind;
+  sourceFunction: string;
+  sourceRefs: readonly QuakeProgramSourceRef[];
+  startSound?: QuakePlayerWeaponSoundFact;
+  unsupportedBranches?: readonly QuakePlayerWeaponUnsupportedBranchFact[];
+  weapon: QuakePlayerWeaponId;
+}
+
+export interface QuakePlayerWeaponBestWeaponEntry {
+  ammoField?: string;
+  fallback?: boolean;
+  itemFlag: string;
+  minAmmo?: number;
+  returns: string;
+  weapon: QuakePlayerWeaponId | string;
+}
+
+export interface QuakePlayerWeaponNoAmmoFallbackFact {
+  axeAlwaysAllowed: boolean;
+  bestWeaponOrder: readonly QuakePlayerWeaponBestWeaponEntry[];
+  currentAmmoPassCondition: string;
+  fallbackFunction: "W_BestWeapon";
+  setCurrentAmmoFunction: "W_SetCurrentAmmo";
+  sourceFunction: "W_CheckNoAmmo";
+  sourceRefs: readonly QuakeProgramSourceRef[];
+}
+
+export interface QuakePlayerWeaponRadiusDamageSemanticsFact {
+  attackerSelfScale: number;
+  distanceScale: number;
+  radiusAddUnits: number;
+  requiresCanDamage: boolean;
+  shamblerScale: number;
+}
+
+export interface QuakePlayerWeaponFireFacts {
+  noAmmoFallback: QuakePlayerWeaponNoAmmoFallbackFact;
+  profiles: Readonly<Record<QuakePlayerWeaponId, QuakePlayerWeaponFireProfileFact>>;
+  radiusDamageSemantics: QuakePlayerWeaponRadiusDamageSemanticsFact;
 }
 
 export interface QuakeProgramFacts {
@@ -1942,6 +3468,7 @@ export interface QuakeProgramFacts {
     repository: string;
     revision: string;
   };
+  playerWeapons: QuakePlayerWeaponFireFacts;
   entities: Readonly<Record<string, QuakeProgramEntityFact>>;
 }
 
@@ -1961,6 +3488,7 @@ function generatedState(state, source, eventSemantics) {
     ...(events.length > 0 ? { events } : {}),
     frame: state.frame,
     frameIndex: state.frameIndex,
+    ...(state.movement?.length ? { movement: state.movement } : {}),
     name: state.name,
     next: state.next,
     sounds: state.sounds,

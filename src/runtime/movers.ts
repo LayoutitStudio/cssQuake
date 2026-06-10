@@ -27,6 +27,7 @@ import { distanceSq3, normalizeVec3, subtractVec3 } from "./math";
 
 export type QuakeMoverMode = "closed" | "opening" | "open" | "closing";
 export type QuakeMoverKind = "door" | "secret-door" | "button" | "plat" | "train";
+export type QuakeDoorTerminalState = "STATE_BOTTOM" | "STATE_TOP";
 
 export interface QuakeMoverState {
   entity: QuakeEntity;
@@ -92,6 +93,7 @@ export interface QuakeMoversControllerOptions {
   applyState: (state: QuakeMoverState, movePlayer: boolean) => void;
   fireTarget: (targetname: string, sourceEntityIndex?: number) => void;
   groupUnlocked: (state: QuakeMoverState) => boolean;
+  isGameplayPaused?: () => boolean;
   playerBlocks: (state: QuakeMoverState, nextOffset: Vec3, delta: Vec3) => boolean;
 }
 
@@ -106,6 +108,7 @@ export interface QuakeMoversController {
   get: (entityIndex: number) => QuakeMoverState | undefined;
   activateEntity: (entityIndex: number, sourceEntityIndex?: number) => boolean;
   activateGroup: (state: QuakeMoverState) => boolean;
+  forceDoorsDownAfter: (targetName: string, holdMs: number) => number;
   debugStats: () => QuakeMoversDebugStats;
   touchingDoorTriggerFields: (origin: [number, number, number], eyeHeight: number) => QuakeTouchedTrigger[];
 }
@@ -118,6 +121,7 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
   let pivot = { x: 0, y: 0, z: 0 };
   let moverFrame: number | null = null;
   let moverTime = 0;
+  let moverPausedAt = 0;
 
   const clear = (): void => {
     if (moverFrame !== null) {
@@ -129,6 +133,7 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     doorTriggerFields = [];
     platTriggerFields = [];
     moverTime = 0;
+    moverPausedAt = 0;
     pivot = { x: 0, y: 0, z: 0 };
   };
 
@@ -225,6 +230,19 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     options.fireTarget(state.entity.properties.target, state.entity.index);
   };
 
+  const forceDoorsDownAfter = (targetName: string, holdMs: number): number => {
+    const waitUntil = performance.now() + Math.max(0, holdMs);
+    let changed = 0;
+    for (const state of movers.values()) {
+      if (state.kind !== "door" || state.entity.properties.target !== targetName) continue;
+      if (state.mode !== "open") continue;
+      state.waitUntil = waitUntil;
+      changed++;
+    }
+    if (changed) startLoop();
+    return changed;
+  };
+
   const moverCanFireTarget = (state: QuakeMoverState): boolean => {
     return state.kind === "button" ||
       state.kind === "door" ||
@@ -243,6 +261,17 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
 
   const tickMovers = (_frameNow: number): void => {
     const now = performance.now();
+    if (options.isGameplayPaused?.()) {
+      moverPausedAt ||= now;
+      moverTime = 0;
+      moverFrame = window.requestAnimationFrame(tickMovers);
+      return;
+    }
+    if (moverPausedAt) {
+      shiftMoverDeadlines(now - moverPausedAt);
+      moverPausedAt = 0;
+      moverTime = now;
+    }
     const dt = Math.min(0.05, moverTime ? (now - moverTime) / 1000 : 0.0167);
     moverTime = now;
     let active = false;
@@ -260,6 +289,13 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     } else {
       moverFrame = null;
       moverTime = 0;
+    }
+  };
+
+  const shiftMoverDeadlines = (durationMs: number): void => {
+    if (durationMs <= 0) return;
+    for (const state of movers.values()) {
+      if (state.waitUntil !== Infinity) state.waitUntil += durationMs;
     }
   };
 
@@ -510,6 +546,7 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     get: (entityIndex: number) => movers.get(entityIndex),
     activateEntity,
     activateGroup,
+    forceDoorsDownAfter,
     debugStats: () => ({
       moverCount: movers.size,
       activeMoverCount: [...movers.values()].filter(moverLoopActive).length,
@@ -540,6 +577,13 @@ function isQuakeMoverEntity(classname: string): boolean {
 
 export function quakeButtonIsPressed(state: QuakeMoverState): boolean {
   return state.mode === "opening" || state.mode === "open";
+}
+
+export function quakeDoorTerminalState(state: QuakeMoverState): QuakeDoorTerminalState | null {
+  if (state.kind !== "door") return null;
+  if (state.mode === "closed") return "STATE_BOTTOM";
+  if (state.mode === "open") return "STATE_TOP";
+  return null;
 }
 
 export function quakeMoverBlockDamage(state: QuakeMoverState): number {
