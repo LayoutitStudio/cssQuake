@@ -281,15 +281,20 @@ let quakePointerLockRetryAt = -Infinity;
 let quakePointerTraceSerial = 0;
 let quakeMobileControlsRoot: HTMLElement | null = null;
 let quakeMobileMoveZone: HTMLElement | null = null;
+let quakeMobileLookZone: HTMLElement | null = null;
 let quakeMobileFireButton: HTMLButtonElement | null = null;
 let quakeMobileMoveStick: ReturnType<typeof nipplejs.create> | null = null;
 let quakeMobileMoveFrame = 0;
 let quakeMobileMoveTime = 0;
 let quakeMobileMoveX = 0;
 let quakeMobileMoveY = 0;
+let quakeMobileLookPointerId: number | null = null;
+let quakeMobileLookLastX = 0;
+let quakeMobileLookLastY = 0;
 let quakeDebugFlyFrame = 0;
 let quakeDebugFlyTime = 0;
 let quakeDebugFlyKeyCodesDown = new Set<string>();
+let quakeParentRelayedKeyCodesDown = new Map<string, string>();
 let quakeWeaponViewPunchFrame = 0;
 let quakeWeaponViewPunchOffset = 0;
 let quakeWeaponViewPunchAt = 0;
@@ -299,6 +304,7 @@ let quakeBonusFlashSerial = 0;
 const QUAKE_LOADING_READY_FRAME_BUDGET_MS = 45;
 const QUAKE_LOADING_READY_TIMEOUT_MS = 1500;
 const QUAKE_DEATH_UNLOCK_MENU_SUPPRESS_MS = 1000;
+const QUAKE_DEATH_UNLOCK_CONTROLS_END_TRACE_SUPPRESS_MS = 1000;
 const QUAKE_MENU_RESUME_CONTROLS_END_SUPPRESS_MS = 350;
 const QUAKE_POINTER_LOCK_RETRY_MS = 500;
 const QUAKE_POINTER_TRACE_LIMIT = 200;
@@ -640,6 +646,9 @@ const QUAKE_GAMEPLAY_KEY_CODES = new Set([
   "ShiftRight",
   "Space",
 ]);
+const QUAKE_PARENT_KEY_MESSAGE_TYPE = "cssquake:key";
+const QUAKE_PARENT_KEY_RELAY_ENABLED = new URLSearchParams(window.location.search).get("relayKeys") === "1";
+const QUAKE_PARENT_KEY_TARGET_ORIGIN = quakeParentKeyTargetOrigin();
 const QUAKE_MOVE_KEY_CODES = new Set(["ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp", "KeyA", "KeyD", "KeyS", "KeyW"]);
 const QUAKE_SPEED_KEY_CODES = new Set(["ShiftLeft", "ShiftRight"]);
 const QUAKE_CROUCH_KEY_CODES = new Set(["ControlLeft", "ControlRight"]);
@@ -648,6 +657,8 @@ const QUAKE_GRAVITY = 800 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MOBILE_MOVE_SPEED = 5.4 * QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_MOBILE_MOVE_DEADZONE = 0.08;
 const QUAKE_MOBILE_MOVE_DT_CLAMP = 0.035;
+const QUAKE_MOBILE_LOOK_SENSITIVITY = 0.12;
+const QUAKE_MOBILE_LOOK_EPSILON = 0.01;
 const QUAKE_DEBUG_FLY_SPEED = 10.8 * QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_DEBUG_FLY_FAST_MULTIPLIER = 3;
 const QUAKE_DEBUG_FLY_DT_CLAMP = 0.05;
@@ -686,6 +697,7 @@ let quakeMapUrls = quakeSceneUrlMap(quakeAssetManifest);
 let quakeEnemiesDisabled = quakeUrlBoolean("disableEnemies") || (disableEnemiesOption?.checked ?? false);
 let quakeDamageDisabled = disableDamageOption?.checked ?? false;
 let quakeDebugMode = quakeUrlBoolean("debugPolys");
+const quakeDebugPointerTraceConsole = quakeUrlBoolean("debugPointer");
 let quakeDebugShowFps = debugShowFpsOption?.checked ?? true;
 let quakeDebugHideTextures = debugShowTexturesOption ? !debugShowTexturesOption.checked : false;
 let quakeDebugFlyMode = quakeUrlBoolean("debugFly") || (debugFlyModeOption?.checked ?? false);
@@ -958,6 +970,7 @@ let quakeCameraStepSmoothFrame = 0;
 let quakeCameraStepSmoothAt = 0;
 let quakePlayerDead = false;
 let quakeDeathUnlockMenuSuppressUntil = 0;
+let quakeDeathUnlockControlsEndTraceSuppressUntil = 0;
 let quakeMenuResumeControlsEndSuppressUntil = 0;
 
 type QuakePickupControllerHandle = ReturnType<typeof createQuakePickupController>;
@@ -2165,6 +2178,15 @@ function suppressQuakeMainMenuOnNextControlsEnd(): void {
   quakeDeathUnlockMenuSuppressUntil = performance.now() + QUAKE_DEATH_UNLOCK_MENU_SUPPRESS_MS;
 }
 
+function suppressQuakeControlsEndTraceOnDeathUnlock(): void {
+  quakeDeathUnlockControlsEndTraceSuppressUntil =
+    performance.now() + QUAKE_DEATH_UNLOCK_CONTROLS_END_TRACE_SUPPRESS_MS;
+}
+
+function isQuakeDeathUnlockControlsEndTraceSuppressed(now = performance.now()): boolean {
+  return quakePlayerDead && now <= quakeDeathUnlockControlsEndTraceSuppressUntil;
+}
+
 function suppressQuakeMainMenuOnResumeControlsEnd(): void {
   quakeMenuResumeControlsEndSuppressUntil = performance.now() + QUAKE_MENU_RESUME_CONTROLS_END_SUPPRESS_MS;
 }
@@ -2195,7 +2217,9 @@ function shouldOpenQuakeMainMenuOnControlsEnd(): boolean {
     const suppress = performance.now() <= quakeDeathUnlockMenuSuppressUntil;
     quakeDeathUnlockMenuSuppressUntil = 0;
     if (suppress) {
-      quakePointerTrace("controls-end-menu-gate", { allow: false, reason: "death-suppress" });
+      if (!isQuakeDeathUnlockControlsEndTraceSuppressed()) {
+        quakePointerTrace("controls-end-menu-gate", { allow: false, reason: "death-suppress" });
+      }
       return false;
     }
   }
@@ -2231,6 +2255,7 @@ function showQuakePlayerDeath(): void {
   setQuakeHudDamageCue(true);
   controls.update({ lookEnabled: false, moveEnabled: false, jumpEnabled: false, gravity: 0 });
   suppressQuakeMainMenuOnNextControlsEnd();
+  suppressQuakeControlsEndTraceOnDeathUnlock();
   controls.unlock();
 }
 
@@ -2243,6 +2268,7 @@ function clearQuakePlayerDeath(): void {
     quakeHudDamageTimer = null;
   }
   quakeHudDamageSerial += 1;
+  quakeDeathUnlockControlsEndTraceSuppressUntil = 0;
   document.body.classList.remove("quake-dead");
   clearQuakeDeathOverlay();
   setQuakeHudDamageCue(false);
@@ -2342,10 +2368,57 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
     target.closest("input, textarea, select, [contenteditable]") !== null;
 }
 
+function isQuakeMobileControlsTarget(target: EventTarget | null): boolean {
+  return target instanceof Node && quakeMobileControlsRoot?.contains(target) === true;
+}
+
 function shouldPreventQuakeGameplayKeyDefault(event: KeyboardEvent): boolean {
   return canUseQuakeGameplayInput() &&
     QUAKE_GAMEPLAY_KEY_CODES.has(event.code) &&
     !isEditableKeyboardTarget(event.target);
+}
+
+function quakeParentKeyTargetOrigin(): string | null {
+  if (!QUAKE_PARENT_KEY_RELAY_ENABLED || window.parent === window || !document.referrer) return null;
+  try {
+    return new URL(document.referrer).origin;
+  } catch {
+    return null;
+  }
+}
+
+function postQuakeParentKeyRelay(action: "down" | "up", code: string, key: string): void {
+  if (QUAKE_PARENT_KEY_TARGET_ORIGIN === null) return;
+  window.parent.postMessage({
+    type: QUAKE_PARENT_KEY_MESSAGE_TYPE,
+    action,
+    code,
+    key,
+  }, QUAKE_PARENT_KEY_TARGET_ORIGIN);
+}
+
+function handleQuakeParentKeyRelay(event: KeyboardEvent, pressed: boolean): void {
+  if (QUAKE_PARENT_KEY_TARGET_ORIGIN === null || !QUAKE_GAMEPLAY_KEY_CODES.has(event.code)) return;
+  const key = quakeParentRelayedKeyCodesDown.get(event.code);
+  if (!pressed) {
+    if (key === undefined) return;
+    quakeParentRelayedKeyCodesDown.delete(event.code);
+    postQuakeParentKeyRelay("up", event.code, key);
+    return;
+  }
+  if (event.repeat || key !== undefined || !canUseQuakeGameplayInput() || isEditableKeyboardTarget(event.target)) return;
+  quakeParentRelayedKeyCodesDown.set(event.code, event.key);
+  postQuakeParentKeyRelay("down", event.code, event.key);
+}
+
+function clearQuakeParentKeyRelay(): void {
+  if (quakeParentRelayedKeyCodesDown.size === 0) return;
+  const relayedKeys = Array.from(quakeParentRelayedKeyCodesDown);
+  quakeParentRelayedKeyCodesDown.clear();
+  if (window.parent === window) return;
+  for (const [code, key] of relayedKeys) {
+    postQuakeParentKeyRelay("up", code, key);
+  }
 }
 
 function isQuakeDebugPanelTarget(target: EventTarget | null): boolean {
@@ -2407,6 +2480,10 @@ function shouldCaptureQuakePointerTrace(): boolean {
   return quakeDebugMode || isQuakeDebugHooksEnabled();
 }
 
+function shouldLogQuakePointerTraceToConsole(): boolean {
+  return quakeDebugMode || quakeDebugPointerTraceConsole;
+}
+
 function syncQuakePointerTraceAccessors(): QuakePointerTraceWindow | null {
   if (!shouldCaptureQuakePointerTrace()) return null;
   const traceWindow = window as unknown as QuakePointerTraceWindow;
@@ -2458,7 +2535,9 @@ function quakePointerTrace(kind: string, details: QuakePointerTraceDetails = {})
   if (trace.length > QUAKE_POINTER_TRACE_LIMIT) trace.splice(0, trace.length - QUAKE_POINTER_TRACE_LIMIT);
   traceWindow.__cssQuakePointerTrace = trace;
   syncQuakePointerTraceDom(trace);
-  console.debug(`cssquake:pointer ${JSON.stringify(entry)}`);
+  if (shouldLogQuakePointerTraceToConsole()) {
+    console.debug(`cssquake:pointer ${JSON.stringify(entry)}`);
+  }
 }
 
 function syncQuakeCrouchInput(): void {
@@ -2467,7 +2546,10 @@ function syncQuakeCrouchInput(): void {
 }
 
 function clearQuakeMoveInput(): void {
+  clearQuakeParentKeyRelay();
   player?.clearMoveInput();
+  clearQuakeMobileMoveInput();
+  clearQuakeMobileLookInput();
 }
 
 function handleQuakeMoveKey(event: KeyboardEvent, pressed: boolean): boolean {
@@ -4304,6 +4386,10 @@ function handleQuakeUsePointerDown(event: PointerEvent): void {
     target: quakeEventTargetLabel(event.target),
     defaultPrevented: event.defaultPrevented,
   });
+  if (isQuakeMobileControlsTarget(event.target)) {
+    quakePointerTrace("host-pointerdown-ignored", { pointerId: event.pointerId, reason: "mobile-controls" });
+    return;
+  }
   if (event.button !== 0 || !event.isPrimary) {
     quakePointerTrace("host-pointerdown-ignored", {
       button: event.button,
@@ -4374,6 +4460,12 @@ function handleQuakeControlsStart(): void {
 
 function handleQuakeControlsEndTrace(): void {
   syncQuakeInteractionPresentation();
+  clearQuakeParentKeyRelay();
+  if (isQuakeDeathUnlockControlsEndTraceSuppressed()) {
+    quakeDeathUnlockControlsEndTraceSuppressUntil = 0;
+    return;
+  }
+  quakeDeathUnlockControlsEndTraceSuppressUntil = 0;
   quakePointerTrace("controls-end");
 }
 
@@ -4389,11 +4481,22 @@ function handleQuakeAttackPointerEnd(event: PointerEvent): void {
 }
 
 function clearQuakeAttackInput(): void {
+  const pointerId = quakeAttackPointerId;
+  releaseQuakeMobileFirePointerCapture(pointerId);
   quakeAttackInputDown = false;
   quakeAttackPointerId = null;
   if (!quakeAttackFrame) return;
   window.cancelAnimationFrame(quakeAttackFrame);
   quakeAttackFrame = 0;
+}
+
+function releaseQuakeMobileFirePointerCapture(pointerId: number | null): void {
+  if (pointerId === null || !quakeMobileFireButton?.hasPointerCapture(pointerId)) return;
+  try {
+    quakeMobileFireButton.releasePointerCapture(pointerId);
+  } catch {
+    // The browser may already have released capture on pointer cancellation.
+  }
 }
 
 function scheduleQuakeAttackFrame(): void {
@@ -4418,6 +4521,9 @@ function setupQuakeMobileControls(): void {
   root.id = "quake-mobile-controls";
   root.setAttribute("aria-hidden", "true");
 
+  const lookZone = document.createElement("div");
+  lookZone.id = "quake-mobile-look-zone";
+
   const moveZone = document.createElement("div");
   moveZone.id = "quake-mobile-move-zone";
 
@@ -4426,10 +4532,11 @@ function setupQuakeMobileControls(): void {
   fireButton.type = "button";
   fireButton.setAttribute("aria-label", "Fire");
 
-  root.append(moveZone, fireButton);
+  root.append(lookZone, moveZone, fireButton);
   quakeApp.append(root);
 
   quakeMobileControlsRoot = root;
+  quakeMobileLookZone = lookZone;
   quakeMobileMoveZone = moveZone;
   quakeMobileFireButton = fireButton;
   quakeMobileMoveStick = nipplejs.create({
@@ -4448,16 +4555,34 @@ function setupQuakeMobileControls(): void {
   });
   quakeMobileMoveStick.on("move", handleQuakeMobileMoveStickMove);
   quakeMobileMoveStick.on("end", clearQuakeMobileMoveInput);
+  lookZone.addEventListener("pointerdown", handleQuakeMobileLookPointerDown);
+  lookZone.addEventListener("pointermove", handleQuakeMobileLookPointerMove);
+  lookZone.addEventListener("pointerup", handleQuakeMobileLookPointerEnd);
+  lookZone.addEventListener("pointercancel", handleQuakeMobileLookPointerEnd);
+  lookZone.addEventListener("lostpointercapture", handleQuakeMobileLookPointerEnd);
   fireButton.addEventListener("pointerdown", handleQuakeMobileFirePointerDown);
+  fireButton.addEventListener("pointerup", handleQuakeMobileFirePointerEnd);
+  fireButton.addEventListener("pointercancel", handleQuakeMobileFirePointerEnd);
+  fireButton.addEventListener("lostpointercapture", handleQuakeMobileFirePointerEnd);
 }
 
 function destroyQuakeMobileControls(): void {
+  clearQuakeMobileLookInput();
   clearQuakeMobileMoveInput();
   quakeMobileMoveStick?.destroy();
   quakeMobileMoveStick = null;
+  quakeMobileLookZone?.removeEventListener("pointerdown", handleQuakeMobileLookPointerDown);
+  quakeMobileLookZone?.removeEventListener("pointermove", handleQuakeMobileLookPointerMove);
+  quakeMobileLookZone?.removeEventListener("pointerup", handleQuakeMobileLookPointerEnd);
+  quakeMobileLookZone?.removeEventListener("pointercancel", handleQuakeMobileLookPointerEnd);
+  quakeMobileLookZone?.removeEventListener("lostpointercapture", handleQuakeMobileLookPointerEnd);
   quakeMobileFireButton?.removeEventListener("pointerdown", handleQuakeMobileFirePointerDown);
+  quakeMobileFireButton?.removeEventListener("pointerup", handleQuakeMobileFirePointerEnd);
+  quakeMobileFireButton?.removeEventListener("pointercancel", handleQuakeMobileFirePointerEnd);
+  quakeMobileFireButton?.removeEventListener("lostpointercapture", handleQuakeMobileFirePointerEnd);
   quakeMobileControlsRoot?.remove();
   quakeMobileControlsRoot = null;
+  quakeMobileLookZone = null;
   quakeMobileMoveZone = null;
   quakeMobileFireButton = null;
 }
@@ -4469,6 +4594,76 @@ function syncQuakeMobileControlsAvailability(): void {
     destroyQuakeMobileControls();
   }
   syncQuakeStatsOverlayAvailability();
+}
+
+function handleQuakeMobileLookPointerDown(event: PointerEvent): void {
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.button !== 0 || quakeMobileLookPointerId !== null) return;
+  audio.unlock();
+  if (!canUseQuakeGameplayInput()) return;
+  hidePersistedQuakeLoadingConsole();
+  if (document.activeElement !== host) host.focus({ preventScroll: true });
+  quakeMobileLookPointerId = event.pointerId;
+  quakeMobileLookLastX = event.clientX;
+  quakeMobileLookLastY = event.clientY;
+  try {
+    quakeMobileLookZone?.setPointerCapture(event.pointerId);
+  } catch {
+    // Pointer capture can fail if the pointer ended during the same frame.
+  }
+}
+
+function handleQuakeMobileLookPointerMove(event: PointerEvent): void {
+  if (event.pointerId !== quakeMobileLookPointerId) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (!canUseQuakeGameplayInput()) {
+    clearQuakeMobileLookInput();
+    return;
+  }
+  const deltaX = event.clientX - quakeMobileLookLastX;
+  const deltaY = event.clientY - quakeMobileLookLastY;
+  quakeMobileLookLastX = event.clientX;
+  quakeMobileLookLastY = event.clientY;
+  applyQuakeMobileLookDelta(deltaX, deltaY);
+}
+
+function handleQuakeMobileLookPointerEnd(event: PointerEvent): void {
+  if (event.pointerId !== quakeMobileLookPointerId) return;
+  event.preventDefault();
+  event.stopPropagation();
+  clearQuakeMobileLookInput();
+}
+
+function clearQuakeMobileLookInput(): void {
+  const pointerId = quakeMobileLookPointerId;
+  if (pointerId !== null && quakeMobileLookZone?.hasPointerCapture(pointerId)) {
+    try {
+      quakeMobileLookZone.releasePointerCapture(pointerId);
+    } catch {
+      // The browser may already have released capture on pointer cancellation.
+    }
+  }
+  quakeMobileLookPointerId = null;
+  quakeMobileLookLastX = 0;
+  quakeMobileLookLastY = 0;
+}
+
+function applyQuakeMobileLookDelta(deltaX: number, deltaY: number): void {
+  if (Math.abs(deltaX) <= QUAKE_MOBILE_LOOK_EPSILON && Math.abs(deltaY) <= QUAKE_MOBILE_LOOK_EPSILON) return;
+  const currentRotX = scene.camera.state.rotX ?? 88;
+  const currentRotY = scene.camera.state.rotY ?? 270;
+  const pitchDirection = quakeInvertMouse ? 1 : -1;
+  const nextRotX = clampNumber(
+    currentRotX + deltaY * QUAKE_MOBILE_LOOK_SENSITIVITY * pitchDirection,
+    QUAKE_CAMERA_ROT_X_MIN,
+    QUAKE_CAMERA_ROT_X_MAX,
+  );
+  const nextRotY = normalizeQuakeUrlAngle(currentRotY - deltaX * QUAKE_MOBILE_LOOK_SENSITIVITY);
+  applyQuakeSceneCameraAt(currentQuakeCameraRenderOrigin(), nextRotX, nextRotY);
+  viewmodel.syncTransform();
+  queueQuakeCrosshairTargetSync();
 }
 
 function handleQuakeMobileMoveStickMove(event: QuakeMobileMoveStickEvent): void {
@@ -4499,6 +4694,7 @@ function setQuakeMobileMoveInput(x: number, y: number): void {
     clearQuakeMobileMoveInput();
     return;
   }
+  if (canUseQuakeGameplayInput()) hidePersistedQuakeLoadingConsole();
   const scale = length > 1 ? 1 / length : 1;
   quakeMobileMoveX = x * scale;
   quakeMobileMoveY = y * scale;
@@ -4564,6 +4760,7 @@ function moveQuakePlayerFromMobileStick(dt: number): void {
 function handleQuakeMobileFirePointerDown(event: PointerEvent): void {
   event.preventDefault();
   event.stopPropagation();
+  if (event.button !== 0) return;
   audio.unlock();
   if (quakePlayerDead) {
     clearQuakeAttackInput();
@@ -4571,12 +4768,25 @@ function handleQuakeMobileFirePointerDown(event: PointerEvent): void {
     return;
   }
   if (!canUseQuakeGameplayInput()) return;
+  hidePersistedQuakeLoadingConsole();
   if (document.activeElement !== host) host.focus({ preventScroll: true });
+  try {
+    quakeMobileFireButton?.setPointerCapture(event.pointerId);
+  } catch {
+    // Pointer capture can fail if the pointer ended during the same frame.
+  }
   if (quakeAttackInputDown) {
     scheduleQuakeAttackFrame();
     return;
   }
   startQuakeAttackInput(event.pointerId, performance.now());
+}
+
+function handleQuakeMobileFirePointerEnd(event: PointerEvent): void {
+  if (quakeAttackPointerId !== null && event.pointerId !== quakeAttackPointerId) return;
+  event.preventDefault();
+  event.stopPropagation();
+  clearQuakeAttackInput();
 }
 
 function activateQuakeButtonAtCrosshair(trace: QuakeUseTrace | null): boolean {
@@ -5711,13 +5921,18 @@ function handleWindowKeyDown(event: KeyboardEvent): void {
     return;
   }
   if (handleQuakeDebugFlyKey(event, true)) {
+    hidePersistedQuakeLoadingConsole();
     return;
   }
   if (shouldPreventQuakeGameplayKeyDefault(event)) {
     event.preventDefault();
   }
-  handleQuakeMoveKey(event, true);
-  handleQuakeCrouchKey(event, true);
+  const handledMoveKey = handleQuakeMoveKey(event, true);
+  const handledCrouchKey = handleQuakeCrouchKey(event, true);
+  if (handledMoveKey || handledCrouchKey) {
+    handleQuakeParentKeyRelay(event, true);
+    hidePersistedQuakeLoadingConsole();
+  }
   if (event.code === "KeyF") {
     event.preventDefault();
     host.focus();
@@ -5725,6 +5940,7 @@ function handleWindowKeyDown(event: KeyboardEvent): void {
 }
 
 function handleWindowKeyUp(event: KeyboardEvent): void {
+  handleQuakeParentKeyRelay(event, false);
   if (handleQuakeDebugFlyKey(event, false)) {
     return;
   }

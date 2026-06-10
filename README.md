@@ -38,6 +38,20 @@ The browser does not parse the original PAK or BSP files while the game is runni
 
 Textures are decoded through the Quake palette into generated PNG assets, animated texture sequences become CSS animation inputs, and episode maps get prebuilt PolyCSS render bundles. Those bundles let the browser attach the prepared world DOM directly instead of rebuilding every surface at startup.
 
+## Embedding
+
+cssQuake can run inside an iframe. Add `relayKeys=1` only if the parent page wants filtered gameplay key events from the focused game iframe:
+
+```html
+<iframe
+  src="https://cssquake.com/?relayKeys=1"
+  allow="pointer-lock; fullscreen"
+  referrerpolicy="origin"
+></iframe>
+```
+
+When enabled, cssQuake posts `cssquake:key` messages for gameplay keys only. Parent pages should validate `event.origin` before reading them. Using `referrerpolicy="no-referrer"` disables the relay because cssQuake will not have a parent origin to target.
+
 ## URL API
 
 cssQuake keeps its shareable game state in small, Quake-native URL parameters. `map=e1m1` opens a map directly, and `view=x,y,z,pitch,yaw,roll` places the player at a Quake-style pose: origin in Quake units, with pitch, yaw, and roll in degrees.

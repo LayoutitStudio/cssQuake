@@ -1819,12 +1819,23 @@ body.quake-ui-unlocked #quake-viewmodel-layer {
   touch-action: none;
   --quake-mobile-control-center-bottom: max(142px, calc(env(safe-area-inset-bottom) + 142px));
 }
+#quake-mobile-look-zone {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 34vw;
+  z-index: 0;
+  pointer-events: auto;
+  touch-action: none;
+}
 #quake-mobile-move-zone {
   position: absolute;
   left: max(18px, env(safe-area-inset-left));
   bottom: calc(var(--quake-mobile-control-center-bottom) - 72px);
   width: 144px;
   height: 144px;
+  z-index: 1;
   pointer-events: auto;
   touch-action: none;
 }
@@ -1846,6 +1857,7 @@ body.quake-ui-unlocked #quake-viewmodel-layer {
   border: 2px solid rgba(214, 135, 58, 0.72);
   border-radius: 50%;
   background: rgba(46, 22, 12, 0.44);
+  z-index: 1;
   pointer-events: auto;
   touch-action: none;
   appearance: none;
