@@ -211,9 +211,9 @@ const QUAKE_LOADING_CONSOLE_BOOT_LINES = [
   "Quake (C) 1996 id Software, Inc.",
   `PolyCSS renderer v${__POLYCSS_VERSION__}`,
   "Console initialized.",
-  "Host initialized",
-  "Filesystem ready",
-  "Cache initialized",
+  "Host ready",
+  "Filesystem mounted",
+  "Cache primed",
   "Shareware episode",
 ] as const;
 const QUAKE_LOADING_CONSOLE_PAK_LINE = "Mounted id1/pak0.pak";
