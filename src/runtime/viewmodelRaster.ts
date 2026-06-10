@@ -34,6 +34,19 @@ export interface QuakeViewmodelRasterSyncState {
   perspectiveOriginX: number;
   perspectiveOriginY: number;
   rotY: number;
+  postTransform?: QuakeViewmodelRasterPostTransform | null;
+}
+
+export interface QuakeViewmodelRasterPostTransform {
+  originX: number;
+  originY: number;
+  translateX: number;
+  translateY: number;
+  rotateDeg: number;
+  skewXDeg: number;
+  skewYDeg: number;
+  scaleX: number;
+  scaleY: number;
 }
 
 export interface QuakeViewmodelRasterLayer {
@@ -249,6 +262,7 @@ export function createQuakeViewmodelRasterLayer(layer: HTMLElement): QuakeViewmo
 
     rasterBuffer = rasterBufferFor(context, rasterBuffer, dirtyRect.width, dirtyRect.height);
     syncCanvasBounds(canvas, rasterBuffer, dirtyRect);
+    syncCanvasPostTransform(canvas, state.postTransform ?? null, dirtyRect);
     context.clearRect(0, 0, canvas.width, canvas.height);
     clearRasterBuffer(rasterBuffer, dirtyRect.width, dirtyRect.height);
     for (const projected of projectedTriangles) {
@@ -380,6 +394,31 @@ function syncCanvasBounds(canvas: HTMLCanvasElement, buffer: RasterBuffer, rect:
   canvas.style.top = `${rect.y}px`;
   canvas.style.width = `${buffer.width}px`;
   canvas.style.height = `${buffer.height}px`;
+}
+
+function syncCanvasPostTransform(
+  canvas: HTMLCanvasElement,
+  transform: QuakeViewmodelRasterPostTransform | null,
+  rect: RasterDirtyRect,
+): void {
+  if (!transform) {
+    canvas.style.removeProperty("transform");
+    canvas.style.removeProperty("transform-origin");
+    return;
+  }
+  canvas.style.transformOrigin = `${transform.originX - rect.x}px ${transform.originY - rect.y}px`;
+  const transforms = [
+    Math.abs(transform.translateX) > 0.001 || Math.abs(transform.translateY) > 0.001
+      ? `translate(${transform.translateX}px, ${transform.translateY}px)`
+      : "",
+    Math.abs(transform.rotateDeg) > 0.001 ? `rotate(${transform.rotateDeg}deg)` : "",
+    Math.abs(transform.skewXDeg) > 0.001 ? `skewX(${transform.skewXDeg}deg)` : "",
+    Math.abs(transform.skewYDeg) > 0.001 ? `skewY(${transform.skewYDeg}deg)` : "",
+    Math.abs(transform.scaleX - 1) > 0.001 || Math.abs(transform.scaleY - 1) > 0.001
+      ? `scale(${transform.scaleX}, ${transform.scaleY})`
+      : "",
+  ];
+  canvas.style.transform = transforms.filter(Boolean).join(" ");
 }
 
 function clearRasterBuffer(buffer: RasterBuffer, width: number, height: number): void {

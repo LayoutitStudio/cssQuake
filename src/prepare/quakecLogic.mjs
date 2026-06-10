@@ -1423,6 +1423,7 @@ function extractPlayerWeaponFireFacts(shared) {
   const fireBullets = extractFireBulletsSemantics(weaponsSource);
   const attackFacts = extractPlayerWeaponAttackFacts(weaponsSource);
   const presentationFacts = extractPlayerWeaponPresentationFacts(weaponsSource);
+  const fireAnimationFacts = extractPlayerWeaponFireAnimationFacts(weaponsSource, playerSource);
   const nailFrameFacts = extractPlayerNailFrameFacts(playerSource);
   const lightningFrameFacts = extractPlayerLightningFrameFacts(playerSource);
 
@@ -1466,7 +1467,7 @@ function extractPlayerWeaponFireFacts(shared) {
         sourceFunction: "W_FireAxe",
         cooldownMs: attackFacts.axe.cooldownMs,
         fireSound: attackFacts.axe.fireSound,
-        presentation: presentationFacts.axe,
+        presentation: playerWeaponPresentationFact(presentationFacts.axe, fireAnimationFacts.axe),
         melee: {
           damage: extractDamageCallUnits(defs.W_FireAxe.body, "T_Damage") ?? 20,
           rangeUnits: extractTraceRangeUnits(defs.W_FireAxe.body, "v_forward") ?? 64,
@@ -1483,7 +1484,7 @@ function extractPlayerWeaponFireFacts(shared) {
         ammo: extractWeaponAmmoSpend(defs.W_FireShotgun.body),
         cooldownMs: attackFacts.shotgun.cooldownMs,
         fireSound: extractWeaponFireSound(defs.W_FireShotgun, "qcc/v101qc/weapons.qc"),
-        presentation: presentationFacts.shotgun,
+        presentation: playerWeaponPresentationFact(presentationFacts.shotgun, fireAnimationFacts.shotgun),
         hitscan: {
           aimRangeUnits: extractAimRangeUnits(defs.W_FireShotgun.body),
           ...extractFireBulletsCall(defs.W_FireShotgun.body, fireBullets),
@@ -1502,7 +1503,7 @@ function extractPlayerWeaponFireFacts(shared) {
         ammo: extractWeaponAmmoSpend(defs.W_FireSuperShotgun.body),
         cooldownMs: attackFacts.supershotgun.cooldownMs,
         fireSound: extractWeaponFireSound(defs.W_FireSuperShotgun, "qcc/v101qc/weapons.qc"),
-        presentation: presentationFacts.supershotgun,
+        presentation: playerWeaponPresentationFact(presentationFacts.supershotgun, fireAnimationFacts.supershotgun),
         fallback: {
           condition: "self.currentammo == 1",
           sourceFunction: "W_FireShotgun",
@@ -1526,7 +1527,7 @@ function extractPlayerWeaponFireFacts(shared) {
         ammo: extractWeaponAmmoSpend(defs.W_FireSpikes.body),
         cooldownMs: nailFrameFacts.cooldownMs ?? parseSelfAttackFinishedCooldownMs(defs.W_FireSpikes.body),
         fireSound: extractWeaponFireSound(defs.W_FireSpikes, "qcc/v101qc/weapons.qc"),
-        presentation: presentationFacts.nailgun,
+        presentation: playerWeaponPresentationFact(presentationFacts.nailgun, fireAnimationFacts.nailgun),
         projectile: {
           damage: extractTouchDamageUnits(defs.spike_touch?.body ?? "") ?? 9,
           lifetimeMs: extractNextThinkLifetimeMs(launchSpike.body, "newmis"),
@@ -1549,7 +1550,7 @@ function extractPlayerWeaponFireFacts(shared) {
         ammo: extractWeaponAmmoSpend(defs.W_FireSuperSpikes.body),
         cooldownMs: parseSelfAttackFinishedCooldownMs(defs.W_FireSuperSpikes.body),
         fireSound: extractWeaponFireSound(defs.W_FireSuperSpikes, "qcc/v101qc/weapons.qc"),
-        presentation: presentationFacts.supernailgun,
+        presentation: playerWeaponPresentationFact(presentationFacts.supernailgun, fireAnimationFacts.supernailgun),
         fallback: {
           condition: "self.ammo_nails < 2",
           sourceFunction: "W_FireSpikes",
@@ -1574,7 +1575,7 @@ function extractPlayerWeaponFireFacts(shared) {
         ammo: extractWeaponAmmoSpend(defs.W_FireGrenade.body),
         cooldownMs: attackFacts.grenadelauncher.cooldownMs,
         fireSound: extractWeaponFireSound(defs.W_FireGrenade, "qcc/v101qc/weapons.qc"),
-        presentation: presentationFacts.grenadelauncher,
+        presentation: playerWeaponPresentationFact(presentationFacts.grenadelauncher, fireAnimationFacts.grenadelauncher),
         projectile: {
           angularVelocityUnits: parseQuakeVectorExpression("'300 300 300'"),
           bounceSoundPath: extractSoundPath(defs.GrenadeTouch.body),
@@ -1600,7 +1601,7 @@ function extractPlayerWeaponFireFacts(shared) {
         ammo: extractWeaponAmmoSpend(defs.W_FireRocket.body),
         cooldownMs: attackFacts.rocketlauncher.cooldownMs,
         fireSound: extractWeaponFireSound(defs.W_FireRocket, "qcc/v101qc/weapons.qc"),
-        presentation: presentationFacts.rocketlauncher,
+        presentation: playerWeaponPresentationFact(presentationFacts.rocketlauncher, fireAnimationFacts.rocketlauncher),
         projectile: {
           directDamage: extractRocketDirectDamage(defs.T_MissileTouch.body),
           lifetimeMs: extractNextThinkLifetimeMs(defs.W_FireRocket.body, "missile"),
@@ -1622,7 +1623,7 @@ function extractPlayerWeaponFireFacts(shared) {
         cooldownMs: lightningFrameFacts.cooldownMs ?? attackFacts.lightning.cooldownMs,
         attackStartCooldownMs: attackFacts.lightning.cooldownMs,
         startSound: attackFacts.lightning.fireSound,
-        presentation: presentationFacts.lightning,
+        presentation: playerWeaponPresentationFact(presentationFacts.lightning, fireAnimationFacts.lightning),
         fireSound: {
           ...extractWeaponFireSound(defs.W_FireLightning, "qcc/v101qc/weapons.qc"),
           cooldownMs: extractTimeWidthCooldownMs(defs.W_FireLightning.body),
@@ -1736,6 +1737,181 @@ function extractPlayerWeaponPresentationFacts(weaponsSource) {
     };
   }
   return byWeapon;
+}
+
+function playerWeaponPresentationFact(presentation, fireAnimation) {
+  if (!presentation) return undefined;
+  return {
+    ...presentation,
+    ...(fireAnimation ? { fireAnimation } : {}),
+  };
+}
+
+function extractPlayerWeaponFireAnimationFacts(weaponsSource, playerSource) {
+  const definition = requireFunctionDefinition(weaponsSource, "W_Attack", "qcc/v101qc/weapons.qc");
+  const states = parseStates(playerSource, parseFrameMap(playerSource));
+  const byWeapon = {};
+  for (const [weapon, itemFlag] of Object.entries({
+    axe: "IT_AXE",
+    shotgun: "IT_SHOTGUN",
+    supershotgun: "IT_SUPER_SHOTGUN",
+    nailgun: "IT_NAILGUN",
+    supernailgun: "IT_SUPER_NAILGUN",
+    grenadelauncher: "IT_GRENADE_LAUNCHER",
+    rocketlauncher: "IT_ROCKET_LAUNCHER",
+    lightning: "IT_LIGHTNING",
+  })) {
+    const branch = extractIfBlock(definition.body, new RegExp(`self\\.weapon\\s*==\\s*${itemFlag}`));
+    if (!branch) continue;
+    const startStates = extractPlayerAnimationStartStates(branch.body, states);
+    const sourceRef = sourceRefForBodyIndex(definition, sourceTarget("qcc/v101qc/weapons.qc", "W_Attack"), branch.index);
+    const fact = playerWeaponFireAnimationFact(startStates, states, playerSource, sourceRef);
+    if (fact) byWeapon[weapon] = fact;
+  }
+  return byWeapon;
+}
+
+function extractPlayerAnimationStartStates(body, states) {
+  const out = [];
+  for (const match of body.matchAll(/\b(player_[A-Za-z0-9_]+)\s*\(\s*\)/g)) {
+    const stateName = match[1];
+    if (!states.has(stateName) || out.includes(stateName)) continue;
+    out.push(stateName);
+  }
+  return out;
+}
+
+function playerWeaponFireAnimationFact(startStates, states, playerSource, attackSourceRef) {
+  if (!startStates.length) return null;
+  const variants = startStates
+    .map((startState, index) => playerWeaponFireAnimationVariant(startState, states, playerSource, index))
+    .filter(Boolean);
+  if (!variants.length) return null;
+  const cycle = variants.length === 1 ? playerWeaponFireAnimationCycle(variants[0]) : null;
+  if (cycle) {
+    return {
+      frameIntervalMs: 100,
+      kind: "cycle",
+      sourceFunction: "W_Attack",
+      sourceRefs: [attackSourceRef, ...cycle.sourceRefs],
+      ...cycle.fact,
+    };
+  }
+  return {
+    frameIntervalMs: 100,
+    kind: "sequence",
+    sourceFunction: "W_Attack",
+    sourceRefs: sourceRefsForAnimationVariants(attackSourceRef, variants),
+    variants: variants.map(({ fact }) => fact),
+  };
+}
+
+function playerWeaponFireAnimationVariant(startState, states, playerSource, index) {
+  const chain = chainFrom(states, startState).filter((state) => state.body);
+  if (!chain.length) return null;
+  const frames = chain
+    .map((state) => playerWeaponFireAnimationFrameFact(state, playerSource))
+    .filter(Boolean);
+  const sourceRefs = frames.map((frame) => frame.sourceRef);
+  return {
+    fact: {
+      startState,
+      ...(axeAnimationRandomBranch(index)),
+      frames,
+    },
+    sourceRefs,
+  };
+}
+
+function playerWeaponFireAnimationFrameFact(state, playerSource) {
+  const weaponFrame = directWeaponFrameAssignment(state.body);
+  const increment = weaponFrameIncrementFact(state.body);
+  if (weaponFrame === null && !increment) return null;
+  const sourceRef = {
+    sourceFile: "qcc/v101qc/player.qc",
+    functionName: state.name,
+    line: lineNumberForState(playerSource, state.name) ?? 0,
+  };
+  return {
+    calls: state.calls,
+    frame: state.frame,
+    playerFrameIndex: state.frameIndex,
+    sourceRef,
+    state: state.name,
+    ...(state.body.includes("EF_MUZZLEFLASH") ? { muzzleFlash: true } : {}),
+    ...(weaponFrame !== null ? { weaponFrame } : {}),
+    ...(increment ? { increment } : {}),
+  };
+}
+
+function playerWeaponFireAnimationCycle(variant) {
+  const incrementFrames = variant.fact.frames.filter((frame) => frame.increment);
+  if (!incrementFrames.length || incrementFrames.length !== variant.fact.frames.length) return null;
+  const first = incrementFrames[0].increment;
+  if (
+    !incrementFrames.every((frame) =>
+      frame.increment.add === first.add &&
+      frame.increment.resetTo === first.resetTo &&
+      frame.increment.wrapAt === first.wrapAt
+    )
+  ) {
+    return null;
+  }
+  return {
+    fact: {
+      firstWeaponFrame: first.resetTo,
+      lastWeaponFrame: first.wrapAt - 1,
+      startState: variant.fact.startState,
+      stateNames: incrementFrames.map((frame) => frame.state),
+      wrapAtWeaponFrame: first.wrapAt,
+    },
+    sourceRefs: variant.sourceRefs,
+  };
+}
+
+function directWeaponFrameAssignment(body) {
+  const match = /self\.weaponframe\s*=\s*([-+]?[0-9.]+)\s*;/.exec(body);
+  const value = Number(match?.[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function weaponFrameIncrementFact(body) {
+  const incrementMatch = /self\.weaponframe\s*=\s*self\.weaponframe\s*\+\s*([-+]?[0-9.]+)\s*;/.exec(body);
+  const wrapMatch =
+    /if\s*\(\s*self\.weaponframe\s*==\s*([-+]?[0-9.]+)\s*\)\s*self\.weaponframe\s*=\s*([-+]?[0-9.]+)\s*;/.exec(
+      body,
+    );
+  const add = Number(incrementMatch?.[1]);
+  const wrapAt = Number(wrapMatch?.[1]);
+  const resetTo = Number(wrapMatch?.[2]);
+  if (!Number.isFinite(add) || !Number.isFinite(wrapAt) || !Number.isFinite(resetTo)) return null;
+  return { add, resetTo, wrapAt };
+}
+
+function axeAnimationRandomBranch(index) {
+  if (index === 0) return { randomLessThan: 0.25 };
+  if (index === 1) return { randomLessThan: 0.5 };
+  if (index === 2) return { randomLessThan: 0.75 };
+  if (index === 3) return { otherwise: true };
+  return {};
+}
+
+function sourceRefsForAnimationVariants(attackSourceRef, variants) {
+  const out = [attackSourceRef];
+  const seen = new Set(out.map(sourceRefKey));
+  for (const variant of variants) {
+    for (const sourceRef of variant.sourceRefs) {
+      const key = sourceRefKey(sourceRef);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(sourceRef);
+    }
+  }
+  return out;
+}
+
+function sourceRefKey(sourceRef) {
+  return `${sourceRef.sourceFile}:${sourceRef.functionName}:${sourceRef.line}`;
 }
 
 function extractIfBlock(body, conditionPattern) {
@@ -3453,10 +3629,59 @@ export interface QuakePlayerWeaponUnsupportedBranchFact {
   sourceRef?: QuakeProgramSourceRef;
 }
 
+export interface QuakePlayerWeaponFireAnimationIncrementFact {
+  add: number;
+  resetTo: number;
+  wrapAt: number;
+}
+
+export interface QuakePlayerWeaponFireAnimationFrameFact {
+  calls?: readonly string[];
+  frame: string;
+  increment?: QuakePlayerWeaponFireAnimationIncrementFact;
+  muzzleFlash?: boolean;
+  playerFrameIndex: number | null;
+  sourceRef: QuakeProgramSourceRef;
+  state: string;
+  weaponFrame?: number;
+}
+
+export interface QuakePlayerWeaponFireAnimationVariantFact {
+  frames: readonly QuakePlayerWeaponFireAnimationFrameFact[];
+  otherwise?: boolean;
+  randomLessThan?: number;
+  startState: string;
+}
+
+export interface QuakePlayerWeaponFireAnimationSequenceFact {
+  frameIntervalMs: number;
+  kind: "sequence";
+  sourceFunction: "W_Attack";
+  sourceRefs: readonly QuakeProgramSourceRef[];
+  variants: readonly QuakePlayerWeaponFireAnimationVariantFact[];
+}
+
+export interface QuakePlayerWeaponFireAnimationCycleFact {
+  firstWeaponFrame: number;
+  frameIntervalMs: number;
+  kind: "cycle";
+  lastWeaponFrame: number;
+  sourceFunction: "W_Attack";
+  sourceRefs: readonly QuakeProgramSourceRef[];
+  startState: string;
+  stateNames: readonly string[];
+  wrapAtWeaponFrame: number;
+}
+
+export type QuakePlayerWeaponFireAnimationFact =
+  | QuakePlayerWeaponFireAnimationCycleFact
+  | QuakePlayerWeaponFireAnimationSequenceFact;
+
 export interface QuakePlayerWeaponPresentationFact {
   activeAmmoItemFlag?: string;
   currentAmmoExpression?: string;
   currentAmmoField?: QuakePlayerAmmoField;
+  fireAnimation?: QuakePlayerWeaponFireAnimationFact;
   sourceFunction: "W_SetCurrentAmmo";
   sourceRef: QuakeProgramSourceRef;
   viewModelPath: string;

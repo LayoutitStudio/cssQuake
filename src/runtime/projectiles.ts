@@ -26,6 +26,9 @@ export interface QuakeProjectilesControllerOptions<Projectile extends QuakeProje
   canSimulate(): boolean;
   onExpire?(projectile: Projectile, now: number): void;
   onImpact(projectile: Projectile, trace: QuakeProjectileTrace, now: number): QuakeProjectileImpactResult;
+  onMove?(projectile: Projectile): void;
+  onRemove?(projectile: Projectile): void;
+  onSpawn?(projectile: Projectile): void;
   trace(projectile: Projectile, start: Vec3, end: Vec3): QuakeProjectileTrace | null;
 }
 
@@ -39,6 +42,9 @@ export function createQuakeProjectilesController<Projectile extends QuakeProject
   canSimulate,
   onExpire,
   onImpact,
+  onMove,
+  onRemove,
+  onSpawn,
   trace,
 }: QuakeProjectilesControllerOptions<Projectile>): QuakeProjectilesController<Projectile> {
   let animationFrame: number | null = null;
@@ -51,6 +57,7 @@ export function createQuakeProjectilesController<Projectile extends QuakeProject
 
   function reset(): void {
     lastFrameAt = 0;
+    for (const projectile of projectiles) onRemove?.(projectile);
     projectiles = [];
     cancelFrame();
   }
@@ -58,6 +65,7 @@ export function createQuakeProjectilesController<Projectile extends QuakeProject
   function spawn(projectile: Projectile): void {
     if (!projectiles.length) lastFrameAt = 0;
     projectiles.push(projectile);
+    onSpawn?.(projectile);
     startFrame();
   }
 
@@ -94,6 +102,7 @@ export function createQuakeProjectilesController<Projectile extends QuakeProject
     for (const projectile of projectiles) {
       if (now >= projectile.expiresAt) {
         onExpire?.(projectile, now);
+        onRemove?.(projectile);
         continue;
       }
       const motion = projectileMotion(projectile, dt);
@@ -110,11 +119,17 @@ export function createQuakeProjectilesController<Projectile extends QuakeProject
       if (impact && impact.fraction < 1) {
         projectile.origin = impact.end;
         if (projectile.velocity || projectile.gravity) projectile.velocity = motion.velocity;
-        if (onImpact(projectile, impact, now) === "keep") active.push(projectile);
+        if (onImpact(projectile, impact, now) === "keep") {
+          onMove?.(projectile);
+          active.push(projectile);
+        } else {
+          onRemove?.(projectile);
+        }
         continue;
       }
       projectile.origin = motion.end;
       if (projectile.velocity || projectile.gravity) projectile.velocity = motion.velocity;
+      onMove?.(projectile);
       active.push(projectile);
     }
     projectiles = active;

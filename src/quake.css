@@ -50,6 +50,13 @@ body.quake-debug-no-textures #quake-app .polycss-mesh:not(.quake-debug-outline-a
 body.quake-static-lighting #quake-app .quake-lightstyle-mesh {
   display: none;
 }
+#quake-app .player-lightning-beam {
+  pointer-events: none;
+  filter: drop-shadow(0 0 6px #84ffff);
+}
+#quake-app .player-lightning-beam :is(b, i, s, u) {
+  box-shadow: 0 0 8px #84ffff;
+}
 body.quake-debug-outlines #quake-app .polycss-mesh :is(b, i, s, u) {
   --quake-debug-label-color: green;
 }

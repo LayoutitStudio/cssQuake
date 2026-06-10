@@ -11,6 +11,7 @@ import {
   createQuakeViewmodelRasterLayer,
   type QuakeViewmodelRasterLayer,
   type QuakeViewmodelRasterModel,
+  type QuakeViewmodelRasterPostTransform,
 } from "./viewmodelRaster";
 
 export interface QuakeViewmodelController {
@@ -24,12 +25,17 @@ export interface QuakeViewmodelController {
   resetTuning(): QuakeResolvedViewmodelTuning;
   syncTransform(options?: QuakeViewmodelSyncOptions): void;
   queueViewportSync(): void;
-  playFireAnimation(): void;
+  playFireAnimation(animation?: QuakeViewmodelFireAnimation): void;
   clearFireAnimation(): void;
 }
 
 export interface QuakeViewmodelSyncOptions {
   stable?: boolean;
+}
+
+export interface QuakeViewmodelFireAnimation {
+  frameIntervalMs: number;
+  frames: readonly number[];
 }
 
 export interface QuakeViewmodelTuning {
@@ -48,6 +54,15 @@ export interface QuakeViewmodelTuning {
   screenYOffsetPx?: number;
   screenScaleX?: number;
   screenScaleY?: number;
+  rasterPostOriginXPx?: number;
+  rasterPostOriginYPx?: number;
+  rasterPostTranslateXPx?: number;
+  rasterPostTranslateYPx?: number;
+  rasterPostRotateDeg?: number;
+  rasterPostSkewXDeg?: number;
+  rasterPostSkewYDeg?: number;
+  rasterPostScaleX?: number;
+  rasterPostScaleY?: number;
   perspectiveScale?: number;
   stageOffsetPx?: number;
   perspectiveOriginXOffsetPx?: number;
@@ -63,6 +78,7 @@ export interface QuakeViewmodelModel {
 
 export interface QuakeViewmodelDebugSnapshot {
   mounted: boolean;
+  source: string | null;
   tuning: QuakeResolvedViewmodelTuning;
   camera: {
     rotX: number;
@@ -174,13 +190,74 @@ const QUAKE_WEAPON_DEFAULT_TUNING: QuakeResolvedViewmodelTuning = {
   screenYOffsetPx: 12.5,
   screenScaleX: 0.98,
   screenScaleY: 1,
+  rasterPostOriginXPx: 640,
+  rasterPostOriginYPx: 360,
+  rasterPostTranslateXPx: 0,
+  rasterPostTranslateYPx: 0,
+  rasterPostRotateDeg: 0,
+  rasterPostSkewXDeg: 0,
+  rasterPostSkewYDeg: 0,
+  rasterPostScaleX: 1,
+  rasterPostScaleY: 1,
   perspectiveScale: 0.8,
   stageOffsetPx: QUAKE_WEAPON_REFERENCE_STAGE_OFFSET_PX,
   perspectiveOriginXOffsetPx: 0,
   perspectiveOriginYOffsetPx: 0,
 };
+const QUAKE_WEAPON_MODEL_TUNING_OVERRIDES: Record<string, QuakeViewmodelTuning> = {
+  "progs/v_axe.mdl": {
+    localPitchDeg: 11,
+    screenXOffsetPx: -4,
+    screenYOffsetPx: 15,
+    screenScaleX: 0.866,
+    screenScaleY: 0.972,
+    // The axe head exposes a small residual canvas/vkQuake alias projection drift.
+    rasterPostOriginXPx: 767,
+    rasterPostOriginYPx: 455,
+    rasterPostTranslateXPx: -1.3,
+    rasterPostTranslateYPx: 1.1,
+    rasterPostRotateDeg: -1.5,
+    rasterPostSkewYDeg: -6.5,
+    rasterPostScaleX: 0.97,
+    rasterPostScaleY: 1.03,
+  },
+  "progs/v_shot2.mdl": {
+    screenScaleX: 1.149,
+    screenScaleY: 1.394,
+  },
+  "progs/v_nail.mdl": {
+    screenScaleX: 0.907,
+    screenScaleY: 0.871,
+  },
+  "progs/v_nail2.mdl": {
+    screenScaleX: 0.894,
+    screenScaleY: 0.864,
+  },
+  "progs/v_rock.mdl": {
+    screenScaleX: 0.96,
+    screenScaleY: 0.971,
+  },
+  "progs/v_rock2.mdl": {
+    screenScaleX: 0.87,
+    screenScaleY: 0.835,
+  },
+  "progs/v_light.mdl": {
+    screenScaleX: 0.916,
+    screenScaleY: 0.922,
+    rasterPostOriginXPx: 637,
+    rasterPostOriginYPx: 508,
+    rasterPostTranslateXPx: 0.6,
+    rasterPostTranslateYPx: 1.8,
+    rasterPostScaleX: 0.967,
+    rasterPostScaleY: 0.995,
+  },
+};
 const QUAKE_WEAPON_SCREEN_ROT_X = 90;
 const QUAKE_WEAPON_MUZZLE_FLASH_MS = 45;
+const QUAKE_WEAPON_DEFAULT_FIRE_ANIMATION: QuakeViewmodelFireAnimation = {
+  frameIntervalMs: QUAKE_WEAPON_MUZZLE_FLASH_MS,
+  frames: [1],
+};
 const QUAKE_WEAPON_KICK_SETTLE_MS = 160;
 const QUAKE_WEAPON_KICK_RECOVER_MS = 280;
 const QUAKE_WEAPON_BOB = 0.02;
@@ -211,6 +288,7 @@ export function createQuakeViewmodelController({
   let fireForwardKick = 0;
   let fireUpKick = 0;
   let fireAnimationTimer: number | null = null;
+  let fireFrameTimers: number[] = [];
   let fireKickTimers: number[] = [];
   let tuning: QuakeResolvedViewmodelTuning = { ...QUAKE_WEAPON_DEFAULT_TUNING };
   let appliedLocalTransform = "";
@@ -272,13 +350,15 @@ export function createQuakeViewmodelController({
     const origin = getRenderOrigin?.() ?? movementOrigin;
     const rotX = weaponViewRotX(scene.camera.state.rotX ?? 88);
     const rotY = scene.camera.state.rotY ?? 270;
+    const currentTuning = activeTuning();
     const weapon = debugWeaponTransform(weaponTransform(origin, rotX, rotY, walkBob));
-    const sceneElement = scene.cameraEl.querySelector<HTMLElement>(".polycss-scene");
-    const stageTransform = weaponStageTransform(sceneElement?.style.transform ?? "");
+    const sceneElement = scene.sceneElement;
+    const stageTransform = weaponStageTransform(sceneElement.style.transform);
     const target = roundDebugVec3(weaponStageTarget(origin, rotX, rotY));
     return {
       mounted: carrier !== null,
-      tuning: getTuning(),
+      source: mountedSource,
+      tuning: currentTuning,
       camera: {
         rotX: scene.camera.state.rotX ?? 88,
         rotY,
@@ -297,9 +377,9 @@ export function createQuakeViewmodelController({
         referenceWidth: QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX,
         referenceHeight: QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX,
         perspectivePx: roundDebugNumber(weaponPerspectivePx()),
-        stageOffsetPx: roundDebugNumber(tuning.stageOffsetPx),
-        perspectiveOriginXOffsetPx: roundDebugNumber(tuning.perspectiveOriginXOffsetPx),
-        perspectiveOriginYOffsetPx: roundDebugNumber(tuning.perspectiveOriginYOffsetPx),
+        stageOffsetPx: roundDebugNumber(currentTuning.stageOffsetPx),
+        perspectiveOriginXOffsetPx: roundDebugNumber(currentTuning.perspectiveOriginXOffsetPx),
+        perspectiveOriginYOffsetPx: roundDebugNumber(currentTuning.perspectiveOriginYOffsetPx),
         baseScale: QUAKE_WEAPON_REFERENCE_BASE_SCALE,
       },
       weapon,
@@ -308,8 +388,8 @@ export function createQuakeViewmodelController({
         ...elementDebugSnapshot(stage),
         target,
         lookOffset: roundDebugNumber(weaponPerspectivePx() / BASE_TILE),
-        cameraScale: readCameraScale(sceneElement?.style.transform ?? ""),
-        cameraTranslateZ: readCameraTranslateZ(sceneElement?.style.transform ?? ""),
+        cameraScale: readCameraScale(sceneElement.style.transform),
+        cameraTranslateZ: readCameraTranslateZ(sceneElement.style.transform),
         inlineStyle: {
           ...elementInlineStyleSnapshot(stage),
           transform: stageTransform || null,
@@ -325,6 +405,11 @@ export function createQuakeViewmodelController({
 
   function getTuning(): QuakeResolvedViewmodelTuning {
     return { ...tuning };
+  }
+
+  function activeTuning(): QuakeResolvedViewmodelTuning {
+    const override = mountedSource ? QUAKE_WEAPON_MODEL_TUNING_OVERRIDES[mountedSource] : undefined;
+    return override ? sanitizeViewmodelTuning(override, tuning) : tuning;
   }
 
   function setTuning(next: QuakeViewmodelTuning): QuakeResolvedViewmodelTuning {
@@ -364,13 +449,19 @@ export function createQuakeViewmodelController({
     });
   }
 
-  function playFireAnimation(): void {
-    setNozzleVisible(true);
+  function playFireAnimation(animation: QuakeViewmodelFireAnimation = QUAKE_WEAPON_DEFAULT_FIRE_ANIMATION): void {
+    const frames = sanitizeFireAnimationFrames(animation.frames);
+    const frameIntervalMs = sanitizeFireAnimationFrameInterval(animation.frameIntervalMs);
+    clearFrameTimers();
+    setWeaponFrameIndex(frames[0] ?? 1);
+    frames.slice(1).forEach((frame, index) => {
+      fireFrameTimers.push(window.setTimeout(() => setWeaponFrameIndex(frame), frameIntervalMs * (index + 1)));
+    });
     if (fireAnimationTimer !== null) window.clearTimeout(fireAnimationTimer);
     fireAnimationTimer = window.setTimeout(() => {
-      setNozzleVisible(false);
+      setWeaponFrameIndex(0);
       fireAnimationTimer = null;
-    }, QUAKE_WEAPON_MUZZLE_FLASH_MS);
+    }, Math.max(QUAKE_WEAPON_MUZZLE_FLASH_MS, frameIntervalMs * frames.length));
 
     clearKickTimers();
     setKick(-0.52, -0.1);
@@ -385,6 +476,7 @@ export function createQuakeViewmodelController({
       window.clearTimeout(fireAnimationTimer);
       fireAnimationTimer = null;
     }
+    clearFrameTimers();
     clearKickTimers();
     fireForwardKick = 0;
     fireUpKick = 0;
@@ -393,6 +485,11 @@ export function createQuakeViewmodelController({
       window.cancelAnimationFrame(viewportSyncFrame);
       viewportSyncFrame = 0;
     }
+  }
+
+  function clearFrameTimers(): void {
+    for (const timer of fireFrameTimers) window.clearTimeout(timer);
+    fireFrameTimers = [];
   }
 
   function clearKickTimers(): void {
@@ -407,22 +504,28 @@ export function createQuakeViewmodelController({
   }
 
   function setNozzleVisible(visible: boolean): void {
-    raster?.setFrameIndex(visible ? 1 : 0);
+    setWeaponFrameIndex(visible ? 1 : 0);
+  }
+
+  function setWeaponFrameIndex(frameIndex: number): void {
+    raster?.setFrameIndex(frameIndex);
   }
 
   function syncRasterLayer(rotY: number): void {
     if (!raster || !layer || !stage || !carrier) return;
+    const currentTuning = activeTuning();
     raster.sync({
       width: QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX,
       height: QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX,
       stageLeftPx: QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX / 2,
-      stageTopPx: QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX / 2 + tuning.stageOffsetPx,
+      stageTopPx: QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX / 2 + currentTuning.stageOffsetPx,
       stageTransform: stage.style.transform,
       meshTransform: carrier.style.transform,
       perspectivePx: weaponPerspectivePx(),
-      perspectiveOriginX: QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX / 2 + tuning.perspectiveOriginXOffsetPx,
-      perspectiveOriginY: QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX / 2 + tuning.perspectiveOriginYOffsetPx,
+      perspectiveOriginX: QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX / 2 + currentTuning.perspectiveOriginXOffsetPx,
+      perspectiveOriginY: QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX / 2 + currentTuning.perspectiveOriginYOffsetPx,
       rotY,
+      postTransform: weaponRasterPostTransform(currentTuning),
     });
   }
 
@@ -483,25 +586,26 @@ export function createQuakeViewmodelController({
 
   function syncLayer(): void {
     if (!layer || !stage) return;
-    const sceneElement = scene.cameraEl.querySelector<HTMLElement>(".polycss-scene");
+    const sceneElement = scene.sceneElement;
     syncViewportLayer();
-    setStyleValue(stage, "transform", weaponStageTransform(sceneElement?.style.transform ?? ""));
-    const zoom = sceneElement?.style.getPropertyValue("zoom") ?? "";
+    setStyleValue(stage, "transform", weaponStageTransform(sceneElement.style.transform));
+    const zoom = sceneElement.style.getPropertyValue("zoom");
     setStyleValue(stage, "zoom", zoom);
   }
 
   function syncViewportLayer(): void {
     if (!layerViewportDirty || !layer || !stage) return;
+    const currentTuning = activeTuning();
     const layerScale = refreshWeaponLayerScale();
     setStyleValue(
       layer,
       "left",
-      `calc(50% - ${QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX / 2}px + ${tuning.screenXOffsetPx * layerScale}px)`,
+      `calc(50% - ${QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX / 2}px + ${currentTuning.screenXOffsetPx * layerScale}px)`,
     );
     setStyleValue(
       layer,
       "top",
-      `calc(100% - ${QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX}px + ${tuning.screenYOffsetPx * layerScale}px)`,
+      `calc(100% - ${QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX}px + ${currentTuning.screenYOffsetPx * layerScale}px)`,
     );
     setStyleValue(layer, "right", "auto");
     setStyleValue(layer, "bottom", "auto");
@@ -513,10 +617,10 @@ export function createQuakeViewmodelController({
     setStyleValue(
       layer,
       "perspective-origin",
-      `${QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX / 2 + tuning.perspectiveOriginXOffsetPx}px ` +
-        `${QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX / 2 + tuning.perspectiveOriginYOffsetPx}px`,
+      `${QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX / 2 + currentTuning.perspectiveOriginXOffsetPx}px ` +
+        `${QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX / 2 + currentTuning.perspectiveOriginYOffsetPx}px`,
     );
-    setStyleValue(stage, "top", `calc(50% + ${tuning.stageOffsetPx}px)`);
+    setStyleValue(stage, "top", `calc(50% + ${currentTuning.stageOffsetPx}px)`);
     layerViewportDirty = false;
   }
 
@@ -534,30 +638,32 @@ export function createQuakeViewmodelController({
   }
 
   function weaponScaleVec(): Vec3 {
+    const currentTuning = activeTuning();
     return [
-      QUAKE_WEAPON_REFERENCE_BASE_SCALE * tuning.horizontalScale,
-      QUAKE_WEAPON_REFERENCE_BASE_SCALE * tuning.verticalScale,
-      QUAKE_WEAPON_REFERENCE_BASE_SCALE * tuning.depthScale,
+      QUAKE_WEAPON_REFERENCE_BASE_SCALE * currentTuning.horizontalScale,
+      QUAKE_WEAPON_REFERENCE_BASE_SCALE * currentTuning.verticalScale,
+      QUAKE_WEAPON_REFERENCE_BASE_SCALE * currentTuning.depthScale,
     ];
   }
 
   function weaponTransform(origin: Vec3, rotX: number, rotY: number, bob: number): QuakeViewmodelDebugSnapshot["weapon"] {
+    const currentTuning = activeTuning();
     const forward = forwardDirection(rotX, rotY);
     const right = rightDirection(rotY);
     const up = normalizeVec3(crossVec3(right, forward));
-    const forwardOffset = tuning.forwardOffset + fireForwardKick + bob * QUAKE_WEAPON_BOB_FORWARD_SCALE;
-    const upOffset = tuning.upOffset + fireUpKick;
+    const forwardOffset = currentTuning.forwardOffset + fireForwardKick + bob * QUAKE_WEAPON_BOB_FORWARD_SCALE;
+    const upOffset = currentTuning.upOffset + fireUpKick;
     const position: Vec3 = [
-      origin[0] + forward[0] * forwardOffset + right[0] * tuning.rightOffset + up[0] * upOffset,
-      origin[1] + forward[1] * forwardOffset + right[1] * tuning.rightOffset + up[1] * upOffset,
-      origin[2] + forward[2] * forwardOffset + right[2] * tuning.rightOffset + up[2] * upOffset + bob,
+      origin[0] + forward[0] * forwardOffset + right[0] * currentTuning.rightOffset + up[0] * upOffset,
+      origin[1] + forward[1] * forwardOffset + right[1] * currentTuning.rightOffset + up[1] * upOffset,
+      origin[2] + forward[2] * forwardOffset + right[2] * currentTuning.rightOffset + up[2] * upOffset + bob,
     ];
     return {
       position,
       rotation: [rotX - 90, 0, (rotY + 180) % 360],
       scale: weaponScaleVec(),
       forwardOffset,
-      rightOffset: tuning.rightOffset,
+      rightOffset: currentTuning.rightOffset,
       upOffset,
       forward,
       right,
@@ -566,7 +672,7 @@ export function createQuakeViewmodelController({
   }
 
   function weaponPerspectivePx(): number {
-    return QUAKE_WEAPON_REFERENCE_SCENE_PERSPECTIVE_PX * tuning.perspectiveScale;
+    return QUAKE_WEAPON_REFERENCE_SCENE_PERSPECTIVE_PX * activeTuning().perspectiveScale;
   }
 
   function refreshWeaponLayerScale(): number {
@@ -583,9 +689,10 @@ export function createQuakeViewmodelController({
   }
 
   function weaponLayerTransform(scale: number): string {
+    const currentTuning = activeTuning();
     const transforms = [
-      Math.abs(tuning.screenScaleX - 1) > 0.001 ? `scaleX(${tuning.screenScaleX})` : "",
-      Math.abs(tuning.screenScaleY - 1) > 0.001 ? `scaleY(${tuning.screenScaleY})` : "",
+      Math.abs(currentTuning.screenScaleX - 1) > 0.001 ? `scaleX(${currentTuning.screenScaleX})` : "",
+      Math.abs(currentTuning.screenScaleY - 1) > 0.001 ? `scaleY(${currentTuning.screenScaleY})` : "",
       Number.isFinite(scale) && Math.abs(scale - 1) > 0.001 ? `scale(${scale})` : "",
     ];
     return transforms.filter(Boolean).join(" ");
@@ -621,7 +728,7 @@ export function createQuakeViewmodelController({
   function syncCarrierTransform(weapon: QuakeViewmodelDebugSnapshot["weapon"]): void {
     if (!carrier) return;
     const baseTransform = weaponTransformCss(weapon);
-    const localTransform = weaponLocalTransform(tuning);
+    const localTransform = weaponLocalTransform(activeTuning());
     appliedLocalTransform = localTransform;
     const nextTransform = baseTransform ? `${baseTransform} ${localTransform}` : localTransform;
     if (carrier.style.transform !== nextTransform) {
@@ -652,6 +759,17 @@ function weaponViewRotX(rotX: number): number {
 
 function normalizedViewmodelSource(source: string): string {
   return source.trim().toLowerCase();
+}
+
+function sanitizeFireAnimationFrames(frames: readonly number[]): number[] {
+  const sanitized = frames
+    .map((frame) => Math.max(0, Math.floor(frame)))
+    .filter((frame) => Number.isFinite(frame));
+  return sanitized.length ? sanitized : [1];
+}
+
+function sanitizeFireAnimationFrameInterval(value: number): number {
+  return Number.isFinite(value) && value > 0 ? Math.max(1, value) : QUAKE_WEAPON_MUZZLE_FLASH_MS;
 }
 
 function readCameraScale(transform: string): number {
@@ -689,6 +807,31 @@ function weaponLocalTransform(tuning: QuakeResolvedViewmodelTuning): string {
     `rotateX(${tuning.localPitchDeg}deg)`,
     hasPivot ? `translate3d(${-tuning.localPivotXPx}px, ${-tuning.localPivotYPx}px, ${-tuning.localPivotZPx}px)` : "",
   ].filter(Boolean).join(" ");
+}
+
+function weaponRasterPostTransform(tuning: QuakeResolvedViewmodelTuning): QuakeViewmodelRasterPostTransform | null {
+  if (
+    Math.abs(tuning.rasterPostTranslateXPx) <= 0.001 &&
+    Math.abs(tuning.rasterPostTranslateYPx) <= 0.001 &&
+    Math.abs(tuning.rasterPostRotateDeg) <= 0.001 &&
+    Math.abs(tuning.rasterPostSkewXDeg) <= 0.001 &&
+    Math.abs(tuning.rasterPostSkewYDeg) <= 0.001 &&
+    Math.abs(tuning.rasterPostScaleX - 1) <= 0.001 &&
+    Math.abs(tuning.rasterPostScaleY - 1) <= 0.001
+  ) {
+    return null;
+  }
+  return {
+    originX: tuning.rasterPostOriginXPx,
+    originY: tuning.rasterPostOriginYPx,
+    translateX: tuning.rasterPostTranslateXPx,
+    translateY: tuning.rasterPostTranslateYPx,
+    rotateDeg: tuning.rasterPostRotateDeg,
+    skewXDeg: tuning.rasterPostSkewXDeg,
+    skewYDeg: tuning.rasterPostSkewYDeg,
+    scaleX: tuning.rasterPostScaleX,
+    scaleY: tuning.rasterPostScaleY,
+  };
 }
 
 function weaponTransformCss(weapon: QuakeViewmodelDebugSnapshot["weapon"]): string {

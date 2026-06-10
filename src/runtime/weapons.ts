@@ -1,4 +1,4 @@
-import type { PolyFirstPersonControlsHandle, PolySceneHandle, Vec3 } from "@layoutit/polycss";
+import type { PolyFirstPersonControlsHandle, PolyMeshHandle, PolySceneHandle, Vec3 } from "@layoutit/polycss";
 
 import {
   QUAKE_PLAYER_WEAPON_FIRE_FACTS,
@@ -7,6 +7,7 @@ import {
 } from "../generated/quakeProgramFacts";
 import type { QuakeEntity } from "../prepare/scene";
 import type { QuakeAmmoField, QuakeWeaponId } from "./hud";
+import type { QuakeViewmodelFireAnimation } from "./viewmodel";
 import {
   COLLISION_EPSILON,
   PLAYER_HEIGHT,
@@ -45,6 +46,7 @@ export interface QuakeWeaponsController {
 export interface QuakeWeaponsControllerOptions {
   scene: PolySceneHandle;
   controls: Pick<PolyFirstPersonControlsHandle, "getOrigin">;
+  addProjectileMesh?(modelPath: string, weapon: QuakeWeaponId): QuakeWeaponProjectileVisualHandle | null;
   canUseGameplayInput(): boolean;
   hasViewmodel(): boolean;
   getCollisionWorld(): QuakeCollisionWorld | null;
@@ -58,14 +60,27 @@ export interface QuakeWeaponsControllerOptions {
   selectBestWeapon(): QuakeWeaponId;
   syncHud(): void;
   playFireSound(weapon: QuakeWeaponFireSoundId): void;
-  playFireAnimation(): void;
+  playFireAnimation(animation?: QuakeViewmodelFireAnimation): void;
   damageShootable(entityIndex: number, amount: number): boolean;
   damageBrushEntity(entityIndex: number, amount: number): boolean;
   damagePlayer(amount: number): boolean;
   damageMultiplier?: () => number;
   random?: () => number;
   onHit(): void;
+  showLightningBeam?(beam: QuakeWeaponLightningBeamVisual): void;
   syncCrosshairTarget(): void;
+}
+
+export interface QuakeWeaponProjectileVisualHandle {
+  handle: PolyMeshHandle;
+  scale: number;
+}
+
+export interface QuakeWeaponLightningBeamVisual {
+  end: Vec3;
+  start: Vec3;
+  tempEntity: string;
+  weapon: QuakeWeaponId;
 }
 
 interface QuakeViewRay {
@@ -87,6 +102,29 @@ export type QuakeWeaponFireSoundId =
 
 type QuakeWeaponFireKind = "hitscan-pellets" | "melee-trace" | "projectile" | "beam";
 
+interface QuakeWeaponFireAnimationSequenceVariant {
+  frames: readonly number[];
+  otherwise?: boolean;
+  randomLessThan?: number;
+}
+
+interface QuakeWeaponFireAnimationSequenceProfile {
+  frameIntervalMs: number;
+  kind: "sequence";
+  variants: readonly QuakeWeaponFireAnimationSequenceVariant[];
+}
+
+interface QuakeWeaponFireAnimationCycleProfile {
+  firstWeaponFrame: number;
+  frameIntervalMs: number;
+  kind: "cycle";
+  lastWeaponFrame: number;
+}
+
+type QuakeWeaponFireAnimationProfile =
+  | QuakeWeaponFireAnimationCycleProfile
+  | QuakeWeaponFireAnimationSequenceProfile;
+
 interface QuakeBeamUnderwaterDischargeProfile {
   attackerSelfScale: number;
   damagePerAmmoCell: number;
@@ -100,6 +138,7 @@ interface QuakeWeaponFireProfileBase {
   ammoCost: number;
   ammoField: QuakeAmmoField | null;
   cooldownMs: number;
+  fireAnimation?: QuakeWeaponFireAnimationProfile;
   kind: QuakeWeaponFireKind;
   runtime: "supported" | "unsupported";
   soundCooldownMs?: number;
@@ -155,6 +194,7 @@ interface QuakeBeamFireProfile extends QuakeWeaponFireProfileBase {
   range: number;
   runtime: "supported";
   sourceZOffsetUnits: number;
+  tempEntity: string;
   underwaterDischarge?: QuakeBeamUnderwaterDischargeProfile;
 }
 
@@ -248,6 +288,7 @@ function quakeHitscanFireProfile(weapon: QuakeWeaponId): QuakeHitscanPelletFireP
     ammoCost: fact.ammo?.cost ?? 0,
     ammoField: quakeRuntimeAmmoField(fact),
     cooldownMs: fact.cooldownMs,
+    fireAnimation: quakeWeaponFireAnimationProfile(fact),
     kind: "hitscan-pellets",
     pelletCount: hitscan.pelletCount,
     pelletDamage: hitscan.pelletDamage,
@@ -271,6 +312,7 @@ function quakeMeleeFireProfile(weapon: QuakeWeaponId): QuakeMeleeTraceFireProfil
     ammoField: quakeRuntimeAmmoField(fact),
     cooldownMs: fact.cooldownMs,
     damage: melee.damage,
+    fireAnimation: quakeWeaponFireAnimationProfile(fact),
     kind: "melee-trace",
     range: quakeUnitsToCollisionUnits(melee.rangeUnits),
     runtime: "supported",
@@ -299,6 +341,7 @@ function quakeProjectileFireProfile(
     ammoField: quakeRuntimeAmmoField(fact),
     cooldownMs: fact.cooldownMs,
     damage: projectile.damage ?? directDamage?.base ?? 0,
+    fireAnimation: quakeWeaponFireAnimationProfile(fact),
     kind: "projectile",
     lifetimeMs: requiredNumber(projectile.lifetimeMs, `${weapon} projectile lifetime`),
     modelPath: requiredString(projectile.modelPath, `${weapon} projectile model`),
@@ -348,6 +391,7 @@ function quakeBeamFireProfile(
     ),
     damageSourceZOffsetUnits: 0,
     damageTraceOffsetUnits: requiredNumber(beam.damageTraceOffsetUnits, `${weapon} beam damage trace offset`),
+    fireAnimation: quakeWeaponFireAnimationProfile(fact),
     kind: "beam",
     range: quakeUnitsToCollisionUnits(requiredNumber(beam.rangeUnits, `${weapon} beam range`)),
     runtime: "supported",
@@ -355,6 +399,7 @@ function quakeBeamFireProfile(
     soundWeapon: quakeRuntimeFireSoundWeapon(fact),
     sourceFunction: fact.sourceFunction,
     sourceZOffsetUnits: beam.sourceOffsetUnits?.up ?? 0,
+    tempEntity: requiredString(beam.tempEntity, `${weapon} beam temp entity`),
     ...(underwaterDischarge ? { underwaterDischarge } : {}),
     weapon,
   };
@@ -390,6 +435,36 @@ function quakeRuntimeFireSoundWeapon(fact: QuakePlayerWeaponFireProfileFact): Qu
   return fact.weapon as QuakeWeaponFireSoundId;
 }
 
+function quakeWeaponFireAnimationProfile(
+  fact: QuakePlayerWeaponFireProfileFact,
+): QuakeWeaponFireAnimationProfile | undefined {
+  const animation = fact.presentation?.fireAnimation;
+  if (!animation) return undefined;
+  if (animation.kind === "cycle") {
+    return {
+      firstWeaponFrame: requiredNumber(animation.firstWeaponFrame, `${fact.weapon} fire animation first frame`),
+      frameIntervalMs: requiredNumber(animation.frameIntervalMs, `${fact.weapon} fire animation frame interval`),
+      kind: "cycle",
+      lastWeaponFrame: requiredNumber(animation.lastWeaponFrame, `${fact.weapon} fire animation last frame`),
+    };
+  }
+  const variants = animation.variants
+    .map((variant) => ({
+      frames: variant.frames
+        .map((frame) => frame.weaponFrame)
+        .filter((frame): frame is number => typeof frame === "number" && Number.isFinite(frame)),
+      ...(variant.otherwise ? { otherwise: true } : {}),
+      ...(typeof variant.randomLessThan === "number" ? { randomLessThan: variant.randomLessThan } : {}),
+    }))
+    .filter((variant) => variant.frames.length > 0);
+  if (!variants.length) return undefined;
+  return {
+    frameIntervalMs: requiredNumber(animation.frameIntervalMs, `${fact.weapon} fire animation frame interval`),
+    kind: "sequence",
+    variants,
+  };
+}
+
 function quakeHitscanSourceZOffset(fact: QuakePlayerWeaponFireProfileFact): number {
   const zExpression = fact.hitscan?.sourceOffsetUnits?.zExpression;
   if (zExpression !== "self.absmin_z + self.size_z * 0.7") {
@@ -414,6 +489,10 @@ function requiredString(value: string | undefined, label: string): string {
   return value;
 }
 
+function quakeProjectileRenderYaw(yaw: number): number {
+  return ((yaw % 360) + 360) % 360;
+}
+
 export function quakeWeaponFireProfileAuditFacts() {
   return {
     sourceRevision: QUAKE_PROGRAM_SOURCE_FACTS.revision,
@@ -436,6 +515,7 @@ function quakeWeaponFireProfileAuditFact(weapon: QuakeWeaponId, profile: QuakeWe
     ammoCost: profile.ammoCost,
     ammoField: profile.ammoField,
     cooldownMs: profile.cooldownMs,
+    fireAnimation: profile.fireAnimation,
     kind: profile.kind,
     runtime: profile.runtime,
     soundCooldownMs: profile.soundCooldownMs,
@@ -479,6 +559,7 @@ function quakeWeaponFireProfileAuditFact(weapon: QuakeWeaponId, profile: QuakeWe
           damageTraceOffsetUnits: profile.damageTraceOffsetUnits,
           range: profile.range,
           sourceZOffsetUnits: profile.sourceZOffsetUnits,
+          tempEntity: profile.tempEntity,
           underwaterDischarge: profile.underwaterDischarge,
         }
       : {}),
@@ -487,11 +568,13 @@ function quakeWeaponFireProfileAuditFact(weapon: QuakeWeaponId, profile: QuakeWe
 
 interface QuakeWeaponProjectile extends QuakeProjectileState<QuakeLinearProjectileFireProfile> {
   damage: number;
+  visual?: QuakeWeaponProjectileVisualHandle | null;
 }
 
 export function createQuakeWeaponsController({
   scene,
   controls,
+  addProjectileMesh,
   canUseGameplayInput,
   hasViewmodel,
   getCollisionWorld,
@@ -512,15 +595,20 @@ export function createQuakeWeaponsController({
   damageMultiplier,
   random = Math.random,
   onHit,
+  showLightningBeam,
   syncCrosshairTarget,
 }: QuakeWeaponsControllerOptions): QuakeWeaponsController {
   let nextFireAt = -Infinity;
   let nextNailRightSign = 1;
   const nextSoundAtByWeapon = new Map<QuakeWeaponId, number>();
+  const nextCycleAnimationFrameByWeapon = new Map<QuakeWeaponId, number>();
   const projectiles = createQuakeProjectilesController<QuakeWeaponProjectile>({
     canSimulate: canUseGameplayInput,
     onExpire: handleProjectileExpire,
     onImpact: handleProjectileImpact,
+    onMove: syncProjectileVisual,
+    onRemove: removeProjectileVisual,
+    onSpawn: addProjectileVisual,
     trace: traceProjectilePath,
   });
 
@@ -528,6 +616,7 @@ export function createQuakeWeaponsController({
     nextFireAt = -Infinity;
     nextNailRightSign = 1;
     nextSoundAtByWeapon.clear();
+    nextCycleAnimationFrameByWeapon.clear();
     projectiles.reset();
   }
 
@@ -549,7 +638,7 @@ export function createQuakeWeaponsController({
     nextFireAt = now + profile.cooldownMs;
     if (profile.kind === "beam" && profile.underwaterDischarge && getPlayerWaterLevel() > 1) {
       const hit = fireBeamUnderwaterDischarge(profile.underwaterDischarge);
-      playFireAnimation();
+      playWeaponFireAnimation(profile);
       if (hit) onHit();
       syncCrosshairTarget();
       return true;
@@ -557,7 +646,7 @@ export function createQuakeWeaponsController({
     consumeWeaponAmmo(profile);
     playWeaponFireSound(profile, now);
     const hit = fireWeaponProfile(profile, now);
-    playFireAnimation();
+    playWeaponFireAnimation(profile);
     if (hit) onHit();
     syncCrosshairTarget();
     return true;
@@ -728,6 +817,39 @@ export function createQuakeWeaponsController({
     if (soundCooldownMs > 0) nextSoundAtByWeapon.set(profile.weapon, now + soundCooldownMs);
   }
 
+  function playWeaponFireAnimation(profile: QuakeRuntimeWeaponFireProfile): void {
+    playFireAnimation(viewmodelFireAnimation(profile));
+  }
+
+  function viewmodelFireAnimation(profile: QuakeRuntimeWeaponFireProfile): QuakeViewmodelFireAnimation | undefined {
+    const animation = profile.fireAnimation;
+    if (!animation) return undefined;
+    if (animation.kind === "cycle") {
+      const frame = nextCycleAnimationFrameByWeapon.get(profile.weapon) ?? animation.firstWeaponFrame;
+      const nextFrame = frame >= animation.lastWeaponFrame ? animation.firstWeaponFrame : frame + 1;
+      nextCycleAnimationFrameByWeapon.set(profile.weapon, nextFrame);
+      return {
+        frameIntervalMs: animation.frameIntervalMs,
+        frames: [frame],
+      };
+    }
+    const variant = chooseFireAnimationVariant(animation);
+    return {
+      frameIntervalMs: animation.frameIntervalMs,
+      frames: variant.frames,
+    };
+  }
+
+  function chooseFireAnimationVariant(
+    animation: QuakeWeaponFireAnimationSequenceProfile,
+  ): QuakeWeaponFireAnimationSequenceVariant {
+    if (animation.variants.length <= 1) return animation.variants[0];
+    const value = random();
+    return animation.variants.find((variant) => variant.randomLessThan !== undefined && value < variant.randomLessThan) ??
+      animation.variants.find((variant) => variant.otherwise) ??
+      animation.variants[animation.variants.length - 1];
+  }
+
   function consumeWeaponAmmo(profile: QuakeRuntimeWeaponFireProfile): void {
     if (!profile.ammoField || profile.ammoCost <= 0) return;
     consumeAmmo(profile.ammoField, profile.ammoCost);
@@ -769,6 +891,12 @@ export function createQuakeWeaponsController({
       sourceOrigin[1] + direction[1] * profile.range,
       sourceOrigin[2] + direction[2] * profile.range,
     ];
+    showLightningBeam?.({
+      end: sourceEnd,
+      start: sourceOrigin,
+      tempEntity: profile.tempEntity,
+      weapon: profile.weapon,
+    });
     const damageOrigin = weaponQuakeSourceOrigin(controls.getOrigin(), profile.damageSourceZOffsetUnits);
     const damageEndOffset = profile.damageEndForwardOffsetUnits * QUAKE_COLLISION_UNIT_SCALE;
     const damageEnd: Vec3 = [
@@ -822,6 +950,31 @@ export function createQuakeWeaponsController({
       speed: profile.speed,
       velocity: projectileVelocity(profile, aim.direction, up),
     });
+  }
+
+  function addProjectileVisual(projectile: QuakeWeaponProjectile): void {
+    projectile.visual = addProjectileMesh?.(projectile.profile.modelPath, projectile.profile.weapon) ?? null;
+    syncProjectileVisual(projectile);
+  }
+
+  function syncProjectileVisual(projectile: QuakeWeaponProjectile): void {
+    const visual = projectile.visual;
+    if (!visual) return;
+    const velocity = projectile.velocity ?? [
+      projectile.direction[0] * projectile.speed,
+      projectile.direction[1] * projectile.speed,
+      projectile.direction[2] * projectile.speed,
+    ];
+    visual.handle.setTransform({
+      position: projectile.origin,
+      rotation: [0, 0, quakeProjectileRenderYaw((Math.atan2(velocity[1], velocity[0]) * 180) / Math.PI)],
+      scale: visual.scale,
+    });
+  }
+
+  function removeProjectileVisual(projectile: QuakeWeaponProjectile): void {
+    projectile.visual?.handle.remove();
+    projectile.visual = null;
   }
 
   function projectileRightOffsetUnits(profile: QuakeLinearProjectileFireProfile): number {

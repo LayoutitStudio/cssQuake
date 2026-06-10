@@ -73,7 +73,7 @@ import {
   type QuakeFireballEmitter,
   type QuakePointHazard,
 } from "./runtime/fireballs";
-import { distanceSq3, dotVec3, normalizeVec3, subtractVec3 } from "./runtime/math";
+import { crossVec3, distanceSq3, dotVec3, normalizeVec3, subtractVec3 } from "./runtime/math";
 import { createQuakeMenuController } from "./runtime/menu";
 import {
   createQuakeMoversController,
@@ -112,8 +112,17 @@ import {
   quakeTriggerWait,
 } from "./runtime/triggerEffects";
 import { createQuakeTriggersController } from "./runtime/triggers";
-import { createQuakeViewmodelController, type QuakeViewmodelModel } from "./runtime/viewmodel";
-import { createQuakeWeaponsController, type QuakeWeaponFireSoundId } from "./runtime/weapons";
+import {
+  createQuakeViewmodelController,
+  type QuakeViewmodelFireAnimation,
+  type QuakeViewmodelModel,
+} from "./runtime/viewmodel";
+import {
+  createQuakeWeaponsController,
+  type QuakeWeaponFireSoundId,
+  type QuakeWeaponLightningBeamVisual,
+  type QuakeWeaponProjectileVisualHandle,
+} from "./runtime/weapons";
 import {
   createQuakeWorldController,
   injectQuakeWorldAnimations,
@@ -921,8 +930,7 @@ quakeApp.insertBefore(host, viewmodelLayer ?? quakeUi);
 host.tabIndex = 0;
 // PolyCSS controls read scene.host when they are created; keep that target on the inspectable camera node.
 (scene as unknown as { host: HTMLElement }).host = host;
-const sceneElement = scene.cameraEl.querySelector<HTMLElement>(".polycss-scene");
-if (!sceneElement) throw new Error("Quake scene mount requires a PolyCSS scene element.");
+const sceneElement = scene.sceneElement;
 sceneElement.removeAttribute("data-polycss-lighting");
 let quakeFirstPersonControlsMounted = false;
 let quakeCameraLookEnabled = true;
@@ -1152,6 +1160,7 @@ pickups = createQuakePickupController({
 const weapons = createQuakeWeaponsController({
   scene,
   controls,
+  addProjectileMesh: addQuakeWeaponProjectileMesh,
   canUseGameplayInput: canUseQuakeGameplayInput,
   hasViewmodel: viewmodel.hasWeapon,
   getCollisionWorld: () => currentCollisionWorld,
@@ -1177,6 +1186,7 @@ const weapons = createQuakeWeaponsController({
   damagePlayer: (amount) => getPlayer().damage(amount),
   damageMultiplier: quakeWeaponDamageMultiplier,
   onHit: flashQuakeCrosshairHit,
+  showLightningBeam: showQuakeLightningBeam,
   syncCrosshairTarget: queueQuakeCrosshairTargetSync,
 });
 
@@ -1273,6 +1283,8 @@ let quakeSkill = 1;
 let quakeModelPivot = { x: 0, y: 0, z: 0 };
 let quakeLevelLoadTimer: number | null = null;
 let quakeTransitionSerial = 0;
+const quakeLightningBeamHandles = new Set<PolyMeshHandle>();
+const quakeLightningBeamTimers = new Map<PolyMeshHandle, number>();
 let currentMapName = quakeAssetManifest.startMap;
 let quakeAppDisposed = false;
 let quakeAppLoading = true;
@@ -1530,6 +1542,9 @@ const QUAKE_SHAREWARE_REGISTERED = false;
 const QUAKE_TRAP_SPIKE_RANGE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_TRAP_SPIKE_RADIUS = 36 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_TRAP_SPIKE_DAMAGE = 10;
+const QUAKE_LIGHTNING_BEAM_VISUAL_MS = 180;
+const QUAKE_LIGHTNING_BEAM_INNER_RADIUS = 0.018;
+const QUAKE_LIGHTNING_BEAM_OUTER_RADIUS = 0.045;
 const QUAKE_QUAD_DAMAGE_MULTIPLIER = 4;
 const QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH = "progs/v_shot.mdl";
 function makeParseResult(polygons: Polygon[]): ParseResult {
@@ -3134,6 +3149,88 @@ function addQuakeShootableMesh(entity: QuakeEntity, model?: QuakePickupModel, fr
   return handle;
 }
 
+function addQuakeWeaponProjectileMesh(
+  modelPath: string,
+  weapon: QuakeWeaponId,
+): QuakeWeaponProjectileVisualHandle | null {
+  const model = currentPickupModelLibrary?.models[modelPath];
+  if (!model) return null;
+  const frameSet = quakePickupModelRenderBundleFrameSet(model);
+  const handle = frameSet
+    ? mountQuakeRenderBundleFrameSetMesh(sceneElement, frameSet, 0)
+    : mountQuakeRenderBundleMesh(sceneElement, quakePickupModelRenderBundle(model, 0));
+  if (!handle) return null;
+  handle.element.classList.add("player-projectile", `player-projectile-${weapon}`);
+  stripPolyMeshMetadata(handle.element);
+  return {
+    handle,
+    scale: model.renderScale ? 1 / model.renderScale : 1,
+  };
+}
+
+function showQuakeLightningBeam(beam: QuakeWeaponLightningBeamVisual): void {
+  if (beam.tempEntity !== "TE_LIGHTNING2") return;
+  const polygons = quakeLightningBeamPolygons(beam.start, beam.end);
+  if (!polygons.length) return;
+  const handle = scene.add(makeParseResult(polygons), {
+    merge: false,
+    meshResolution: "lossless",
+    excludeFromAutoCenter: true,
+  });
+  handle.element.classList.add("player-lightning-beam", `player-lightning-beam-${beam.weapon}`);
+  handle.element.dataset.tempEntity = beam.tempEntity;
+  stripPolyMeshMetadata(handle.element);
+  quakeLightningBeamHandles.add(handle);
+  const timer = window.setTimeout(() => removeQuakeLightningBeam(handle), QUAKE_LIGHTNING_BEAM_VISUAL_MS);
+  quakeLightningBeamTimers.set(handle, timer);
+}
+
+function removeQuakeLightningBeam(handle: PolyMeshHandle): void {
+  const timer = quakeLightningBeamTimers.get(handle);
+  if (timer !== undefined) window.clearTimeout(timer);
+  quakeLightningBeamTimers.delete(handle);
+  if (!quakeLightningBeamHandles.delete(handle)) return;
+  handle.remove();
+}
+
+function clearQuakeLightningBeams(): void {
+  for (const handle of [...quakeLightningBeamHandles]) removeQuakeLightningBeam(handle);
+}
+
+function quakeLightningBeamPolygons(start: Vec3, end: Vec3): Polygon[] {
+  const delta = subtractVec3(end, start);
+  const length = Math.hypot(delta[0], delta[1], delta[2]);
+  if (length <= COLLISION_EPSILON) return [];
+  const direction = normalizeVec3(delta);
+  const reference: Vec3 = Math.abs(direction[2]) > 0.9 ? [0, 1, 0] : [0, 0, 1];
+  const side = scaleVec3(normalizeVec3(crossVec3(direction, reference)), QUAKE_LIGHTNING_BEAM_OUTER_RADIUS);
+  const up = scaleVec3(normalizeVec3(crossVec3(side, direction)), QUAKE_LIGHTNING_BEAM_INNER_RADIUS);
+  return [
+    lightningBeamQuad(start, end, side, "#d9ffff"),
+    lightningBeamQuad(start, end, up, "#66f8ff"),
+  ];
+}
+
+function lightningBeamQuad(start: Vec3, end: Vec3, offset: Vec3, color: string): Polygon {
+  return {
+    color,
+    vertices: [
+      subtractVec3(start, offset),
+      subtractVec3(end, offset),
+      addVec3(end, offset),
+      addVec3(start, offset),
+    ],
+  };
+}
+
+function addVec3(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+}
+
+function scaleVec3(value: Vec3, scale: number): Vec3 {
+  return [value[0] * scale, value[1] * scale, value[2] * scale];
+}
+
 function addQuakeProceduralShootableMesh(entity: QuakeEntity): PolyMeshHandle | null {
   const polygons = quakeShootableFallbackPolygons(entity);
   if (!polygons.length) return null;
@@ -3238,6 +3335,7 @@ function disposeCurrentScene(): void {
   clearQuakeDamageableBrushes();
   targetSystem.clear();
   clearQuakePointHazards();
+  clearQuakeLightningBeams();
   quakeModelPivot = { x: 0, y: 0, z: 0 };
   quakeMoverCrushDamageAt = new Map();
   quakeMoverSoundModes = new Map();
@@ -3375,8 +3473,8 @@ function applyQuakeSceneCameraAt(origin: Vec3, rotX: number, rotY: number): void
   scene.applyCamera();
 }
 
-function playQuakeWeaponFireFeedback(): void {
-  viewmodel.playFireAnimation();
+function playQuakeWeaponFireFeedback(animation?: QuakeViewmodelFireAnimation): void {
+  viewmodel.playFireAnimation(animation);
   punchQuakeWeaponView();
 }
 

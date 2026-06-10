@@ -99,6 +99,324 @@
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_SetCurrentAmmo",
             "line": 778
+          },
+          "fireAnimation": {
+            "frameIntervalMs": 100,
+            "kind": "sequence",
+            "sourceFunction": "W_Attack",
+            "sourceRefs": [
+              {
+                "sourceFile": "qcc/v101qc/weapons.qc",
+                "functionName": "W_Attack",
+                "line": 911
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axe1",
+                "line": 168
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axe2",
+                "line": 169
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axe3",
+                "line": 170
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axe4",
+                "line": 171
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axeb1",
+                "line": 173
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axeb2",
+                "line": 174
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axeb3",
+                "line": 175
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axeb4",
+                "line": 176
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axec1",
+                "line": 178
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axec2",
+                "line": 179
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axec3",
+                "line": 180
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axec4",
+                "line": 181
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axed1",
+                "line": 183
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axed2",
+                "line": 184
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axed3",
+                "line": 185
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_axed4",
+                "line": 186
+              }
+            ],
+            "variants": [
+              {
+                "startState": "player_axe1",
+                "randomLessThan": 0.25,
+                "frames": [
+                  {
+                    "calls": [],
+                    "frame": "axatt1",
+                    "playerFrameIndex": 119,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axe1",
+                      "line": 168
+                    },
+                    "state": "player_axe1",
+                    "weaponFrame": 1
+                  },
+                  {
+                    "calls": [],
+                    "frame": "axatt2",
+                    "playerFrameIndex": 120,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axe2",
+                      "line": 169
+                    },
+                    "state": "player_axe2",
+                    "weaponFrame": 2
+                  },
+                  {
+                    "calls": [
+                      "W_FireAxe"
+                    ],
+                    "frame": "axatt3",
+                    "playerFrameIndex": 121,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axe3",
+                      "line": 170
+                    },
+                    "state": "player_axe3",
+                    "weaponFrame": 3
+                  },
+                  {
+                    "calls": [],
+                    "frame": "axatt4",
+                    "playerFrameIndex": 122,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axe4",
+                      "line": 171
+                    },
+                    "state": "player_axe4",
+                    "weaponFrame": 4
+                  }
+                ]
+              },
+              {
+                "startState": "player_axeb1",
+                "randomLessThan": 0.5,
+                "frames": [
+                  {
+                    "calls": [],
+                    "frame": "axattb1",
+                    "playerFrameIndex": 125,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axeb1",
+                      "line": 173
+                    },
+                    "state": "player_axeb1",
+                    "weaponFrame": 5
+                  },
+                  {
+                    "calls": [],
+                    "frame": "axattb2",
+                    "playerFrameIndex": 126,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axeb2",
+                      "line": 174
+                    },
+                    "state": "player_axeb2",
+                    "weaponFrame": 6
+                  },
+                  {
+                    "calls": [
+                      "W_FireAxe"
+                    ],
+                    "frame": "axattb3",
+                    "playerFrameIndex": 127,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axeb3",
+                      "line": 175
+                    },
+                    "state": "player_axeb3",
+                    "weaponFrame": 7
+                  },
+                  {
+                    "calls": [],
+                    "frame": "axattb4",
+                    "playerFrameIndex": 128,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axeb4",
+                      "line": 176
+                    },
+                    "state": "player_axeb4",
+                    "weaponFrame": 8
+                  }
+                ]
+              },
+              {
+                "startState": "player_axec1",
+                "randomLessThan": 0.75,
+                "frames": [
+                  {
+                    "calls": [],
+                    "frame": "axattc1",
+                    "playerFrameIndex": 131,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axec1",
+                      "line": 178
+                    },
+                    "state": "player_axec1",
+                    "weaponFrame": 1
+                  },
+                  {
+                    "calls": [],
+                    "frame": "axattc2",
+                    "playerFrameIndex": 132,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axec2",
+                      "line": 179
+                    },
+                    "state": "player_axec2",
+                    "weaponFrame": 2
+                  },
+                  {
+                    "calls": [
+                      "W_FireAxe"
+                    ],
+                    "frame": "axattc3",
+                    "playerFrameIndex": 133,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axec3",
+                      "line": 180
+                    },
+                    "state": "player_axec3",
+                    "weaponFrame": 3
+                  },
+                  {
+                    "calls": [],
+                    "frame": "axattc4",
+                    "playerFrameIndex": 134,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axec4",
+                      "line": 181
+                    },
+                    "state": "player_axec4",
+                    "weaponFrame": 4
+                  }
+                ]
+              },
+              {
+                "startState": "player_axed1",
+                "otherwise": true,
+                "frames": [
+                  {
+                    "calls": [],
+                    "frame": "axattd1",
+                    "playerFrameIndex": 137,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axed1",
+                      "line": 183
+                    },
+                    "state": "player_axed1",
+                    "weaponFrame": 5
+                  },
+                  {
+                    "calls": [],
+                    "frame": "axattd2",
+                    "playerFrameIndex": 138,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axed2",
+                      "line": 184
+                    },
+                    "state": "player_axed2",
+                    "weaponFrame": 6
+                  },
+                  {
+                    "calls": [
+                      "W_FireAxe"
+                    ],
+                    "frame": "axattd3",
+                    "playerFrameIndex": 139,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axed3",
+                      "line": 185
+                    },
+                    "state": "player_axed3",
+                    "weaponFrame": 7
+                  },
+                  {
+                    "calls": [],
+                    "frame": "axattd4",
+                    "playerFrameIndex": 140,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_axed4",
+                      "line": 186
+                    },
+                    "state": "player_axed4",
+                    "weaponFrame": 8
+                  }
+                ]
+              }
+            ]
           }
         },
         "melee": {
@@ -153,6 +471,129 @@
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_SetCurrentAmmo",
             "line": 784
+          },
+          "fireAnimation": {
+            "frameIntervalMs": 100,
+            "kind": "sequence",
+            "sourceFunction": "W_Attack",
+            "sourceRefs": [
+              {
+                "sourceFile": "qcc/v101qc/weapons.qc",
+                "functionName": "W_Attack",
+                "line": 925
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_shot1",
+                "line": 160
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_shot2",
+                "line": 162
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_shot3",
+                "line": 163
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_shot4",
+                "line": 164
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_shot5",
+                "line": 165
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_shot6",
+                "line": 166
+              }
+            ],
+            "variants": [
+              {
+                "startState": "player_shot1",
+                "randomLessThan": 0.25,
+                "frames": [
+                  {
+                    "calls": [],
+                    "frame": "shotatt1",
+                    "playerFrameIndex": 113,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_shot1",
+                      "line": 160
+                    },
+                    "state": "player_shot1",
+                    "muzzleFlash": true,
+                    "weaponFrame": 1
+                  },
+                  {
+                    "calls": [],
+                    "frame": "shotatt2",
+                    "playerFrameIndex": 114,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_shot2",
+                      "line": 162
+                    },
+                    "state": "player_shot2",
+                    "weaponFrame": 2
+                  },
+                  {
+                    "calls": [],
+                    "frame": "shotatt3",
+                    "playerFrameIndex": 115,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_shot3",
+                      "line": 163
+                    },
+                    "state": "player_shot3",
+                    "weaponFrame": 3
+                  },
+                  {
+                    "calls": [],
+                    "frame": "shotatt4",
+                    "playerFrameIndex": 116,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_shot4",
+                      "line": 164
+                    },
+                    "state": "player_shot4",
+                    "weaponFrame": 4
+                  },
+                  {
+                    "calls": [],
+                    "frame": "shotatt5",
+                    "playerFrameIndex": 117,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_shot5",
+                      "line": 165
+                    },
+                    "state": "player_shot5",
+                    "weaponFrame": 5
+                  },
+                  {
+                    "calls": [],
+                    "frame": "shotatt6",
+                    "playerFrameIndex": 118,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_shot6",
+                      "line": 166
+                    },
+                    "state": "player_shot6",
+                    "weaponFrame": 6
+                  }
+                ]
+              }
+            ]
           }
         },
         "hitscan": {
@@ -214,6 +655,129 @@
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_SetCurrentAmmo",
             "line": 791
+          },
+          "fireAnimation": {
+            "frameIntervalMs": 100,
+            "kind": "sequence",
+            "sourceFunction": "W_Attack",
+            "sourceRefs": [
+              {
+                "sourceFile": "qcc/v101qc/weapons.qc",
+                "functionName": "W_Attack",
+                "line": 931
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_shot1",
+                "line": 160
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_shot2",
+                "line": 162
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_shot3",
+                "line": 163
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_shot4",
+                "line": 164
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_shot5",
+                "line": 165
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_shot6",
+                "line": 166
+              }
+            ],
+            "variants": [
+              {
+                "startState": "player_shot1",
+                "randomLessThan": 0.25,
+                "frames": [
+                  {
+                    "calls": [],
+                    "frame": "shotatt1",
+                    "playerFrameIndex": 113,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_shot1",
+                      "line": 160
+                    },
+                    "state": "player_shot1",
+                    "muzzleFlash": true,
+                    "weaponFrame": 1
+                  },
+                  {
+                    "calls": [],
+                    "frame": "shotatt2",
+                    "playerFrameIndex": 114,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_shot2",
+                      "line": 162
+                    },
+                    "state": "player_shot2",
+                    "weaponFrame": 2
+                  },
+                  {
+                    "calls": [],
+                    "frame": "shotatt3",
+                    "playerFrameIndex": 115,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_shot3",
+                      "line": 163
+                    },
+                    "state": "player_shot3",
+                    "weaponFrame": 3
+                  },
+                  {
+                    "calls": [],
+                    "frame": "shotatt4",
+                    "playerFrameIndex": 116,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_shot4",
+                      "line": 164
+                    },
+                    "state": "player_shot4",
+                    "weaponFrame": 4
+                  },
+                  {
+                    "calls": [],
+                    "frame": "shotatt5",
+                    "playerFrameIndex": 117,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_shot5",
+                      "line": 165
+                    },
+                    "state": "player_shot5",
+                    "weaponFrame": 5
+                  },
+                  {
+                    "calls": [],
+                    "frame": "shotatt6",
+                    "playerFrameIndex": 118,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_shot6",
+                      "line": 166
+                    },
+                    "state": "player_shot6",
+                    "weaponFrame": 6
+                  }
+                ]
+              }
+            ]
           }
         },
         "fallback": {
@@ -280,6 +844,36 @@
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_SetCurrentAmmo",
             "line": 798
+          },
+          "fireAnimation": {
+            "frameIntervalMs": 100,
+            "kind": "cycle",
+            "sourceFunction": "W_Attack",
+            "sourceRefs": [
+              {
+                "sourceFile": "qcc/v101qc/weapons.qc",
+                "functionName": "W_Attack",
+                "line": 937
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_nail1",
+                "line": 191
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_nail2",
+                "line": 204
+              }
+            ],
+            "firstWeaponFrame": 1,
+            "lastWeaponFrame": 8,
+            "startState": "player_nail1",
+            "stateNames": [
+              "player_nail1",
+              "player_nail2"
+            ],
+            "wrapAtWeaponFrame": 9
           }
         },
         "projectile": {
@@ -351,6 +945,36 @@
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_SetCurrentAmmo",
             "line": 805
+          },
+          "fireAnimation": {
+            "frameIntervalMs": 100,
+            "kind": "cycle",
+            "sourceFunction": "W_Attack",
+            "sourceRefs": [
+              {
+                "sourceFile": "qcc/v101qc/weapons.qc",
+                "functionName": "W_Attack",
+                "line": 941
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_nail1",
+                "line": 191
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_nail2",
+                "line": 204
+              }
+            ],
+            "firstWeaponFrame": 1,
+            "lastWeaponFrame": 8,
+            "startState": "player_nail1",
+            "stateNames": [
+              "player_nail1",
+              "player_nail2"
+            ],
+            "wrapAtWeaponFrame": 9
           }
         },
         "fallback": {
@@ -413,6 +1037,129 @@
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_SetCurrentAmmo",
             "line": 812
+          },
+          "fireAnimation": {
+            "frameIntervalMs": 100,
+            "kind": "sequence",
+            "sourceFunction": "W_Attack",
+            "sourceRefs": [
+              {
+                "sourceFile": "qcc/v101qc/weapons.qc",
+                "functionName": "W_Attack",
+                "line": 945
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_rocket1",
+                "line": 250
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_rocket2",
+                "line": 252
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_rocket3",
+                "line": 253
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_rocket4",
+                "line": 254
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_rocket5",
+                "line": 255
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_rocket6",
+                "line": 256
+              }
+            ],
+            "variants": [
+              {
+                "startState": "player_rocket1",
+                "randomLessThan": 0.25,
+                "frames": [
+                  {
+                    "calls": [],
+                    "frame": "rockatt1",
+                    "playerFrameIndex": 107,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_rocket1",
+                      "line": 250
+                    },
+                    "state": "player_rocket1",
+                    "muzzleFlash": true,
+                    "weaponFrame": 1
+                  },
+                  {
+                    "calls": [],
+                    "frame": "rockatt2",
+                    "playerFrameIndex": 108,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_rocket2",
+                      "line": 252
+                    },
+                    "state": "player_rocket2",
+                    "weaponFrame": 2
+                  },
+                  {
+                    "calls": [],
+                    "frame": "rockatt3",
+                    "playerFrameIndex": 109,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_rocket3",
+                      "line": 253
+                    },
+                    "state": "player_rocket3",
+                    "weaponFrame": 3
+                  },
+                  {
+                    "calls": [],
+                    "frame": "rockatt4",
+                    "playerFrameIndex": 110,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_rocket4",
+                      "line": 254
+                    },
+                    "state": "player_rocket4",
+                    "weaponFrame": 4
+                  },
+                  {
+                    "calls": [],
+                    "frame": "rockatt5",
+                    "playerFrameIndex": 111,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_rocket5",
+                      "line": 255
+                    },
+                    "state": "player_rocket5",
+                    "weaponFrame": 5
+                  },
+                  {
+                    "calls": [],
+                    "frame": "rockatt6",
+                    "playerFrameIndex": 112,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_rocket6",
+                      "line": 256
+                    },
+                    "state": "player_rocket6",
+                    "weaponFrame": 6
+                  }
+                ]
+              }
+            ]
           }
         },
         "projectile": {
@@ -508,6 +1255,129 @@
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_SetCurrentAmmo",
             "line": 819
+          },
+          "fireAnimation": {
+            "frameIntervalMs": 100,
+            "kind": "sequence",
+            "sourceFunction": "W_Attack",
+            "sourceRefs": [
+              {
+                "sourceFile": "qcc/v101qc/weapons.qc",
+                "functionName": "W_Attack",
+                "line": 951
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_rocket1",
+                "line": 250
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_rocket2",
+                "line": 252
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_rocket3",
+                "line": 253
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_rocket4",
+                "line": 254
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_rocket5",
+                "line": 255
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_rocket6",
+                "line": 256
+              }
+            ],
+            "variants": [
+              {
+                "startState": "player_rocket1",
+                "randomLessThan": 0.25,
+                "frames": [
+                  {
+                    "calls": [],
+                    "frame": "rockatt1",
+                    "playerFrameIndex": 107,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_rocket1",
+                      "line": 250
+                    },
+                    "state": "player_rocket1",
+                    "muzzleFlash": true,
+                    "weaponFrame": 1
+                  },
+                  {
+                    "calls": [],
+                    "frame": "rockatt2",
+                    "playerFrameIndex": 108,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_rocket2",
+                      "line": 252
+                    },
+                    "state": "player_rocket2",
+                    "weaponFrame": 2
+                  },
+                  {
+                    "calls": [],
+                    "frame": "rockatt3",
+                    "playerFrameIndex": 109,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_rocket3",
+                      "line": 253
+                    },
+                    "state": "player_rocket3",
+                    "weaponFrame": 3
+                  },
+                  {
+                    "calls": [],
+                    "frame": "rockatt4",
+                    "playerFrameIndex": 110,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_rocket4",
+                      "line": 254
+                    },
+                    "state": "player_rocket4",
+                    "weaponFrame": 4
+                  },
+                  {
+                    "calls": [],
+                    "frame": "rockatt5",
+                    "playerFrameIndex": 111,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_rocket5",
+                      "line": 255
+                    },
+                    "state": "player_rocket5",
+                    "weaponFrame": 5
+                  },
+                  {
+                    "calls": [],
+                    "frame": "rockatt6",
+                    "playerFrameIndex": 112,
+                    "sourceRef": {
+                      "sourceFile": "qcc/v101qc/player.qc",
+                      "functionName": "player_rocket6",
+                      "line": 256
+                    },
+                    "state": "player_rocket6",
+                    "weaponFrame": 6
+                  }
+                ]
+              }
+            ]
           }
         },
         "projectile": {
@@ -596,6 +1466,36 @@
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_SetCurrentAmmo",
             "line": 826
+          },
+          "fireAnimation": {
+            "frameIntervalMs": 100,
+            "kind": "cycle",
+            "sourceFunction": "W_Attack",
+            "sourceRefs": [
+              {
+                "sourceFile": "qcc/v101qc/weapons.qc",
+                "functionName": "W_Attack",
+                "line": 957
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_light1",
+                "line": 220
+              },
+              {
+                "sourceFile": "qcc/v101qc/player.qc",
+                "functionName": "player_light2",
+                "line": 233
+              }
+            ],
+            "firstWeaponFrame": 1,
+            "lastWeaponFrame": 4,
+            "startState": "player_light1",
+            "stateNames": [
+              "player_light1",
+              "player_light2"
+            ],
+            "wrapAtWeaponFrame": 5
           }
         },
         "fireSound": {

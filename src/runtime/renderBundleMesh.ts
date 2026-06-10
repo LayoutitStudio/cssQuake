@@ -1,5 +1,5 @@
 import {
-  BASE_TILE,
+  buildPolyMeshTransform,
   type Polygon,
   type PolyMeshHandle,
   type Vec3,
@@ -1182,7 +1182,7 @@ export function createQuakeRenderBundleMeshHandle(element: HTMLElement): PolyMes
       if (nextTransform.position !== undefined) transform.position = nextTransform.position;
       if (nextTransform.rotation !== undefined) transform.rotation = nextTransform.rotation;
       if (nextTransform.scale !== undefined) transform.scale = nextTransform.scale;
-      const style = quakeMeshTransformStyle(transform);
+      const style = buildPolyMeshTransform(transform);
       const nextStyle = style ?? "";
       if (nextStyle === appliedTransformStyle) return;
       if (style) {
@@ -1200,25 +1200,4 @@ export function createQuakeRenderBundleMeshHandle(element: HTMLElement): PolyMes
     getPolygons: () => [],
   };
   return handle as PolyMeshHandle;
-}
-
-function quakeMeshTransformStyle(transform: {
-  position?: Vec3;
-  rotation?: Vec3;
-  scale?: number | Vec3;
-}): string | undefined {
-  const scaleX = typeof transform.scale === "number" ? transform.scale : transform.scale?.[0] ?? 1;
-  const scaleY = typeof transform.scale === "number" ? transform.scale : transform.scale?.[1] ?? 1;
-  const scaleZ = typeof transform.scale === "number" ? transform.scale : transform.scale?.[2] ?? 1;
-  const hasScale = scaleX !== 1 || scaleY !== 1 || scaleZ !== 1;
-  const [x, y, z] = transform.position
-    ? [transform.position[1] * BASE_TILE, transform.position[0] * BASE_TILE, transform.position[2] * BASE_TILE]
-    : [0, 0, 0];
-  const parts: string[] = [];
-  if (x !== 0 || y !== 0 || z !== 0) parts.push(`translate3d(${x}px, ${y}px, ${z}px)`);
-  if (transform.rotation?.[0]) parts.push(`rotateY(${-transform.rotation[0]}deg)`);
-  if (transform.rotation?.[1]) parts.push(`rotateX(${-transform.rotation[1]}deg)`);
-  if (transform.rotation?.[2]) parts.push(`rotateZ(${-transform.rotation[2]}deg)`);
-  if (hasScale) parts.push(`scale3d(${scaleX}, ${scaleY}, ${scaleZ})`);
-  return parts.length > 0 ? parts.join(" ") : undefined;
 }
