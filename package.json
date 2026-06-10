@@ -10,6 +10,7 @@
     "dev:trace": "vite --host 127.0.0.1 --port 5177",
     "prepare:quake": "node src/prepare/assets.mjs",
     "prepare:quake:map": "node src/prepare/target.mjs map",
+    "prepare:quake:manifest": "QUAKE_PREPARE_ONLY=manifest node src/prepare/assets.mjs",
     "prepare:quake:model": "node src/prepare/target.mjs model",
     "prepare:quake-logic": "node src/prepare/quakecLogic.mjs",
     "build": "vite build",
