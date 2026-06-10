@@ -103,9 +103,9 @@ interface CapturePoseInput {
 }
 
 function quakePoseFromViewParam(view: string): string {
-  const parts = view.trim().split(/[,_\s]+/).filter(Boolean).map((part) => Number(part));
+  const parts = view.trim().split(/[,\s]+/).filter(Boolean).map((part) => Number(part));
   if ((parts.length !== 5 && parts.length !== 6) || parts.some((part) => !Number.isFinite(part))) {
-    throw new Error("URL view must be x_y_z_pitch_yaw or x_y_z_pitch_yaw_roll.");
+    throw new Error("URL view must be x,y,z,pitch,yaw or x,y,z,pitch,yaw,roll.");
   }
   const roll = parts[5] ?? 0;
   if (Math.abs(roll) > 0.001) {

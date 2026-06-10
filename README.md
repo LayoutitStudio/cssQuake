@@ -37,3 +37,15 @@ The browser does not parse the original PAK or BSP files while the game is runni
 `src/prepare/assets.mjs` downloads the Quake 1.06 shareware archive from `QUAKE_SHAREWARE_URL`, verifies the extracted `resource.1`, extracts `ID1/PAK0.PAK`, parses the original BSP, WAD, MDL, LMP, entity, visibility, collision, HUD, menu, pickup, and weapon data, then writes browser-ready assets under the `build/generated/public/q` folder.
 
 Textures are decoded through the Quake palette into generated PNG assets, animated texture sequences become CSS animation inputs, and episode maps get prebuilt PolyCSS render bundles. Those bundles let the browser attach the prepared world DOM directly instead of rebuilding every surface at startup.
+
+## URL API
+
+cssQuake keeps its shareable game state in small, Quake-native URL parameters. `map=e1m1` opens a map directly, and `view=x,y,z,pitch,yaw,roll` places the player at a Quake-style pose: origin in Quake units, with pitch, yaw, and roll in degrees. Five-part `view=x,y,z,pitch,yaw` URLs are accepted as zero-roll poses.
+
+```text
+https://cssquake.com/?map=e1m1&view=480,-192,72,0,90,0
+```
+
+This makes a URL behave like a lightweight console command for reproducing bugs, sharing exact views, capturing screenshots, and comparing cssQuake against native Quake tools such as vkQuake. Roll must currently be zero because cssQuake does not render camera roll yet; older `viewpos` URLs are intentionally replaced by the native `view` format.
+
+Developer-oriented params such as `debugPolys=1`, `debugFly=1`, `debugPointer=1`, `perspective=...`, and `zoom=...` are kept separate from the core route so debug sessions can be reproduced without turning the URL API into a save system.

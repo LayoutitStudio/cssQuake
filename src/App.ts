@@ -751,7 +751,7 @@ function quakeUrlView(params: URLSearchParams): QuakeUrlView | null {
 }
 
 function quakeUrlNumberParts(rawValue: string): number[] {
-  return rawValue.trim().split(/[,_\s]+/).filter(Boolean).map((part) => Number(part));
+  return rawValue.trim().split(/[,\s]+/).filter(Boolean).map((part) => Number(part));
 }
 
 function normalizeQuakeUrlAngle(value: number): number {
@@ -800,11 +800,16 @@ function quakeUrlFor(mapName: string, view: QuakeCssView | null = null): URL {
   url.searchParams.set("map", mapName);
   url.searchParams.delete("viewpos");
   if (view) {
-    url.searchParams.set("view", quakeUrlViewValue(quakeUrlViewFromCssView(view)));
+    setQuakeUrlViewParam(url, quakeUrlViewValue(quakeUrlViewFromCssView(view)));
   } else {
     url.searchParams.delete("view");
   }
   return url;
+}
+
+function setQuakeUrlViewParam(url: URL, value: string): void {
+  url.searchParams.set("view", value);
+  url.search = url.search.replace(/([?&]view=)[^&]*/, `$1${value}`);
 }
 
 function quakeUrlViewValue(view: QuakeUrlView): string {
@@ -813,7 +818,7 @@ function quakeUrlViewValue(view: QuakeUrlView): string {
     view.pitch,
     view.yaw,
     view.roll,
-  ].map(formatQuakeUrlNumber).join("_");
+  ].map(formatQuakeUrlNumber).join(",");
 }
 
 function formatQuakeUrlNumber(value: number): string {
