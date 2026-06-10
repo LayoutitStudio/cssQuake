@@ -194,9 +194,15 @@ export interface QuakePickupLifecycleAction {
   think?: "SUB_regen";
 }
 
+export interface QuakePickupProgressSnapshot {
+  pickedEntityIndexes: number[];
+}
+
 export interface QuakePickupController {
   addRuntimePickup: (input: QuakeRuntimePickupInput) => boolean;
   clear: () => void;
+  restoreProgress: (snapshot: QuakePickupProgressSnapshot) => void;
+  snapshotProgress: () => QuakePickupProgressSnapshot;
   spawn: (
     entities: QuakeEntity[],
     modelLibrary: QuakePickupModelLibrary | null,
@@ -276,6 +282,46 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     syncVisibility(input.visibilityOrigin);
     startAnimationLoop();
     return true;
+  };
+
+  const snapshotProgress = (): QuakePickupProgressSnapshot => ({
+    pickedEntityIndexes: pickups
+      .filter((pickup) => pickup.picked && !pickup.runtime)
+      .map((pickup) => pickup.entity.index),
+  });
+
+  const restoreProgress = (snapshot: QuakePickupProgressSnapshot): void => {
+    stopAnimationLoop();
+    for (const timer of respawnTimers) globalThis.clearTimeout(timer);
+    respawnTimers = [];
+    for (const timer of removalTimers) globalThis.clearTimeout(timer);
+    removalTimers = [];
+    const pickedEntityIndexes = new Set(
+      Array.isArray(snapshot.pickedEntityIndexes)
+        ? snapshot.pickedEntityIndexes.filter(Number.isInteger)
+        : [],
+    );
+    for (const pickup of [...pickups]) {
+      if (pickup.runtime) {
+        removeRuntimePickup(pickup);
+        continue;
+      }
+      const picked = pickedEntityIndexes.has(pickup.entity.index);
+      if (picked) {
+        pickup.picked = true;
+        pickup.visible = false;
+        if (pickup.handle) {
+          pickup.handle.remove();
+          handles = handles.filter((handle) => handle !== pickup.handle);
+          pickup.handle = null;
+        }
+        continue;
+      }
+      if (pickup.picked) {
+        respawnPickup(pickup);
+      }
+    }
+    startAnimationLoop();
   };
 
   const addPickupState = (input: {
@@ -580,6 +626,8 @@ export function createQuakePickupController(options: QuakePickupControllerOption
   return {
     addRuntimePickup,
     clear,
+    restoreProgress,
+    snapshotProgress,
     spawn,
     syncCollision,
     syncVisibility: (origin: [number, number, number]) => syncVisibility(origin),

@@ -12,7 +12,14 @@ import {
 } from "./constants";
 import type { QuakeHazardDamage } from "./hazards";
 import { markQuakeTrace } from "./debug/traceMarks";
-import { applyQuakeDamageToInventory, createInitialInventory, type QuakePlayerInventory } from "./hud";
+import {
+  applyQuakeDamageToInventory,
+  createInitialInventory,
+  type QuakeInventoryPowerupState,
+  type QuakeKey,
+  type QuakePlayerInventory,
+  type QuakeWeaponId,
+} from "./hud";
 import { distanceSq3, subtractVec3 } from "./math";
 import {
   QUAKE_PMOVE_BACK_SPEED,
@@ -56,6 +63,19 @@ const QUAKE_MOVE_DIRECTION_BITS =
   QUAKE_MOVE_BACK_BIT |
   QUAKE_MOVE_LEFT_BIT |
   QUAKE_MOVE_RIGHT_BIT;
+const QUAKE_PLAYER_PROGRESS_WEAPONS: readonly QuakeWeaponId[] = [
+  "axe",
+  "shotgun",
+  "supershotgun",
+  "nailgun",
+  "supernailgun",
+  "grenadelauncher",
+  "rocketlauncher",
+  "lightning",
+];
+const QUAKE_PLAYER_PROGRESS_KEYS: readonly QuakeKey[] = ["silver", "gold"];
+const QUAKE_PLAYER_PROGRESS_WEAPON_SET = new Set<QuakeWeaponId>(QUAKE_PLAYER_PROGRESS_WEAPONS);
+const QUAKE_PLAYER_PROGRESS_KEY_SET = new Set<QuakeKey>(QUAKE_PLAYER_PROGRESS_KEYS);
 
 function quakeMoveKeyBit(code: string): number {
   if (QUAKE_FORWARD_KEY_CODES.has(code)) return QUAKE_MOVE_FORWARD_BIT;
@@ -65,6 +85,43 @@ function quakeMoveKeyBit(code: string): number {
   if (QUAKE_JUMP_KEY_CODES.has(code)) return QUAKE_MOVE_JUMP_BIT;
   if (QUAKE_SPEED_KEY_CODES.has(code)) return QUAKE_MOVE_SPEED_BIT;
   return 0;
+}
+
+function quakeFiniteProgressNumber(value: unknown, fallback: number): number {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function quakeProgressVec3(value: unknown, fallback: [number, number, number]): [number, number, number] {
+  return Array.isArray(value) && value.length === 3 && value.every(Number.isFinite)
+    ? [value[0], value[1], value[2]]
+    : [...fallback] as [number, number, number];
+}
+
+function quakeProgressWeapon(value: unknown, fallback: QuakeWeaponId): QuakeWeaponId {
+  if (typeof value !== "string") return fallback;
+  return QUAKE_PLAYER_PROGRESS_WEAPON_SET.has(value as QuakeWeaponId)
+    ? value as QuakeWeaponId
+    : fallback;
+}
+
+function quakeProgressWeaponList(values: unknown): QuakeWeaponId[] {
+  if (!Array.isArray(values)) return [];
+  const out: QuakeWeaponId[] = [];
+  for (const value of values) {
+    const weapon = quakeProgressWeapon(value, "axe");
+    if (!out.includes(weapon)) out.push(weapon);
+  }
+  return out;
+}
+
+function quakeProgressKeyList(values: unknown): QuakeKey[] {
+  if (!Array.isArray(values)) return [];
+  const out: QuakeKey[] = [];
+  for (const value of values) {
+    const key = value as QuakeKey;
+    if (QUAKE_PLAYER_PROGRESS_KEY_SET.has(key) && !out.includes(key)) out.push(key);
+  }
+  return out;
 }
 
 export interface QuakePlayerControllerOptions {
@@ -118,7 +175,9 @@ export interface QuakePlayerController {
   push: (velocity: Vec3) => boolean;
   resetInventory: () => void;
   resetForSceneDispose: () => void;
+  restoreProgress: (snapshot: QuakePlayerProgressSnapshot) => void;
   respawn: () => void;
+  snapshotProgress: () => QuakePlayerProgressSnapshot;
   spawn: (spawn: QuakeScene["spawn"]) => void;
   setAnalogMove: (x: number, y: number) => void;
   setCrouching: (crouching: boolean) => void;
@@ -130,6 +189,40 @@ export interface QuakePlayerController {
 
 export interface QuakePlayerDamageFeedback {
   amount: number;
+}
+
+export interface QuakeInventoryPowerupProgressSnapshot {
+  active: true;
+  activationField: string;
+  itemFlag: number;
+  itemFlagExpression: string;
+  itemFlagMutation?: QuakeInventoryPowerupState["itemFlagMutation"];
+  remainingMs: number;
+}
+
+export interface QuakePlayerInventoryProgressSnapshot {
+  health: number;
+  armor: number;
+  armorType: number;
+  itemFlags: number;
+  activeWeapon: QuakeWeaponId;
+  weapons: QuakeWeaponId[];
+  shells: number;
+  nails: number;
+  rockets: number;
+  cells: number;
+  keys: QuakeKey[];
+  powerups: Record<string, QuakeInventoryPowerupProgressSnapshot>;
+}
+
+export interface QuakePlayerProgressSnapshot {
+  crouching: boolean;
+  eyeHeight: number;
+  grounded: boolean;
+  groundZ: number;
+  inventory: QuakePlayerInventoryProgressSnapshot;
+  lastGroundEntityIndex: number | null;
+  origin: [number, number, number];
 }
 
 export interface QuakePlayerMovementDebug {
@@ -201,6 +294,108 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   const resetInventory = (): void => {
     inventory = createInitialInventory();
     options.onInventoryChanged();
+  };
+
+  const snapshotInventoryProgress = (): QuakePlayerInventoryProgressSnapshot => {
+    const now = performance.now();
+    const powerups: Record<string, QuakeInventoryPowerupProgressSnapshot> = {};
+    for (const [finishedField, state] of Object.entries(inventory.powerups)) {
+      const remainingMs = Math.max(0, state.finishedAt - now);
+      if (remainingMs <= 0) continue;
+      powerups[finishedField] = {
+        active: true,
+        activationField: state.activationField,
+        itemFlag: state.itemFlag,
+        itemFlagExpression: state.itemFlagExpression,
+        ...(state.itemFlagMutation ? { itemFlagMutation: state.itemFlagMutation } : {}),
+        remainingMs,
+      };
+    }
+    return {
+      health: inventory.health,
+      armor: inventory.armor,
+      armorType: inventory.armorType,
+      itemFlags: inventory.itemFlags,
+      activeWeapon: inventory.activeWeapon,
+      weapons: [...inventory.weapons],
+      shells: inventory.shells,
+      nails: inventory.nails,
+      rockets: inventory.rockets,
+      cells: inventory.cells,
+      keys: [...inventory.keys],
+      powerups,
+    };
+  };
+
+  const restoreInventoryProgress = (snapshot?: Partial<QuakePlayerInventoryProgressSnapshot>): QuakePlayerInventory => {
+    const next = createInitialInventory();
+    next.health = quakeFiniteProgressNumber(snapshot?.health, next.health);
+    next.armor = quakeFiniteProgressNumber(snapshot?.armor, next.armor);
+    next.armorType = quakeFiniteProgressNumber(snapshot?.armorType, next.armorType);
+    next.itemFlags = quakeFiniteProgressNumber(snapshot?.itemFlags, next.itemFlags);
+    next.shells = quakeFiniteProgressNumber(snapshot?.shells, next.shells);
+    next.nails = quakeFiniteProgressNumber(snapshot?.nails, next.nails);
+    next.rockets = quakeFiniteProgressNumber(snapshot?.rockets, next.rockets);
+    next.cells = quakeFiniteProgressNumber(snapshot?.cells, next.cells);
+    next.weapons = new Set(quakeProgressWeaponList(snapshot?.weapons));
+    if (next.weapons.size === 0) {
+      next.weapons.add("axe");
+      next.weapons.add("shotgun");
+    }
+    next.activeWeapon = quakeProgressWeapon(snapshot?.activeWeapon, next.activeWeapon);
+    if (!next.weapons.has(next.activeWeapon)) next.weapons.add(next.activeWeapon);
+    next.keys = new Set(quakeProgressKeyList(snapshot?.keys));
+    const now = performance.now();
+    next.powerups = {};
+    for (const [finishedField, state] of Object.entries(snapshot?.powerups ?? {})) {
+      const powerup = state as Partial<QuakeInventoryPowerupProgressSnapshot>;
+      if (!powerup || powerup.active !== true || !Number.isFinite(powerup.remainingMs) || (powerup.remainingMs ?? 0) <= 0) continue;
+      next.powerups[finishedField] = {
+        active: true,
+        activationField: typeof powerup.activationField === "string" ? powerup.activationField : "",
+        finishedAt: now + (powerup.remainingMs ?? 0),
+        itemFlag: quakeFiniteProgressNumber(powerup.itemFlag, 0),
+        itemFlagExpression: typeof powerup.itemFlagExpression === "string" ? powerup.itemFlagExpression : "",
+        ...(powerup.itemFlagMutation ? { itemFlagMutation: powerup.itemFlagMutation } : {}),
+      };
+    }
+    return next;
+  };
+
+  const snapshotProgress = (): QuakePlayerProgressSnapshot => ({
+    crouching: currentCrouching,
+    eyeHeight: currentEyeHeight,
+    grounded: currentGrounded,
+    groundZ: currentGroundZ,
+    inventory: snapshotInventoryProgress(),
+    lastGroundEntityIndex,
+    origin: [...lastValidOrigin] as [number, number, number],
+  });
+
+  const restoreProgress = (snapshot: QuakePlayerProgressSnapshot): void => {
+    dead = false;
+    clearHazardTimer();
+    clearDamageFlash();
+    clearMoveInput();
+    stopMoveFrame();
+    moveVelocity = [0, 0, 0];
+    stopFalling();
+    stopPush();
+    moveTime = 0;
+    nextDamageAt = performance.now() + QUAKE_DAMAGE_INTERVAL_MS;
+    currentEyeHeight = Math.max(0.1, quakeFiniteProgressNumber(snapshot.eyeHeight, standingEyeHeight));
+    currentCrouching = Boolean(snapshot.crouching);
+    currentGrounded = snapshot.grounded !== false;
+    lastGroundEntityIndex = Number.isInteger(snapshot.lastGroundEntityIndex) ? snapshot.lastGroundEntityIndex : null;
+    inventory = restoreInventoryProgress(snapshot.inventory);
+    options.onHazardState(null);
+    const origin = quakeProgressVec3(snapshot.origin, lastValidOrigin);
+    const groundZ = quakeFiniteProgressNumber(snapshot.groundZ, origin[2] - currentEyeHeight);
+    setOrigin(origin, groundZ, true, currentGrounded, "reset");
+    options.onInventoryChanged();
+    options.syncViewmodel();
+    options.syncWorldVisibility(true);
+    options.syncCrosshairTarget();
   };
 
   const clearHazardTimer = (): void => {
@@ -1057,7 +1252,9 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     push,
     resetInventory,
     resetForSceneDispose,
+    restoreProgress,
     respawn,
+    snapshotProgress,
     spawn,
     setAnalogMove,
     setCrouching,

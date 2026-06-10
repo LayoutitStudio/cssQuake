@@ -96,6 +96,7 @@ const mainMenuActiveOutputPaths = [
 ];
 const mainMenuCursorOutputPath = path.join(quakeOutputDir, "main-menu-cursor.png");
 const mainMenuBackgroundOutputPath = path.join(quakeOutputDir, "menu-background.png");
+const singlePlayerMenuOutputPath = path.join(quakeOutputDir, "single-player-menu.png");
 const aboutOutputPath = path.join(quakeOutputDir, "about.png");
 const menuPanelTextureOutputPath = path.join(quakeOutputDir, "menu-panel-texture.png");
 const QUAKE_MENU_PANEL_TEXTURE_NAMES = [
@@ -105,6 +106,7 @@ const QUAKE_MENU_PANEL_TEXTURE_NAMES = [
   "wizmet1_2",
 ];
 const menuTitleLevelSelectOutputPath = path.join(quakeOutputDir, "menu-title-level-select.png");
+const menuTitleSinglePlayerOutputPath = path.join(quakeOutputDir, "menu-title-single-player.png");
 const menuTitleOptionsOutputPath = path.join(quakeOutputDir, "menu-title-options.png");
 const menuTitleHelpOutputPath = path.join(quakeOutputDir, "menu-title-help.png");
 const concharsOutputPath = path.join(quakeOutputDir, "conchars.png");
@@ -842,12 +844,14 @@ try {
     }
     await writeFile(mainMenuCursorOutputPath, await buildQuakeMainMenuCursorPng(uiAssets));
     await writeFile(mainMenuBackgroundOutputPath, await buildLooseQpicPng(uiAssets, sourcePortConbackSourcePath));
+    await writeFile(singlePlayerMenuOutputPath, await buildPakQpicPng(uiAssets, "gfx/sp_menu.lmp"));
     await writeFile(aboutOutputPath, await buildQuakeAboutPng(uiAssets));
     await writeFile(menuPanelTextureOutputPath, await buildQuakeMenuPanelTexturePng(menuPanelTextureMaps));
     await writeFile(menuTitleLevelSelectOutputPath, await buildCustomMenuTitlePng(menuTitleLevelSelectSourcePath, {
       height: 20,
       paletteColors: menuTitlePaletteColors,
     }));
+    await writeFile(menuTitleSinglePlayerOutputPath, await buildPakQpicPng(uiAssets, "gfx/ttl_sgl.lmp"));
     await writeFile(menuTitleOptionsOutputPath, await buildPakQpicPng(uiAssets, "gfx/p_option.lmp"));
     await writeFile(menuTitleHelpOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 1, 60, 75, 20));
     await writeFile(concharsOutputPath, await buildQuakeConcharsPng(uiAssets));
@@ -924,9 +928,11 @@ try {
       console.log(`Wrote ${path.relative(projectRoot, outputPath)}`);
     }
     console.log(`Wrote ${path.relative(projectRoot, mainMenuCursorOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, singlePlayerMenuOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, aboutOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, menuPanelTextureOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, menuTitleLevelSelectOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, menuTitleSinglePlayerOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, menuTitleOptionsOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, menuTitleHelpOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, concharsOutputPath)}`);

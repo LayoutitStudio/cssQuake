@@ -19,6 +19,16 @@ export interface QuakeCounterActivationResult {
   remaining: number;
 }
 
+export interface QuakeTargetCounterProgressEntry {
+  entityIndex: number;
+  remaining: number;
+}
+
+export interface QuakeTargetsProgressSnapshot {
+  disabledEntityIndexes: number[];
+  triggerCounters: QuakeTargetCounterProgressEntry[];
+}
+
 export interface QuakeTargetsController {
   clear: () => void;
   setup: (runtime: QuakeEntityRuntimeManifest, gameLogic?: QuakeGameLogicFacts | null) => void;
@@ -28,6 +38,8 @@ export interface QuakeTargetsController {
   disableEntity: (entityIndex: number) => void;
   isDisabled: (entityIndex: number) => boolean;
   activateCounter: (entity: QuakeEntity) => QuakeCounterActivationResult | null;
+  restoreProgress: (snapshot: QuakeTargetsProgressSnapshot) => void;
+  snapshotProgress: () => QuakeTargetsProgressSnapshot;
 }
 
 export function createQuakeTargetsController(options: QuakeTargetsControllerOptions): QuakeTargetsController {
@@ -59,6 +71,30 @@ export function createQuakeTargetsController(options: QuakeTargetsControllerOpti
     );
     triggerTargetUseFacts = quakeTriggerTargetUseFacts(gameLogic);
     triggerCounterCounts = quakeTriggerCounterCounts(runtime, gameLogic);
+  };
+
+  const snapshotProgress = (): QuakeTargetsProgressSnapshot => ({
+    disabledEntityIndexes: [...disabledEntities],
+    triggerCounters: [...triggerCounterCounts].map(([entityIndex, remaining]) => ({
+      entityIndex,
+      remaining,
+    })),
+  });
+
+  const restoreProgress = (snapshot: QuakeTargetsProgressSnapshot): void => {
+    for (const timer of pendingUseTimers) window.clearTimeout(timer);
+    pendingUseTimers = [];
+    disabledEntities = new Set(
+      Array.isArray(snapshot.disabledEntityIndexes)
+        ? snapshot.disabledEntityIndexes.filter(Number.isInteger)
+        : [],
+    );
+    for (const entry of Array.isArray(snapshot.triggerCounters) ? snapshot.triggerCounters : []) {
+      if (!Number.isInteger(entry.entityIndex) || !Number.isFinite(entry.remaining)) continue;
+      if (triggerCounterCounts.has(entry.entityIndex)) {
+        triggerCounterCounts.set(entry.entityIndex, Math.max(0, Math.round(entry.remaining)));
+      }
+    }
   };
 
   const entityIndexesFor = (targetname: string): number[] => (
@@ -179,6 +215,8 @@ export function createQuakeTargetsController(options: QuakeTargetsControllerOpti
     disableEntity,
     isDisabled,
     activateCounter,
+    restoreProgress,
+    snapshotProgress,
   };
 }
 

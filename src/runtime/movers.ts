@@ -76,6 +76,22 @@ export interface QuakeMoversDebugStats {
   movers: QuakeMoverDebugState[];
 }
 
+export interface QuakeMoverProgressEntry {
+  entityIndex: number;
+  lastOffset: Vec3;
+  mode: QuakeMoverMode;
+  offset: Vec3;
+  pathCurrentTarget?: string;
+  pathNextTarget?: string;
+  targetFired: boolean;
+  targetedPlatPrimed: boolean;
+  waitRemainingMs: number | null;
+}
+
+export interface QuakeMoversProgressSnapshot {
+  movers: QuakeMoverProgressEntry[];
+}
+
 interface QuakeDoorTriggerField {
   entityIndex: number;
   modelIndex: number;
@@ -111,6 +127,8 @@ export interface QuakeMoversController {
   activateEntity: (entityIndex: number, sourceEntityIndex?: number) => boolean;
   activateGroup: (state: QuakeMoverState) => boolean;
   forceDoorsDownAfter: (targetName: string, holdMs: number) => number;
+  restoreProgress: (snapshot: QuakeMoversProgressSnapshot) => void;
+  snapshotProgress: () => QuakeMoversProgressSnapshot;
   debugStats: () => QuakeMoversDebugStats;
   touchingDoorTriggerFields: (origin: [number, number, number], eyeHeight: number) => QuakeTouchedTrigger[];
 }
@@ -259,6 +277,60 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
 
   const moverLoopActive = (state: QuakeMoverState): boolean => {
     return state.mode === "opening" || state.mode === "closing" || (state.mode === "open" && state.waitUntil !== Infinity);
+  };
+
+  const snapshotProgress = (): QuakeMoversProgressSnapshot => {
+    const now = performance.now();
+    return {
+      movers: [...movers.values()].map((state) => {
+        const snapshot: QuakeMoverProgressEntry = {
+          entityIndex: state.entity.index,
+          lastOffset: [...state.lastOffset] as Vec3,
+          mode: state.mode,
+          offset: [...state.offset] as Vec3,
+          targetFired: state.targetFired,
+          targetedPlatPrimed: state.targetedPlatPrimed,
+          waitRemainingMs: state.waitUntil === Infinity ? null : Math.max(0, state.waitUntil - now),
+        };
+        if (state.pathCurrentTarget !== undefined) snapshot.pathCurrentTarget = state.pathCurrentTarget;
+        if (state.pathNextTarget !== undefined) snapshot.pathNextTarget = state.pathNextTarget;
+        return snapshot;
+      }),
+    };
+  };
+
+  const restoreProgress = (snapshot: QuakeMoversProgressSnapshot): void => {
+    if (moverFrame !== null) {
+      window.cancelAnimationFrame(moverFrame);
+      moverFrame = null;
+    }
+    moverTime = 0;
+    moverPausedAt = 0;
+    const now = performance.now();
+    for (const entry of Array.isArray(snapshot.movers) ? snapshot.movers : []) {
+      const state = movers.get(entry.entityIndex);
+      if (!state) continue;
+      state.offset = quakeMoverProgressVec3(entry.offset, state.offset);
+      state.lastOffset = quakeMoverProgressVec3(entry.lastOffset, state.lastOffset);
+      state.mode = quakeMoverProgressMode(entry.mode, state.mode);
+      state.targetedPlatPrimed = Boolean(entry.targetedPlatPrimed);
+      state.targetFired = Boolean(entry.targetFired);
+      state.waitUntil = entry.waitRemainingMs === null
+        ? Infinity
+        : now + Math.max(0, Number.isFinite(entry.waitRemainingMs) ? entry.waitRemainingMs : 0);
+      if (typeof entry.pathCurrentTarget === "string") {
+        state.pathCurrentTarget = entry.pathCurrentTarget;
+      } else {
+        delete state.pathCurrentTarget;
+      }
+      if (typeof entry.pathNextTarget === "string") {
+        state.pathNextTarget = entry.pathNextTarget;
+      } else {
+        delete state.pathNextTarget;
+      }
+      options.applyState(state, false);
+    }
+    if ([...movers.values()].some(moverLoopActive)) startLoop();
   };
 
   const tickMovers = (_frameNow: number): void => {
@@ -549,6 +621,8 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     activateEntity,
     activateGroup,
     forceDoorsDownAfter,
+    restoreProgress,
+    snapshotProgress,
     debugStats: () => ({
       moverCount: movers.size,
       activeMoverCount: [...movers.values()].filter(moverLoopActive).length,
@@ -567,6 +641,18 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
     }),
     touchingDoorTriggerFields,
   };
+}
+
+function quakeMoverProgressVec3(value: Vec3, fallback: Vec3): Vec3 {
+  return Array.isArray(value) && value.length === 3 && value.every(Number.isFinite)
+    ? [value[0], value[1], value[2]]
+    : [...fallback] as Vec3;
+}
+
+function quakeMoverProgressMode(value: string, fallback: QuakeMoverMode): QuakeMoverMode {
+  return value === "closed" || value === "opening" || value === "open" || value === "closing"
+    ? value
+    : fallback;
 }
 
 function isQuakeMoverEntity(classname: string): boolean {

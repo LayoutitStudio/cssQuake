@@ -1694,6 +1694,23 @@
             </span>
           </span>
         </div>
+        <section id="quake-single-player-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-single-player-title" tabindex="-1" hidden>
+          <div id="quake-single-player-card" class="quake-menu-card" role="document">
+            <header class="quake-menu-panel-header">
+              <h1 id="quake-single-player-title" class="quake-menu-panel-title">
+                <img src="/q/menu-title-single-player.png" width="128" height="24" alt="Single Player" />
+              </h1>
+            </header>
+            <div id="quake-single-player-list" class="quake-single-player-list" aria-label="Single player actions">
+              <button class="quake-single-player-button quake-single-player-button-new-game" type="button" data-quake-single-player-action="new-game" aria-label="New Game"></button>
+              <button class="quake-single-player-button quake-single-player-button-load" type="button" data-quake-single-player-action="load" aria-label="Load" disabled></button>
+              <button class="quake-single-player-button quake-single-player-button-save" type="button" data-quake-single-player-action="save" aria-label="Save" disabled></button>
+            </div>
+            <nav id="quake-single-player-actions" class="quake-menu-actions" aria-label="Single player actions">
+              <button id="quake-single-player-back" class="quake-bm-label quake-bm-alt" type="button">Back</button>
+            </nav>
+          </div>
+        </section>
         <section id="quake-level-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-level-title" tabindex="-1" hidden>
           <div id="quake-level-card" class="quake-menu-card" role="document">
             <header class="quake-menu-panel-header">

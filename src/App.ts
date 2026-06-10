@@ -81,6 +81,7 @@ import {
   quakeDoorTerminalState,
   quakeMoverBlockDamage,
   quakeMoverBlockDamageCooldownMs,
+  type QuakeMoversProgressSnapshot,
   type QuakeMoverState,
 } from "./runtime/movers";
 import { createQuakeMonsterStateRunner } from "./runtime/quakeMonsterStateRunner";
@@ -91,11 +92,13 @@ import {
   type QuakeShootablesDebugStats,
   type QuakeShootablesControllerOptions,
   type QuakeShootableBounds,
+  type QuakeShootablesProgressSnapshot,
 } from "./runtime/shootables";
 import { quakeSolidGateActivation } from "./runtime/solidGates";
 import {
   createQuakeTargetsController,
   type QuakeCounterActivationResult,
+  type QuakeTargetsProgressSnapshot,
 } from "./runtime/targets";
 import { createQuakeTextController } from "./runtime/text";
 import {
@@ -128,11 +131,16 @@ import {
   quakePickupModelRenderBundle,
   quakePickupModelPath,
   quakePickupPolygons,
+  type QuakePickupProgressSnapshot,
   type QuakePickupModel,
   type QuakePickupModelLibrary,
   type QuakeProgramMetadata,
 } from "./runtime/pickups";
-import { createQuakePlayerController, type QuakePlayerDamageFeedback } from "./runtime/player";
+import {
+  createQuakePlayerController,
+  type QuakePlayerDamageFeedback,
+  type QuakePlayerProgressSnapshot,
+} from "./runtime/player";
 import {
   mountQuakeRenderBundleFrameSetMesh,
   mountQuakeRenderBundleMesh,
@@ -152,6 +160,7 @@ const viewmodelLayer = document.getElementById("quake-viewmodel-layer") as HTMLE
 const mainMenu = document.getElementById("quake-main-menu") as HTMLElement | null;
 const mainMenuArt = document.getElementById("quake-main-menu-art") as HTMLElement | null;
 const versionLabel = document.getElementById("cssquake-version") as HTMLElement | null;
+const singlePlayerPanel = document.getElementById("quake-single-player-panel") as HTMLElement | null;
 const levelPanel = document.getElementById("quake-level-panel") as HTMLElement | null;
 const levelList = document.getElementById("quake-level-list") as HTMLElement | null;
 const aboutPanel = document.getElementById("quake-about-panel") as HTMLElement | null;
@@ -484,6 +493,37 @@ interface QuakeMapLoadOptions {
   urlMode?: QuakeUrlUpdateMode;
   resumeGameplay?: boolean;
   view?: QuakeUrlView | null;
+}
+
+const CSSQUAKE_SAVE_SLOT_VERSION = 1;
+const CSSQUAKE_SAVE_SLOT_KEY = "cssquake.save.v1";
+
+interface CssQuakeProgressViewSnapshot {
+  origin: [number, number, number];
+  rotX: number;
+  rotY: number;
+}
+
+interface CssQuakeDamageableBrushProgressEntry {
+  entityIndex: number;
+  health: number;
+}
+
+interface CssQuakeDamageableBrushProgressSnapshot {
+  brushes: CssQuakeDamageableBrushProgressEntry[];
+}
+
+interface CssQuakeSaveSlotV1 {
+  version: typeof CSSQUAKE_SAVE_SLOT_VERSION;
+  savedAt: number;
+  mapName: string;
+  view: CssQuakeProgressViewSnapshot;
+  damageableBrushes?: CssQuakeDamageableBrushProgressSnapshot;
+  player: QuakePlayerProgressSnapshot;
+  pickups: QuakePickupProgressSnapshot;
+  shootables: QuakeShootablesProgressSnapshot;
+  movers: QuakeMoversProgressSnapshot;
+  targets: QuakeTargetsProgressSnapshot;
 }
 
 type QuakePointerTraceValue = string | number | boolean | null;
@@ -956,14 +996,19 @@ const menu = createQuakeMenuController({
   controls,
   mainMenu,
   mainMenuArt,
+  singlePlayerPanel,
   levelPanel,
   aboutPanel,
   optionsPanel,
   debugPanel: debugMenuPanel,
   onSelectNewGame: startQuakeNewGame,
+  onLoadGame: loadCssQuakeProgress,
+  onSaveGame: saveCssQuakeProgress,
   onSelectLevel: loadQuakeMap,
   onSelectDebug: handleQuakeMenuDebugToggle,
   onSelectQuit: quitQuakeToMainMenu,
+  canLoadGame: canLoadCssQuakeProgress,
+  canSaveGame: canSaveCssQuakeProgress,
   isQuitEnabled: () => quakeGameplayStarted,
   onMenuPauseChange: setQuakeGamePaused,
   onResumeMainMenuFromEscape: suppressQuakeMainMenuOnResumeControlsEnd,
@@ -1226,6 +1271,200 @@ let disposeStatsOverlay: (() => void) | null = null;
 let quakeSoundManifestPromise: Promise<void> | null = null;
 let quakeGamePaused = false;
 let quakeGamePausedAt = 0;
+
+function cssQuakeProgressStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function readCssQuakeSaveSlot(): CssQuakeSaveSlotV1 | null {
+  const storage = cssQuakeProgressStorage();
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(CSSQUAKE_SAVE_SLOT_KEY);
+    if (!raw) return null;
+    const slot = JSON.parse(raw) as unknown;
+    return isCssQuakeSaveSlotV1(slot) ? slot : null;
+  } catch (error) {
+    console.warn("Could not read cssQuake save slot.", error);
+    return null;
+  }
+}
+
+function isCssQuakeSaveSlotV1(value: unknown): value is CssQuakeSaveSlotV1 {
+  if (!value || typeof value !== "object") return false;
+  const slot = value as Partial<CssQuakeSaveSlotV1>;
+  return slot.version === CSSQUAKE_SAVE_SLOT_VERSION &&
+    typeof slot.mapName === "string" &&
+    slot.mapName.trim().length > 0 &&
+    Number.isFinite(slot.savedAt) &&
+    isCssQuakeProgressViewSnapshot(slot.view) &&
+    isCssQuakeObject(slot.player) &&
+    isCssQuakeObject(slot.pickups) &&
+    isCssQuakeObject(slot.shootables) &&
+    isCssQuakeObject(slot.movers) &&
+    isCssQuakeObject(slot.targets);
+}
+
+function isCssQuakeObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object");
+}
+
+function isCssQuakeProgressViewSnapshot(value: unknown): value is CssQuakeProgressViewSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const view = value as Partial<CssQuakeProgressViewSnapshot>;
+  return Array.isArray(view.origin) &&
+    view.origin.length === 3 &&
+    view.origin.every(Number.isFinite) &&
+    Number.isFinite(view.rotX) &&
+    Number.isFinite(view.rotY);
+}
+
+function canLoadCssQuakeProgress(): boolean {
+  const slot = readCssQuakeSaveSlot();
+  return Boolean(slot && quakeSceneUrl(slot.mapName));
+}
+
+function canSaveCssQuakeProgress(): boolean {
+  return Boolean(
+    currentResult &&
+    currentCollisionWorld &&
+    quakeGameplayStarted &&
+    !quakeAppLoading &&
+    !quakePlayerDead &&
+    !document.body.classList.contains("quake-level-complete") &&
+    quakeLevelLoadTimer === null,
+  );
+}
+
+function createCssQuakeSaveSlot(): CssQuakeSaveSlotV1 | null {
+  if (!canSaveCssQuakeProgress()) return null;
+  const origin = getPlayer().currentOrigin();
+  return {
+    version: CSSQUAKE_SAVE_SLOT_VERSION,
+    savedAt: Date.now(),
+    mapName: currentMapName,
+    view: {
+      origin: [...origin] as [number, number, number],
+      rotX: Number.isFinite(scene.camera.state.rotX) ? scene.camera.state.rotX as number : 88,
+      rotY: Number.isFinite(scene.camera.state.rotY) ? scene.camera.state.rotY as number : 270,
+    },
+    damageableBrushes: snapshotCssQuakeDamageableBrushProgress(),
+    player: getPlayer().snapshotProgress(),
+    pickups: getPickups().snapshotProgress(),
+    shootables: shootables.snapshotProgress(),
+    movers: movers.snapshotProgress(),
+    targets: targetSystem.snapshotProgress(),
+  };
+}
+
+function saveCssQuakeProgress(): void {
+  const slot = createCssQuakeSaveSlot();
+  if (!slot) {
+    showQuakeNotifyText("Nothing to save");
+    return;
+  }
+  const storage = cssQuakeProgressStorage();
+  if (!storage) {
+    showQuakeNotifyText("Could not save game");
+    return;
+  }
+  try {
+    storage.setItem(CSSQUAKE_SAVE_SLOT_KEY, JSON.stringify(slot));
+    markQuakeTrace("progress-save", { mapName: slot.mapName, savedAt: slot.savedAt });
+    showQuakeNotifyText("Game saved");
+  } catch (error) {
+    console.error("Could not save cssQuake progress.", error);
+    showQuakeNotifyText("Could not save game");
+  }
+}
+
+function snapshotCssQuakeDamageableBrushProgress(): CssQuakeDamageableBrushProgressSnapshot {
+  return {
+    brushes: [...quakeDamageableBrushHealth].map(([entityIndex, health]) => ({
+      entityIndex,
+      health,
+    })),
+  };
+}
+
+function restoreCssQuakeDamageableBrushProgress(snapshot: CssQuakeDamageableBrushProgressSnapshot | undefined): void {
+  for (const timer of quakeDamageableBrushResetTimers) window.clearTimeout(timer);
+  quakeDamageableBrushResetTimers = [];
+  const savedHealth = new Map<number, number>();
+  for (const entry of Array.isArray(snapshot?.brushes) ? snapshot.brushes : []) {
+    if (!Number.isInteger(entry.entityIndex) || !Number.isFinite(entry.health)) continue;
+    savedHealth.set(entry.entityIndex, Math.max(1, entry.health));
+  }
+  for (const entity of entityByIndex.values()) {
+    if (!isQuakeDamageableBrushEntity(entity)) continue;
+    if (targetSystem.isDisabled(entity.index)) {
+      quakeDamageableBrushHealth.delete(entity.index);
+      continue;
+    }
+    quakeDamageableBrushHealth.set(
+      entity.index,
+      savedHealth.get(entity.index) ?? quakeDamageableBrushMaxHealth(entity),
+    );
+  }
+}
+
+async function loadCssQuakeProgress(): Promise<void> {
+  const slot = readCssQuakeSaveSlot();
+  if (!slot || !quakeSceneUrl(slot.mapName)) {
+    showQuakeNotifyText("No saved game");
+    return;
+  }
+  clearQuakeAttackInput();
+  clearQuakeMoveInput();
+  clearQuakeMobileMoveInput();
+  if (!currentResult || currentMapName !== slot.mapName) {
+    await loadQuakeMap(slot.mapName, {
+      loadingStatus: "Loading save",
+      resumeGameplay: false,
+      urlMode: "push",
+    });
+  }
+  if (!currentResult || currentMapName !== slot.mapName) return;
+  applyCssQuakeSaveSlot(slot);
+  markQuakeTrace("progress-load", { mapName: slot.mapName, savedAt: slot.savedAt });
+  showQuakeNotifyText("Game loaded");
+}
+
+function applyCssQuakeSaveSlot(slot: CssQuakeSaveSlotV1): void {
+  clearQuakeLevelComplete();
+  clearQuakePlayerDeath();
+  clearQuakeAttackInput();
+  clearQuakeMoveInput();
+  clearQuakeMobileMoveInput();
+  clearQuakeCrouchInput();
+  clearQuakeWeaponViewPunch(false);
+  clearQuakeCrosshairHit();
+  clearQuakeCrosshairTarget();
+  clearQuakeBonusOverlay();
+  clearQuakeMegahealthRot();
+  for (const timer of quakePowerupTimers.values()) window.clearTimeout(timer);
+  quakePowerupTimers = new Map();
+  triggerSystem.resetActive();
+  weapons.reset();
+  targetSystem.restoreProgress(slot.targets);
+  restoreCssQuakeDamageableBrushProgress(slot.damageableBrushes);
+  movers.restoreProgress(slot.movers);
+  getPickups().restoreProgress(slot.pickups);
+  shootables.restoreProgress(slot.shootables);
+  getPlayer().restoreProgress(slot.player);
+  syncSceneCameraAt(getPlayer().currentOrigin(), slot.view.rotX, slot.view.rotY);
+  rescheduleQuakePowerupTimers();
+  syncQuakeHud();
+  viewmodel.syncTransform();
+  world.syncVisibility(true);
+  shootables.syncVisibility(getPlayer().currentOrigin(), true);
+  syncQuakeCrosshairTarget();
+  setQuakeGameplayStarted(true);
+}
 
 function setQuakeGameplayStarted(started: boolean): void {
   quakeGameplayStarted = started;

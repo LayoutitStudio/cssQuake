@@ -87,6 +87,8 @@ export interface QuakeShootablesController {
   damage(entityIndex: number, amount: number): boolean;
   destroy(entityIndex: number): boolean;
   firstMonsterOverlappingBounds(bounds: QuakeShootableBounds): number | null;
+  restoreProgress(snapshot: QuakeShootablesProgressSnapshot): void;
+  snapshotProgress(): QuakeShootablesProgressSnapshot;
   syncMonsterRuntime(): void;
   resolvePlayerCollision(
     result: QuakeCollisionResult,
@@ -99,6 +101,19 @@ export interface QuakeShootablesController {
 }
 
 type QuakeShootableCollisionOriginValidator = (origin: [number, number, number]) => boolean;
+
+export interface QuakeShootableProgressEntry {
+  dead: boolean;
+  entityIndex: number;
+  health: number;
+  origin: Vec3;
+  yaw: number;
+}
+
+export interface QuakeShootablesProgressSnapshot {
+  destroyedEntityIndexes?: number[];
+  shootables: QuakeShootableProgressEntry[];
+}
 
 export interface QuakeShootablesControllerOptions {
   addMesh(entity: QuakeEntity, model?: QuakePickupModel, frameIndex?: number): PolyMeshHandle | null;
@@ -511,6 +526,7 @@ export function createQuakeShootablesController({
   let animationFramePrewarmIdleHandle: number | null = null;
   let visibilityChurn = createQuakeShootablesVisibilityChurnStats();
   let lastVisibilitySelectionKey = "";
+  let destroyedEntityIndexes = new Set<number>();
 
   function clear(): void {
     stopEnemyLoop();
@@ -533,6 +549,7 @@ export function createQuakeShootablesController({
     deathOutputHandles = [];
     for (const shootable of shootables.values()) removeShootableHandles(shootable);
     shootables = new Map();
+    destroyedEntityIndexes = new Set();
     for (const projectile of enemyProjectiles) projectile.handle?.remove();
     enemyProjectiles = [];
     currentModelLibrary = null;
@@ -550,6 +567,7 @@ export function createQuakeShootablesController({
   ): void {
     clear();
     currentModelLibrary = modelLibrary;
+    destroyedEntityIndexes = new Set();
     monsterPathCornersByTargetname = buildMonsterPathCornerIndex(entities);
     for (const entity of entities) {
       if (!entity.origin || !shouldSpawn(entity)) continue;
@@ -909,6 +927,7 @@ export function createQuakeShootablesController({
     const shootable = shootables.get(entityIndex);
     if (!shootable || shootable.dead) return false;
     shootable.dead = true;
+    destroyedEntityIndexes.add(entityIndex);
     applyShootableDeathRadiusDamage(shootable, context);
     clearEnemyAttackState(shootable);
     const deathAnimationMs = playEnemyDeathAnimation(shootable, performance.now());
@@ -1061,6 +1080,71 @@ export function createQuakeShootablesController({
     }
   }
 
+  function snapshotProgress(): QuakeShootablesProgressSnapshot {
+    return {
+      destroyedEntityIndexes: [...destroyedEntityIndexes],
+      shootables: [...shootables.values()].map((shootable) => ({
+        dead: shootable.dead,
+        entityIndex: shootable.entity.index,
+        health: shootable.health,
+        origin: [...shootable.origin] as Vec3,
+        yaw: shootable.yaw,
+      })),
+    };
+  }
+
+  function restoreProgress(snapshot: QuakeShootablesProgressSnapshot): void {
+    stopEnemyLoop();
+    clearEnemyRuntime();
+    cancelShootablePrewarmDrain();
+    cancelAnimationFramePrewarmDrain();
+    desiredPrewarmIndexes = new Set();
+    prewarmQueue = [];
+    queuedPrewarmIndexes = new Set();
+    animationFramePrewarmQueue = [];
+    queuedAnimationFramePrewarms = new Set();
+    for (const timer of deathTimers) window.clearTimeout(timer);
+    deathTimers = [];
+    for (const output of deathOutputHandles) {
+      window.clearTimeout(output.timer);
+      output.handle.remove();
+    }
+    visibilityChurn.totalMeshHandlesRemoved += deathOutputHandles.length;
+    deathOutputHandles = [];
+    const entries = new Map<number, QuakeShootableProgressEntry>();
+    for (const entry of Array.isArray(snapshot.shootables) ? snapshot.shootables : []) {
+      if (Number.isInteger(entry.entityIndex)) entries.set(entry.entityIndex, entry);
+    }
+    destroyedEntityIndexes = new Set(
+      Array.isArray(snapshot.destroyedEntityIndexes)
+        ? snapshot.destroyedEntityIndexes.filter(Number.isInteger)
+        : [],
+    );
+    for (const shootable of shootables.values()) {
+      const entry = entries.get(shootable.entity.index);
+      resetShootableEnemyRuntime(shootable);
+      const destroyed = destroyedEntityIndexes.has(shootable.entity.index);
+      if (entry) {
+        shootable.origin = quakeShootableProgressVec3(entry.origin, shootable.origin);
+        shootable.leafIndex = leafIndexAt(shootable.origin);
+        shootable.yaw = Number.isFinite(entry.yaw) ? entry.yaw : shootable.yaw;
+        shootable.health = Number.isFinite(entry.health) ? entry.health : shootable.health;
+      }
+      shootable.dead = destroyed || Boolean(entry?.dead) || shootable.health <= 0;
+      clearEnemyAttackState(shootable);
+      if (shootable.dead) {
+        shootable.health = Math.min(0, shootable.health);
+        removeShootableHandles(shootable);
+        continue;
+      }
+      syncShootableTransform(shootable);
+      syncShootableLifecycleClassesForShootable(shootable);
+      syncShootableEnemyDatasets(shootable);
+    }
+    lastVisibilitySelectionKey = "";
+    syncMonsterRuntime();
+  }
+
   function debugStats(): QuakeShootablesDebugStats {
     const snapshot = shootableVisibilitySnapshot();
     let deadShootables = 0;
@@ -1104,6 +1188,15 @@ export function createQuakeShootablesController({
     setShootableVisible(shootable, true);
     syncShootableTransform(shootable);
     return shootable.visible;
+  }
+
+  function resetShootableEnemyRuntime(shootable: QuakeShootableState): void {
+    if (!quakeMonsterUsesEnemyRuntime(shootable.entity)) return;
+    shootable.enemy = createEnemyState(
+      shootable.entity.index,
+      createMonsterStateRunner?.(shootable.entity.classname) ?? null,
+      initialMonsterMovetarget(shootable.entity),
+    );
   }
 
   function shootableVisibilitySnapshot(): QuakeShootablesVisibilitySnapshot {
@@ -4564,11 +4657,19 @@ export function createQuakeShootablesController({
     damage,
     destroy,
     firstMonsterOverlappingBounds,
+    restoreProgress,
+    snapshotProgress,
     syncMonsterRuntime,
     resolvePlayerCollision,
     syncVisibility,
     weaponTargets,
   };
+}
+
+function quakeShootableProgressVec3(value: Vec3, fallback: Vec3): Vec3 {
+  return Array.isArray(value) && value.length === 3 && value.every(Number.isFinite)
+    ? [value[0], value[1], value[2]]
+    : [...fallback] as Vec3;
 }
 
 function createEnemyState(
