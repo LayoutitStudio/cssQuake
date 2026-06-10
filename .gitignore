@@ -5,8 +5,11 @@ pnpm-lock.yaml
 .DS_Store
 **/.DS_Store
 build/generated/
+build/gmqcc-oracle/
+build/reports/gmqcc-oracle.json
 dist/**
 bench/
+/debug/
 notes/
 scripts/
 netlify.toml

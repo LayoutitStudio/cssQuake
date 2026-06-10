@@ -8,21 +8,24 @@ Play the live version: [cssquake.com](https://cssquake.com) 🕹️
 
 ## How to Run
 
-Install dependencies and build the generated Quake assets:
+Install dependencies and generate the Quake assets once:
 
 ```sh
 pnpm install
 export QUAKE_SHAREWARE_URL="<Quake 1.06 shareware zip URL>"
-pnpm build
+pnpm prepare:quake
 ```
 
-After the build succeeds, run the local dev server:
+After the assets exist, run the local dev server or build the app:
 
 ```sh
 pnpm dev
+pnpm build
 ```
 
-If `build/generated/public/q` already exists locally, you can skip `pnpm build` and run `pnpm dev` directly.
+`pnpm build` only builds the Vite app. Use `pnpm build:full` when you intentionally want to regenerate Quake assets and build the app in one command.
+
+For focused asset iteration, use `pnpm prepare:quake:map e1m7` or `pnpm prepare:quake:model dog`.
 
 ## How It Works
 
