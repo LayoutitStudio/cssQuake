@@ -70,6 +70,7 @@ export interface QuakeShootablesController {
   clear(): void;
   debugStats(): QuakeShootablesDebugStats;
   debugMountEntity(entityIndex: number): boolean;
+  debugSetOrigin(entityIndex: number, origin: Vec3): boolean;
   spawn(
     entities: QuakeEntity[],
     modelLibrary: QuakePickupModelLibrary | null,
@@ -87,6 +88,7 @@ export interface QuakeShootablesController {
   damage(entityIndex: number, amount: number): boolean;
   destroy(entityIndex: number): boolean;
   firstMonsterOverlappingBounds(bounds: QuakeShootableBounds): number | null;
+  pushMonsterBlockers(bounds: QuakeShootableBounds, delta: Vec3): number | null;
   restoreProgress(snapshot: QuakeShootablesProgressSnapshot): void;
   snapshotProgress(): QuakeShootablesProgressSnapshot;
   syncMonsterRuntime(): void;
@@ -129,6 +131,7 @@ export interface QuakeShootablesControllerOptions {
   damagePlayer(amount: number): boolean;
   contentsAt?(point: Vec3): number | null;
   dropBackpack?: (drop: QuakeMonsterBackpackDropRuntime) => boolean | void;
+  enemyRandomSalt?: number | (() => number);
   floorAt(x: number, y: number, maxZ?: number, minZ?: number): number | null;
   getPlayerForward(): Vec3;
   getPlayerEyeHeight(): number;
@@ -242,6 +245,8 @@ interface QuakeEnemyState {
   quakecIdealYaw: number | null;
   quakecLastState: QuakeMonsterStateStep | null;
   quakecMovementCall: "ai_run" | "ai_walk" | null;
+  quakecMovementHandledStep: boolean;
+  quakecPartialGround: boolean;
   quakecMovementStateName: string | null;
   quakecMovementUnitsRemaining: number;
   quakecPainChain: string | null;
@@ -286,6 +291,11 @@ interface QuakeMoveGoalCandidate {
   dy: number;
   type: "direct" | "ideal" | "sweep" | "turnaround";
   yaw: number;
+}
+
+interface QuakeMoveGoalAttempt {
+  handled: boolean;
+  moved: boolean;
 }
 
 interface QuakeMoveGoalOptions {
@@ -436,6 +446,8 @@ const QUAKE_ENEMY_DT_CLAMP = 0.05;
 const QUAKE_MONSTER_QUAKEC_STATE_FRAME_MS = 100;
 const QUAKE_MONSTER_USE_FOUND_TARGET_DELAY_MS = QUAKE_MONSTER_QUAKEC_STATE_FRAME_MS;
 const QUAKE_MONSTER_QUAKEC_AI_FRAME_RATE = 1000 / QUAKE_MONSTER_QUAKEC_STATE_FRAME_MS;
+const QUAKE_MONSTER_WALK_YAW_SPEED = 20;
+const QUAKE_MONSTER_FLY_SWIM_YAW_SPEED = 10;
 const QUAKEC_SOLDIER_AI_RUN_SPEED = 108.75 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MONSTER_ATTACK_DELAY_MS = 600;
 const QUAKE_MONSTER_PROJECTILE_LIFETIME_MS = 3200;
@@ -488,6 +500,7 @@ export function createQuakeShootablesController({
   damagePlayer,
   contentsAt,
   dropBackpack,
+  enemyRandomSalt = 0,
   floorAt,
   getPlayerForward,
   getPlayerEyeHeight,
@@ -512,6 +525,7 @@ export function createQuakeShootablesController({
   let enemyProjectiles: QuakeEnemyProjectile[] = [];
   let enemyProjectileTimers: number[] = [];
   let deathOutputHandles: QuakeMonsterDeathOutputVisualHandle[] = [];
+  let destroyedEntityIndexes = new Set<number>();
   let currentModelLibrary: QuakePickupModelLibrary | null = null;
   let monsterPathCornersByTargetname = new Map<string, QuakeMonsterPathCorner>();
   let monsterJumpTriggers: QuakeMonsterJumpTrigger[] = [];
@@ -526,7 +540,6 @@ export function createQuakeShootablesController({
   let animationFramePrewarmIdleHandle: number | null = null;
   let visibilityChurn = createQuakeShootablesVisibilityChurnStats();
   let lastVisibilitySelectionKey = "";
-  let destroyedEntityIndexes = new Set<number>();
 
   function clear(): void {
     stopEnemyLoop();
@@ -569,6 +582,7 @@ export function createQuakeShootablesController({
     currentModelLibrary = modelLibrary;
     destroyedEntityIndexes = new Set();
     monsterPathCornersByTargetname = buildMonsterPathCornerIndex(entities);
+    const enemySeedSalt = quakeEnemyRandomSaltValue(enemyRandomSalt);
     for (const entity of entities) {
       if (!entity.origin || !shouldSpawn(entity)) continue;
       const modelPath = quakeShootableModelPath(entity, programMetadata);
@@ -602,6 +616,7 @@ export function createQuakeShootablesController({
               entity.index,
               createMonsterStateRunner?.(entity.classname) ?? null,
               initialMonsterMovetarget(entity),
+              enemySeedSalt,
             ),
           }
           : {}),
@@ -976,6 +991,77 @@ export function createQuakeShootablesController({
     return null;
   }
 
+  function pushMonsterBlockers(bounds: QuakeShootableBounds, delta: Vec3): number | null {
+    const queryBounds = inflateBounds(bounds, QUAKE_SHOOTABLE_COLLISION_EPSILON);
+    const pushed: Array<{ leafIndex: number | undefined; origin: Vec3; shootable: QuakeShootableState }> = [];
+    for (const shootable of shootables.values()) {
+      if (!isLiveMonsterBlocker(shootable)) continue;
+      if (!aabbsOverlap(queryBounds, shootableCollisionWorldBounds(shootable))) continue;
+      const previousOrigin = [...shootable.origin] as Vec3;
+      const previousLeafIndex = shootable.leafIndex;
+      if (!tryPushMonsterBlocker(shootable, queryBounds, delta)) {
+        rollbackPushedMonsterBlockers(pushed);
+        return shootable.entity.index;
+      }
+      pushed.push({ leafIndex: previousLeafIndex, origin: previousOrigin, shootable });
+    }
+    return null;
+  }
+
+  function tryPushMonsterBlocker(shootable: QuakeShootableState, queryBounds: QuakeBounds, delta: Vec3): boolean {
+    if (distanceSq3(delta, [0, 0, 0]) <= COLLISION_EPSILON) return false;
+    const nextOrigin: Vec3 = [
+      shootable.origin[0] + delta[0],
+      shootable.origin[1] + delta[1],
+      shootable.origin[2] + delta[2],
+    ];
+    if (aabbsOverlap(queryBounds, shootableCollisionWorldBoundsAt(shootable, nextOrigin))) return false;
+    const from = shootableEyeOrigin(shootable);
+    const to: Vec3 = [from[0] + delta[0], from[1] + delta[1], from[2] + delta[2]];
+    if (!hasLineOfSight(from, to)) return false;
+    if (!monsterPushDestinationClear(shootable, nextOrigin)) return false;
+    shootable.origin = nextOrigin;
+    shootable.leafIndex = leafIndexAt(nextOrigin);
+    syncShootableTransform(shootable);
+    markShootableTrace("monster-pushed-by-mover", shootable, {
+      dx: delta[0],
+      dy: delta[1],
+      dz: delta[2],
+    });
+    return true;
+  }
+
+  function monsterPushDestinationClear(shootable: QuakeShootableState, origin: Vec3): boolean {
+    if (!contentsAt) return true;
+    const bounds = shootableCollisionWorldBoundsAt(shootable, origin);
+    const mid: Vec3 = [
+      (bounds.min[0] + bounds.max[0]) / 2,
+      (bounds.min[1] + bounds.max[1]) / 2,
+      (bounds.min[2] + bounds.max[2]) / 2,
+    ];
+    const samples: Vec3[] = [
+      mid,
+      [bounds.min[0], bounds.min[1], mid[2]],
+      [bounds.min[0], bounds.max[1], mid[2]],
+      [bounds.max[0], bounds.min[1], mid[2]],
+      [bounds.max[0], bounds.max[1], mid[2]],
+      [mid[0], mid[1], bounds.min[2] + QUAKE_SHOOTABLE_COLLISION_EPSILON],
+      [mid[0], mid[1], bounds.max[2] - QUAKE_SHOOTABLE_COLLISION_EPSILON],
+    ];
+    return samples.every((point) => contentsAt(point) !== QUAKE_CONTENTS_SOLID);
+  }
+
+  function rollbackPushedMonsterBlockers(
+    pushed: Array<{ leafIndex: number | undefined; origin: Vec3; shootable: QuakeShootableState }>,
+  ): void {
+    for (let index = pushed.length - 1; index >= 0; index--) {
+      const item = pushed[index];
+      item.shootable.origin = item.origin;
+      item.shootable.leafIndex = item.leafIndex;
+      syncShootableTransform(item.shootable);
+    }
+  }
+
   function applyShootableDeathRadiusDamage(
     source: QuakeShootableState,
     context: QuakeShootableDamageContext,
@@ -1180,14 +1266,18 @@ export function createQuakeShootablesController({
     };
   }
 
-  function debugMountEntity(entityIndex: number): boolean {
+  function debugSetOrigin(entityIndex: number, origin: Vec3): boolean {
     const shootable = shootables.get(entityIndex);
-    if (!shootable || shootable.dead) return false;
-    if (!shootable.handle) mountShootableHandle(shootable);
-    if (!shootable.handle) return false;
-    setShootableVisible(shootable, true);
+    if (!shootable) return false;
+    shootable.origin = [...origin] as Vec3;
+    shootable.leafIndex = leafIndexAt(shootable.origin);
     syncShootableTransform(shootable);
-    return shootable.visible;
+    markShootableTrace("shootable-debug-origin", shootable, {
+      x: origin[0],
+      y: origin[1],
+      z: origin[2],
+    });
+    return true;
   }
 
   function resetShootableEnemyRuntime(shootable: QuakeShootableState): void {
@@ -1196,7 +1286,18 @@ export function createQuakeShootablesController({
       shootable.entity.index,
       createMonsterStateRunner?.(shootable.entity.classname) ?? null,
       initialMonsterMovetarget(shootable.entity),
+      quakeEnemyRandomSaltValue(enemyRandomSalt),
     );
+  }
+
+  function debugMountEntity(entityIndex: number): boolean {
+    const shootable = shootables.get(entityIndex);
+    if (!shootable || shootable.dead) return false;
+    if (!shootable.handle) mountShootableHandle(shootable);
+    if (!shootable.handle) return false;
+    setShootableVisible(shootable, true);
+    syncShootableTransform(shootable);
+    return shootable.visible;
   }
 
   function shootableVisibilitySnapshot(): QuakeShootablesVisibilitySnapshot {
@@ -1880,7 +1981,10 @@ export function createQuakeShootablesController({
     if (!shouldWalk) updateEnemyAnimation(shootable, moved ? "walk" : "idle", now);
     enemyEye = shootableEyeOrigin(shootable);
     if (canSeePlayer && !attackBeforeMove) {
-      tryStartEnemyAttack(shootable, enemy, enemyEye, playerOrigin, profile, now);
+      if (tryStartEnemyAttack(shootable, enemy, enemyEye, playerOrigin, profile, now)) return;
+    }
+    if (enemy.quakecMovementHandledStep || (enemy.quakecRunner && shouldWalk)) {
+      syncShootableTransform(shootable);
     } else {
       faceShootableAtOrigin(shootable, movementTarget);
     }
@@ -1918,7 +2022,11 @@ export function createQuakeShootablesController({
       stopDistance: 0,
     });
     if (moved) applyEnemyMonsterJumpTriggers(shootable);
-    faceShootableAtOrigin(shootable, target.origin);
+    if (enemy.quakecMovementHandledStep || enemy.quakecRunner) {
+      syncShootableTransform(shootable);
+    } else {
+      faceShootableAtOrigin(shootable, target.origin);
+    }
     if (moved || shouldAnimateMovingEnemy(shootable, target.origin, QUAKE_MONSTER_PATH_TOUCH_RADIUS, COLLISION_EPSILON)) {
       updateEnemyAnimation(shootable, "path", now);
     } else {
@@ -2096,7 +2204,6 @@ export function createQuakeShootablesController({
     profile: QuakeMonsterCombatProfile,
     now: number,
   ): boolean {
-    faceShootableAtOrigin(shootable, playerOrigin);
     const attackDistanceSq = distanceSq3(enemyEye, playerOrigin);
     if (attackDistanceSq > profile.range * profile.range) {
       clearEnemyAttackState(shootable);
@@ -2105,6 +2212,7 @@ export function createQuakeShootablesController({
     if (now < enemy.nextAttackAt) return false;
     const quakecAttackChain = selectEnemyAttackChain(shootable, enemy, Math.sqrt(attackDistanceSq), playerOrigin, now);
     if (quakecAttackChain === null) return false;
+    faceShootableAtOrigin(shootable, playerOrigin);
     clearQuakecMovementBudget(enemy);
     if (enemy.burstShotsRemaining > 0) {
       playEnemyAttackAnimation(shootable, now);
@@ -3770,6 +3878,7 @@ export function createQuakeShootablesController({
     const sourceMovementBudget = quakecMovementBudget(shootable, options.movementCall);
     const stepBudget = quakecMovementStepBudget(shootable.enemy, sourceMovementBudget, chaseSpeed, dt, now);
     const usesQuakecMovementBudget = sourceMovementBudget !== null;
+    if (shootable.enemy) shootable.enemy.quakecMovementHandledStep = false;
     const movementEpsilon = usesQuakecMovementBudget ? COLLISION_EPSILON : QUAKE_SHOOTABLE_COLLISION_EPSILON;
     if (stepBudget <= movementEpsilon) return false;
     if (usesQuakecMovementBudget && options.goalBounds && quakeMoveGoalBoundsCloseEnough(
@@ -3796,10 +3905,17 @@ export function createQuakeShootablesController({
       ? quakeMoveGoalCandidates(shootable.enemy, shootable.origin, targetOrigin, options.allowWallFollow, directYaw)
       : [quakeMoveGoalCandidate(directYaw, "direct")];
     for (const candidate of candidates) {
-      if (tryMoveChasingEnemy(shootable, candidate, step, usesQuakecMovementBudget, movementEpsilon)) return true;
+      const attempt = tryMoveChasingEnemy(shootable, candidate, step, usesQuakecMovementBudget, movementEpsilon);
+      if (!attempt.handled) continue;
+      if (!attempt.moved && sourceMovementBudget !== null) clearQuakecMovementBudget(shootable.enemy);
+      return attempt.moved;
     }
     if (usesQuakecMovementBudget && shootable.enemy) {
       shootable.enemy.quakecIdealYaw = quakeMoveGoalOlddir(shootable.enemy.quakecIdealYaw ?? directYaw);
+      if (!quakeMonsterMoveBottomSupported(shootable, shootable.origin)) {
+        shootable.enemy.quakecPartialGround = true;
+        markShootableTrace("enemy-move-partial-ground", shootable, { reason: "current-bottom-unsupported" });
+      }
     }
     if (sourceMovementBudget !== null) clearQuakecMovementBudget(shootable.enemy);
     return false;
@@ -3811,7 +3927,7 @@ export function createQuakeShootablesController({
     step: number,
     usesQuakecMovementBudget: boolean,
     movementEpsilon: number,
-  ): boolean {
+  ): QuakeMoveGoalAttempt {
     const horizontalNextOrigin: Vec3 = [
       shootable.origin[0] + candidate.dx * step,
       shootable.origin[1] + candidate.dy * step,
@@ -3819,19 +3935,39 @@ export function createQuakeShootablesController({
     ];
     const nextOrigin = groundedShootableOrigin(shootable.entity, horizontalNextOrigin, shootable.collisionBounds, "move");
     if (distanceSq3(nextOrigin, shootable.origin) <= movementEpsilon * movementEpsilon) {
-      return false;
+      return { handled: false, moved: false };
     }
     const from = shootableEyeOrigin(shootable);
     const to: Vec3 = [nextOrigin[0], nextOrigin[1], from[2]];
-    if (!hasLineOfSight(from, to)) return false;
-    if (usesQuakecMovementBudget && !quakeMonsterMoveBottomSupported(shootable, nextOrigin)) return false;
+    if (!hasLineOfSight(from, to)) return { handled: false, moved: false };
+    const bottomSupported = !usesQuakecMovementBudget || quakeMonsterMoveBottomSupported(shootable, nextOrigin);
+    if (usesQuakecMovementBudget && !bottomSupported && !shootable.enemy?.quakecPartialGround) {
+      return { handled: false, moved: false };
+    }
+    let facingIdeal = true;
+    if (usesQuakecMovementBudget && shootable.enemy) {
+      shootable.yaw = quakecChangeYaw(shootable.yaw, candidate.yaw, quakeMonsterYawSpeed(shootable.entity));
+      shootable.enemy.quakecIdealYaw = candidate.yaw;
+      shootable.enemy.quakecMovementHandledStep = true;
+      facingIdeal = quakecFacingIdeal(shootable.yaw, candidate.yaw);
+    }
+    if (!facingIdeal) {
+      markShootableTrace("enemy-move-yaw-gated", shootable, {
+        targetYaw: candidate.yaw,
+        yaw: shootable.yaw,
+      });
+      return { handled: true, moved: false };
+    }
     shootable.origin = nextOrigin;
     shootable.leafIndex = leafIndexAt(nextOrigin);
     if (usesQuakecMovementBudget) {
       consumeQuakecMovementBudget(shootable.enemy, step);
-      if (shootable.enemy) shootable.enemy.quakecIdealYaw = candidate.yaw;
+      if (shootable.enemy) {
+        if (bottomSupported) shootable.enemy.quakecPartialGround = false;
+      }
     }
     markShootableTrace("enemy-move", shootable, {
+      partialGround: usesQuakecMovementBudget && !bottomSupported,
       sourceStep: usesQuakecMovementBudget,
       step,
       x: nextOrigin[0],
@@ -3841,7 +3977,7 @@ export function createQuakeShootablesController({
       moveType: candidate.type,
       yaw: candidate.yaw,
     });
-    return true;
+    return { handled: true, moved: true };
   }
 
   function quakeMonsterMoveBottomSupported(shootable: QuakeShootableState, origin: Vec3): boolean {
@@ -3916,9 +4052,6 @@ export function createQuakeShootablesController({
     const olddir = quakeMoveGoalOlddir(idealYaw);
     const turnaround = angleMod(olddir - 180);
     const out: QuakeMoveGoalCandidate[] = [];
-    if (!enemy || nextEnemyRandom(enemy) >= 0.25) {
-      out.push(quakeMoveGoalCandidate(idealYaw, "ideal"));
-    }
 
     const deltaX = targetOrigin[0] - origin[0];
     const deltaY = targetOrigin[1] - origin[1];
@@ -3991,6 +4124,32 @@ export function createQuakeShootablesController({
 
   function quakeMoveGoalOlddir(idealYaw: number): number {
     return angleMod(Math.trunc(angleMod(idealYaw) / 45) * 45);
+  }
+
+  function quakecChangeYaw(currentYaw: number, idealYaw: number, speed: number): number {
+    const current = angleMod(currentYaw);
+    const ideal = angleMod(idealYaw);
+    if (Math.abs(current - ideal) <= Number.EPSILON) return current;
+    let move = ideal - current;
+    if (ideal > current) {
+      if (move >= 180) move -= 360;
+    } else if (move <= -180) {
+      move += 360;
+    }
+    const clampedMove = Math.max(-speed, Math.min(speed, move));
+    return angleMod(current + clampedMove);
+  }
+
+  function quakecFacingIdeal(currentYaw: number, idealYaw: number): boolean {
+    const delta = angleMod(currentYaw - idealYaw);
+    return !(delta > 45 && delta < 315);
+  }
+
+  function quakeMonsterYawSpeed(entity: QuakeEntity): number {
+    const startKind = quakeMonsterSpawnProfileForEntity(entity)?.startKind;
+    return startKind === "fly" || startKind === "swim"
+      ? QUAKE_MONSTER_FLY_SWIM_YAW_SPEED
+      : QUAKE_MONSTER_WALK_YAW_SPEED;
   }
 
   function quakeYawToOrigin(origin: Vec3, targetOrigin: Vec3): number {
@@ -4427,7 +4586,7 @@ export function createQuakeShootablesController({
   }
 
   function aliasModelRenderYaw(yaw: number): number {
-    return normalizeShootableYaw(yaw + 180);
+    return normalizeShootableYaw(yaw);
   }
 
   function normalizeShootableYaw(yaw: number): number {
@@ -4550,16 +4709,20 @@ export function createQuakeShootablesController({
   }
 
   function shootableCollisionWorldBounds(shootable: QuakeShootableState): { min: Vec3; max: Vec3 } {
+    return shootableCollisionWorldBoundsAt(shootable, shootable.origin);
+  }
+
+  function shootableCollisionWorldBoundsAt(shootable: QuakeShootableState, origin: Vec3): { min: Vec3; max: Vec3 } {
     return {
       min: [
-        shootable.origin[0] + shootable.collisionBounds.min[0],
-        shootable.origin[1] + shootable.collisionBounds.min[1],
-        shootable.origin[2] + shootable.collisionBounds.min[2],
+        origin[0] + shootable.collisionBounds.min[0],
+        origin[1] + shootable.collisionBounds.min[1],
+        origin[2] + shootable.collisionBounds.min[2],
       ],
       max: [
-        shootable.origin[0] + shootable.collisionBounds.max[0],
-        shootable.origin[1] + shootable.collisionBounds.max[1],
-        shootable.origin[2] + shootable.collisionBounds.max[2],
+        origin[0] + shootable.collisionBounds.max[0],
+        origin[1] + shootable.collisionBounds.max[1],
+        origin[2] + shootable.collisionBounds.max[2],
       ],
     };
   }
@@ -4649,6 +4812,7 @@ export function createQuakeShootablesController({
     clear,
     debugStats,
     debugMountEntity,
+    debugSetOrigin,
     spawn,
     setupMonsterJumpTriggers,
     has,
@@ -4657,6 +4821,7 @@ export function createQuakeShootablesController({
     damage,
     destroy,
     firstMonsterOverlappingBounds,
+    pushMonsterBlockers,
     restoreProgress,
     snapshotProgress,
     syncMonsterRuntime,
@@ -4676,6 +4841,7 @@ function createEnemyState(
   entityIndex: number,
   quakecRunner: QuakeMonsterStateRunner | null,
   movetarget: QuakeMonsterPathCorner | null,
+  randomSalt: number,
 ): QuakeEnemyState {
   return {
     animationFrameIndex: 0,
@@ -4692,6 +4858,8 @@ function createEnemyState(
     quakecIdealYaw: null,
     quakecLastState: null,
     quakecMovementCall: null,
+    quakecMovementHandledStep: false,
+    quakecPartialGround: false,
     quakecMovementStateName: null,
     quakecMovementUnitsRemaining: 0,
     quakecPainChain: null,
@@ -4704,7 +4872,7 @@ function createEnemyState(
     movetarget,
     nextAttackAt: 0,
     pendingAttack: null,
-    seed: quakeEnemySeed(entityIndex),
+    seed: quakeEnemySeed(entityIndex, randomSalt),
     zombieGibbed: false,
     zombieNonSolidAt: 0,
     zombiePainRepeatUntil: 0,
@@ -4743,8 +4911,21 @@ function nextEnemyRandom(enemy: QuakeEnemyState): number {
   return enemy.seed / 0x100000000;
 }
 
-function quakeEnemySeed(entityIndex: number): number {
-  return (Math.imul(entityIndex + 0x9e3779b9, 0x85ebca6b) ^ 0xc2b2ae35) >>> 0;
+function quakeEnemySeed(entityIndex: number, salt = 0): number {
+  const base = (Math.imul(entityIndex + 0x9e3779b9, 0x85ebca6b) ^ 0xc2b2ae35) >>> 0;
+  const normalizedSalt = normalizeEnemyRandomSalt(salt);
+  if (normalizedSalt === 0) return base;
+  let mixedSalt = Math.imul(normalizedSalt ^ 0x9e3779b9, 0x27d4eb2d) >>> 0;
+  mixedSalt ^= mixedSalt >>> 15;
+  return (base ^ mixedSalt ^ Math.imul(entityIndex ^ normalizedSalt, 0x165667b1)) >>> 0;
+}
+
+function normalizeEnemyRandomSalt(salt: number): number {
+  return Number.isFinite(salt) ? salt >>> 0 : 0;
+}
+
+function quakeEnemyRandomSaltValue(salt: number | (() => number)): number {
+  return normalizeEnemyRandomSalt(typeof salt === "function" ? salt() : salt);
 }
 
 export function quakeShootableModelPath(

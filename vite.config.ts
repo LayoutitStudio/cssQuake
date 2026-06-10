@@ -10,6 +10,16 @@ const LOCAL_DEBUG_DIR = path.join(CONFIG_DIR, "debug");
 const CAPTURE_SCRIPT = "/Users/ekrof/.codex/cssquake-tools/vkquake-shot.mjs";
 const DEFAULT_CSSQUAKE_URL = "http://localhost:5173/";
 const DEFAULT_CAPTURE_OUTDIR = path.join(process.env.HOME ?? "/Users/ekrof", "Desktop", "cssquake-captures");
+const CAPTURE_WEAPONS = new Set([
+  "axe",
+  "shotgun",
+  "supershotgun",
+  "nailgun",
+  "supernailgun",
+  "grenadelauncher",
+  "rocketlauncher",
+  "lightning",
+]);
 
 const DEBUG_CONTENT_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -94,6 +104,11 @@ function safePositiveNumber(value: unknown, fallback: string): string {
   return String(number);
 }
 
+function safeWeapon(value: unknown): string {
+  const weapon = String(value ?? "").trim().toLowerCase();
+  return CAPTURE_WEAPONS.has(weapon) ? weapon : "";
+}
+
 interface CapturePoseInput {
   mapName: string | null;
   pose: string;
@@ -149,12 +164,16 @@ function captureArgs(input: Record<string, unknown>): string[] {
   }
   if (input.weaponOnly === true) {
     args.push("--weapon-only");
+  } else if (input.hudOnly === true) {
+    args.push("--hud-only");
   } else if (input.worldOnly !== false) {
     args.push("--world-only");
   }
   if (input.weaponTuning && typeof input.weaponTuning === "object" && !Array.isArray(input.weaponTuning)) {
     args.push("--weapon-tuning", JSON.stringify(input.weaponTuning));
   }
+  const weapon = safeWeapon(input.weapon);
+  if (weapon) args.push("--weapon", weapon);
   if (input.openFolder === true) args.push("--open");
   return args;
 }

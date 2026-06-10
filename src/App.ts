@@ -53,6 +53,7 @@ import {
   clearQuakeInventoryPowerup,
   clearQuakeInventoryPowerups,
   createQuakeHudElements,
+  QUAKE_WEAPON_ITEM_FLAGS,
   selectQuakeBestInventoryWeapon,
   syncQuakeHud as syncQuakeHudElements,
   type QuakeInventoryPowerupBehavior,
@@ -341,6 +342,20 @@ const QUAKE_URL_VIEW_ANGLE_LIMIT = 36000;
 const QUAKE_URL_VIEW_ROLL_EPSILON = 0.001;
 const QUAKE_URL_PERSPECTIVE_MAX = 20000;
 const QUAKE_URL_ZOOM_MAX = 1000;
+
+function createQuakeRuntimeRandomSalt(): number {
+  try {
+    const values = new Uint32Array(1);
+    globalThis.crypto?.getRandomValues(values);
+    if (values[0] !== 0) return values[0] >>> 0;
+  } catch (error) {
+    markQuakeTrace("runtime-random-salt-fallback", {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+  const fallback = Math.floor(Math.random() * 0x100000000) >>> 0;
+  return fallback === 0 ? 0x9e3779b9 : fallback;
+}
 
 function quakeCameraPerspectiveFromUrl(): number | null {
   const rawValue = new URLSearchParams(window.location.search).get("perspective");
@@ -1051,6 +1066,7 @@ const shootables = createQuakeShootablesController({
   bossLightningElectrodesReady: quakeBossLightningElectrodesReady,
   createMonsterStateRunner: (classname) => createQuakeMonsterStateRunner(classname, { enabled: true }),
   damagePlayer: (amount) => getPlayer().damage(amount),
+  enemyRandomSalt: createQuakeRuntimeRandomSalt,
   dropBackpack: (drop) => {
     const origin = drop.sourceEntity.origin ?? { x: 0, y: 0, z: 0 };
     const entity: QuakeEntity = {
@@ -1547,6 +1563,12 @@ const QUAKE_LIGHTNING_BEAM_INNER_RADIUS = 0.018;
 const QUAKE_LIGHTNING_BEAM_OUTER_RADIUS = 0.045;
 const QUAKE_QUAD_DAMAGE_MULTIPLIER = 4;
 const QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH = "progs/v_shot.mdl";
+const QUAKE_DEBUG_WEAPON_AMMO = {
+  shells: 100,
+  nails: 200,
+  rockets: 100,
+  cells: 100,
+} as const;
 function makeParseResult(polygons: Polygon[]): ParseResult {
   return { polygons, objectUrls: [], warnings: [], dispose: () => undefined };
 }
@@ -1564,6 +1586,24 @@ function syncQuakeHud(): void {
   });
   syncQuakeHudElements(hudElements, inventory);
   syncActiveWeaponViewModel();
+}
+
+function setQuakeDebugWeapon(weapon: QuakeWeaponId): boolean {
+  if (!isQuakeWeaponId(weapon)) return false;
+  const inventory = getPlayer().inventory();
+  inventory.weapons.add(weapon);
+  inventory.itemFlags |= QUAKE_WEAPON_ITEM_FLAGS[weapon];
+  inventory.shells = Math.max(inventory.shells, QUAKE_DEBUG_WEAPON_AMMO.shells);
+  inventory.nails = Math.max(inventory.nails, QUAKE_DEBUG_WEAPON_AMMO.nails);
+  inventory.rockets = Math.max(inventory.rockets, QUAKE_DEBUG_WEAPON_AMMO.rockets);
+  inventory.cells = Math.max(inventory.cells, QUAKE_DEBUG_WEAPON_AMMO.cells);
+  inventory.activeWeapon = weapon;
+  syncQuakeHud();
+  return true;
+}
+
+function isQuakeWeaponId(value: string): value is QuakeWeaponId {
+  return Object.prototype.hasOwnProperty.call(QUAKE_PLAYER_WEAPON_FIRE_FACTS.profiles, value);
 }
 
 function isQuakeGamePaused(): boolean {
@@ -4259,7 +4299,7 @@ function moverBlockedByPlayer(state: QuakeMoverState, nextOffset: Vec3, delta: V
 function moverBlockedByMonster(state: QuakeMoverState, nextOffset: Vec3, delta: Vec3): boolean {
   if (!moverCanBeBlockedByMonster(state)) return false;
   if (distanceSq3(delta, [0, 0, 0]) <= COLLISION_EPSILON) return false;
-  const blockerEntityIndex = shootables.firstMonsterOverlappingBounds(quakeMoverBoundsAtOffsetBounds(state, nextOffset));
+  const blockerEntityIndex = shootables.pushMonsterBlockers(quakeMoverBoundsAtOffsetBounds(state, nextOffset), delta);
   if (blockerEntityIndex === null) return false;
   damageQuakeMonsterForMoverBlock(state, blockerEntityIndex);
   return true;
@@ -5586,6 +5626,7 @@ function roundQuakeLoadingReadinessMs(value: number): number {
 
 function installQuakeAppDebugHooks(): void {
   installQuakeDebugHooks(isQuakeDebugHooksEnabled(), {
+    activateEntity: activateQuakeEntity,
     cameraRotation: () => ({
       rotX: scene.camera.state.rotX ?? 88,
       rotY: scene.camera.state.rotY ?? 270,
@@ -5615,6 +5656,7 @@ function installQuakeAppDebugHooks(): void {
     mapExists: (mapName) => Boolean(quakeSceneUrl(mapName)),
     getWeaponTuning: () => viewmodel.getTuning(),
     resetWeaponTuning: () => viewmodel.resetTuning(),
+    setWeapon: setQuakeDebugWeapon,
     setWeaponTuning: (tuning) => viewmodel.setTuning(tuning),
     viewmodelDebug: () => viewmodel.debugSnapshot(),
     moversStats: () => movers.debugStats(),
@@ -5624,6 +5666,7 @@ function installQuakeAppDebugHooks(): void {
     setCollisionBypassUntil: (until) => {
       quakeDebugCollisionBypassUntil = until;
     },
+    setShootableOrigin: (entityIndex, origin) => shootables.debugSetOrigin(entityIndex, origin),
     shootablesStats: () => shootables.debugStats(),
     syncCrosshairTarget: syncQuakeCrosshairTarget,
     syncGameplay: syncQuakeDebugGameplay,

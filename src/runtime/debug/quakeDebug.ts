@@ -2,7 +2,7 @@ import type { Vec3 } from "@layoutit/polycss";
 
 import type { QuakeEntity } from "../../prepare/scene";
 import { QUAKE_PLAYER_MINS_Z, STEP_HEIGHT } from "../constants";
-import type { QuakePlayerInventory } from "../hud";
+import type { QuakePlayerInventory, QuakeWeaponId } from "../hud";
 import type { QuakeMoversDebugStats } from "../movers";
 import type { QuakeShootablesDebugStats } from "../shootables";
 import type { QuakeResolvedViewmodelTuning, QuakeViewmodelDebugSnapshot, QuakeViewmodelTuning } from "../viewmodel";
@@ -16,6 +16,7 @@ const QUAKE_DEBUG_PROJECTION_MESH_LIMIT = 8;
 const QUAKE_DEBUG_POSE_EPSILON = 0.0001;
 
 export interface QuakeDebugHooks {
+  activateEntity(entityIndex: number, sourceEntityIndex?: number): boolean;
   copyViewUrl(): Promise<string>;
   damage(amount?: number): boolean;
   debugMountEntity(entityIndex: number): boolean;
@@ -25,6 +26,8 @@ export interface QuakeDebugHooks {
   loadMap(mapName: string): Promise<boolean>;
   getWeaponTuning(): QuakeResolvedViewmodelTuning;
   resetWeaponTuning(): QuakeResolvedViewmodelTuning;
+  setEntityOrigin(entityIndex: number, x: number, y: number, z: number): boolean;
+  setWeapon(weapon: QuakeWeaponId): boolean;
   setWeaponTuning(tuning: QuakeViewmodelTuning): QuakeResolvedViewmodelTuning;
   viewmodel(): QuakeViewmodelDebugSnapshot;
   setPose(origin: Vec3, rotX?: number, rotY?: number, options?: QuakeDebugPoseOptions): boolean;
@@ -72,6 +75,7 @@ export interface QuakeDebugRuntime {
     setOrigin(origin: [number, number, number]): void;
   };
   currentMapName(): string;
+  activateEntity(entityIndex: number, sourceEntityIndex?: number): boolean;
   damagePlayer(amount: number): boolean;
   debugMountEntity(entityIndex: number): boolean;
   entities(): ReadonlyMap<number, QuakeEntity>;
@@ -88,6 +92,7 @@ export interface QuakeDebugRuntime {
   mapExists(mapName: string): boolean;
   getWeaponTuning(): QuakeResolvedViewmodelTuning;
   resetWeaponTuning(): QuakeResolvedViewmodelTuning;
+  setWeapon(weapon: QuakeWeaponId): boolean;
   setWeaponTuning(tuning: QuakeViewmodelTuning): QuakeResolvedViewmodelTuning;
   viewmodelDebug(): QuakeViewmodelDebugSnapshot;
   moversStats(): QuakeMoversDebugStats;
@@ -95,6 +100,7 @@ export interface QuakeDebugRuntime {
   playerMoveDebug(): Record<string, unknown>;
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
   setCollisionBypassUntil(until: number): void;
+  setShootableOrigin(entityIndex: number, origin: Vec3): boolean;
   shootablesStats(): QuakeShootablesDebugStats;
   syncCrosshairTarget(): void;
   syncGameplay(origin: [number, number, number]): void;
@@ -110,6 +116,8 @@ export interface QuakeDebugRuntime {
 export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRuntime): void {
   if (!enabled) return;
   (window as QuakeDebugWindow).__cssQuakeDebug = {
+    activateEntity: (entityIndex, sourceEntityIndex) =>
+      activateQuakeDebugEntity(runtime, entityIndex, sourceEntityIndex),
     copyViewUrl: () => runtime.copyViewUrl(),
     damage: (amount) => damageQuakeDebugPlayer(runtime, amount),
     debugMountEntity: (entityIndex) => debugMountQuakeEntity(runtime, entityIndex),
@@ -120,6 +128,9 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
     getWeaponTuning: () => runtime.getWeaponTuning(),
     loadMap: (mapName) => loadQuakeDebugMap(runtime, mapName),
     resetWeaponTuning: () => runtime.resetWeaponTuning(),
+    setEntityOrigin: (entityIndex, x, y, z) =>
+      setQuakeDebugEntityOrigin(runtime, entityIndex, x, y, z),
+    setWeapon: (weapon) => setQuakeDebugWeapon(runtime, weapon),
     setWeaponTuning: (tuning) => runtime.setWeaponTuning(tuning),
     viewmodel: () => runtime.viewmodelDebug(),
     setGroundViewpos: (x, y, z, pitch, yaw, rollOrOptions, options) =>
@@ -130,6 +141,16 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
     stats: () => buildQuakeDebugStats(runtime),
     viewUrl: () => runtime.viewUrl(),
   };
+}
+
+function activateQuakeDebugEntity(
+  runtime: QuakeDebugRuntime,
+  entityIndex: number,
+  sourceEntityIndex?: number,
+): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  runtime.hideMainMenu();
+  return runtime.activateEntity(entityIndex, sourceEntityIndex);
 }
 
 function damageQuakeDebugPlayer(runtime: QuakeDebugRuntime, amount = 10): boolean {
@@ -167,6 +188,25 @@ function fireQuakeDebugWeapon(runtime: QuakeDebugRuntime): boolean {
   runtime.hideMainMenu();
   runtime.fireWeapon();
   return true;
+}
+
+function setQuakeDebugEntityOrigin(
+  runtime: QuakeDebugRuntime,
+  entityIndex: number,
+  x: number,
+  y: number,
+  z: number,
+): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return false;
+  runtime.hideMainMenu();
+  return runtime.setShootableOrigin(entityIndex, runtime.pointToPoly({ x, y, z }));
+}
+
+function setQuakeDebugWeapon(runtime: QuakeDebugRuntime, weapon: QuakeWeaponId): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  runtime.hideMainMenu();
+  return runtime.setWeapon(weapon);
 }
 
 function focusQuakeDebugEntity(
@@ -339,6 +379,7 @@ function buildQuakeDebugStats(runtime: QuakeDebugRuntime): Record<string, unknow
     fireballs: runtime.fireballsCount(),
     playerHealth: inventory.health,
     playerArmor: inventory.armor,
+    activeWeapon: inventory.activeWeapon,
     playerGroundEntity: playerMove.currentGroundEntity ?? null,
     playerMove,
     playerShells: inventory.shells,
