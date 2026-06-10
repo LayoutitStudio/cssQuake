@@ -242,42 +242,6 @@ body.quake-menu-open .btn-github {
   outline: 2px solid #f0ad5c;
   outline-offset: 3px;
 }
-.quake-copyright-notice {
-  position: absolute;
-  left: 12px;
-  bottom: 10px;
-  z-index: 40;
-  display: none;
-  margin: 0;
-  color: #ffffff;
-  font-family: ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
-  font-size: 15px;
-  line-height: 1.35;
-  letter-spacing: 0;
-  opacity: 0.4;
-  text-shadow: 0 1px 0 #000000;
-  pointer-events: auto;
-  user-select: none;
-  transition: opacity 120ms ease-out;
-}
-body.quake-menu-open .quake-copyright-notice {
-  display: block;
-}
-.quake-copyright-notice span {
-  display: block;
-}
-.quake-copyright-notice a {
-  color: inherit;
-  text-decoration: none;
-}
-.quake-copyright-notice:hover,
-.quake-copyright-notice:focus-within {
-  opacity: 0.8;
-}
-.quake-copyright-notice a:focus-visible {
-  outline: 2px solid #f0ad5c;
-  outline-offset: 3px;
-}
 .quake-id-software-link {
   position: absolute;
   right: 12px;
@@ -403,6 +367,7 @@ body.quake-menu-open #quake-loading-overlay.quake-loading-death {
   display: block;
   min-height: 16px;
   margin: 0 0 2px;
+  overflow-wrap: anywhere;
 }
 #quake-loading-action {
   display: block;
@@ -481,15 +446,17 @@ body.quake-menu-open #quake-loading-overlay.quake-loading-death {
   pointer-events: none;
   cursor: default;
 }
+@media (any-pointer: coarse), (max-width: 960px) and (orientation: landscape) {
+  #quake-loading-overlay.quake-loading-console-persisted .quake-loading-readout {
+    display: none;
+  }
+}
 @keyframes quake-loading-progress-indeterminate {
   to {
     transform: translateX(280%);
   }
 }
 @media (max-width: 940px) {
-  .quake-copyright-notice {
-    bottom: calc(8vw + 10px);
-  }
   .quake-id-software-link {
     bottom: calc(8vw + 12px);
   }
@@ -632,9 +599,6 @@ body.quake-menu-open #quake-notify {
 body.quake-menu-open:not(.quake-gameplay-started) #quake-main-menu {
   background: transparent;
 }
-body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
-  background: transparent;
-}
 #quake-main-menu.quake-main-menu-hover {
   cursor: pointer;
 }
@@ -646,6 +610,12 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 #quake-main-menu[hidden] {
   display: none;
 }
+body.quake-main-menu-deferred #quake-main-menu {
+  display: none;
+}
+body.quake-main-menu-pending #quake-main-menu {
+  pointer-events: none;
+}
 #quake-main-menu-art {
   --quake-main-menu-px: calc(100cqw / 320);
   --quake-main-menu-row-height: 6.25cqw;
@@ -653,7 +623,7 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   --quake-main-menu-cursor-gap: 0.625cqw;
   --quake-main-menu-list-top: 10cqw;
   --quake-menu-offset-y: 13.5%;
-  --quake-menu-asset-filter: brightness(1.42) saturate(1.08) contrast(1.06);
+  --quake-menu-asset-filter: brightness(1.49) saturate(0.95) contrast(0.94);
   position: relative;
   display: grid;
   justify-items: center;
@@ -682,6 +652,7 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   z-index: 2;
   display: block;
   height: auto;
+  opacity: 1;
   image-rendering: pixelated;
   user-select: none;
 }
@@ -698,7 +669,9 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 
 @media (prefers-reduced-motion: reduce) {
   #quake-damage-overlay,
-  #quake-bonus-overlay {
+  #quake-bonus-overlay,
+  .quake-main-menu-item,
+  .quake-main-menu-label {
     transition: none;
   }
 }
@@ -730,57 +703,68 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   display: block;
   width: calc(var(--quake-main-menu-label-width) * var(--quake-main-menu-px));
   height: calc(var(--quake-main-menu-label-height) * var(--quake-main-menu-px));
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: 100% 100%;
   image-rendering: pixelated;
+  overflow: visible;
   pointer-events: none;
 }
 .quake-main-menu-item-active .quake-main-menu-label {
   filter: brightness(1.32);
 }
-.quake-main-menu-item-disabled {
+#quake-main-menu-list > .quake-main-menu-item-disabled {
   opacity: 0.46;
   cursor: default;
 }
-.quake-main-menu-item-disabled .quake-main-menu-label {
+#quake-main-menu-list > .quake-main-menu-item-disabled .quake-main-menu-label {
   filter: none;
+}
+body.quake-main-menu-pending #quake-main-menu-list > .quake-main-menu-item {
+  opacity: 0.46;
+  cursor: default;
+}
+body.quake-main-menu-pending #quake-main-menu-list > .quake-main-menu-item-selectable {
+  pointer-events: none;
+}
+body.quake-main-menu-pending #quake-main-menu-list .quake-main-menu-label {
+  filter: none;
+}
+body.quake-main-menu-pending #quake-main-menu-list .quake-main-menu-item-cursor {
+  display: none;
+}
+body:not(.quake-main-menu-pending) #quake-main-menu-list > .quake-main-menu-item {
+  transition: opacity 260ms steps(6, end);
+}
+body:not(.quake-main-menu-pending) #quake-main-menu-list .quake-main-menu-label {
+  transition: filter 260ms steps(6, end);
+}
+@media (prefers-reduced-motion: reduce) {
+  body:not(.quake-main-menu-pending) #quake-main-menu-list > .quake-main-menu-item,
+  body:not(.quake-main-menu-pending) #quake-main-menu-list .quake-main-menu-label {
+    transition: none;
+  }
 }
 .quake-main-menu-label-single-player {
   --quake-main-menu-label-width: 218;
   --quake-main-menu-label-height: 20;
-  background-image: url("/q/main-menu-active.png");
 }
 .quake-main-menu-label-multiplayer {
   --quake-main-menu-label-width: 190;
   --quake-main-menu-label-height: 18;
-  background-image: url("/q/main-menu-multiplayer.png");
 }
 .quake-main-menu-label-level-select {
   --quake-main-menu-label-width: 211;
   --quake-main-menu-label-height: 20;
-  background-image: url("/q/main-menu-active-level-select.png");
 }
 .quake-main-menu-label-debug {
   --quake-main-menu-label-width: 100;
   --quake-main-menu-label-height: 20;
-  background-image: url("/src/assets/main-menu-active-debug.png");
 }
 .quake-main-menu-label-quit {
   --quake-main-menu-label-width: 70;
   --quake-main-menu-label-height: 20;
-  background-image: url("/q/main-menu.png");
-  background-position:
-    calc(-72 * var(--quake-main-menu-px))
-    calc(-126 * var(--quake-main-menu-px));
-  background-size:
-    calc(320 * var(--quake-main-menu-px))
-    calc(200 * var(--quake-main-menu-px));
 }
 .quake-main-menu-label-options {
   --quake-main-menu-label-width: 123;
   --quake-main-menu-label-height: 18;
-  background-image: url("/q/main-menu-active-options.png");
 }
 .quake-main-menu-item-cursor {
   position: absolute;
@@ -814,6 +798,9 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   pointer-events: auto;
   -webkit-tap-highlight-color: transparent;
 }
+body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
+  background: transparent;
+}
 .quake-menu-panel[hidden] {
   display: none;
 }
@@ -825,7 +812,7 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 .quake-menu-card {
   --quake-menu-px: calc(100cqw / 320);
   --quake-menu-offset-y: 13.5%;
-  --quake-menu-asset-filter: brightness(1.42) saturate(1.08) contrast(1.06);
+  --quake-menu-asset-filter: brightness(1.49) saturate(0.95) contrast(0.94);
   position: relative;
   width: min(860px, calc(100vw - 64px), calc(150dvh - 52px));
   aspect-ratio: 320 / 200;
@@ -1183,12 +1170,12 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 }
 .quake-level-list {
   position: absolute;
-  top: 16cqw;
-  left: 22.5cqw;
+  top: 10cqw;
+  left: 5cqw;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 2.5cqw;
-  width: 70cqw;
+  gap: 0;
+  width: 90cqw;
   max-height: 45cqw;
   margin: 0;
   padding: 0;
@@ -1204,13 +1191,15 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   --quake-level-row-brightness: 1;
   position: relative;
   display: grid;
-  grid-template-columns: calc(48 * var(--quake-menu-px)) minmax(0, 1fr);
+  grid-template-columns: calc(48 * var(--quake-menu-px)) max-content;
   align-items: center;
   gap: calc(8 * var(--quake-menu-px));
+  width: fit-content;
+  max-width: 100%;
   min-width: 0;
   min-height: var(--quake-menu-row-text-size);
   height: var(--quake-menu-row-text-size);
-  padding: 0;
+  padding: 0 calc(16 * var(--quake-menu-px)) 0 calc(40 * var(--quake-menu-px));
   border: 0;
   border-radius: 0;
   appearance: none;
@@ -1227,15 +1216,16 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   content: "";
   position: absolute;
   top: 0;
-  left: calc(-18 * var(--quake-menu-px));
+  right: 0;
   width: var(--quake-menu-row-text-size);
   height: var(--quake-menu-row-text-size);
   background-image: url("/q/conchars.png");
   background-position: calc(-12 * var(--quake-menu-row-text-size)) 0;
   background-size: calc(16 * var(--quake-menu-row-text-size)) calc(16 * var(--quake-menu-row-text-size));
   image-rendering: pixelated;
+  transform: scaleX(-1);
   opacity: 0;
-  animation: quake-menu-option-cursor-frame 500ms steps(1, end) infinite;
+  animation: quake-menu-option-cursor-frame 750ms steps(1, end) infinite;
 }
 .quake-level-code,
 .quake-level-name {
@@ -1928,13 +1918,13 @@ body.quake-crosshair-hit #quake-crosshair::after {
   left: 50%;
   bottom: 0;
   z-index: 3;
-  width: min(1080px, calc(100vw - 24px));
+  width: min(max(320px, 83.2vh), 100vw);
   --quake-hud-red: #c93a24;
   --quake-hud-red-bright: #f04a2b;
   --quake-hud-orange: #d46b28;
   --quake-hud-shadow: #110503;
   --quake-hud-px: calc(100cqw / 320);
-  --quake-hud-px-y: calc(var(--quake-hud-px) * 1.02469);
+  --quake-hud-px-y: var(--quake-hud-px);
   --quake-hud-status-y: calc(24 * var(--quake-hud-px-y));
   --quake-hud-readout-top: 0;
   --quake-hud-readout-width: calc(72 * var(--quake-hud-px));
@@ -1943,13 +1933,13 @@ body.quake-crosshair-hit #quake-crosshair::after {
   --quake-hud-ammo-x: calc(248 * var(--quake-hud-px));
   --quake-hud-icons-width: 432;
   transform: translateX(-50%);
-  aspect-ratio: 320 / 24.5926;
+  aspect-ratio: 320 / 24;
   background: #050302;
   overflow: hidden;
   line-height: 0;
   container-type: inline-size;
   image-rendering: pixelated;
-  filter: brightness(1.58);
+  filter: brightness(1.58) saturate(1.07) hue-rotate(-1deg) contrast(0.96) brightness(0.96);
 }
 #quake-loading-status::before,
 #quake-main-menu-art,

@@ -351,6 +351,10 @@ repository's GPL-2.0 license.
 This repository does not version resource.1, pak0.pak, or generated/converted
 assets. Build and deploy steps generate derived assets from resource.1.
 
+The source-port console background at src/assets/source-port-conback.lmp is by
+AAS and is released under the Creative Commons Attribution 3.0 Unported license:
+https://creativecommons.org/licenses/by/3.0/legalcode
+
 No affiliation or endorsement by id Software or Microsoft is implied.
 This is a pragmatic compromise, not a claim that this asset arrangement is
 legally clean.

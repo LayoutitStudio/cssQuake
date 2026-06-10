@@ -152,7 +152,6 @@ import {
 } from "./runtime/renderBundleMesh";
 
 declare const __CSSQUAKE_VERSION__: string;
-declare const __POLYCSS_VERSION__: string;
 
 const quakeApp = document.getElementById("quake-app") as HTMLElement;
 const quakeUi = document.getElementById("quake-ui") as HTMLElement | null;
@@ -223,16 +222,14 @@ const QUAKE_ASSETS_REGENERATING_ACTION =
 const QUAKE_LOADING_PREVIEW_ENABLED = import.meta.env.DEV && new URLSearchParams(window.location.search).has("loading");
 const QUAKE_LOADING_CONSOLE_BOOT_LINES = [
   "Quake (C) 1996 id Software, Inc.",
-  `PolyCSS renderer v${__POLYCSS_VERSION__}`,
-  "Console initialized.",
-  "Host ready",
-  "Filesystem mounted",
-  "Cache primed",
-  "Shareware episode",
+  "Shareware version 1.06",
+  "Host_Init",
 ] as const;
-const QUAKE_LOADING_CONSOLE_PAK_LINE = "Mounted id1/pak0.pak";
+const QUAKE_LOADING_CONSOLE_PAK_LINE = "Assets from id1/pak0.pak";
 const QUAKE_LOADING_CONSOLE_LINE_DELAY_MS = 55;
 const QUAKE_LOADING_CONSOLE_MAX_LINES = 28;
+const QUAKE_LOADING_ERROR_LINE_LIMIT = 10;
+const QUAKE_LOADING_ERROR_LINE_MAX_CHARS = 42;
 const QUAKE_LOADING_READY_MIN_PRESENTED_FRAMES = 6;
 const QUAKE_LOADING_READY_STABLE_PRESENTED_FRAMES = 3;
 let quakeLoadingConsoleLines: string[] = [];
@@ -1471,11 +1468,18 @@ function setQuakeGameplayStarted(started: boolean): void {
   document.body.classList.toggle("quake-gameplay-started", started);
   if (started && loadingOverlay?.classList.contains("quake-loading-console-persisted")) {
     document.body.classList.remove("quake-loading");
-    loadingOverlay.hidden = true;
-    loadingOverlay.removeAttribute("aria-busy");
-    loadingOverlay.classList.remove("quake-loading-console-persisted");
-    clearQuakeLoadingConsoleQueue();
+    loadingOverlay.hidden = false;
+    loadingOverlay.setAttribute("aria-busy", "false");
   }
+}
+
+function hidePersistedQuakeLoadingConsole(): void {
+  if (!loadingOverlay?.classList.contains("quake-loading-console-persisted")) return;
+  document.body.classList.remove("quake-loading");
+  loadingOverlay.hidden = true;
+  loadingOverlay.removeAttribute("aria-busy");
+  loadingOverlay.classList.remove("quake-loading-console-persisted");
+  clearQuakeLoadingConsoleQueue();
 }
 
 interface QuakeStatsPanel {
@@ -2628,6 +2632,76 @@ function completeQuakeLoadingConsoleQueue(): void {
   renderQuakeLoadingConsole();
 }
 
+function appendQuakeLoadingConsoleLinesNow(lines: string[]): void {
+  if (!lines.length) return;
+  if (quakeLoadingConsoleLineTimer !== null) {
+    window.clearTimeout(quakeLoadingConsoleLineTimer);
+    quakeLoadingConsoleLineTimer = null;
+  }
+  quakeLoadingConsoleLineQueue = [];
+  for (const line of lines) {
+    appendQuakeLoadingConsoleLineNow(line, null, { render: false });
+  }
+  renderQuakeLoadingConsole();
+}
+
+function quakeLoadingErrorConsoleLines(error: unknown): string[] {
+  if (error === undefined || error === null) return [];
+  const rawLines = quakeLoadingErrorText(error)
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const lines: string[] = [];
+  for (let index = 0; index < rawLines.length && lines.length < QUAKE_LOADING_ERROR_LINE_LIMIT; index++) {
+    const prefix = index === 0 ? "error: " : "";
+    for (const line of wrapQuakeLoadingConsoleLine(`${prefix}${rawLines[index]}`)) {
+      lines.push(line);
+      if (lines.length >= QUAKE_LOADING_ERROR_LINE_LIMIT) break;
+    }
+  }
+  return lines;
+}
+
+function quakeLoadingErrorText(error: unknown): string {
+  if (error instanceof Error) return error.stack || `${error.name}: ${error.message}`;
+  if (typeof error === "string") return error;
+  try {
+    const json = JSON.stringify(error);
+    if (json) return json;
+  } catch {
+    // Fall through to String().
+  }
+  return String(error);
+}
+
+function wrapQuakeLoadingConsoleLine(line: string): string[] {
+  if (line.length <= QUAKE_LOADING_ERROR_LINE_MAX_CHARS) return [line];
+  const words = line.split(/\s+/).filter(Boolean);
+  const wrapped: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (word.length > QUAKE_LOADING_ERROR_LINE_MAX_CHARS) {
+      if (current) {
+        wrapped.push(current);
+        current = "";
+      }
+      for (let index = 0; index < word.length; index += QUAKE_LOADING_ERROR_LINE_MAX_CHARS) {
+        wrapped.push(word.slice(index, index + QUAKE_LOADING_ERROR_LINE_MAX_CHARS));
+      }
+      continue;
+    }
+    const next = current ? `${current} ${word}` : word;
+    if (next.length <= QUAKE_LOADING_ERROR_LINE_MAX_CHARS) {
+      current = next;
+    } else {
+      wrapped.push(current);
+      current = word;
+    }
+  }
+  if (current) wrapped.push(current);
+  return wrapped.length ? wrapped : [line.slice(0, QUAKE_LOADING_ERROR_LINE_MAX_CHARS)];
+}
+
 function queueQuakeLoadingConsoleLine(status: string, key: string | null = null): void {
   if (!canQueueQuakeLoadingConsole()) return;
   const line = status.replace(/\s+/g, " ").trim();
@@ -2757,9 +2831,9 @@ function quakeLoadingConsoleStatusLabel(status: string): string {
     case "Loading manifest":
       return "Loaded manifest";
     case "Game logic":
-      return "Game logic: progs.dat";
+      return "Loaded progs";
     case "Pickup definitions":
-      return "Pickup definitions";
+      return "Loaded definitions";
     case "Weapon model":
       return "Weapon model";
     case "Pickup models":
@@ -2789,8 +2863,12 @@ function quakeLoadingConsoleStatusLabel(status: string): string {
 }
 
 function setQuakeLoading(active: boolean, status = "Loading"): void {
+  const wasLoading = quakeAppLoading;
   quakeAppLoading = active;
   if (active) {
+    if (!wasLoading) {
+      markQuakeTrace("loading-start", { map: currentMapName, status });
+    }
     clearQuakeAttackInput();
     clearQuakeDebugFlyInput();
     clearQuakeMoveInput();
@@ -2809,6 +2887,7 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
       loadingAction.textContent = "";
       loadingAction.hidden = true;
     }
+    if (loadingProgress) loadingProgress.hidden = false;
     if (loadingOverlay) {
       loadingOverlay.hidden = false;
       loadingOverlay.setAttribute("aria-busy", "true");
@@ -2846,7 +2925,18 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
   syncQuakeStatsOverlayAvailability();
 }
 
-function setQuakeLoadingError(): void {
+function hideQuakeMainMenuForLoadingError(): void {
+  document.body.classList.remove("quake-menu-open", "quake-main-menu-pending");
+  document.body.classList.add("quake-main-menu-deferred");
+  if (mainMenu) mainMenu.hidden = true;
+  singlePlayerPanel?.setAttribute("hidden", "");
+  levelPanel?.setAttribute("hidden", "");
+  aboutPanel?.setAttribute("hidden", "");
+  optionsPanel?.setAttribute("hidden", "");
+  debugMenuPanel?.setAttribute("hidden", "");
+}
+
+function setQuakeLoadingError(error?: unknown): void {
   quakeAppLoading = true;
   clearQuakeAttackInput();
   clearQuakeDebugFlyInput();
@@ -2856,16 +2946,21 @@ function setQuakeLoadingError(): void {
   clearQuakeWeaponViewPunch();
   clearQuakeBonusOverlay();
   document.body.classList.add("quake-loading");
+  hideQuakeMainMenuForLoadingError();
+  if (loadingOverlay) {
+    loadingOverlay.hidden = false;
+    loadingOverlay.setAttribute("aria-busy", "false");
+    loadingOverlay.classList.add("quake-loading-console-persisted");
+  }
   resetQuakeLoadingConsole("Load failed");
   updateQuakeLoadingDisplay("Load failed", { completed: 0, total: 0 });
+  completeQuakeLoadingConsoleQueue();
+  appendQuakeLoadingConsoleLinesNow(quakeLoadingErrorConsoleLines(error));
   if (loadingAction) {
     loadingAction.textContent = "";
     loadingAction.hidden = true;
   }
-  if (loadingOverlay) {
-    loadingOverlay.hidden = false;
-    loadingOverlay.setAttribute("aria-busy", "false");
-  }
+  if (loadingProgress) loadingProgress.hidden = true;
   controls.update({ moveEnabled: false, jumpEnabled: false, gravity: 0 });
   clearQuakeCrosshairTarget();
 }
@@ -4230,6 +4325,7 @@ function handleQuakeUsePointerDown(event: PointerEvent): void {
     quakePointerTrace("host-pointerdown-ignored", { pointerId: event.pointerId, reason: "cannot-input" });
     return;
   }
+  hidePersistedQuakeLoadingConsole();
   event.preventDefault();
   const now = performance.now();
   if (document.pointerLockElement !== host) {
@@ -5067,6 +5163,8 @@ async function completeQuakeSceneReadiness(
   const completeReadinessTask = progress?.startTask("Rendered first frame");
   const readiness = await waitForQuakeLoadingReadiness();
   completeReadinessTask?.();
+  const completeFunReminderTask = progress?.startTask("Don't forget to have fun!");
+  completeFunReminderTask?.();
   if (quakeAppDisposed) return;
   markQuakeTrace("loading-ready", {
     map: currentMapName,
@@ -5481,12 +5579,11 @@ async function loadQuake(): Promise<void> {
   const progress = createQuakeLoadingProgressTracker("Loading");
   setQuakeLoading(true);
   const completeManifestTask = progress.startTask("Manifest");
+  let hasPakAssets = false;
   try {
     const manifest = await fetchQuakeAssetManifest();
     setQuakeAssetManifest(manifest);
-    if (manifest.maps.some((map) => map.pakPath)) {
-      queueQuakeLoadingConsoleLine(QUAKE_LOADING_CONSOLE_PAK_LINE);
-    }
+    hasPakAssets = manifest.maps.some((map) => map.pakPath);
   } finally {
     completeManifestTask();
   }
@@ -5496,6 +5593,7 @@ async function loadQuake(): Promise<void> {
   if (!startupSceneUrl) throw new Error(`No prepared Quake start map registered for ${startMap}.`);
   const programMetadataPromise = loadProgramMetadata(progress);
   const pickupModelsPromise = loadPickupModels(progress);
+  if (hasPakAssets) queueQuakeLoadingConsoleLine(QUAKE_LOADING_CONSOLE_PAK_LINE);
   const startupScenePromise = fetchQuakeScene(startupSceneUrl, startMap, progress);
   const weaponPromise = preloadWeaponViewModel(progress);
   await Promise.all([programMetadataPromise, pickupModelsPromise]);
@@ -5519,7 +5617,12 @@ async function loadQuake(): Promise<void> {
   syncQuakeRoutePresentation(startupRoute);
 }
 
+function clearQuakeMainMenuStartupState(): void {
+  document.body.classList.remove("quake-main-menu-pending", "quake-main-menu-deferred");
+}
+
 function syncQuakeRoutePresentation(route: QuakeUrlRoute, options: { preferMenu?: boolean } = {}): void {
+  clearQuakeMainMenuStartupState();
   if (QUAKE_MENU_ENABLED && (options.preferMenu || !quakeUrlRouteIsDirect(route))) {
     menu.showMainMenu();
   } else {
@@ -5559,7 +5662,7 @@ function navigateToQuakeRoute(route: QuakeUrlRoute): void {
         if (error instanceof QuakeAssetsRegeneratingError) {
           setQuakeAssetsRegenerating(error.message);
         } else {
-          setQuakeLoadingError();
+          setQuakeLoadingError(error);
         }
       }
     });
@@ -5752,13 +5855,18 @@ if (debugPanel) mountQuakeBitmapText(debugPanel);
 syncQuakeMobileControlsAvailability();
 installQuakeAppDebugHooks();
 
+(window as typeof window & { __cssQuakeShowLoadingError?: (error: unknown) => void })
+  .__cssQuakeShowLoadingError = (error: unknown) => {
+    if (!quakeAppDisposed && quakeAppLoading) setQuakeLoadingError(error);
+  };
+
 void loadQuake().catch((error) => {
   console.error(error);
   if (!quakeAppDisposed) {
     if (error instanceof QuakeAssetsRegeneratingError) {
       setQuakeAssetsRegenerating(error.message);
     } else {
-      setQuakeLoadingError();
+      setQuakeLoadingError(error);
     }
   }
 });
