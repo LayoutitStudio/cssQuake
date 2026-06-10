@@ -311,7 +311,7 @@ const QUAKE_CAMERA_STEP_SMOOTH_DT_CLAMP = 0.05;
 const QUAKE_DAMAGE_VIEW_PITCH_SCALE = 0.035;
 const QUAKE_DAMAGE_VIEW_PITCH_MAX_DEG = 2;
 const QUAKE_BONUS_FLASH_HOLD_MS = 80;
-const QUAKE_URL_VIEW_PART_COUNT = 5;
+const QUAKE_URL_VIEW_PART_COUNT = 6;
 const QUAKE_URL_NUMBER_SCALE = 1000;
 const QUAKE_URL_VIEW_ORIGIN_LIMIT = 100000;
 const QUAKE_URL_VIEW_PITCH_MIN = -90;
@@ -732,15 +732,14 @@ function quakeUrlView(params: URLSearchParams): QuakeUrlView | null {
   const rawValue = params.get("view");
   if (!rawValue) return null;
   const parts = quakeUrlNumberParts(rawValue);
-  if ((parts.length !== QUAKE_URL_VIEW_PART_COUNT && parts.length !== QUAKE_URL_VIEW_PART_COUNT + 1) ||
-    parts.some((part) => !Number.isFinite(part))) {
+  if (parts.length !== QUAKE_URL_VIEW_PART_COUNT || parts.some((part) => !Number.isFinite(part))) {
     return null;
   }
   if (parts.slice(0, 3).some((part) => Math.abs(part) > QUAKE_URL_VIEW_ORIGIN_LIMIT)) return null;
   if (parts[3] < QUAKE_URL_VIEW_PITCH_MIN || parts[3] > QUAKE_URL_VIEW_PITCH_MAX) return null;
   if (Math.abs(parts[4]) > QUAKE_URL_VIEW_ANGLE_LIMIT) return null;
   if (parts[5] !== undefined && Math.abs(parts[5]) > QUAKE_URL_VIEW_ANGLE_LIMIT) return null;
-  const roll = parts[5] ?? 0;
+  const roll = parts[5];
   if (Math.abs(roll) > QUAKE_URL_VIEW_ROLL_EPSILON) return null;
   return {
     origin: [parts[0], parts[1], parts[2]],
@@ -775,10 +774,9 @@ function updateQuakeUrl(mapName: string, mode: QuakeUrlUpdateMode, view: QuakeCs
 
 function clearQuakeGameRoute(): void {
   const url = new URL(window.location.href);
-  const hadGameRoute = url.searchParams.has("map") || url.searchParams.has("view") || url.searchParams.has("viewpos");
+  const hadGameRoute = url.searchParams.has("map") || url.searchParams.has("view");
   url.searchParams.delete("map");
   url.searchParams.delete("view");
-  url.searchParams.delete("viewpos");
   if (!hadGameRoute && url.href === window.location.href) return;
   window.history.replaceState({ cssQuake: true, mapName: null, view: null }, "", url);
 }
@@ -798,7 +796,6 @@ function clearQuakeDebugUrlParams(): void {
 function quakeUrlFor(mapName: string, view: QuakeCssView | null = null): URL {
   const url = new URL(window.location.href);
   url.searchParams.set("map", mapName);
-  url.searchParams.delete("viewpos");
   if (view) {
     setQuakeUrlViewParam(url, quakeUrlViewValue(quakeUrlViewFromCssView(view)));
   } else {

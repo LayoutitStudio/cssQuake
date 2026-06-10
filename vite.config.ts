@@ -94,20 +94,17 @@ function safePositiveNumber(value: unknown, fallback: string): string {
   return String(number);
 }
 
-type CapturePoseMode = "css" | "quake";
-
 interface CapturePoseInput {
   mapName: string | null;
-  mode: CapturePoseMode;
   pose: string;
 }
 
 function quakePoseFromViewParam(view: string): string {
   const parts = view.trim().split(/[,\s]+/).filter(Boolean).map((part) => Number(part));
-  if ((parts.length !== 5 && parts.length !== 6) || parts.some((part) => !Number.isFinite(part))) {
-    throw new Error("URL view must be x,y,z,pitch,yaw or x,y,z,pitch,yaw,roll.");
+  if (parts.length !== 6 || parts.some((part) => !Number.isFinite(part))) {
+    throw new Error("URL view must be x,y,z,pitch,yaw,roll.");
   }
-  const roll = parts[5] ?? 0;
+  const roll = parts[5];
   if (Math.abs(roll) > 0.001) {
     throw new Error("cssQuake URL capture only supports zero roll.");
   }
@@ -116,43 +113,27 @@ function quakePoseFromViewParam(view: string): string {
 
 function parseCapturePoseInput(value: unknown): CapturePoseInput {
   const pose = safeString(value, "");
-  if (!pose) return { mapName: null, mode: "css", pose };
-  let url: URL | null = null;
+  if (!pose) throw new Error("Paste a cssQuake URL with view=x,y,z,pitch,yaw,roll.");
+  let url: URL;
   try {
     url = new URL(pose, DEFAULT_CSSQUAKE_URL);
-  } catch {
-    // Keep supporting the plain pose format.
+  } catch (error) {
+    throw new Error(`Invalid cssQuake URL: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (url) {
-    const view = url.searchParams.get("view");
-    if (view) {
-      return {
-        mapName: url.searchParams.get("map")?.trim().toLowerCase() || null,
-        mode: "quake",
-        pose: quakePoseFromViewParam(view),
-      };
-    }
-  }
-
-  const parts = pose.split("|").map((part) => part.trim()).filter(Boolean);
-  if (parts.length >= 3 && /^[a-z][a-z0-9_]*$/i.test(parts[0])) {
-    return {
-      mapName: parts[0].toLowerCase(),
-      mode: "css",
-      pose: parts.slice(1).join(" | "),
-    };
-  }
-  return { mapName: null, mode: "css", pose };
+  const view = url.searchParams.get("view");
+  if (!view) throw new Error("cssQuake capture URL must include view=x,y,z,pitch,yaw,roll.");
+  return {
+    mapName: url.searchParams.get("map")?.trim().toLowerCase() || null,
+    pose: quakePoseFromViewParam(view),
+  };
 }
 
 function captureArgs(input: Record<string, unknown>): string[] {
-  const parsedPose = parseCapturePoseInput(input.pose);
-  const pose = parsedPose.pose;
   const useSpawn = input.spawn === true;
-  if (!useSpawn && !pose) throw new Error("Paste a CSS pose first.");
+  const parsedPose = useSpawn ? null : parseCapturePoseInput(input.pose);
   const args = [
     CAPTURE_SCRIPT,
-    "--map", parsedPose.mapName ?? safeString(input.map, "e1m1"),
+    "--map", parsedPose?.mapName ?? safeString(input.map, "e1m1"),
     "--skill", safeString(input.skill, "easy"),
     "--vk-palettize", safeString(input.vkPalettize, "0"),
     "--vk-filter", safeString(input.vkFilter, "1"),
@@ -164,7 +145,7 @@ function captureArgs(input: Record<string, unknown>): string[] {
   if (useSpawn) {
     args.push("--spawn");
   } else {
-    args.push(parsedPose.mode === "quake" ? "--quake" : "--css", pose);
+    args.push("--quake", parsedPose.pose);
   }
   if (input.weaponOnly === true) {
     args.push("--weapon-only");
