@@ -219,6 +219,19 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     if (!visibleFaces) {
       let addedLeaves = 0;
       let removedLeaves = 0;
+      if (visibleFaceKey === "all") {
+        recordQuakeWorldVisibilitySync(visibilityChurn, "same-key", startedAt, { force });
+        if (force) {
+          markQuakeTrace("world-visibility", {
+            reason: "no-pvs-same-key",
+            force,
+            addedLeaves,
+            removedLeaves,
+            mountedLeaves: quakeLeaves.length,
+          });
+        }
+        return;
+      }
       if (force || visibleFaceKey !== "all") {
         const now = performance.now();
         for (const leaf of quakeLeaves) {
@@ -242,8 +255,20 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     }
 
     const nextKey = visibleFaceGroup?.key ?? faceSetKey(visibleFaces);
-    if (!force && nextKey === visibleFaceKey) {
-      recordQuakeWorldVisibilitySync(visibilityChurn, "same-key", startedAt, { pvsFaceCount: visibleFaces.size });
+    if (nextKey === visibleFaceKey) {
+      recordQuakeWorldVisibilitySync(visibilityChurn, "same-key", startedAt, {
+        force,
+        pvsFaceCount: visibleFaces.size,
+      });
+      if (force) {
+        markQuakeTrace("world-visibility", {
+          reason: "force-same-key",
+          force,
+          pvsFaces: visibleFaces.size,
+          addedLeaves: 0,
+          removedLeaves: 0,
+        });
+      }
       return;
     }
     visibleFaceKey = nextKey;

@@ -1199,14 +1199,18 @@ export function createQuakeShootablesController({
     const selectionKey = shootableVisibilitySelectionKey(mountedIndexes, prewarmedIndexes);
     const selectionChanged = selectionKey !== lastVisibilitySelectionKey;
     lastVisibilitySelectionKey = selectionKey;
-    for (const shootable of shootables.values()) {
-      setShootableMounted(
-        shootable,
-        mountedIndexes.has(shootable.entity.index),
-        prewarmedIndexes.has(shootable.entity.index),
-      );
+    const selectionNeedsApply = selectionChanged ||
+      shootableVisibilitySelectionNeedsApply(mountedIndexes, prewarmedIndexes);
+    if (selectionNeedsApply) {
+      for (const shootable of shootables.values()) {
+        setShootableMounted(
+          shootable,
+          mountedIndexes.has(shootable.entity.index),
+          prewarmedIndexes.has(shootable.entity.index),
+        );
+      }
     }
-    const after = shootableVisibilitySnapshot();
+    const after = selectionNeedsApply ? shootableVisibilitySnapshot() : before;
     const meshHandlesCreated = visibilityChurn.totalMeshHandlesCreated - meshHandlesCreatedBefore;
     const meshHandlesRemoved = visibilityChurn.totalMeshHandlesRemoved - meshHandlesRemovedBefore;
     const frameHandlesCreated = visibilityChurn.totalFrameHandlesCreated - frameHandlesCreatedBefore;
@@ -1241,6 +1245,29 @@ export function createQuakeShootablesController({
         frameRemoved: frameHandlesRemoved,
       });
     }
+  }
+
+  function shootableVisibilitySelectionNeedsApply(
+    mountedIndexes: Set<number>,
+    prewarmedIndexes: Set<number>,
+  ): boolean {
+    for (const index of mountedIndexes) {
+      const shootable = shootables.get(index);
+      if (!shootable || !shootable.handle || !shootable.visible) return true;
+    }
+    for (const index of prewarmedIndexes) {
+      const shootable = shootables.get(index);
+      if (!shootable || !canPrewarmShootableHandle(shootable)) continue;
+      if (!shootable.handle && !queuedPrewarmIndexes.has(index)) return true;
+      if (shootable.handle && shootable.visible) return true;
+    }
+    for (const shootable of shootables.values()) {
+      const index = shootable.entity.index;
+      if (!shootable.handle || mountedIndexes.has(index) || prewarmedIndexes.has(index)) continue;
+      if (isShootableDeathAnimating(shootable)) continue;
+      return true;
+    }
+    return false;
   }
 
   function setShootableMounted(shootable: QuakeShootableState, mounted: boolean, prewarmed: boolean): void {

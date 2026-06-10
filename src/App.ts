@@ -3050,7 +3050,6 @@ function quakeDebugFlyFastActive(): boolean {
 
 function syncQuakeDebugFlyView(origin: [number, number, number]): void {
   shootables.syncVisibility(origin, true);
-  getPickups().syncVisibility(origin);
   viewmodel.syncTransform();
   world.syncVisibility(true);
   syncQuakeCrosshairTarget();
@@ -4432,7 +4431,6 @@ function syncQuakeDebugGameplay(origin: [number, number, number]): void {
   if (syncQuakeHazards(currentOrigin, triggers)) return;
   getPickups().syncCollision(currentOrigin, getPlayer().eyeHeight(), STEP_HEIGHT);
   shootables.syncVisibility(currentOrigin, true);
-  getPickups().syncVisibility(currentOrigin);
   viewmodel.syncTransform();
   world.syncVisibility(true);
   syncQuakeCrosshairTarget();
@@ -4443,7 +4441,6 @@ function applyQuakeUrlView(view: QuakeUrlView): void {
   getPlayer().setDebugOrigin(view.origin);
   syncSceneCameraAt(view.origin, view.rotX, view.rotY);
   shootables.syncVisibility(view.origin, true);
-  getPickups().syncVisibility(view.origin);
   viewmodel.syncTransform();
   world.syncVisibility(true);
   syncQuakeCrosshairTarget();
