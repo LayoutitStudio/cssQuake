@@ -1508,6 +1508,10 @@ function setQuakeGameplayStarted(started: boolean): void {
   quakeGameplayStarted = started;
   document.body.classList.toggle("quake-gameplay-started", started);
   if (started && loadingOverlay?.classList.contains("quake-loading-console-persisted")) {
+    if (!QUAKE_LOADING_PREVIEW_ENABLED) {
+      hidePersistedQuakeLoadingConsole();
+      return;
+    }
     document.body.classList.remove("quake-loading");
     loadingOverlay.hidden = false;
     loadingOverlay.setAttribute("aria-busy", "false");
