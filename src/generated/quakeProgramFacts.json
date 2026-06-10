@@ -90,6 +90,17 @@
             "line": 913
           }
         },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "0",
+          "viewModelPath": "progs/v_axe.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 778
+          }
+        },
         "melee": {
           "damage": 20,
           "rangeUnits": 64,
@@ -129,6 +140,19 @@
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_FireShotgun",
             "line": 286
+          }
+        },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "self.ammo_shells",
+          "currentAmmoField": "shells",
+          "activeAmmoItemFlag": "IT_SHELLS",
+          "viewModelPath": "progs/v_shot.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 784
           }
         },
         "hitscan": {
@@ -177,6 +201,19 @@
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_FireSuperShotgun",
             "line": 311
+          }
+        },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "self.ammo_shells",
+          "currentAmmoField": "shells",
+          "activeAmmoItemFlag": "IT_SHELLS",
+          "viewModelPath": "progs/v_shot2.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 791
           }
         },
         "fallback": {
@@ -230,6 +267,19 @@
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_FireSpikes",
             "line": 677
+          }
+        },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "self.ammo_nails",
+          "currentAmmoField": "nails",
+          "activeAmmoItemFlag": "IT_NAILS",
+          "viewModelPath": "progs/v_nail.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 798
           }
         },
         "projectile": {
@@ -290,6 +340,19 @@
             "line": 646
           }
         },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "self.ammo_nails",
+          "currentAmmoField": "nails",
+          "activeAmmoItemFlag": "IT_NAILS",
+          "viewModelPath": "progs/v_nail2.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 805
+          }
+        },
         "fallback": {
           "condition": "self.ammo_nails < 2",
           "sourceFunction": "W_FireSpikes",
@@ -337,6 +400,19 @@
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_FireGrenade",
             "line": 569
+          }
+        },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "self.ammo_rockets",
+          "currentAmmoField": "rockets",
+          "activeAmmoItemFlag": "IT_ROCKETS",
+          "viewModelPath": "progs/v_rock.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 812
           }
         },
         "projectile": {
@@ -421,6 +497,19 @@
             "line": 397
           }
         },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "self.ammo_rockets",
+          "currentAmmoField": "rockets",
+          "activeAmmoItemFlag": "IT_ROCKETS",
+          "viewModelPath": "progs/v_rock2.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 819
+          }
+        },
         "projectile": {
           "directDamage": {
             "base": 100,
@@ -494,6 +583,19 @@
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_Attack",
             "line": 961
+          }
+        },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "self.ammo_cells",
+          "currentAmmoField": "cells",
+          "activeAmmoItemFlag": "IT_CELLS",
+          "viewModelPath": "progs/v_light.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 826
           }
         },
         "fireSound": {
@@ -20969,6 +21071,56 @@
     },
     "trigger_monsterjump": {
       "assetRefs": [],
+      "callbackFacts": {
+        "trigger_monsterjump_touch": {
+          "assignments": [
+            {
+              "field": "other.velocity_x",
+              "expression": "self.movedir_x * self.speed",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/triggers.qc",
+                "functionName": "trigger_monsterjump_touch",
+                "line": 633
+              }
+            },
+            {
+              "field": "other.velocity_y",
+              "expression": "self.movedir_y * self.speed",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/triggers.qc",
+                "functionName": "trigger_monsterjump_touch",
+                "line": 634
+              }
+            },
+            {
+              "field": "other.flags",
+              "expression": "other.flags - FL_ONGROUND",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/triggers.qc",
+                "functionName": "trigger_monsterjump_touch",
+                "line": 639
+              }
+            },
+            {
+              "field": "other.velocity_z",
+              "expression": "self.height",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/triggers.qc",
+                "functionName": "trigger_monsterjump_touch",
+                "line": 641
+              }
+            }
+          ],
+          "calls": [],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/triggers.qc",
+              "functionName": "trigger_monsterjump_touch",
+              "line": 628
+            }
+          ]
+        }
+      },
       "callbacks": {
         "touch": "trigger_monsterjump_touch"
       },

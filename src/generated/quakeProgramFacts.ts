@@ -234,6 +234,16 @@ export interface QuakePlayerWeaponUnsupportedBranchFact {
   sourceRef?: QuakeProgramSourceRef;
 }
 
+export interface QuakePlayerWeaponPresentationFact {
+  activeAmmoItemFlag?: string;
+  currentAmmoExpression?: string;
+  currentAmmoField?: QuakePlayerAmmoField;
+  sourceFunction: "W_SetCurrentAmmo";
+  sourceRef: QuakeProgramSourceRef;
+  viewModelPath: string;
+  weaponFrame?: number;
+}
+
 export interface QuakePlayerWeaponFireProfileFact {
   ammo?: QuakePlayerWeaponAmmoFact;
   attackStartCooldownMs?: number;
@@ -244,6 +254,7 @@ export interface QuakePlayerWeaponFireProfileFact {
   hitscan?: QuakePlayerWeaponHitscanFact;
   itemFlag: string;
   melee?: QuakePlayerWeaponMeleeFact;
+  presentation?: QuakePlayerWeaponPresentationFact;
   projectile?: QuakePlayerWeaponProjectileFact;
   runtimeKind: QuakePlayerWeaponRuntimeKind;
   sourceFunction: string;
@@ -295,6 +306,684 @@ export interface QuakeProgramFacts {
   playerWeapons: QuakePlayerWeaponFireFacts;
   entities: Readonly<Record<string, QuakeProgramEntityFact>>;
 }
+
+export const QUAKE_PROGRAM_SOURCE_FACTS = {
+  "repository": "https://github.com/id-Software/Quake-Tools",
+  "revision": "c0d1b91c74eb654365ac7755bc837e497caaca73"
+} as const;
+
+export const QUAKE_PLAYER_WEAPON_FIRE_FACTS = {
+  "radiusDamageSemantics": {
+    "attackerSelfScale": 0.5,
+    "distanceScale": 0.5,
+    "radiusAddUnits": 40,
+    "requiresCanDamage": true,
+    "shamblerScale": 0.5
+  },
+  "noAmmoFallback": {
+    "sourceFunction": "W_CheckNoAmmo",
+    "currentAmmoPassCondition": "self.currentammo > 0",
+    "axeAlwaysAllowed": true,
+    "fallbackFunction": "W_BestWeapon",
+    "setCurrentAmmoFunction": "W_SetCurrentAmmo",
+    "bestWeaponOrder": [
+      {
+        "ammoField": "cells",
+        "minAmmo": 1,
+        "itemFlag": "IT_LIGHTNING",
+        "returns": "IT_LIGHTNING",
+        "weapon": "lightning"
+      },
+      {
+        "ammoField": "nails",
+        "minAmmo": 2,
+        "itemFlag": "IT_SUPER_NAILGUN",
+        "returns": "IT_SUPER_NAILGUN",
+        "weapon": "supernailgun"
+      },
+      {
+        "ammoField": "shells",
+        "minAmmo": 2,
+        "itemFlag": "IT_SUPER_SHOTGUN",
+        "returns": "IT_SUPER_SHOTGUN",
+        "weapon": "supershotgun"
+      },
+      {
+        "ammoField": "nails",
+        "minAmmo": 1,
+        "itemFlag": "IT_NAILGUN",
+        "returns": "IT_NAILGUN",
+        "weapon": "nailgun"
+      },
+      {
+        "ammoField": "shells",
+        "minAmmo": 1,
+        "itemFlag": "IT_SHOTGUN",
+        "returns": "IT_SHOTGUN",
+        "weapon": "shotgun"
+      },
+      {
+        "itemFlag": "IT_AXE",
+        "returns": "IT_AXE",
+        "weapon": "axe",
+        "fallback": true
+      }
+    ],
+    "sourceRefs": [
+      {
+        "sourceFile": "qcc/v101qc/weapons.qc",
+        "functionName": "W_CheckNoAmmo",
+        "line": 870
+      },
+      {
+        "sourceFile": "qcc/v101qc/weapons.qc",
+        "functionName": "W_BestWeapon",
+        "line": 842
+      }
+    ]
+  },
+  "profiles": {
+    "axe": {
+      "weapon": "axe",
+      "itemFlag": "IT_AXE",
+      "runtimeKind": "melee-trace",
+      "sourceFunction": "W_FireAxe",
+      "cooldownMs": 500,
+      "fireSound": {
+        "channel": "CHAN_WEAPON",
+        "path": "weapons/ax1.wav",
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_Attack",
+          "line": 913
+        }
+      },
+      "presentation": {
+        "sourceFunction": "W_SetCurrentAmmo",
+        "currentAmmoExpression": "0",
+        "viewModelPath": "progs/v_axe.mdl",
+        "weaponFrame": 0,
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_SetCurrentAmmo",
+          "line": 778
+        }
+      },
+      "melee": {
+        "damage": 20,
+        "rangeUnits": 64,
+        "sourceOffsetUnits": {
+          "up": 16
+        },
+        "wallImpactSoundPath": "player/axhit2.wav"
+      },
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireAxe",
+          "line": 56
+        },
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_Attack",
+          "line": 911
+        }
+      ]
+    },
+    "shotgun": {
+      "weapon": "shotgun",
+      "itemFlag": "IT_SHOTGUN",
+      "runtimeKind": "hitscan-pellets",
+      "sourceFunction": "W_FireShotgun",
+      "ammo": {
+        "cost": 1,
+        "field": "shells",
+        "sourceField": "ammo_shells"
+      },
+      "cooldownMs": 500,
+      "fireSound": {
+        "channel": "CHAN_WEAPON",
+        "path": "weapons/guncock.wav",
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireShotgun",
+          "line": 286
+        }
+      },
+      "presentation": {
+        "sourceFunction": "W_SetCurrentAmmo",
+        "currentAmmoExpression": "self.ammo_shells",
+        "currentAmmoField": "shells",
+        "activeAmmoItemFlag": "IT_SHELLS",
+        "viewModelPath": "progs/v_shot.mdl",
+        "weaponFrame": 0,
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_SetCurrentAmmo",
+          "line": 784
+        }
+      },
+      "hitscan": {
+        "aimRangeUnits": 100000,
+        "pelletCount": 6,
+        "pelletDamage": 4,
+        "spread": [
+          0.04,
+          0.04,
+          0
+        ],
+        "traceRangeUnits": 2048,
+        "sourceOffsetUnits": {
+          "forward": 10,
+          "zExpression": "self.absmin_z + self.size_z * 0.7"
+        }
+      },
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireShotgun",
+          "line": 283
+        },
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_Attack",
+          "line": 925
+        }
+      ]
+    },
+    "supershotgun": {
+      "weapon": "supershotgun",
+      "itemFlag": "IT_SUPER_SHOTGUN",
+      "runtimeKind": "hitscan-pellets",
+      "sourceFunction": "W_FireSuperShotgun",
+      "ammo": {
+        "cost": 2,
+        "field": "shells",
+        "sourceField": "ammo_shells"
+      },
+      "cooldownMs": 700,
+      "fireSound": {
+        "channel": "CHAN_WEAPON",
+        "path": "weapons/shotgn2.wav",
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireSuperShotgun",
+          "line": 311
+        }
+      },
+      "presentation": {
+        "sourceFunction": "W_SetCurrentAmmo",
+        "currentAmmoExpression": "self.ammo_shells",
+        "currentAmmoField": "shells",
+        "activeAmmoItemFlag": "IT_SHELLS",
+        "viewModelPath": "progs/v_shot2.mdl",
+        "weaponFrame": 0,
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_SetCurrentAmmo",
+          "line": 791
+        }
+      },
+      "fallback": {
+        "condition": "self.currentammo == 1",
+        "sourceFunction": "W_FireShotgun",
+        "profile": "shotgun"
+      },
+      "hitscan": {
+        "aimRangeUnits": 100000,
+        "pelletCount": 14,
+        "pelletDamage": 4,
+        "spread": [
+          0.14,
+          0.08,
+          0
+        ],
+        "traceRangeUnits": 2048,
+        "sourceOffsetUnits": {
+          "forward": 10,
+          "zExpression": "self.absmin_z + self.size_z * 0.7"
+        }
+      },
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireSuperShotgun",
+          "line": 302
+        },
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_Attack",
+          "line": 931
+        }
+      ]
+    },
+    "nailgun": {
+      "weapon": "nailgun",
+      "itemFlag": "IT_NAILGUN",
+      "runtimeKind": "projectile",
+      "sourceFunction": "W_FireSpikes",
+      "ammo": {
+        "cost": 1,
+        "field": "nails",
+        "sourceField": "ammo_nails"
+      },
+      "cooldownMs": 200,
+      "fireSound": {
+        "channel": "CHAN_WEAPON",
+        "path": "weapons/rocket1i.wav",
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireSpikes",
+          "line": 677
+        }
+      },
+      "presentation": {
+        "sourceFunction": "W_SetCurrentAmmo",
+        "currentAmmoExpression": "self.ammo_nails",
+        "currentAmmoField": "nails",
+        "activeAmmoItemFlag": "IT_NAILS",
+        "viewModelPath": "progs/v_nail.mdl",
+        "weaponFrame": 0,
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_SetCurrentAmmo",
+          "line": 798
+        }
+      },
+      "projectile": {
+        "damage": 9,
+        "lifetimeMs": 6000,
+        "modelPath": "progs/spike.mdl",
+        "movetype": "MOVETYPE_FLYMISSILE",
+        "sourceOffsetUnits": {
+          "up": 16,
+          "alternatingRight": [
+            4,
+            -4
+          ]
+        },
+        "speedUnits": 1000,
+        "touchFunction": "spike_touch"
+      },
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireSpikes",
+          "line": 658
+        },
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "launch_spike",
+          "line": 622
+        },
+        {
+          "sourceFile": "qcc/v101qc/player.qc",
+          "functionName": "player_nail1",
+          "line": 191
+        },
+        {
+          "sourceFile": "qcc/v101qc/player.qc",
+          "functionName": "player_nail2",
+          "line": 204
+        }
+      ]
+    },
+    "supernailgun": {
+      "weapon": "supernailgun",
+      "itemFlag": "IT_SUPER_NAILGUN",
+      "runtimeKind": "projectile",
+      "sourceFunction": "W_FireSuperSpikes",
+      "ammo": {
+        "cost": 2,
+        "field": "nails",
+        "sourceField": "ammo_nails"
+      },
+      "cooldownMs": 200,
+      "fireSound": {
+        "channel": "CHAN_WEAPON",
+        "path": "weapons/spike2.wav",
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireSuperSpikes",
+          "line": 646
+        }
+      },
+      "presentation": {
+        "sourceFunction": "W_SetCurrentAmmo",
+        "currentAmmoExpression": "self.ammo_nails",
+        "currentAmmoField": "nails",
+        "activeAmmoItemFlag": "IT_NAILS",
+        "viewModelPath": "progs/v_nail2.mdl",
+        "weaponFrame": 0,
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_SetCurrentAmmo",
+          "line": 805
+        }
+      },
+      "fallback": {
+        "condition": "self.ammo_nails < 2",
+        "sourceFunction": "W_FireSpikes",
+        "profile": "nailgun"
+      },
+      "projectile": {
+        "damage": 18,
+        "lifetimeMs": 6000,
+        "modelPath": "progs/s_spike.mdl",
+        "movetype": "MOVETYPE_FLYMISSILE",
+        "sourceOffsetUnits": {
+          "up": 16
+        },
+        "speedUnits": 1000,
+        "touchFunction": "superspike_touch"
+      },
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireSuperSpikes",
+          "line": 642
+        },
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "launch_spike",
+          "line": 622
+        }
+      ]
+    },
+    "grenadelauncher": {
+      "weapon": "grenadelauncher",
+      "itemFlag": "IT_GRENADE_LAUNCHER",
+      "runtimeKind": "projectile",
+      "sourceFunction": "W_FireGrenade",
+      "ammo": {
+        "cost": 1,
+        "field": "rockets",
+        "sourceField": "ammo_rockets"
+      },
+      "cooldownMs": 600,
+      "fireSound": {
+        "channel": "CHAN_WEAPON",
+        "path": "weapons/grenade.wav",
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireGrenade",
+          "line": 569
+        }
+      },
+      "presentation": {
+        "sourceFunction": "W_SetCurrentAmmo",
+        "currentAmmoExpression": "self.ammo_rockets",
+        "currentAmmoField": "rockets",
+        "activeAmmoItemFlag": "IT_ROCKETS",
+        "viewModelPath": "progs/v_rock.mdl",
+        "weaponFrame": 0,
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_SetCurrentAmmo",
+          "line": 812
+        }
+      },
+      "projectile": {
+        "angularVelocityUnits": [
+          300,
+          300,
+          300
+        ],
+        "bounceSoundPath": "weapons/bounce.wav",
+        "classname": "grenade",
+        "explodeFunction": "GrenadeExplode",
+        "lifetimeMs": 2500,
+        "modelPath": "progs/grenade.mdl",
+        "movetype": "MOVETYPE_BOUNCE",
+        "radiusDamage": {
+          "attacker": "self.owner",
+          "call": "T_RadiusDamage",
+          "damageUnits": 120,
+          "ignore": "world",
+          "inflictor": "self",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "GrenadeExplode",
+            "line": 533
+          },
+          "attackerSelfScale": 0.5,
+          "distanceScale": 0.5,
+          "radiusAddUnits": 40,
+          "requiresCanDamage": true,
+          "shamblerScale": 0.5,
+          "radiusUnits": 160
+        },
+        "randomVelocityUnits": {
+          "right": 10,
+          "up": 10
+        },
+        "speedUnits": 600,
+        "sourceOffsetUnits": {},
+        "touchFunction": "GrenadeTouch",
+        "verticalVelocityUnits": 200
+      },
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireGrenade",
+          "line": 564
+        },
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "GrenadeTouch",
+          "line": 545
+        },
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "GrenadeExplode",
+          "line": 532
+        },
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_Attack",
+          "line": 945
+        }
+      ]
+    },
+    "rocketlauncher": {
+      "weapon": "rocketlauncher",
+      "itemFlag": "IT_ROCKET_LAUNCHER",
+      "runtimeKind": "projectile",
+      "sourceFunction": "W_FireRocket",
+      "ammo": {
+        "cost": 1,
+        "field": "rockets",
+        "sourceField": "ammo_rockets"
+      },
+      "cooldownMs": 800,
+      "fireSound": {
+        "channel": "CHAN_WEAPON",
+        "path": "weapons/sgun1.wav",
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireRocket",
+          "line": 397
+        }
+      },
+      "presentation": {
+        "sourceFunction": "W_SetCurrentAmmo",
+        "currentAmmoExpression": "self.ammo_rockets",
+        "currentAmmoField": "rockets",
+        "activeAmmoItemFlag": "IT_ROCKETS",
+        "viewModelPath": "progs/v_rock2.mdl",
+        "weaponFrame": 0,
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_SetCurrentAmmo",
+          "line": 819
+        }
+      },
+      "projectile": {
+        "directDamage": {
+          "base": 100,
+          "randomAdd": 20,
+          "halfDamageClassnames": [
+            "monster_shambler"
+          ]
+        },
+        "lifetimeMs": 5000,
+        "modelPath": "progs/missile.mdl",
+        "movetype": "MOVETYPE_FLYMISSILE",
+        "radiusDamage": {
+          "attacker": "self.owner",
+          "call": "T_RadiusDamage",
+          "damageUnits": 120,
+          "ignore": "other",
+          "inflictor": "self",
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "T_MissileTouch",
+            "line": 370
+          },
+          "attackerSelfScale": 0.5,
+          "distanceScale": 0.5,
+          "radiusAddUnits": 40,
+          "requiresCanDamage": true,
+          "shamblerScale": 0.5,
+          "radiusUnits": 160
+        },
+        "speedUnits": 1000,
+        "sourceOffsetUnits": {
+          "forward": 8,
+          "up": 16
+        },
+        "touchFunction": "T_MissileTouch"
+      },
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireRocket",
+          "line": 392
+        },
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "T_MissileTouch",
+          "line": 347
+        },
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_Attack",
+          "line": 951
+        }
+      ]
+    },
+    "lightning": {
+      "weapon": "lightning",
+      "itemFlag": "IT_LIGHTNING",
+      "runtimeKind": "beam",
+      "sourceFunction": "W_FireLightning",
+      "ammo": {
+        "cost": 1,
+        "field": "cells",
+        "sourceField": "ammo_cells"
+      },
+      "cooldownMs": 200,
+      "attackStartCooldownMs": 100,
+      "startSound": {
+        "channel": "CHAN_AUTO",
+        "path": "weapons/lstart.wav",
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_Attack",
+          "line": 961
+        }
+      },
+      "presentation": {
+        "sourceFunction": "W_SetCurrentAmmo",
+        "currentAmmoExpression": "self.ammo_cells",
+        "currentAmmoField": "cells",
+        "activeAmmoItemFlag": "IT_CELLS",
+        "viewModelPath": "progs/v_light.mdl",
+        "weaponFrame": 0,
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_SetCurrentAmmo",
+          "line": 826
+        }
+      },
+      "fireSound": {
+        "channel": "CHAN_WEAPON",
+        "path": "weapons/lhit.wav",
+        "sourceRef": {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireLightning",
+          "line": 503
+        },
+        "cooldownMs": 600
+      },
+      "beam": {
+        "damage": 30,
+        "damageEndForwardOffsetUnits": 4,
+        "damageTraceOffsetUnits": 16,
+        "duplicateEntitySuppression": true,
+        "rangeUnits": 600,
+        "sourceOffsetUnits": {
+          "up": 16
+        },
+        "startOffsetUnits": {},
+        "tempEntity": "TE_LIGHTNING2",
+        "traceCount": 3
+      },
+      "unsupportedBranches": [
+        {
+          "id": "lightning-underwater-discharge",
+          "condition": "self.waterlevel > 1",
+          "runtime": "unsupported-modeled-branch",
+          "radiusDamage": {
+            "attacker": "self",
+            "call": "T_RadiusDamage",
+            "damageExpression": "35*self.ammo_cells",
+            "damagePerAmmoCell": 35,
+            "ignore": "world",
+            "inflictor": "self",
+            "attackerSelfScale": 0.5,
+            "distanceScale": 0.5,
+            "radiusAddUnits": 40,
+            "requiresCanDamage": true,
+            "shamblerScale": 0.5
+          },
+          "clearsAmmoField": "cells",
+          "calls": [
+            "T_RadiusDamage",
+            "W_SetCurrentAmmo"
+          ],
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_FireLightning",
+            "line": 493
+          }
+        }
+      ],
+      "sourceRefs": [
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "W_FireLightning",
+          "line": 482
+        },
+        {
+          "sourceFile": "qcc/v101qc/weapons.qc",
+          "functionName": "LightningDamage",
+          "line": 438
+        },
+        {
+          "sourceFile": "qcc/v101qc/player.qc",
+          "functionName": "player_light1",
+          "line": 220
+        },
+        {
+          "sourceFile": "qcc/v101qc/player.qc",
+          "functionName": "player_light2",
+          "line": 233
+        }
+      ]
+    }
+  }
+} as const satisfies QuakePlayerWeaponFireFacts;
 
 export const QUAKE_PROGRAM_FACTS = {
   "version": 1,
@@ -388,6 +1077,17 @@ export const QUAKE_PROGRAM_FACTS = {
             "line": 913
           }
         },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "0",
+          "viewModelPath": "progs/v_axe.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 778
+          }
+        },
         "melee": {
           "damage": 20,
           "rangeUnits": 64,
@@ -427,6 +1127,19 @@ export const QUAKE_PROGRAM_FACTS = {
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_FireShotgun",
             "line": 286
+          }
+        },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "self.ammo_shells",
+          "currentAmmoField": "shells",
+          "activeAmmoItemFlag": "IT_SHELLS",
+          "viewModelPath": "progs/v_shot.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 784
           }
         },
         "hitscan": {
@@ -475,6 +1188,19 @@ export const QUAKE_PROGRAM_FACTS = {
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_FireSuperShotgun",
             "line": 311
+          }
+        },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "self.ammo_shells",
+          "currentAmmoField": "shells",
+          "activeAmmoItemFlag": "IT_SHELLS",
+          "viewModelPath": "progs/v_shot2.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 791
           }
         },
         "fallback": {
@@ -528,6 +1254,19 @@ export const QUAKE_PROGRAM_FACTS = {
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_FireSpikes",
             "line": 677
+          }
+        },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "self.ammo_nails",
+          "currentAmmoField": "nails",
+          "activeAmmoItemFlag": "IT_NAILS",
+          "viewModelPath": "progs/v_nail.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 798
           }
         },
         "projectile": {
@@ -588,6 +1327,19 @@ export const QUAKE_PROGRAM_FACTS = {
             "line": 646
           }
         },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "self.ammo_nails",
+          "currentAmmoField": "nails",
+          "activeAmmoItemFlag": "IT_NAILS",
+          "viewModelPath": "progs/v_nail2.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 805
+          }
+        },
         "fallback": {
           "condition": "self.ammo_nails < 2",
           "sourceFunction": "W_FireSpikes",
@@ -635,6 +1387,19 @@ export const QUAKE_PROGRAM_FACTS = {
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_FireGrenade",
             "line": 569
+          }
+        },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "self.ammo_rockets",
+          "currentAmmoField": "rockets",
+          "activeAmmoItemFlag": "IT_ROCKETS",
+          "viewModelPath": "progs/v_rock.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 812
           }
         },
         "projectile": {
@@ -719,6 +1484,19 @@ export const QUAKE_PROGRAM_FACTS = {
             "line": 397
           }
         },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "self.ammo_rockets",
+          "currentAmmoField": "rockets",
+          "activeAmmoItemFlag": "IT_ROCKETS",
+          "viewModelPath": "progs/v_rock2.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 819
+          }
+        },
         "projectile": {
           "directDamage": {
             "base": 100,
@@ -792,6 +1570,19 @@ export const QUAKE_PROGRAM_FACTS = {
             "sourceFile": "qcc/v101qc/weapons.qc",
             "functionName": "W_Attack",
             "line": 961
+          }
+        },
+        "presentation": {
+          "sourceFunction": "W_SetCurrentAmmo",
+          "currentAmmoExpression": "self.ammo_cells",
+          "currentAmmoField": "cells",
+          "activeAmmoItemFlag": "IT_CELLS",
+          "viewModelPath": "progs/v_light.mdl",
+          "weaponFrame": 0,
+          "sourceRef": {
+            "sourceFile": "qcc/v101qc/weapons.qc",
+            "functionName": "W_SetCurrentAmmo",
+            "line": 826
           }
         },
         "fireSound": {
@@ -21267,6 +22058,56 @@ export const QUAKE_PROGRAM_FACTS = {
     },
     "trigger_monsterjump": {
       "assetRefs": [],
+      "callbackFacts": {
+        "trigger_monsterjump_touch": {
+          "assignments": [
+            {
+              "field": "other.velocity_x",
+              "expression": "self.movedir_x * self.speed",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/triggers.qc",
+                "functionName": "trigger_monsterjump_touch",
+                "line": 633
+              }
+            },
+            {
+              "field": "other.velocity_y",
+              "expression": "self.movedir_y * self.speed",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/triggers.qc",
+                "functionName": "trigger_monsterjump_touch",
+                "line": 634
+              }
+            },
+            {
+              "field": "other.flags",
+              "expression": "other.flags - FL_ONGROUND",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/triggers.qc",
+                "functionName": "trigger_monsterjump_touch",
+                "line": 639
+              }
+            },
+            {
+              "field": "other.velocity_z",
+              "expression": "self.height",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/triggers.qc",
+                "functionName": "trigger_monsterjump_touch",
+                "line": 641
+              }
+            }
+          ],
+          "calls": [],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/triggers.qc",
+              "functionName": "trigger_monsterjump_touch",
+              "line": 628
+            }
+          ]
+        }
+      },
       "callbacks": {
         "touch": "trigger_monsterjump_touch"
       },

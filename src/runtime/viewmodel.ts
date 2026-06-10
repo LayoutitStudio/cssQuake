@@ -217,6 +217,7 @@ export function createQuakeViewmodelController({
   let walkBob = 0;
   let walkBobOrigin: Vec3 | null = null;
   let walkBobAt = 0;
+  let mountedSource: string | null = null;
   let visible = true;
 
   if (typeof ResizeObserver !== "undefined") {
@@ -228,6 +229,11 @@ export function createQuakeViewmodelController({
   }
 
   function mount(model: QuakeViewmodelModel): void {
+    const source = normalizedViewmodelSource(model.source);
+    if (carrier && mountedSource === source) {
+      syncTransform();
+      return;
+    }
     clearFireAnimation();
     resetWalkBob();
     invalidateViewportLayer();
@@ -237,6 +243,7 @@ export function createQuakeViewmodelController({
     appliedLocalTransform = "";
     if (!raster) throw new Error("Quake viewmodel raster mount requires a viewmodel layer.");
     raster.mount(model.rasterModel);
+    mountedSource = source;
     syncTransform();
     setNozzleVisible(false);
   }
@@ -248,6 +255,7 @@ export function createQuakeViewmodelController({
     carrier = null;
     raster?.remove();
     appliedLocalTransform = "";
+    mountedSource = null;
   }
 
   function hasWeapon(): boolean {
@@ -640,6 +648,10 @@ export function createQuakeViewmodelController({
 function weaponViewRotX(rotX: number): number {
   if (!Number.isFinite(rotX)) return QUAKE_WEAPON_SCREEN_ROT_X;
   return QUAKE_WEAPON_SCREEN_ROT_X;
+}
+
+function normalizedViewmodelSource(source: string): string {
+  return source.trim().toLowerCase();
 }
 
 function readCameraScale(transform: string): number {

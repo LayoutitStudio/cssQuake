@@ -657,6 +657,7 @@ const programFactTargets = [
     sourcePath: "qcc/v101qc/triggers.qc",
   },
   {
+    callbackFactFunctions: ["trigger_monsterjump_touch"],
     classname: "trigger_monsterjump",
     functionName: "trigger_monsterjump",
     kind: "trigger",
@@ -1421,6 +1422,7 @@ function extractPlayerWeaponFireFacts(shared) {
   const radiusDamageSemantics = extractRadiusDamageSemantics(shared.combat ?? "");
   const fireBullets = extractFireBulletsSemantics(weaponsSource);
   const attackFacts = extractPlayerWeaponAttackFacts(weaponsSource);
+  const presentationFacts = extractPlayerWeaponPresentationFacts(weaponsSource);
   const nailFrameFacts = extractPlayerNailFrameFacts(playerSource);
   const lightningFrameFacts = extractPlayerLightningFrameFacts(playerSource);
 
@@ -1464,6 +1466,7 @@ function extractPlayerWeaponFireFacts(shared) {
         sourceFunction: "W_FireAxe",
         cooldownMs: attackFacts.axe.cooldownMs,
         fireSound: attackFacts.axe.fireSound,
+        presentation: presentationFacts.axe,
         melee: {
           damage: extractDamageCallUnits(defs.W_FireAxe.body, "T_Damage") ?? 20,
           rangeUnits: extractTraceRangeUnits(defs.W_FireAxe.body, "v_forward") ?? 64,
@@ -1480,6 +1483,7 @@ function extractPlayerWeaponFireFacts(shared) {
         ammo: extractWeaponAmmoSpend(defs.W_FireShotgun.body),
         cooldownMs: attackFacts.shotgun.cooldownMs,
         fireSound: extractWeaponFireSound(defs.W_FireShotgun, "qcc/v101qc/weapons.qc"),
+        presentation: presentationFacts.shotgun,
         hitscan: {
           aimRangeUnits: extractAimRangeUnits(defs.W_FireShotgun.body),
           ...extractFireBulletsCall(defs.W_FireShotgun.body, fireBullets),
@@ -1498,6 +1502,7 @@ function extractPlayerWeaponFireFacts(shared) {
         ammo: extractWeaponAmmoSpend(defs.W_FireSuperShotgun.body),
         cooldownMs: attackFacts.supershotgun.cooldownMs,
         fireSound: extractWeaponFireSound(defs.W_FireSuperShotgun, "qcc/v101qc/weapons.qc"),
+        presentation: presentationFacts.supershotgun,
         fallback: {
           condition: "self.currentammo == 1",
           sourceFunction: "W_FireShotgun",
@@ -1521,6 +1526,7 @@ function extractPlayerWeaponFireFacts(shared) {
         ammo: extractWeaponAmmoSpend(defs.W_FireSpikes.body),
         cooldownMs: nailFrameFacts.cooldownMs ?? parseSelfAttackFinishedCooldownMs(defs.W_FireSpikes.body),
         fireSound: extractWeaponFireSound(defs.W_FireSpikes, "qcc/v101qc/weapons.qc"),
+        presentation: presentationFacts.nailgun,
         projectile: {
           damage: extractTouchDamageUnits(defs.spike_touch?.body ?? "") ?? 9,
           lifetimeMs: extractNextThinkLifetimeMs(launchSpike.body, "newmis"),
@@ -1543,6 +1549,7 @@ function extractPlayerWeaponFireFacts(shared) {
         ammo: extractWeaponAmmoSpend(defs.W_FireSuperSpikes.body),
         cooldownMs: parseSelfAttackFinishedCooldownMs(defs.W_FireSuperSpikes.body),
         fireSound: extractWeaponFireSound(defs.W_FireSuperSpikes, "qcc/v101qc/weapons.qc"),
+        presentation: presentationFacts.supernailgun,
         fallback: {
           condition: "self.ammo_nails < 2",
           sourceFunction: "W_FireSpikes",
@@ -1567,6 +1574,7 @@ function extractPlayerWeaponFireFacts(shared) {
         ammo: extractWeaponAmmoSpend(defs.W_FireGrenade.body),
         cooldownMs: attackFacts.grenadelauncher.cooldownMs,
         fireSound: extractWeaponFireSound(defs.W_FireGrenade, "qcc/v101qc/weapons.qc"),
+        presentation: presentationFacts.grenadelauncher,
         projectile: {
           angularVelocityUnits: parseQuakeVectorExpression("'300 300 300'"),
           bounceSoundPath: extractSoundPath(defs.GrenadeTouch.body),
@@ -1592,6 +1600,7 @@ function extractPlayerWeaponFireFacts(shared) {
         ammo: extractWeaponAmmoSpend(defs.W_FireRocket.body),
         cooldownMs: attackFacts.rocketlauncher.cooldownMs,
         fireSound: extractWeaponFireSound(defs.W_FireRocket, "qcc/v101qc/weapons.qc"),
+        presentation: presentationFacts.rocketlauncher,
         projectile: {
           directDamage: extractRocketDirectDamage(defs.T_MissileTouch.body),
           lifetimeMs: extractNextThinkLifetimeMs(defs.W_FireRocket.body, "missile"),
@@ -1613,6 +1622,7 @@ function extractPlayerWeaponFireFacts(shared) {
         cooldownMs: lightningFrameFacts.cooldownMs ?? attackFacts.lightning.cooldownMs,
         attackStartCooldownMs: attackFacts.lightning.cooldownMs,
         startSound: attackFacts.lightning.fireSound,
+        presentation: presentationFacts.lightning,
         fireSound: {
           ...extractWeaponFireSound(defs.W_FireLightning, "qcc/v101qc/weapons.qc"),
           cooldownMs: extractTimeWidthCooldownMs(defs.W_FireLightning.body),
@@ -1690,6 +1700,39 @@ function extractPlayerWeaponAttackFacts(weaponsSource) {
       cooldownMs: branch ? parseSelfAttackFinishedCooldownMs(branch.body) : 0,
       fireSound: branchDefinition ? extractWeaponFireSound(branchDefinition, "qcc/v101qc/weapons.qc") : undefined,
       sourceRef,
+    };
+  }
+  return byWeapon;
+}
+
+function extractPlayerWeaponPresentationFacts(weaponsSource) {
+  const definition = requireFunctionDefinition(weaponsSource, "W_SetCurrentAmmo", "qcc/v101qc/weapons.qc");
+  const byWeapon = {};
+  for (const [weapon, itemFlag] of Object.entries({
+    axe: "IT_AXE",
+    shotgun: "IT_SHOTGUN",
+    supershotgun: "IT_SUPER_SHOTGUN",
+    nailgun: "IT_NAILGUN",
+    supernailgun: "IT_SUPER_NAILGUN",
+    grenadelauncher: "IT_GRENADE_LAUNCHER",
+    rocketlauncher: "IT_ROCKET_LAUNCHER",
+    lightning: "IT_LIGHTNING",
+  })) {
+    const branch = extractIfBlock(definition.body, new RegExp(`self\\.weapon\\s*==\\s*${itemFlag}`));
+    if (!branch) continue;
+    const currentAmmoExpression = extractAssignmentExpression(branch.body, "self.currentammo");
+    const sourceAmmoField = /^self\.ammo_([A-Za-z_]\w*)$/.exec(currentAmmoExpression ?? "")?.[1];
+    const weaponFrameExpression = extractAssignmentExpression(branch.body, "self.weaponframe");
+    const weaponFrame = Number(weaponFrameExpression);
+    const activeAmmoItemFlag = /\bself\.items\s*=\s*self\.items\s*\|\s*(IT_[A-Z_]+)/.exec(branch.body)?.[1];
+    byWeapon[weapon] = {
+      sourceFunction: "W_SetCurrentAmmo",
+      currentAmmoExpression,
+      ...(sourceAmmoField ? { currentAmmoField: quakeAmmoFieldName(sourceAmmoField) } : {}),
+      ...(activeAmmoItemFlag ? { activeAmmoItemFlag } : {}),
+      viewModelPath: extractAssignmentString(branch.body, "self.weaponmodel") ?? "",
+      ...(Number.isFinite(weaponFrame) ? { weaponFrame } : {}),
+      sourceRef: sourceRefForBodyIndex(definition, sourceTarget("qcc/v101qc/weapons.qc", "W_SetCurrentAmmo"), branch.index),
     };
   }
   return byWeapon;
@@ -3410,6 +3453,16 @@ export interface QuakePlayerWeaponUnsupportedBranchFact {
   sourceRef?: QuakeProgramSourceRef;
 }
 
+export interface QuakePlayerWeaponPresentationFact {
+  activeAmmoItemFlag?: string;
+  currentAmmoExpression?: string;
+  currentAmmoField?: QuakePlayerAmmoField;
+  sourceFunction: "W_SetCurrentAmmo";
+  sourceRef: QuakeProgramSourceRef;
+  viewModelPath: string;
+  weaponFrame?: number;
+}
+
 export interface QuakePlayerWeaponFireProfileFact {
   ammo?: QuakePlayerWeaponAmmoFact;
   attackStartCooldownMs?: number;
@@ -3420,6 +3473,7 @@ export interface QuakePlayerWeaponFireProfileFact {
   hitscan?: QuakePlayerWeaponHitscanFact;
   itemFlag: string;
   melee?: QuakePlayerWeaponMeleeFact;
+  presentation?: QuakePlayerWeaponPresentationFact;
   projectile?: QuakePlayerWeaponProjectileFact;
   runtimeKind: QuakePlayerWeaponRuntimeKind;
   sourceFunction: string;
@@ -3471,6 +3525,10 @@ export interface QuakeProgramFacts {
   playerWeapons: QuakePlayerWeaponFireFacts;
   entities: Readonly<Record<string, QuakeProgramEntityFact>>;
 }
+
+export const QUAKE_PROGRAM_SOURCE_FACTS = ${json(programFacts.source)} as const;
+
+export const QUAKE_PLAYER_WEAPON_FIRE_FACTS = ${json(programFacts.playerWeapons)} as const satisfies QuakePlayerWeaponFireFacts;
 
 export const QUAKE_PROGRAM_FACTS = ${json(programFacts)} as const satisfies QuakeProgramFacts;
 

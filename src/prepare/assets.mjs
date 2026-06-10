@@ -109,10 +109,12 @@ const menuTitleOptionsOutputPath = path.join(quakeOutputDir, "menu-title-options
 const menuTitleHelpOutputPath = path.join(quakeOutputDir, "menu-title-help.png");
 const concharsOutputPath = path.join(quakeOutputDir, "conchars.png");
 const weaponOutputPath = path.join(quakeOutputDir, "weapon.json");
+const weaponModelOutputDir = path.join(quakeOutputDir, "w");
 const pickupOutputPath = path.join(quakeOutputDir, "pickups.json");
 const progsOutputPath = path.join(quakeOutputDir, "progs.json");
 const soundManifestOutputPath = path.join(quakeOutputDir, "sounds.json");
 const sourceProgramFactsInputPath = path.join(projectRoot, "src/generated/quakeProgramFacts.json");
+const QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH = "progs/v_shot.mdl";
 const sourcePath = path.join(projectRoot, "src/prepare/scene.ts");
 const textureOutputDir = path.join(quakeAssetOutputDir, "t");
 const soundOutputDir = path.join(quakeOutputDir, "s");
@@ -615,12 +617,13 @@ try {
 
   if (quakePrepareWeaponOnly) {
     const uiAssets = loadQuakeHudAssets(pak, parseQuakePakDirectory);
-    await mkdir(path.dirname(weaponOutputPath), { recursive: true });
-    await writeFile(weaponOutputPath, JSON.stringify(await runPrepareStep(
-      "weapon model",
-      () => buildQuakeWeaponModel(uiAssets),
-    )));
-    console.log(`Wrote ${path.relative(projectRoot, weaponOutputPath)}`);
+    const weaponModelOutputPaths = await runPrepareStep(
+      "weapon models",
+      () => writeQuakeWeaponModelFiles(uiAssets, sourceProgramFacts),
+    );
+    for (const outputPath of weaponModelOutputPaths) {
+      console.log(`Wrote ${path.relative(projectRoot, outputPath)}`);
+    }
   } else if (quakePrepareModelsOnly) {
     const uiAssets = loadQuakeHudAssets(pak, parseQuakePakDirectory);
     const programMetadata = buildQuakeProgramMetadata(uiAssets, sourceProgramFacts);
@@ -849,10 +852,10 @@ try {
     await writeFile(menuTitleHelpOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 1, 60, 75, 20));
     await writeFile(concharsOutputPath, await buildQuakeConcharsPng(uiAssets));
     const programMetadata = buildQuakeProgramMetadata(uiAssets, sourceProgramFacts);
-    await writeFile(weaponOutputPath, JSON.stringify(await runPrepareStep(
-      "weapon model",
-      () => buildQuakeWeaponModel(uiAssets),
-    )));
+    const weaponModelOutputPaths = await runPrepareStep(
+      "weapon models",
+      () => writeQuakeWeaponModelFiles(uiAssets, sourceProgramFacts),
+    );
     await writeFile(progsOutputPath, JSON.stringify(programMetadata));
     const modelRenderBundleConcurrency = normalizedQuakeRenderBundleModelConcurrency();
     if (modelRenderBundleConcurrency !== normalizedQuakeRenderBundleConcurrency()) {
@@ -895,10 +898,11 @@ try {
       programMetadata,
       pickupModels,
       soundManifest,
+      sourceProgramFacts,
     )));
     await pruneUnreferencedTextureFiles([
       ...preparedMaps.map((item) => item.outputPath),
-      weaponOutputPath,
+      ...weaponModelOutputPaths,
       pickupOutputPath,
     ]);
     for (const { outputPath, prepared, size } of preparedMaps) {
@@ -926,7 +930,9 @@ try {
     console.log(`Wrote ${path.relative(projectRoot, menuTitleOptionsOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, menuTitleHelpOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, concharsOutputPath)}`);
-    console.log(`Wrote ${path.relative(projectRoot, weaponOutputPath)}`);
+    for (const outputPath of weaponModelOutputPaths) {
+      console.log(`Wrote ${path.relative(projectRoot, outputPath)}`);
+    }
     console.log(`Wrote ${path.relative(projectRoot, progsOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, pickupOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, soundManifestOutputPath)} (${Object.keys(soundManifest.sounds).length} sounds)`);
@@ -2278,7 +2284,7 @@ async function loadQuakeSourceProgramFacts() {
   }
 }
 
-function buildQuakeAssetManifest(preparedMaps, programMetadata, pickupModels, soundManifest) {
+function buildQuakeAssetManifest(preparedMaps, programMetadata, pickupModels, soundManifest, sourceProgramFacts = null) {
   const preparedModelPaths = new Set(Object.keys(pickupModels?.models ?? {}));
   const preparedSoundPaths = new Set(Object.keys(soundManifest?.sounds ?? {}));
   const maps = preparedMaps.map(({ mapName, mapPath, outputPath, prepared }) => {
@@ -2307,6 +2313,7 @@ function buildQuakeAssetManifest(preparedMaps, programMetadata, pickupModels, so
     maps,
     assets: {
       weaponModelUrl: generatedPublicUrl(weaponOutputPath),
+      weaponModelUrls: quakeWeaponModelUrlMap(sourceProgramFacts),
       pickupModelsUrl: generatedPublicUrl(pickupOutputPath),
       programMetadataUrl: generatedPublicUrl(progsOutputPath),
       soundManifestUrl: generatedPublicUrl(soundManifestOutputPath),
@@ -2320,6 +2327,7 @@ async function writeQuakeAssetManifestFromGeneratedFiles() {
     readQuakeGeneratedJson(pickupOutputPath, "pickup models"),
     readQuakeGeneratedJson(soundManifestOutputPath, "sound manifest"),
   ]);
+  const sourceProgramFacts = await loadQuakeSourceProgramFacts();
   const preparedMaps = [];
   for (const [mapPath, outputPath] of mapOutputPaths) {
     preparedMaps.push({
@@ -2334,6 +2342,7 @@ async function writeQuakeAssetManifestFromGeneratedFiles() {
     programMetadata,
     pickupModels,
     soundManifest,
+    sourceProgramFacts,
   )));
   console.log(`Wrote ${path.relative(projectRoot, manifestOutputPath)} from existing generated assets`);
 }
@@ -3300,8 +3309,67 @@ async function restoreGeneratedTextureFile(urlPath, filePath) {
   return true;
 }
 
-async function buildQuakeWeaponModel(assets) {
-  const modelPath = "progs/v_shot.mdl";
+async function writeQuakeWeaponModelFiles(assets, sourceProgramFacts) {
+  const models = buildQuakeWeaponModels(assets, sourceProgramFacts);
+  const primaryModel = models.find((model) => model.source === QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH) ?? models[0];
+  const outputPaths = [];
+  await mkdir(path.dirname(weaponOutputPath), { recursive: true });
+  await writeFile(weaponOutputPath, JSON.stringify(primaryModel));
+  outputPaths.push(weaponOutputPath);
+  for (const model of models) {
+    if (model.source === QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH) continue;
+    const outputPath = quakeWeaponModelOutputPath(model.source);
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, JSON.stringify(model));
+    outputPaths.push(outputPath);
+  }
+  return outputPaths;
+}
+
+function buildQuakeWeaponModels(assets, sourceProgramFacts) {
+  return quakePlayerWeaponViewModelPaths(sourceProgramFacts)
+    .map((modelPath) => buildQuakeWeaponModel(assets, modelPath));
+}
+
+function quakePlayerWeaponViewModelPaths(sourceProgramFacts) {
+  const paths = [];
+  const seen = new Set();
+  const addPath = (value) => {
+    const modelPath = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (!/^progs\/v_[a-z0-9_]+\.mdl$/.test(modelPath) || seen.has(modelPath)) return;
+    seen.add(modelPath);
+    paths.push(modelPath);
+  };
+  addPath(QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH);
+  const profiles = sourceProgramFacts?.playerWeapons?.profiles;
+  if (profiles && typeof profiles === "object") {
+    for (const profile of Object.values(profiles)) {
+      addPath(profile?.presentation?.viewModelPath);
+    }
+  }
+  return paths;
+}
+
+function quakeWeaponModelOutputPath(modelPath) {
+  const filename = path.basename(modelPath, path.extname(modelPath))
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_");
+  return path.join(weaponModelOutputDir, `${filename}.json`);
+}
+
+function quakeWeaponModelUrlMap(sourceProgramFacts) {
+  const urls = {};
+  for (const modelPath of quakePlayerWeaponViewModelPaths(sourceProgramFacts)) {
+    urls[modelPath] = generatedPublicUrl(
+      modelPath === QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH
+        ? weaponOutputPath
+        : quakeWeaponModelOutputPath(modelPath),
+    );
+  }
+  return urls;
+}
+
+function buildQuakeWeaponModel(assets, modelPath = QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH) {
   const model = parseQuakeAliasModel(assets, modelPath);
   const idleFrame = model.frames[0];
   if (!idleFrame) throw new Error("Quake weapon viewmodel has no frames.");

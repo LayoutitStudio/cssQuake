@@ -273,7 +273,7 @@ function auditBranchFacts(
       "info",
       "monsterjump-player-touch-not-consumed",
       entity,
-      "trigger_monsterjump facts are prebaked, but current player trigger dispatch does not consume QuakeC monster jump physics.",
+      "trigger_monsterjump player touch is intentionally ignored; monster-side runtime consumes the source-shaped jump rule.",
     ));
   }
 }
@@ -300,7 +300,6 @@ function auditCallbackConsumption(
 }
 
 function activeTriggerCallbacks(trigger: QuakeGameLogicResolvedTriggerFact): QuakeTriggerCallbackName[] {
-  if (trigger.kind === "trigger_monsterjump") return [];
   const callbacks: QuakeTriggerCallbackName[] = [];
   if (trigger.callbacks.touch && trigger.touchActivates) callbacks.push("touch");
   if (trigger.callbacks.use && trigger.useActivates) callbacks.push("use");
@@ -310,7 +309,7 @@ function activeTriggerCallbacks(trigger: QuakeGameLogicResolvedTriggerFact): Qua
 
 function runtimeConsumedTriggerCallbacks(trigger: QuakeGameLogicResolvedTriggerFact): Set<QuakeTriggerCallbackName> {
   const callbacks = new Set<QuakeTriggerCallbackName>();
-  if (trigger.kind !== "trigger_monsterjump" && trigger.touchActivates) callbacks.add("touch");
+  if (trigger.touchActivates) callbacks.add("touch");
   if (trigger.useActivates) callbacks.add("use");
   if (
     trigger.damageable &&
@@ -408,7 +407,10 @@ function auditRuntimeControllerBehavior(
     return;
   }
 
-  if (trigger.kind === "trigger_monsterjump") return;
+  if (trigger.kind === "trigger_monsterjump") {
+    auditMonsterJumpPlayerTouchIgnored(findings, coverage, input, entity);
+    return;
+  }
 
   if (trigger.touchActivates) {
     auditTouchActivation(findings, coverage, input, entity, trigger);
@@ -417,6 +419,31 @@ function auditRuntimeControllerBehavior(
   if (trigger.useActivates && !trigger.requiresUseBeforeTouch) {
     auditUseTargets(findings, coverage, input, entity, trigger);
   }
+}
+
+function auditMonsterJumpPlayerTouchIgnored(
+  findings: QuakeTriggerRuntimeAuditFinding[],
+  coverage: QuakeTriggerRuntimeAuditCoverage,
+  input: QuakeTriggerRuntimeAuditInput,
+  entity: QuakeEntity,
+): void {
+  coverage.controllerTouchChecks += 1;
+  const harness = createAuditHarness(input);
+  harness.touchEntity(entity);
+  const unexpectedEvents = harness.events.filter((event) =>
+    event.type === "activate-entity" ||
+    event.type === "push" ||
+    event.type === "use-targets"
+  );
+  if (unexpectedEvents.length === 0) return;
+  findings.push(finding(
+    "error",
+    "monsterjump-player-touch-consumed",
+    entity,
+    "Player trigger dispatch must not consume monster-only trigger_monsterjump touch behavior.",
+    [],
+    unexpectedEvents,
+  ));
 }
 
 function auditTouchActivation(

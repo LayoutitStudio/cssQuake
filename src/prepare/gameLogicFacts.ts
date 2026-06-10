@@ -146,6 +146,7 @@ export interface QuakeGameLogicEntityBrushModelRef {
 export type QuakeGameLogicResolvedMoverFact =
   | QuakeGameLogicResolvedFuncButtonFact
   | QuakeGameLogicResolvedFuncDoorFact
+  | QuakeGameLogicResolvedFuncDoorSecretFact
   | QuakeGameLogicResolvedFuncPlatFact
   | QuakeGameLogicResolvedFuncTrainFact;
 
@@ -226,6 +227,72 @@ export interface QuakeGameLogicFuncDoorTriggerFact {
   mins: QuakeVertex;
   maxs: QuakeVertex;
   touch: "door_touch";
+}
+
+export interface QuakeGameLogicSecretDoorBlockerFact {
+  sourceFunction: "secret_blocked";
+  damageField: "dmg";
+  damage: number;
+  damageExpression: string;
+  reverses: false;
+  throttleSeconds: 0.5;
+  throttleField: "attack_finished";
+  throttleExpression: string;
+}
+
+export interface QuakeGameLogicResolvedFuncDoorSecretFact {
+  kind: "func_door_secret";
+  source: {
+    spawnFunction: "func_door_secret";
+    useFunction: "fd_secret_use";
+    doneFunction: "fd_secret_done";
+  };
+  speed: number;
+  wait: number;
+  dmg: number;
+  sounds: number;
+  soundSet?: {
+    activate: string;
+    move: string;
+    stop: string;
+  };
+  openOnce: boolean;
+  firstMoveLeft: boolean;
+  firstMoveDown: boolean;
+  noShoot: boolean;
+  alwaysShoot: boolean;
+  shootableAtSpawn: boolean;
+  disablesShootOnUse: boolean;
+  initialOrigin: QuakeVertex;
+  oldOrigin: QuakeVertex;
+  motion: {
+    sourceFunctions: readonly [
+      "fd_secret_use",
+      "fd_secret_move1",
+      "fd_secret_move2",
+      "fd_secret_move3",
+      "fd_secret_move4",
+      "fd_secret_move5",
+      "fd_secret_move6",
+      "fd_secret_done",
+    ];
+    firstMove: "down" | "left" | "right";
+    widthField: "t_width";
+    widthExpression: string;
+    width?: number;
+    lengthField: "t_length";
+    lengthExpression: string;
+    length?: number;
+    waitAfterFirstMove: 1;
+    waitAfterReturnMove: 1;
+  };
+  blocker: QuakeGameLogicSecretDoorBlockerFact;
+  callbacks: {
+    blocked?: string;
+    touch?: string;
+    use?: string;
+    th_pain?: string;
+  };
 }
 
 export interface QuakeGameLogicResolvedFuncPlatFact {
@@ -534,6 +601,7 @@ export interface QuakeGameLogicResolvedTriggerFact {
   skillValue?: number;
   moveDirection?: QuakeVertex;
   pushVelocityMultiplier?: number;
+  monsterJump?: QuakeGameLogicMonsterJumpTriggerFact;
   registeredOnly?: boolean;
   damageable: boolean;
   oneShot: boolean;
@@ -547,6 +615,43 @@ export interface QuakeGameLogicResolvedTriggerFact {
     touch?: string;
     use?: string;
     th_die?: string;
+  };
+}
+
+export interface QuakeGameLogicMonsterJumpTriggerFact {
+  source: {
+    touchFunction: "trigger_monsterjump_touch";
+    initFunction?: "InitTrigger";
+    defaultAnglesExpression?: string;
+  };
+  actorFilter: {
+    expression: "other.flags & (FL_MONSTER | FL_FLY | FL_SWIM) != FL_MONSTER";
+    requiredFlags: readonly ["FL_MONSTER"];
+    excludedFlags: readonly ["FL_FLY", "FL_SWIM"];
+  };
+  horizontal: {
+    speedField: "speed";
+    speed: number;
+    moveDirection: QuakeVertex;
+    xExpression: string;
+    yExpression: string;
+    appliesBeforeGroundCheck: true;
+  };
+  vertical: {
+    heightField: "height";
+    height: number;
+    zExpression: string;
+    requiresGroundFlag: "FL_ONGROUND";
+    clearsGroundFlag: true;
+    clearGroundExpression: string;
+  };
+  defaultAngles: QuakeVertex;
+  modeMask: QuakeGameLogicMode[];
+  triggerBrush?: {
+    modelIndex: number;
+    kind: QuakeBrushCollisionKind;
+    mins: QuakeVertex;
+    maxs: QuakeVertex;
   };
 }
 
@@ -715,6 +820,16 @@ const QUAKE_DOOR_DEFAULT_SOUNDS = 0;
 const QUAKE_DOOR_TRIGGER_XY = 60;
 const QUAKE_DOOR_TRIGGER_Z = 8;
 const QUAKE_DOOR_LINK_GAP = 1;
+const QUAKE_SECRET_OPEN_ONCE = 1;
+const QUAKE_SECRET_1ST_LEFT = 2;
+const QUAKE_SECRET_1ST_DOWN = 4;
+const QUAKE_SECRET_NO_SHOOT = 8;
+const QUAKE_SECRET_YES_SHOOT = 16;
+const QUAKE_SECRET_DEFAULT_SPEED = 50;
+const QUAKE_SECRET_DEFAULT_WAIT = 5;
+const QUAKE_SECRET_DEFAULT_DMG = 2;
+const QUAKE_SECRET_DEFAULT_SOUNDS = 3;
+const QUAKE_SECRET_BLOCK_THROTTLE_SECONDS = 0.5;
 const QUAKE_BUTTON_DEFAULT_SPEED = 40;
 const QUAKE_BUTTON_DEFAULT_WAIT = 1;
 const QUAKE_BUTTON_DEFAULT_LIP = 4;
@@ -917,6 +1032,7 @@ function buildQuakeGameLogicEntityFact(
     programFact,
     programFactByClassname,
     targetGraph,
+    brushModel,
   );
   return {
     entityIndex: entity.index,
@@ -978,6 +1094,10 @@ function buildQuakeGameLogicResolvedMoverFact(
   if (entity.classname === "func_door") {
     if (!brushModel || brushModel.kind !== "solid") return undefined;
     return buildQuakeGameLogicResolvedFuncDoorFact(entity, spawnflags, programFact, brushModel, worldtype);
+  }
+  if (entity.classname === "func_door_secret") {
+    if (!brushModel || brushModel.kind !== "solid") return undefined;
+    return buildQuakeGameLogicResolvedFuncDoorSecretFact(entity, spawnflags, programFact, brushModel);
   }
   if (entity.classname === "func_button") {
     if (!brushModel || brushModel.kind !== "solid") return undefined;
@@ -1766,6 +1886,7 @@ function buildQuakeGameLogicResolvedTriggerFact(
   programFact: QuakeGameLogicProgramEntityFact | undefined,
   programFactByClassname: Record<string, QuakeGameLogicProgramEntityFact>,
   targetGraph: Record<string, number[]>,
+  brushModel: QuakePreparedBrushCollision | undefined,
 ): QuakeGameLogicResolvedTriggerFact | undefined {
   if (!isQuakeGameLogicResolvedTriggerKind(entity.classname) || !programFact) return undefined;
 
@@ -1808,6 +1929,21 @@ function buildQuakeGameLogicResolvedTriggerFact(
         entity,
         "height",
         quakeProgramDefaultNumber(programFact, "height", QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_HEIGHT),
+      )
+    : undefined;
+  const moveDirection = entity.classname === "trigger_push" || entity.classname === "trigger_monsterjump"
+    ? quakeGameLogicMoveDirection(entity)
+    : undefined;
+  const monsterJump = entity.classname === "trigger_monsterjump" && speed !== undefined && height !== undefined && moveDirection
+    ? quakeResolvedMonsterJumpTrigger(
+        entity,
+        spawnflags,
+        programFact,
+        behaviorProgramFact,
+        speed,
+        height,
+        moveDirection,
+        brushModel,
       )
     : undefined;
   const message = quakeResolvedTriggerMessage(entity, behaviorProgramFact);
@@ -1855,12 +1991,11 @@ function buildQuakeGameLogicResolvedTriggerFact(
     ...(entity.classname === "trigger_setskill"
       ? { skillValue: quakeEntityNumber(entity, "message", 1) }
       : {}),
-    ...(entity.classname === "trigger_push" || entity.classname === "trigger_monsterjump"
-      ? { moveDirection: quakeGameLogicMoveDirection(entity) }
-      : {}),
+    ...(moveDirection ? { moveDirection } : {}),
     ...(entity.classname === "trigger_push"
       ? { pushVelocityMultiplier: QUAKE_TRIGGER_PUSH_VELOCITY_MULTIPLIER }
       : {}),
+    ...(monsterJump ? { monsterJump } : {}),
     ...(entity.classname === "trigger_onlyregistered" ? { registeredOnly: true } : {}),
     damageable,
     oneShot: triggerOneShot(entity.classname, spawnflags, wait),
@@ -1879,6 +2014,72 @@ function buildQuakeGameLogicResolvedTriggerFact(
       ...(behaviorProgramFact.callbacks.use ? { use: behaviorProgramFact.callbacks.use } : {}),
       ...(behaviorProgramFact.callbacks.th_die ? { th_die: behaviorProgramFact.callbacks.th_die } : {}),
     },
+  };
+}
+
+function quakeResolvedMonsterJumpTrigger(
+  entity: QuakeEntity,
+  spawnflags: number,
+  programFact: QuakeGameLogicProgramEntityFact | undefined,
+  behaviorProgramFact: QuakeGameLogicProgramEntityFact,
+  speed: number,
+  height: number,
+  moveDirection: QuakeVertex,
+  brushModel: QuakePreparedBrushCollision | undefined,
+): QuakeGameLogicMonsterJumpTriggerFact {
+  const callbackFact = behaviorProgramFact.callbackFacts?.trigger_monsterjump_touch;
+  const defaultAngles = quakeProgramFieldVector(programFact, "angles", { x: 0, y: 360, z: 0 });
+  return {
+    source: {
+      touchFunction: "trigger_monsterjump_touch",
+      ...(behaviorProgramFact.calls.includes("InitTrigger") ? { initFunction: "InitTrigger" as const } : {}),
+      ...(quakeProgramFieldExpression(programFact, "angles")
+        ? { defaultAnglesExpression: quakeProgramFieldExpression(programFact, "angles") }
+        : {}),
+    },
+    actorFilter: {
+      expression: "other.flags & (FL_MONSTER | FL_FLY | FL_SWIM) != FL_MONSTER",
+      requiredFlags: ["FL_MONSTER"],
+      excludedFlags: ["FL_FLY", "FL_SWIM"],
+    },
+    horizontal: {
+      speedField: "speed",
+      speed,
+      moveDirection,
+      xExpression: quakeProgramCallbackAssignmentExpression(
+        callbackFact,
+        "other.velocity_x",
+        "self.movedir_x * self.speed",
+      ),
+      yExpression: quakeProgramCallbackAssignmentExpression(
+        callbackFact,
+        "other.velocity_y",
+        "self.movedir_y * self.speed",
+      ),
+      appliesBeforeGroundCheck: true,
+    },
+    vertical: {
+      heightField: "height",
+      height,
+      zExpression: quakeProgramCallbackAssignmentExpression(callbackFact, "other.velocity_z", "self.height"),
+      requiresGroundFlag: "FL_ONGROUND",
+      clearsGroundFlag: true,
+      clearGroundExpression: quakeProgramCallbackAssignmentExpression(
+        callbackFact,
+        "other.flags",
+        "other.flags - FL_ONGROUND",
+      ),
+    },
+    defaultAngles,
+    modeMask: quakeGameLogicModeMask(entity, spawnflags),
+    ...(brushModel ? {
+      triggerBrush: {
+        modelIndex: brushModel.modelIndex,
+        kind: brushModel.kind,
+        mins: { ...brushModel.mins },
+        maxs: { ...brushModel.maxs },
+      },
+    } : {}),
   };
 }
 
@@ -2533,6 +2734,101 @@ function buildQuakeGameLogicResolvedFuncDoorFact(
   };
 }
 
+function buildQuakeGameLogicResolvedFuncDoorSecretFact(
+  entity: QuakeEntity,
+  spawnflags: number,
+  programFact: QuakeGameLogicProgramEntityFact | undefined,
+  brushModel: QuakePreparedBrushCollision,
+): QuakeGameLogicResolvedFuncDoorSecretFact {
+  const origin = entity.origin ?? brushModel.origin ?? { x: 0, y: 0, z: 0 };
+  const speed = quakeProgramFieldNumber(programFact, "speed", QUAKE_SECRET_DEFAULT_SPEED);
+  const wait = quakeEntityDefaultedNumber(
+    entity,
+    "wait",
+    quakeProgramDefaultNumber(programFact, "wait", QUAKE_SECRET_DEFAULT_WAIT),
+  );
+  const dmg = quakeEntityDefaultedNumber(
+    entity,
+    "dmg",
+    quakeProgramDefaultNumber(programFact, "dmg", QUAKE_SECRET_DEFAULT_DMG),
+  );
+  const rawSounds = quakeEntityNumber(entity, "sounds", 0);
+  const sounds = rawSounds === 0
+    ? quakeProgramDefaultNumber(programFact, "sounds", QUAKE_SECRET_DEFAULT_SOUNDS)
+    : rawSounds;
+  const openOnce = Boolean(spawnflags & QUAKE_SECRET_OPEN_ONCE);
+  const firstMoveLeft = Boolean(spawnflags & QUAKE_SECRET_1ST_LEFT);
+  const firstMoveDown = Boolean(spawnflags & QUAKE_SECRET_1ST_DOWN);
+  const noShoot = Boolean(spawnflags & QUAKE_SECRET_NO_SHOOT);
+  const alwaysShoot = Boolean(spawnflags & QUAKE_SECRET_YES_SHOOT);
+  const callbackFact = programFact?.callbackFacts?.secret_blocked;
+  const width = quakeEntityOptionalNumber(entity, "t_width");
+  const length = quakeEntityOptionalNumber(entity, "t_length");
+  return {
+    kind: "func_door_secret",
+    source: {
+      spawnFunction: "func_door_secret",
+      useFunction: "fd_secret_use",
+      doneFunction: "fd_secret_done",
+    },
+    speed,
+    wait,
+    dmg,
+    sounds,
+    ...quakeSecretDoorSoundSet(sounds),
+    openOnce,
+    firstMoveLeft,
+    firstMoveDown,
+    noShoot,
+    alwaysShoot,
+    shootableAtSpawn: !entity.properties.targetname || alwaysShoot,
+    disablesShootOnUse: !noShoot,
+    initialOrigin: { ...origin },
+    oldOrigin: { ...origin },
+    motion: {
+      sourceFunctions: [
+        "fd_secret_use",
+        "fd_secret_move1",
+        "fd_secret_move2",
+        "fd_secret_move3",
+        "fd_secret_move4",
+        "fd_secret_move5",
+        "fd_secret_move6",
+        "fd_secret_done",
+      ],
+      firstMove: firstMoveDown ? "down" : firstMoveLeft ? "left" : "right",
+      widthField: "t_width",
+      widthExpression: firstMoveDown ? "fabs(v_up * self.size)" : "fabs(v_right * self.size)",
+      ...(width !== undefined ? { width } : {}),
+      lengthField: "t_length",
+      lengthExpression: "fabs(v_forward * self.size)",
+      ...(length !== undefined ? { length } : {}),
+      waitAfterFirstMove: 1,
+      waitAfterReturnMove: 1,
+    },
+    blocker: {
+      sourceFunction: "secret_blocked",
+      damageField: "dmg",
+      damage: dmg,
+      damageExpression: "self.dmg",
+      reverses: false,
+      throttleSeconds: QUAKE_SECRET_BLOCK_THROTTLE_SECONDS,
+      throttleField: "attack_finished",
+      throttleExpression: quakeProgramCallbackAssignmentExpression(
+        callbackFact,
+        "self.attack_finished",
+        "time + 0.5",
+      ),
+    },
+    callbacks: {
+      ...(programFact?.callbacks.blocked ? { blocked: programFact.callbacks.blocked } : {}),
+      ...(programFact?.callbacks.touch ? { touch: programFact.callbacks.touch } : {}),
+      ...(programFact?.callbacks.use ? { use: programFact.callbacks.use } : {}),
+      ...(programFact?.callbacks.th_pain ? { th_pain: programFact.callbacks.th_pain } : {}),
+    },
+  };
+}
+
 function quakeDoorRequiredKey(spawnflags: number): QuakeGameLogicDoorKey | undefined {
   if ((spawnflags & QUAKE_DOOR_GOLD_KEY) !== 0) return "gold";
   if ((spawnflags & QUAKE_DOOR_SILVER_KEY) !== 0) return "silver";
@@ -2887,6 +3183,18 @@ function quakeProgramFieldExpression(
   return programFact?.fieldAssignments.find((assignment) => assignment.field === field)?.expression;
 }
 
+function quakeProgramFieldVector(
+  programFact: QuakeGameLogicProgramEntityFact | undefined,
+  field: string,
+  fallback: QuakeVertex,
+): QuakeVertex {
+  const value = programFact?.fieldAssignments.find((assignment) => assignment.field === field)?.value;
+  if (Array.isArray(value) && value.length === 3 && value.every((entry) => typeof entry === "number")) {
+    return { x: value[0] ?? fallback.x, y: value[1] ?? fallback.y, z: value[2] ?? fallback.z };
+  }
+  return fallback;
+}
+
 function quakeProgramCallbackClassnameBranch(
   programFact: QuakeGameLogicProgramEntityFact | undefined,
   callbackName: string,
@@ -2900,6 +3208,14 @@ function quakeProgramCallbackCalls(
   call: string,
 ): boolean {
   return callbackFact.calls?.includes(call) ?? false;
+}
+
+function quakeProgramCallbackAssignmentExpression(
+  callbackFact: QuakeGameLogicProgramCallbackFact | undefined,
+  field: string,
+  fallback: string,
+): string {
+  return callbackFact?.assignments?.find((assignment) => assignment.field === field)?.expression ?? fallback;
 }
 
 function quakeProgramCallbackHasAssignment(
@@ -2953,11 +3269,29 @@ function quakeEntityDefaultedNumber(entity: QuakeEntity, key: string, fallback: 
   return Number.isFinite(value) && value !== 0 ? value : fallback;
 }
 
+function quakeEntityOptionalNumber(entity: QuakeEntity, key: string): number | undefined {
+  const value = Number.parseFloat(entity.properties[key] ?? "");
+  return Number.isFinite(value) ? value : undefined;
+}
+
 function quakeButtonActivationSound(sounds: number): Pick<QuakeGameLogicResolvedFuncButtonFact, "activationSound"> {
   if (sounds === 1) return { activationSound: "buttons/airbut1.wav" };
   if (sounds === 2) return { activationSound: "buttons/switch21.wav" };
   if (sounds === 3) return { activationSound: "buttons/switch02.wav" };
   if (sounds === 4) return { activationSound: "buttons/switch04.wav" };
+  return {};
+}
+
+function quakeSecretDoorSoundSet(sounds: number): Pick<QuakeGameLogicResolvedFuncDoorSecretFact, "soundSet"> {
+  if (sounds === 1) {
+    return { soundSet: { activate: "doors/latch2.wav", move: "doors/winch2.wav", stop: "doors/drclos4.wav" } };
+  }
+  if (sounds === 2) {
+    return { soundSet: { activate: "doors/airdoor2.wav", move: "doors/airdoor1.wav", stop: "doors/airdoor2.wav" } };
+  }
+  if (sounds === 3) {
+    return { soundSet: { activate: "doors/basesec2.wav", move: "doors/basesec1.wav", stop: "doors/basesec2.wav" } };
+  }
   return {};
 }
 

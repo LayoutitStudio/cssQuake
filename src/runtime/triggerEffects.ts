@@ -34,11 +34,23 @@ export interface QuakeTriggerPushActivation {
   velocity: [number, number, number];
 }
 
-export interface QuakeTriggerMonsterJumpActivation {
+export interface QuakeTriggerMonsterJumpRule {
   direction: [number, number, number];
   height: number;
   speed: number;
+}
+
+export interface QuakeTriggerMonsterJumpActivation extends QuakeTriggerMonsterJumpRule {
+  horizontalApplied: boolean;
+  verticalApplied: boolean;
   velocity: [number, number, number];
+}
+
+export interface QuakeTriggerMonsterJumpActorState {
+  isFlying: boolean;
+  isMonster: boolean;
+  isSwimming: boolean;
+  onGround: boolean;
 }
 
 const QUAKE_TRIGGER_SECRET_DEFAULT_MESSAGE = "You found a secret area!";
@@ -169,26 +181,56 @@ export function quakeTriggerPushActivation(
 export function quakeTriggerMonsterJumpActivation(
   entity: QuakeEntity,
   gameLogic: QuakeGameLogicFacts | null | undefined,
+  actor: QuakeTriggerMonsterJumpActorState,
 ): QuakeTriggerMonsterJumpActivation | null {
+  const rule = quakeTriggerMonsterJumpRule(entity, gameLogic);
+  return rule ? quakeTriggerMonsterJumpActivationFromRule(rule, actor) : null;
+}
+
+export function quakeTriggerMonsterJumpRule(
+  entity: QuakeEntity,
+  gameLogic: QuakeGameLogicFacts | null | undefined,
+): QuakeTriggerMonsterJumpRule | null {
   if (entity.classname !== "trigger_monsterjump") return null;
   const fact = quakeGameLogicResolvedTriggerFact(gameLogic, entity.index);
-  const direction = fact?.kind === "trigger_monsterjump" && fact.moveDirection
-    ? quakeVectorTuple(fact.moveDirection)
-    : quakeTriggerMoveDirection(entity);
-  const speed = fact?.kind === "trigger_monsterjump"
+  const monsterJump = fact?.kind === "trigger_monsterjump" ? fact.monsterJump : undefined;
+  let direction = quakeTriggerMoveDirection(entity);
+  if (fact?.kind === "trigger_monsterjump" && fact.moveDirection) {
+    direction = quakeVectorTuple(fact.moveDirection);
+  }
+  if (monsterJump?.horizontal.moveDirection) {
+    direction = quakeVectorTuple(monsterJump.horizontal.moveDirection);
+  }
+
+  let speed = fact?.kind === "trigger_monsterjump"
     ? quakeFiniteNumber(fact.speed ?? QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_SPEED, QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_SPEED)
     : quakeDefaultedNumber(entity.properties.speed, QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_SPEED);
-  const height = fact?.kind === "trigger_monsterjump"
+  if (monsterJump) speed = quakeFiniteNumber(monsterJump.horizontal.speed, QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_SPEED);
+
+  let height = fact?.kind === "trigger_monsterjump"
     ? quakeFiniteNumber(fact.height ?? QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_HEIGHT, QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_HEIGHT)
     : quakeDefaultedNumber(entity.properties.height, QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_HEIGHT);
+  if (monsterJump) height = quakeFiniteNumber(monsterJump.vertical.height, QUAKE_TRIGGER_MONSTERJUMP_DEFAULT_HEIGHT);
+
+  return { direction, height, speed };
+}
+
+export function quakeTriggerMonsterJumpActivationFromRule(
+  rule: QuakeTriggerMonsterJumpRule,
+  actor: QuakeTriggerMonsterJumpActorState,
+): QuakeTriggerMonsterJumpActivation | null {
+  if (!actor.isMonster || actor.isFlying || actor.isSwimming) return null;
+  const verticalApplied = actor.onGround;
   return {
-    direction,
-    height,
-    speed,
+    direction: rule.direction,
+    height: rule.height,
+    horizontalApplied: true,
+    speed: rule.speed,
+    verticalApplied,
     velocity: [
-      direction[0] * speed,
-      direction[1] * speed,
-      height,
+      rule.direction[0] * rule.speed,
+      rule.direction[1] * rule.speed,
+      verticalApplied ? rule.height : 0,
     ],
   };
 }

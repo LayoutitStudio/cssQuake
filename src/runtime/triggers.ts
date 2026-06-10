@@ -100,6 +100,7 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
     if (!triggerFacingMatches(entity, movement)) return false;
     if (isShootableTrigger(entity)) return false;
     if (options.triggerSpecial(entity)) return false;
+    if (entity.classname === "trigger_monsterjump") return false;
     if (entity.classname === "trigger_teleport") {
       if (!teleporterTouchEnabled(entity)) return false;
       return options.activateTeleport(entity);

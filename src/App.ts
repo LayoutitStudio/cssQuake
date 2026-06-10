@@ -17,6 +17,7 @@ import {
   type QuakePreparedRenderBundle,
   type QuakeScene,
 } from "./prepare/scene";
+import { QUAKE_PLAYER_WEAPON_FIRE_FACTS } from "./generated/quakeProgramFacts";
 import {
   quakeGameLogicEntityFact,
   type QuakeGameLogicGeneratedTextFact,
@@ -54,9 +55,11 @@ import {
   selectQuakeBestInventoryWeapon,
   syncQuakeHud as syncQuakeHudElements,
   type QuakeInventoryPowerupBehavior,
+  type QuakeWeaponId,
 } from "./runtime/hud";
 import {
   quakeContentsDamage,
+  quakePlayerWaterLevel,
   quakeRadsuitProtectedContentsDamage,
   quakeTriggerHurtDamage,
   type QuakeHazardDamage,
@@ -76,6 +79,7 @@ import {
   quakeButtonIsPressed,
   quakeDoorTerminalState,
   quakeMoverBlockDamage,
+  quakeMoverBlockDamageCooldownMs,
   type QuakeMoverState,
 } from "./runtime/movers";
 import { createQuakeMonsterStateRunner } from "./runtime/quakeMonsterStateRunner";
@@ -415,6 +419,7 @@ interface QuakeAssetManifest {
   maps: QuakeAssetManifestMap[];
   assets: {
     weaponModelUrl: string;
+    weaponModelUrls?: Record<string, string>;
     pickupModelsUrl: string;
     programMetadataUrl: string;
     soundManifestUrl?: string;
@@ -565,6 +570,9 @@ const FALLBACK_QUAKE_ASSET_MANIFEST: QuakeAssetManifest = {
   ],
   assets: {
     weaponModelUrl: `${QUAKE_ASSET_ROOT}/weapon.json`,
+    weaponModelUrls: {
+      "progs/v_shot.mdl": `${QUAKE_ASSET_ROOT}/weapon.json`,
+    },
     pickupModelsUrl: `${QUAKE_ASSET_ROOT}/pickups.json`,
     programMetadataUrl: `${QUAKE_ASSET_ROOT}/progs.json`,
     soundManifestUrl: `${QUAKE_ASSET_ROOT}/sounds.json`,
@@ -889,7 +897,9 @@ type QuakePlayerControllerHandle = ReturnType<typeof createQuakePlayerController
 let pickups: QuakePickupControllerHandle | null = null;
 let player: QuakePlayerControllerHandle | null = null;
 let quakeRuntimePickupSerial = 0;
-let weaponViewModelPromise: Promise<QuakeViewmodelModel> | null = null;
+const weaponViewModelPromises = new Map<string, Promise<QuakeViewmodelModel>>();
+let mountedWeaponViewModelPath: string | null = null;
+let pendingWeaponViewModelPath: string | null = null;
 
 function getPickups(): QuakePickupControllerHandle {
   if (!pickups) throw new Error("Quake pickup controller is not initialized.");
@@ -1060,6 +1070,9 @@ const weapons = createQuakeWeaponsController({
   getCollisionWorld: () => currentCollisionWorld,
   getEntities: () => entityByIndex,
   getShootables: shootables.weaponTargets,
+  getPlayerEyeHeight: () => getPlayer().eyeHeight(),
+  getPlayerWaterLevel: () =>
+    quakePlayerWaterLevel(currentCollisionWorld?.contentsAt, getPlayer().currentOrigin(), getPlayer().eyeHeight()),
   getActiveWeapon: () => getPlayer().inventory().activeWeapon,
   getAmmo: (field) => getPlayer().inventory()[field],
   consumeAmmo: (field, amount) => {
@@ -1074,6 +1087,7 @@ const weapons = createQuakeWeaponsController({
   playFireAnimation: playQuakeWeaponFireFeedback,
   damageShootable: shootables.damage,
   damageBrushEntity: damageQuakeBrushEntity,
+  damagePlayer: (amount) => getPlayer().damage(amount),
   damageMultiplier: quakeWeaponDamageMultiplier,
   onHit: flashQuakeCrosshairHit,
   syncCrosshairTarget: queueQuakeCrosshairTargetSync,
@@ -1189,6 +1203,7 @@ function setQuakeGameplayStarted(started: boolean): void {
     loadingOverlay.hidden = true;
     loadingOverlay.removeAttribute("aria-busy");
     loadingOverlay.classList.remove("quake-loading-console-persisted");
+    clearQuakeLoadingConsoleQueue();
   }
 }
 
@@ -1228,6 +1243,7 @@ const QUAKE_TRAP_SPIKE_RANGE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_TRAP_SPIKE_RADIUS = 36 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_TRAP_SPIKE_DAMAGE = 10;
 const QUAKE_QUAD_DAMAGE_MULTIPLIER = 4;
+const QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH = "progs/v_shot.mdl";
 function makeParseResult(polygons: Polygon[]): ParseResult {
   return { polygons, objectUrls: [], warnings: [], dispose: () => undefined };
 }
@@ -1244,6 +1260,7 @@ function syncQuakeHud(): void {
     shells: inventory.shells,
   });
   syncQuakeHudElements(hudElements, inventory);
+  syncActiveWeaponViewModel();
 }
 
 function isQuakeGamePaused(): boolean {
@@ -2326,7 +2343,22 @@ function clearQuakeLoadingConsoleQueue(): void {
   quakeLoadingConsoleLineQueue = [];
 }
 
+function completeQuakeLoadingConsoleQueue(): void {
+  if (quakeLoadingConsoleLineTimer !== null) {
+    window.clearTimeout(quakeLoadingConsoleLineTimer);
+    quakeLoadingConsoleLineTimer = null;
+  }
+  if (quakeLoadingConsoleLineQueue.length === 0) return;
+  const queuedLines = quakeLoadingConsoleLineQueue;
+  quakeLoadingConsoleLineQueue = [];
+  for (const queued of queuedLines) {
+    appendQuakeLoadingConsoleLineNow(queued.line, queued.key, { render: false });
+  }
+  renderQuakeLoadingConsole();
+}
+
 function queueQuakeLoadingConsoleLine(status: string, key: string | null = null): void {
+  if (!canQueueQuakeLoadingConsole()) return;
   const line = status.replace(/\s+/g, " ").trim();
   if (!line) return;
   if (key && (replaceDisplayedQuakeLoadingConsoleLine(key, line) || replaceQueuedQuakeLoadingConsoleLine(key, line))) return;
@@ -2360,18 +2392,30 @@ function replaceQueuedQuakeLoadingConsoleLine(key: string, line: string): boolea
 
 function scheduleQuakeLoadingConsoleLine(): void {
   if (quakeLoadingConsoleLineTimer !== null || quakeLoadingConsoleLineQueue.length === 0) return;
+  if (!canQueueQuakeLoadingConsole()) {
+    clearQuakeLoadingConsoleQueue();
+    return;
+  }
   const delay = quakeLoadingConsoleLines.length === 0 ? 0 : QUAKE_LOADING_CONSOLE_LINE_DELAY_MS;
   quakeLoadingConsoleLineTimer = window.setTimeout(flushQuakeLoadingConsoleLine, delay);
 }
 
 function flushQuakeLoadingConsoleLine(): void {
   quakeLoadingConsoleLineTimer = null;
+  if (!canQueueQuakeLoadingConsole()) {
+    clearQuakeLoadingConsoleQueue();
+    return;
+  }
   const queued = quakeLoadingConsoleLineQueue.shift();
   if (queued) appendQuakeLoadingConsoleLineNow(queued.line, queued.key);
   scheduleQuakeLoadingConsoleLine();
 }
 
-function appendQuakeLoadingConsoleLineNow(line: string, key: string | null): void {
+function appendQuakeLoadingConsoleLineNow(
+  line: string,
+  key: string | null,
+  options: { render?: boolean } = {},
+): void {
   if (key) quakeLoadingConsoleCurrentStatus = key;
   quakeLoadingConsoleLastStatus = line;
   quakeLoadingConsoleLines.push(line);
@@ -2380,11 +2424,12 @@ function appendQuakeLoadingConsoleLineNow(line: string, key: string | null): voi
     quakeLoadingConsoleLines = quakeLoadingConsoleLines.slice(-QUAKE_LOADING_CONSOLE_MAX_LINES);
     quakeLoadingConsoleLineKeys = quakeLoadingConsoleLineKeys.slice(-QUAKE_LOADING_CONSOLE_MAX_LINES);
   }
+  if (options.render === false) return;
   renderQuakeLoadingConsole();
 }
 
 function renderQuakeLoadingConsole(): void {
-  if (!loadingStatus) return;
+  if (!loadingStatus || !canRenderQuakeLoadingConsole()) return;
   loadingStatus.textContent = "";
   const fragment = document.createDocumentFragment();
   for (const line of quakeLoadingConsoleLines) {
@@ -2398,7 +2443,16 @@ function renderQuakeLoadingConsole(): void {
   mountQuakeBitmapText(loadingStatus);
 }
 
+function canRenderQuakeLoadingConsole(): boolean {
+  return Boolean(loadingOverlay && !loadingOverlay.hidden);
+}
+
+function canQueueQuakeLoadingConsole(): boolean {
+  return quakeAppLoading || loadingOverlay?.classList.contains("quake-loading-death") === true;
+}
+
 function updateQuakeLoadingConsoleStatus(status: string, completed: number, total: number): void {
+  if (!canQueueQuakeLoadingConsole()) return;
   const key = status.replace(/\s+/g, " ").trim() || "Loading";
   const line = formatQuakeLoadingConsoleStatus(key, completed, total);
   if (
@@ -2508,6 +2562,7 @@ function setQuakeLoading(active: boolean, status = "Loading"): void {
       loadingOverlay.classList.remove("quake-loading-console-persisted");
     }
   }
+  completeQuakeLoadingConsoleQueue();
   if (loadingAction) {
     loadingAction.textContent = "";
     loadingAction.hidden = true;
@@ -2667,6 +2722,8 @@ function disposeCurrentScene(): void {
   clearQuakePowerups();
   clearQuakeBonusOverlay();
   viewmodel.remove();
+  mountedWeaponViewModelPath = null;
+  pendingWeaponViewModelPath = null;
   world.clear();
   movers.clear();
   getPickups().clear();
@@ -2891,7 +2948,6 @@ function syncQuakeWeaponViewPunchOffset(nextOffset: number): void {
     clampNumber(baseRotX + nextOffset, QUAKE_CAMERA_ROT_X_MIN, QUAKE_CAMERA_ROT_X_MAX),
     rotY,
   );
-  viewmodel.syncTransform();
 }
 
 function playQuakeDamageViewFeedback(feedback: QuakePlayerDamageFeedback | undefined): void {
@@ -3609,12 +3665,19 @@ function moverBlockedByPlayer(state: QuakeMoverState, nextOffset: Vec3, delta: V
 }
 
 function moverBlockedByMonster(state: QuakeMoverState, nextOffset: Vec3, delta: Vec3): boolean {
-  if (state.kind !== "train") return false;
+  if (!moverCanBeBlockedByMonster(state)) return false;
   if (distanceSq3(delta, [0, 0, 0]) <= COLLISION_EPSILON) return false;
   const blockerEntityIndex = shootables.firstMonsterOverlappingBounds(quakeMoverBoundsAtOffsetBounds(state, nextOffset));
   if (blockerEntityIndex === null) return false;
   damageQuakeMonsterForMoverBlock(state, blockerEntityIndex);
   return true;
+}
+
+function moverCanBeBlockedByMonster(state: QuakeMoverState): boolean {
+  return state.kind === "door" ||
+    state.kind === "secret-door" ||
+    state.kind === "plat" ||
+    state.kind === "train";
 }
 
 function moverPushClearsPlayer(
@@ -3645,12 +3708,15 @@ function damageQuakeMonsterForMoverBlock(state: QuakeMoverState, entityIndex: nu
 }
 
 function damageQuakeActorForMoverBlock(state: QuakeMoverState, applyDamage: (amount: number) => boolean): void {
-  const now = performance.now();
-  const lastDamageAt = quakeMoverCrushDamageAt.get(state.entity.index) ?? -Infinity;
-  if (now - lastDamageAt < 500) return;
   const amount = quakeMoverBlockDamage(state);
   if (amount <= 0) return;
-  quakeMoverCrushDamageAt.set(state.entity.index, now);
+  const cooldownMs = quakeMoverBlockDamageCooldownMs(state);
+  if (cooldownMs > 0) {
+    const now = performance.now();
+    const lastDamageAt = quakeMoverCrushDamageAt.get(state.entity.index) ?? -Infinity;
+    if (now - lastDamageAt < cooldownMs) return;
+    quakeMoverCrushDamageAt.set(state.entity.index, now);
+  }
   applyDamage(amount);
 }
 
@@ -4580,17 +4646,36 @@ async function loadQuakeMap(mapName: string, options: QuakeMapLoadOptions = {}):
   }
 }
 
-function preloadWeaponViewModel(progress?: QuakeLoadingProgressTracker): Promise<QuakeViewmodelModel> {
-  weaponViewModelPromise ??= fetchWeaponViewModel(progress);
-  return weaponViewModelPromise;
+function preloadWeaponViewModel(
+  progress?: QuakeLoadingProgressTracker,
+  modelPath = QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH,
+): Promise<QuakeViewmodelModel> {
+  const normalizedPath = normalizeQuakeViewModelPath(modelPath) ?? QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH;
+  let promise = weaponViewModelPromises.get(normalizedPath);
+  if (!promise) {
+    promise = fetchWeaponViewModel(normalizedPath, progress).catch((error: unknown) => {
+      weaponViewModelPromises.delete(normalizedPath);
+      throw error;
+    });
+    weaponViewModelPromises.set(normalizedPath, promise);
+  }
+  return promise;
 }
 
-async function fetchWeaponViewModel(progress?: QuakeLoadingProgressTracker): Promise<QuakeViewmodelModel> {
+async function fetchWeaponViewModel(
+  modelPath = QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH,
+  progress?: QuakeLoadingProgressTracker,
+): Promise<QuakeViewmodelModel> {
   const completeWeaponTask = progress?.startTask("Weapon model");
-  const url = quakeAssetManifest.assets.weaponModelUrl;
+  const url = quakeViewModelUrl(modelPath);
+  if (!url) throw new Error(`No prepared Quake weapon viewmodel registered for ${modelPath}.`);
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}.`);
   const model = await response.json() as QuakeViewmodelModel;
+  const modelSource = normalizeQuakeViewModelPath(model.source);
+  if (modelSource && modelSource !== modelPath) {
+    throw new Error(`Prepared Quake weapon viewmodel ${url} is ${model.source}, expected ${modelPath}.`);
+  }
   completeWeaponTask?.();
   return model;
 }
@@ -4598,7 +4683,63 @@ async function fetchWeaponViewModel(progress?: QuakeLoadingProgressTracker): Pro
 async function mountWeaponViewModel(modelPromise = preloadWeaponViewModel()): Promise<void> {
   const model = await modelPromise;
   if (quakeAppDisposed) return;
+  mountQuakeWeaponViewModel(model);
+  syncActiveWeaponViewModel();
+}
+
+function mountQuakeWeaponViewModel(model: QuakeViewmodelModel): void {
+  mountedWeaponViewModelPath = normalizeQuakeViewModelPath(model.source);
   viewmodel.mount(model);
+}
+
+function syncActiveWeaponViewModel(): void {
+  if (!player || !viewmodel.hasWeapon()) return;
+  const modelPath = quakeActiveWeaponViewModelPath(player.inventory().activeWeapon);
+  if (!modelPath || modelPath === mountedWeaponViewModelPath || modelPath === pendingWeaponViewModelPath) return;
+  if (!quakeViewModelUrl(modelPath)) return;
+  pendingWeaponViewModelPath = modelPath;
+  markQuakeTrace("viewmodel-switch-request", {
+    from: mountedWeaponViewModelPath,
+    to: modelPath,
+    weapon: player.inventory().activeWeapon,
+  });
+  void preloadWeaponViewModel(undefined, modelPath)
+    .then((model) => {
+      if (quakeAppDisposed || pendingWeaponViewModelPath !== modelPath) return;
+      pendingWeaponViewModelPath = null;
+      if (quakeActiveWeaponViewModelPath(getPlayer().inventory().activeWeapon) !== modelPath) {
+        syncActiveWeaponViewModel();
+        return;
+      }
+      mountQuakeWeaponViewModel(model);
+      markQuakeTrace("viewmodel-switch-complete", {
+        source: mountedWeaponViewModelPath,
+        weapon: getPlayer().inventory().activeWeapon,
+      });
+    })
+    .catch((error: unknown) => {
+      if (pendingWeaponViewModelPath === modelPath) pendingWeaponViewModelPath = null;
+      console.warn(error);
+    });
+}
+
+function quakeActiveWeaponViewModelPath(weapon: QuakeWeaponId): string | null {
+  return normalizeQuakeViewModelPath(
+    QUAKE_PLAYER_WEAPON_FIRE_FACTS.profiles[weapon]?.presentation?.viewModelPath ??
+      QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH,
+  );
+}
+
+function quakeViewModelUrl(modelPath: string): string | null {
+  const normalizedPath = normalizeQuakeViewModelPath(modelPath);
+  if (!normalizedPath) return null;
+  return quakeAssetManifest.assets.weaponModelUrls?.[normalizedPath] ??
+    (normalizedPath === QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH ? quakeAssetManifest.assets.weaponModelUrl : null);
+}
+
+function normalizeQuakeViewModelPath(modelPath: string | undefined): string | null {
+  const normalizedPath = modelPath?.trim().toLowerCase() ?? "";
+  return normalizedPath ? normalizedPath : null;
 }
 
 async function completeQuakeSceneReadiness(
@@ -4981,8 +5122,22 @@ function normalizeQuakeAssetManifestMap(value: unknown): QuakeAssetManifestMap |
 function normalizeQuakeAssetManifestAssets(value: unknown): QuakeAssetManifest["assets"] {
   const fallback = FALLBACK_QUAKE_ASSET_MANIFEST.assets;
   if (!isRecord(value)) return fallback;
+  const weaponModelUrl = typeof value.weaponModelUrl === "string" ? value.weaponModelUrl : fallback.weaponModelUrl;
+  const weaponModelUrls: Record<string, string> = {
+    ...(fallback.weaponModelUrls ?? {}),
+    "progs/v_shot.mdl": weaponModelUrl,
+  };
+  if (isRecord(value.weaponModelUrls)) {
+    for (const [modelPath, modelUrl] of Object.entries(value.weaponModelUrls)) {
+      const normalizedModelPath = modelPath.trim().toLowerCase();
+      if (!normalizedModelPath || typeof modelUrl !== "string") continue;
+      const normalizedModelUrl = modelUrl.trim();
+      if (normalizedModelUrl) weaponModelUrls[normalizedModelPath] = normalizedModelUrl;
+    }
+  }
   return {
-    weaponModelUrl: typeof value.weaponModelUrl === "string" ? value.weaponModelUrl : fallback.weaponModelUrl,
+    weaponModelUrl,
+    weaponModelUrls,
     pickupModelsUrl: typeof value.pickupModelsUrl === "string" ? value.pickupModelsUrl : fallback.pickupModelsUrl,
     programMetadataUrl: typeof value.programMetadataUrl === "string" ? value.programMetadataUrl : fallback.programMetadataUrl,
     soundManifestUrl: typeof value.soundManifestUrl === "string" ? value.soundManifestUrl : fallback.soundManifestUrl,

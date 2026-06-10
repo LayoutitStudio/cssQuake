@@ -59,7 +59,11 @@ import {
   stripPolyMeshMetadata,
 } from "./renderBundleMesh";
 import type { QuakeMonsterStateRunner, QuakeMonsterStateStep } from "./quakeMonsterStateRunner";
-import { quakeTriggerMonsterJumpActivation } from "./triggerEffects";
+import {
+  quakeTriggerMonsterJumpActivationFromRule,
+  quakeTriggerMonsterJumpRule,
+  type QuakeTriggerMonsterJumpRule,
+} from "./triggerEffects";
 import type { QuakeWeaponShootableTarget } from "./weapons";
 
 export interface QuakeShootablesController {
@@ -254,7 +258,7 @@ interface QuakeMonsterPathCorner {
 interface QuakeMonsterJumpTrigger {
   bounds: QuakeBounds;
   entityIndex: number;
-  velocity: Vec3;
+  rule: QuakeTriggerMonsterJumpRule;
 }
 
 export interface QuakeShootableBounds {
@@ -599,16 +603,12 @@ export function createQuakeShootablesController({
     for (const entity of entities) {
       if (entity.classname !== "trigger_monsterjump" || entity.modelIndex === undefined) continue;
       const model = modelsByIndex.get(entity.modelIndex);
-      const activation = quakeTriggerMonsterJumpActivation(entity, gameLogic);
-      if (!model || !activation) continue;
+      const rule = quakeTriggerMonsterJumpRule(entity, gameLogic);
+      if (!model || !rule) continue;
       triggers.push({
         bounds: quakeBrushModelBounds(model, pivot),
         entityIndex: entity.index,
-        velocity: [
-          activation.velocity[0] * QUAKE_COLLISION_UNIT_SCALE,
-          activation.velocity[1] * QUAKE_COLLISION_UNIT_SCALE,
-          activation.velocity[2] * QUAKE_COLLISION_UNIT_SCALE,
-        ],
+        rule,
       });
     }
     monsterJumpTriggers = triggers;
@@ -1896,14 +1896,28 @@ export function createQuakeShootablesController({
       return false;
     }
     if (enemy.monsterJumpTouchedTriggerEntityIndex === trigger.entityIndex) return false;
+    const startKind = quakeMonsterStartKind(shootable.entity);
+    const activation = quakeTriggerMonsterJumpActivationFromRule(trigger.rule, {
+      isFlying: startKind === "fly",
+      isMonster: shootable.entity.classname.startsWith("monster_"),
+      isSwimming: startKind === "swim",
+      onGround: enemyOnGround(shootable),
+    });
+    if (!activation) return false;
+    const velocity: Vec3 = [
+      activation.velocity[0] * QUAKE_COLLISION_UNIT_SCALE,
+      activation.velocity[1] * QUAKE_COLLISION_UNIT_SCALE,
+      activation.velocity[2] * QUAKE_COLLISION_UNIT_SCALE,
+    ];
     enemy.monsterJumpTouchedTriggerEntityIndex = trigger.entityIndex;
-    enemy.monsterJumpVelocity = [...trigger.velocity] as Vec3;
+    enemy.monsterJumpVelocity = velocity;
     clearQuakecMovementBudget(enemy);
     markShootableTrace("enemy-monsterjump-touch", shootable, {
       trigger: trigger.entityIndex,
-      vx: trigger.velocity[0],
-      vy: trigger.velocity[1],
-      vz: trigger.velocity[2],
+      verticalApplied: activation.verticalApplied,
+      vx: velocity[0],
+      vy: velocity[1],
+      vz: velocity[2],
     });
     return true;
   }
@@ -1922,6 +1936,17 @@ export function createQuakeShootablesController({
     return Math.abs(velocity[0]) > QUAKE_SHOOTABLE_COLLISION_EPSILON ||
       Math.abs(velocity[1]) > QUAKE_SHOOTABLE_COLLISION_EPSILON ||
       Math.abs(velocity[2]) > QUAKE_SHOOTABLE_COLLISION_EPSILON;
+  }
+
+  function enemyOnGround(shootable: QuakeShootableState): boolean {
+    const footZ = shootable.origin[2] + shootable.collisionBounds.min[2];
+    const floorZ = quakeMonsterDropFloorAt(
+      shootable.origin,
+      shootable.collisionBounds,
+      footZ + GROUND_SNAP,
+      footZ - GROUND_SNAP,
+    );
+    return floorZ !== null && Math.abs(footZ - floorZ) <= GROUND_SNAP;
   }
 
   function advanceMonsterMovetargetIfReached(shootable: QuakeShootableState, enemy: QuakeEnemyState): boolean {
@@ -4646,6 +4671,10 @@ function quakeMonsterSpawnProfileForEntity(entity: QuakeEntity): QuakeMonsterSpa
     ...spawnProfile,
     dropToFloor: false,
   };
+}
+
+function quakeMonsterStartKind(entity: QuakeEntity): QuakeMonsterSpawnProfile["startKind"] | "unknown" {
+  return quakeMonsterSpawnProfileForEntity(entity)?.startKind ?? "unknown";
 }
 
 function quakeMonsterSpawnProfile(classname: string): QuakeMonsterSpawnProfile | undefined {

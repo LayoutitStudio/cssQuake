@@ -1,5 +1,10 @@
 import type { PolyFirstPersonControlsHandle, PolySceneHandle, Vec3 } from "@layoutit/polycss";
 
+import {
+  QUAKE_PLAYER_WEAPON_FIRE_FACTS,
+  QUAKE_PROGRAM_SOURCE_FACTS,
+  type QuakePlayerWeaponFireProfileFact,
+} from "../generated/quakeProgramFacts";
 import type { QuakeEntity } from "../prepare/scene";
 import type { QuakeAmmoField, QuakeWeaponId } from "./hud";
 import {
@@ -45,6 +50,8 @@ export interface QuakeWeaponsControllerOptions {
   getCollisionWorld(): QuakeCollisionWorld | null;
   getEntities(): ReadonlyMap<number, QuakeEntity>;
   getShootables(): Iterable<QuakeWeaponShootableTarget>;
+  getPlayerEyeHeight(): number;
+  getPlayerWaterLevel(): number;
   getActiveWeapon(): QuakeWeaponId;
   getAmmo(field: QuakeAmmoField): number;
   consumeAmmo(field: QuakeAmmoField, amount: number): void;
@@ -54,6 +61,7 @@ export interface QuakeWeaponsControllerOptions {
   playFireAnimation(): void;
   damageShootable(entityIndex: number, amount: number): boolean;
   damageBrushEntity(entityIndex: number, amount: number): boolean;
+  damagePlayer(amount: number): boolean;
   damageMultiplier?: () => number;
   random?: () => number;
   onHit(): void;
@@ -78,6 +86,15 @@ export type QuakeWeaponFireSoundId =
   | "lightning";
 
 type QuakeWeaponFireKind = "hitscan-pellets" | "melee-trace" | "projectile" | "beam";
+
+interface QuakeBeamUnderwaterDischargeProfile {
+  attackerSelfScale: number;
+  damagePerAmmoCell: number;
+  distanceScale: number;
+  radiusAddUnits: number;
+  clearsAmmoField: QuakeAmmoField;
+  shamblerScale?: number;
+}
 
 interface QuakeWeaponFireProfileBase {
   ammoCost: number;
@@ -122,7 +139,7 @@ interface QuakeLinearProjectileFireProfile extends QuakeWeaponFireProfileBase {
   explodeOnExpire?: boolean;
   gravity?: number;
   halfDamageClassnames?: readonly string[];
-  sourceZOffsetUnits?: number;
+  sourceZOffsetUnits: number;
   splashDamage?: number;
   splashIgnoresDirectHit?: boolean;
   splashRadius?: number;
@@ -138,6 +155,7 @@ interface QuakeBeamFireProfile extends QuakeWeaponFireProfileBase {
   range: number;
   runtime: "supported";
   sourceZOffsetUnits: number;
+  underwaterDischarge?: QuakeBeamUnderwaterDischargeProfile;
 }
 
 interface QuakeUnsupportedProjectileFireProfile extends QuakeWeaponFireProfileBase {
@@ -165,203 +183,307 @@ type QuakeWeaponFireProfile =
   | QuakeUnsupportedProjectileFireProfile
   | QuakeUnsupportedBeamFireProfile;
 
-const QUAKE_WEAPON_TRACE_RANGE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_WEAPON_SOURCE_FORWARD_OFFSET = 10 * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_WEAPON_SOURCE_Z_OFFSET = QUAKE_PLAYER_MINS_Z + PLAYER_HEIGHT * 0.7 - QUAKE_PLAYER_VIEW_Z;
-const QUAKE_SHOTGUN_PELLET_DAMAGE = 4;
+const QUAKE_PLAYER_WEAPON_FIRE_FACT_PROFILES = QUAKE_PLAYER_WEAPON_FIRE_FACTS.profiles;
+const QUAKE_SHOTGUN_FIRE_FACT = quakePlayerWeaponFireFact("shotgun");
+const QUAKE_WEAPON_TRACE_RANGE = quakeUnitsToCollisionUnits(
+  requiredNumber(QUAKE_SHOTGUN_FIRE_FACT.hitscan?.traceRangeUnits, "shotgun trace range"),
+);
+const QUAKE_WEAPON_SOURCE_FORWARD_OFFSET = quakeUnitsToCollisionUnits(
+  requiredNumber(QUAKE_SHOTGUN_FIRE_FACT.hitscan?.sourceOffsetUnits?.forward, "shotgun source forward offset"),
+);
+const QUAKE_WEAPON_SOURCE_Z_OFFSET = quakeHitscanSourceZOffset(QUAKE_SHOTGUN_FIRE_FACT);
+// Runtime aim assist, not QuakeC logic: keeps CSS hit-feel stable without a recurring correction loop.
 const QUAKE_WEAPON_AIM_DOT = 0.93;
 const QUAKE_WEAPON_AIM_POINT_Z = 0.6;
-const QUAKE_SHOTGUN_COOLDOWN_MS = 500;
-const QUAKE_SUPER_SHOTGUN_COOLDOWN_MS = 700;
-const QUAKE_FAST_REPEAT_WEAPON_COOLDOWN_MS = 200;
-const QUAKE_ROCKET_WEAPON_COOLDOWN_MS = 600;
-const QUAKE_AXE_COOLDOWN_MS = 500;
-const QUAKE_AXE_RANGE = 64 * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_PROJECTILE_DEFAULT_SOURCE_Z_OFFSET_UNITS = 16;
+// Compatibility override: source facts say rocket launcher cooldown is 800ms, but WPF-2 froze current gameplay at 600ms.
+const QUAKE_RUNTIME_ROCKET_COOLDOWN_COMPAT_MS = 600;
+// Runtime projectile physics constants owned by this TypeScript simulation, not weapon fire-profile source facts.
 const QUAKE_PROJECTILE_BOUNCE_OVERBOUNCE = 1.5;
 const QUAKE_PROJECTILE_BOUNCE_STOP_EPSILON = 0.1 * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_SPIKE_PROJECTILE_LIFETIME_MS = 6000;
-const QUAKE_SPIKE_PROJECTILE_SPEED = 1000 * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_SPIKE_PROJECTILE_RIGHT_OFFSET = 4;
-const QUAKE_ROCKET_PROJECTILE_LIFETIME_MS = 5000;
-const QUAKE_ROCKET_PROJECTILE_SPEED = 1000 * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_ROCKET_PROJECTILE_FORWARD_OFFSET = 8;
-const QUAKE_ROCKET_SPLASH_DAMAGE = 120;
-const QUAKE_ROCKET_SPLASH_RADIUS = (QUAKE_ROCKET_SPLASH_DAMAGE + 40) * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_GRENADE_PROJECTILE_LIFETIME_MS = 2500;
-const QUAKE_GRENADE_PROJECTILE_SPEED = 600 * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_GRENADE_PROJECTILE_VERTICAL_VELOCITY = 200 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_GRENADE_PROJECTILE_GRAVITY = 800 * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_GRENADE_SPLASH_DAMAGE = 120;
-const QUAKE_GRENADE_SPLASH_RADIUS = (QUAKE_GRENADE_SPLASH_DAMAGE + 40) * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_LIGHTNING_DAMAGE = 30;
-const QUAKE_LIGHTNING_DAMAGE_END_FORWARD_OFFSET = 4;
-const QUAKE_LIGHTNING_DAMAGE_SOURCE_Z_OFFSET_UNITS = 0;
-const QUAKE_LIGHTNING_DAMAGE_TRACE_OFFSET_UNITS = 16;
-const QUAKE_LIGHTNING_RANGE = 600 * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_LIGHTNING_SOUND_COOLDOWN_MS = 600;
-const QUAKE_LIGHTNING_SOURCE_Z_OFFSET_UNITS = 16;
-const QUAKE_SHOTGUN_FIRE_PROFILE: QuakeHitscanPelletFireProfile = {
-  ammoCost: 1,
-  ammoField: "shells",
-  cooldownMs: QUAKE_SHOTGUN_COOLDOWN_MS,
-  kind: "hitscan-pellets",
-  pelletCount: 6,
-  pelletDamage: QUAKE_SHOTGUN_PELLET_DAMAGE,
-  runtime: "supported",
-  soundWeapon: "shotgun",
-  sourceFunction: "W_FireShotgun",
-  spreadRight: 0.04,
-  spreadUp: 0.04,
-  weapon: "shotgun",
-};
-const QUAKE_SUPER_SHOTGUN_FIRE_PROFILE: QuakeHitscanPelletFireProfile = {
-  ammoCost: 2,
-  ammoField: "shells",
-  cooldownMs: QUAKE_SUPER_SHOTGUN_COOLDOWN_MS,
-  kind: "hitscan-pellets",
-  pelletCount: 14,
-  pelletDamage: QUAKE_SHOTGUN_PELLET_DAMAGE,
-  runtime: "supported",
-  soundWeapon: "supershotgun",
-  sourceFunction: "W_FireSuperShotgun",
-  spreadRight: 0.14,
-  spreadUp: 0.08,
-  weapon: "supershotgun",
-};
+const QUAKE_SHOTGUN_FIRE_PROFILE = quakeHitscanFireProfile("shotgun");
+const QUAKE_SUPER_SHOTGUN_FIRE_PROFILE = quakeHitscanFireProfile("supershotgun");
 const QUAKE_SUPER_SHOTGUN_ONE_SHELL_FIRE_PROFILE: QuakeHitscanPelletFireProfile = {
   ...QUAKE_SHOTGUN_FIRE_PROFILE,
-  cooldownMs: QUAKE_SUPER_SHOTGUN_COOLDOWN_MS,
+  cooldownMs: QUAKE_SUPER_SHOTGUN_FIRE_PROFILE.cooldownMs,
   sourceFunction: "W_FireSuperShotgun -> W_FireShotgun",
   weapon: "supershotgun",
 };
 const QUAKE_SUPER_NAILGUN_ONE_NAIL_FIRE_PROFILE: QuakeLinearProjectileFireProfile = {
-  alternatingRightOffset: true,
-  ammoCost: 1,
-  ammoField: "nails",
-  cooldownMs: QUAKE_FAST_REPEAT_WEAPON_COOLDOWN_MS,
-  damage: 9,
-  kind: "projectile",
-  lifetimeMs: QUAKE_SPIKE_PROJECTILE_LIFETIME_MS,
-  modelPath: "progs/spike.mdl",
-  forwardOffsetUnits: 0,
-  rightOffsetUnits: QUAKE_SPIKE_PROJECTILE_RIGHT_OFFSET,
-  runtime: "supported",
+  ...quakeProjectileFireProfile("nailgun"),
   soundWeapon: "nailgun",
   sourceFunction: "W_FireSpikes",
-  speed: QUAKE_SPIKE_PROJECTILE_SPEED,
   weapon: "supernailgun",
 };
 const QUAKE_WEAPON_FIRE_PROFILES: Record<QuakeWeaponId, QuakeWeaponFireProfile> = {
-  axe: {
-    ammoCost: 0,
-    ammoField: null,
-    cooldownMs: QUAKE_AXE_COOLDOWN_MS,
-    damage: 20,
-    kind: "melee-trace",
-    range: QUAKE_AXE_RANGE,
-    runtime: "supported",
-    soundWeapon: "axe",
-    sourceFunction: "W_FireAxe",
-    weapon: "axe",
-  },
+  axe: quakeMeleeFireProfile("axe"),
   shotgun: QUAKE_SHOTGUN_FIRE_PROFILE,
   supershotgun: QUAKE_SUPER_SHOTGUN_FIRE_PROFILE,
-  nailgun: {
-    alternatingRightOffset: true,
-    ammoCost: 1,
-    ammoField: "nails",
-    cooldownMs: QUAKE_FAST_REPEAT_WEAPON_COOLDOWN_MS,
-    damage: 9,
-    kind: "projectile",
-    lifetimeMs: QUAKE_SPIKE_PROJECTILE_LIFETIME_MS,
-    modelPath: "progs/spike.mdl",
-    forwardOffsetUnits: 0,
-    rightOffsetUnits: QUAKE_SPIKE_PROJECTILE_RIGHT_OFFSET,
-    runtime: "supported",
-    soundWeapon: "nailgun",
-    sourceFunction: "W_FireSpikes",
-    speed: QUAKE_SPIKE_PROJECTILE_SPEED,
-    weapon: "nailgun",
-  },
-  supernailgun: {
-    ammoCost: 2,
-    ammoField: "nails",
-    cooldownMs: QUAKE_FAST_REPEAT_WEAPON_COOLDOWN_MS,
-    damage: 18,
-    kind: "projectile",
-    lifetimeMs: QUAKE_SPIKE_PROJECTILE_LIFETIME_MS,
-    modelPath: "progs/s_spike.mdl",
-    forwardOffsetUnits: 0,
-    rightOffsetUnits: 0,
-    runtime: "supported",
-    soundWeapon: "supernailgun",
-    sourceFunction: "W_FireSuperSpikes",
-    speed: QUAKE_SPIKE_PROJECTILE_SPEED,
-    weapon: "supernailgun",
-  },
-  grenadelauncher: {
-    ammoCost: 1,
-    ammoField: "rockets",
-    bounce: true,
-    cooldownMs: QUAKE_ROCKET_WEAPON_COOLDOWN_MS,
-    damage: 0,
-    explodeOnExpire: true,
-    forwardOffsetUnits: 0,
+  nailgun: quakeProjectileFireProfile("nailgun"),
+  supernailgun: quakeProjectileFireProfile("supernailgun"),
+  grenadelauncher: quakeProjectileFireProfile("grenadelauncher", {
     gravity: QUAKE_GRENADE_PROJECTILE_GRAVITY,
-    kind: "projectile",
-    lifetimeMs: QUAKE_GRENADE_PROJECTILE_LIFETIME_MS,
-    modelPath: "progs/grenade.mdl",
-    rightOffsetUnits: 0,
-    runtime: "supported",
-    soundWeapon: "grenadelauncher",
-    sourceFunction: "W_FireGrenade",
-    sourceZOffsetUnits: 0,
-    speed: QUAKE_GRENADE_PROJECTILE_SPEED,
-    splashDamage: QUAKE_GRENADE_SPLASH_DAMAGE,
-    splashIgnoresDirectHit: false,
-    splashRadius: QUAKE_GRENADE_SPLASH_RADIUS,
-    verticalVelocity: QUAKE_GRENADE_PROJECTILE_VERTICAL_VELOCITY,
-    weapon: "grenadelauncher",
-  },
-  rocketlauncher: {
-    ammoCost: 1,
-    ammoField: "rockets",
-    cooldownMs: QUAKE_ROCKET_WEAPON_COOLDOWN_MS,
-    damage: 100,
-    directDamageRandom: 20,
-    forwardOffsetUnits: QUAKE_ROCKET_PROJECTILE_FORWARD_OFFSET,
-    halfDamageClassnames: ["monster_shambler"],
-    kind: "projectile",
-    lifetimeMs: QUAKE_ROCKET_PROJECTILE_LIFETIME_MS,
-    modelPath: "progs/missile.mdl",
-    rightOffsetUnits: 0,
-    runtime: "supported",
-    soundWeapon: "rocketlauncher",
-    sourceFunction: "W_FireRocket",
-    speed: QUAKE_ROCKET_PROJECTILE_SPEED,
-    splashDamage: QUAKE_ROCKET_SPLASH_DAMAGE,
-    splashRadius: QUAKE_ROCKET_SPLASH_RADIUS,
-    weapon: "rocketlauncher",
-  },
-  lightning: {
-    ammoCost: 1,
-    ammoField: "cells",
-    cooldownMs: QUAKE_FAST_REPEAT_WEAPON_COOLDOWN_MS,
-    damage: QUAKE_LIGHTNING_DAMAGE,
-    damageEndForwardOffsetUnits: QUAKE_LIGHTNING_DAMAGE_END_FORWARD_OFFSET,
-    damageSourceZOffsetUnits: QUAKE_LIGHTNING_DAMAGE_SOURCE_Z_OFFSET_UNITS,
-    damageTraceOffsetUnits: QUAKE_LIGHTNING_DAMAGE_TRACE_OFFSET_UNITS,
-    kind: "beam",
-    range: QUAKE_LIGHTNING_RANGE,
-    runtime: "supported",
-    soundCooldownMs: QUAKE_LIGHTNING_SOUND_COOLDOWN_MS,
-    soundWeapon: "lightning",
-    sourceFunction: "W_FireLightning",
-    sourceZOffsetUnits: QUAKE_LIGHTNING_SOURCE_Z_OFFSET_UNITS,
-    weapon: "lightning",
-  },
+  }),
+  rocketlauncher: quakeProjectileFireProfile("rocketlauncher", {
+    cooldownMs: QUAKE_RUNTIME_ROCKET_COOLDOWN_COMPAT_MS,
+  }),
+  lightning: quakeBeamFireProfile("lightning"),
 };
+
+function quakePlayerWeaponFireFact(weapon: QuakeWeaponId): QuakePlayerWeaponFireProfileFact {
+  const fact = QUAKE_PLAYER_WEAPON_FIRE_FACT_PROFILES[weapon];
+  if (!fact) throw new Error(`Missing generated QuakeC player weapon fire fact for ${weapon}.`);
+  return fact;
+}
+
+function quakeHitscanFireProfile(weapon: QuakeWeaponId): QuakeHitscanPelletFireProfile {
+  const fact = quakePlayerWeaponFireFact(weapon);
+  const hitscan = fact.hitscan;
+  if (fact.runtimeKind !== "hitscan-pellets" || !hitscan) {
+    throw new Error(`Generated QuakeC weapon fact for ${weapon} is not a hitscan profile.`);
+  }
+  const spread = hitscan.spread;
+  if (!spread) throw new Error(`Generated QuakeC hitscan weapon fact for ${weapon} is missing spread.`);
+  return {
+    ammoCost: fact.ammo?.cost ?? 0,
+    ammoField: quakeRuntimeAmmoField(fact),
+    cooldownMs: fact.cooldownMs,
+    kind: "hitscan-pellets",
+    pelletCount: hitscan.pelletCount,
+    pelletDamage: hitscan.pelletDamage,
+    runtime: "supported",
+    soundWeapon: quakeRuntimeFireSoundWeapon(fact),
+    sourceFunction: fact.sourceFunction,
+    spreadRight: spread[0],
+    spreadUp: spread[1],
+    weapon,
+  };
+}
+
+function quakeMeleeFireProfile(weapon: QuakeWeaponId): QuakeMeleeTraceFireProfile {
+  const fact = quakePlayerWeaponFireFact(weapon);
+  const melee = fact.melee;
+  if (fact.runtimeKind !== "melee-trace" || !melee) {
+    throw new Error(`Generated QuakeC weapon fact for ${weapon} is not a melee profile.`);
+  }
+  return {
+    ammoCost: fact.ammo?.cost ?? 0,
+    ammoField: quakeRuntimeAmmoField(fact),
+    cooldownMs: fact.cooldownMs,
+    damage: melee.damage,
+    kind: "melee-trace",
+    range: quakeUnitsToCollisionUnits(melee.rangeUnits),
+    runtime: "supported",
+    soundWeapon: quakeRuntimeFireSoundWeapon(fact),
+    sourceFunction: fact.sourceFunction,
+    weapon,
+  };
+}
+
+function quakeProjectileFireProfile(
+  weapon: QuakeWeaponId,
+  overrides: Partial<QuakeLinearProjectileFireProfile> = {},
+): QuakeLinearProjectileFireProfile {
+  const fact = quakePlayerWeaponFireFact(weapon);
+  const projectile = fact.projectile;
+  if (fact.runtimeKind !== "projectile" || !projectile) {
+    throw new Error(`Generated QuakeC weapon fact for ${weapon} is not a projectile profile.`);
+  }
+  const radiusDamage = projectile.radiusDamage;
+  const sourceOffset = projectile.sourceOffsetUnits;
+  if (!sourceOffset) throw new Error(`Generated QuakeC projectile weapon fact for ${weapon} is missing source offset.`);
+  const alternatingRight = sourceOffset?.alternatingRight;
+  const directDamage = projectile.directDamage;
+  const profile: QuakeLinearProjectileFireProfile = {
+    ammoCost: fact.ammo?.cost ?? 0,
+    ammoField: quakeRuntimeAmmoField(fact),
+    cooldownMs: fact.cooldownMs,
+    damage: projectile.damage ?? directDamage?.base ?? 0,
+    kind: "projectile",
+    lifetimeMs: requiredNumber(projectile.lifetimeMs, `${weapon} projectile lifetime`),
+    modelPath: requiredString(projectile.modelPath, `${weapon} projectile model`),
+    forwardOffsetUnits: sourceOffset?.forward ?? 0,
+    rightOffsetUnits: alternatingRight?.[0] ?? sourceOffset?.right ?? 0,
+    runtime: "supported",
+    soundWeapon: quakeRuntimeFireSoundWeapon(fact),
+    sourceFunction: fact.sourceFunction,
+    sourceZOffsetUnits: sourceOffset.up ?? 0,
+    speed: quakeUnitsToCollisionUnits(requiredNumber(projectile.speedUnits, `${weapon} projectile speed`)),
+    weapon,
+    ...(alternatingRight?.length ? { alternatingRightOffset: true } : {}),
+    ...(projectile.movetype === "MOVETYPE_BOUNCE" ? { bounce: true } : {}),
+    ...(directDamage?.randomAdd !== undefined ? { directDamageRandom: directDamage.randomAdd } : {}),
+    ...(projectile.explodeFunction ? { explodeOnExpire: true } : {}),
+    ...(directDamage?.halfDamageClassnames ? { halfDamageClassnames: directDamage.halfDamageClassnames } : {}),
+    ...(radiusDamage?.damageUnits !== undefined ? { splashDamage: radiusDamage.damageUnits } : {}),
+    ...(radiusDamage?.ignore === "world" ? { splashIgnoresDirectHit: false } : {}),
+    ...(radiusDamage?.radiusUnits !== undefined
+      ? { splashRadius: quakeUnitsToCollisionUnits(radiusDamage.radiusUnits) }
+      : {}),
+    ...(projectile.verticalVelocityUnits !== undefined
+      ? { verticalVelocity: quakeUnitsToCollisionUnits(projectile.verticalVelocityUnits) }
+      : {}),
+  };
+  return { ...profile, ...overrides };
+}
+
+function quakeBeamFireProfile(
+  weapon: QuakeWeaponId,
+  overrides: Partial<QuakeBeamFireProfile> = {},
+): QuakeBeamFireProfile {
+  const fact = quakePlayerWeaponFireFact(weapon);
+  const beam = fact.beam;
+  if (fact.runtimeKind !== "beam" || !beam) {
+    throw new Error(`Generated QuakeC weapon fact for ${weapon} is not a beam profile.`);
+  }
+  const underwaterDischarge = quakeBeamUnderwaterDischargeProfile(fact);
+  const profile: QuakeBeamFireProfile = {
+    ammoCost: fact.ammo?.cost ?? 0,
+    ammoField: quakeRuntimeAmmoField(fact),
+    cooldownMs: fact.cooldownMs,
+    damage: requiredNumber(beam.damage, `${weapon} beam damage`),
+    damageEndForwardOffsetUnits: requiredNumber(
+      beam.damageEndForwardOffsetUnits,
+      `${weapon} beam damage end offset`,
+    ),
+    damageSourceZOffsetUnits: 0,
+    damageTraceOffsetUnits: requiredNumber(beam.damageTraceOffsetUnits, `${weapon} beam damage trace offset`),
+    kind: "beam",
+    range: quakeUnitsToCollisionUnits(requiredNumber(beam.rangeUnits, `${weapon} beam range`)),
+    runtime: "supported",
+    soundCooldownMs: fact.fireSound?.cooldownMs,
+    soundWeapon: quakeRuntimeFireSoundWeapon(fact),
+    sourceFunction: fact.sourceFunction,
+    sourceZOffsetUnits: beam.sourceOffsetUnits?.up ?? 0,
+    ...(underwaterDischarge ? { underwaterDischarge } : {}),
+    weapon,
+  };
+  return { ...profile, ...overrides };
+}
+
+function quakeBeamUnderwaterDischargeProfile(
+  fact: QuakePlayerWeaponFireProfileFact,
+): QuakeBeamUnderwaterDischargeProfile | undefined {
+  const branch = fact.unsupportedBranches?.find((candidate) => candidate.id === "lightning-underwater-discharge");
+  const radiusDamage = branch?.radiusDamage;
+  if (!branch?.clearsAmmoField || !radiusDamage) return undefined;
+  if (radiusDamage.call !== "T_RadiusDamage") return undefined;
+  const damagePerAmmoCell = requiredNumber(
+    radiusDamage.damagePerAmmoCell,
+    `${fact.weapon} underwater discharge damage per ammo cell`,
+  );
+  return {
+    attackerSelfScale: radiusDamage.attackerSelfScale ?? 1,
+    clearsAmmoField: branch.clearsAmmoField as QuakeAmmoField,
+    damagePerAmmoCell,
+    distanceScale: radiusDamage.distanceScale ?? 0.5,
+    radiusAddUnits: radiusDamage.radiusAddUnits ?? 0,
+    ...(radiusDamage.shamblerScale !== undefined ? { shamblerScale: radiusDamage.shamblerScale } : {}),
+  };
+}
+
+function quakeRuntimeAmmoField(fact: QuakePlayerWeaponFireProfileFact): QuakeAmmoField | null {
+  return (fact.ammo?.field ?? null) as QuakeAmmoField | null;
+}
+
+function quakeRuntimeFireSoundWeapon(fact: QuakePlayerWeaponFireProfileFact): QuakeWeaponFireSoundId {
+  return fact.weapon as QuakeWeaponFireSoundId;
+}
+
+function quakeHitscanSourceZOffset(fact: QuakePlayerWeaponFireProfileFact): number {
+  const zExpression = fact.hitscan?.sourceOffsetUnits?.zExpression;
+  if (zExpression !== "self.absmin_z + self.size_z * 0.7") {
+    throw new Error(`Unsupported generated QuakeC hitscan source Z expression: ${zExpression ?? "missing"}.`);
+  }
+  return QUAKE_PLAYER_MINS_Z + PLAYER_HEIGHT * 0.7 - QUAKE_PLAYER_VIEW_Z;
+}
+
+function quakeUnitsToCollisionUnits(units: number): number {
+  return units * QUAKE_COLLISION_UNIT_SCALE;
+}
+
+function requiredNumber(value: number | undefined, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`Missing generated QuakeC numeric weapon fact: ${label}.`);
+  }
+  return value;
+}
+
+function requiredString(value: string | undefined, label: string): string {
+  if (!value) throw new Error(`Missing generated QuakeC string weapon fact: ${label}.`);
+  return value;
+}
+
+export function quakeWeaponFireProfileAuditFacts() {
+  return {
+    sourceRevision: QUAKE_PROGRAM_SOURCE_FACTS.revision,
+    profiles: Object.fromEntries(
+      Object.entries(QUAKE_WEAPON_FIRE_PROFILES).map(([weapon, profile]) => [
+        weapon,
+        quakeWeaponFireProfileAuditFact(weapon as QuakeWeaponId, profile),
+      ]),
+    ),
+    fallbackProfiles: {
+      supernailgunOneNail: quakeWeaponFireProfileAuditFact("supernailgun", QUAKE_SUPER_NAILGUN_ONE_NAIL_FIRE_PROFILE),
+      supershotgunOneShell: quakeWeaponFireProfileAuditFact("supershotgun", QUAKE_SUPER_SHOTGUN_ONE_SHELL_FIRE_PROFILE),
+    },
+  };
+}
+
+function quakeWeaponFireProfileAuditFact(weapon: QuakeWeaponId, profile: QuakeWeaponFireProfile) {
+  const sourceFact = quakePlayerWeaponFireFact(weapon);
+  return {
+    ammoCost: profile.ammoCost,
+    ammoField: profile.ammoField,
+    cooldownMs: profile.cooldownMs,
+    kind: profile.kind,
+    runtime: profile.runtime,
+    soundCooldownMs: profile.soundCooldownMs,
+    soundWeapon: profile.soundWeapon,
+    sourceCooldownMs: sourceFact.cooldownMs,
+    sourceFunction: profile.sourceFunction,
+    weapon: profile.weapon,
+    ...(profile.kind === "hitscan-pellets"
+      ? {
+          pelletCount: profile.pelletCount,
+          pelletDamage: profile.pelletDamage,
+          spreadRight: profile.spreadRight,
+          spreadUp: profile.spreadUp,
+        }
+      : {}),
+    ...(profile.kind === "melee-trace" ? { damage: profile.damage, range: profile.range } : {}),
+    ...(profile.kind === "projectile"
+      ? {
+          bounce: profile.bounce,
+          damage: profile.damage,
+          directDamageRandom: profile.directDamageRandom,
+          explodeOnExpire: profile.explodeOnExpire,
+          forwardOffsetUnits: profile.forwardOffsetUnits,
+          gravity: profile.gravity,
+          lifetimeMs: profile.lifetimeMs,
+          modelPath: profile.modelPath,
+          rightOffsetUnits: profile.rightOffsetUnits,
+          sourceZOffsetUnits: profile.sourceZOffsetUnits,
+          speed: profile.speed,
+          splashDamage: profile.splashDamage,
+          splashIgnoresDirectHit: profile.splashIgnoresDirectHit,
+          splashRadius: profile.splashRadius,
+          verticalVelocity: profile.verticalVelocity,
+        }
+      : {}),
+    ...(profile.kind === "beam"
+      ? {
+          damage: profile.damage,
+          damageEndForwardOffsetUnits: profile.damageEndForwardOffsetUnits,
+          damageSourceZOffsetUnits: profile.damageSourceZOffsetUnits,
+          damageTraceOffsetUnits: profile.damageTraceOffsetUnits,
+          range: profile.range,
+          sourceZOffsetUnits: profile.sourceZOffsetUnits,
+          underwaterDischarge: profile.underwaterDischarge,
+        }
+      : {}),
+  };
+}
 
 interface QuakeWeaponProjectile extends QuakeProjectileState<QuakeLinearProjectileFireProfile> {
   damage: number;
@@ -375,6 +497,8 @@ export function createQuakeWeaponsController({
   getCollisionWorld,
   getEntities,
   getShootables,
+  getPlayerEyeHeight,
+  getPlayerWaterLevel,
   getActiveWeapon,
   getAmmo,
   consumeAmmo,
@@ -384,6 +508,7 @@ export function createQuakeWeaponsController({
   playFireAnimation,
   damageShootable,
   damageBrushEntity,
+  damagePlayer,
   damageMultiplier,
   random = Math.random,
   onHit,
@@ -422,6 +547,13 @@ export function createQuakeWeaponsController({
     }
     if (!quakeWeaponFireProfileIsRuntimeSupported(profile)) return false;
     nextFireAt = now + profile.cooldownMs;
+    if (profile.kind === "beam" && profile.underwaterDischarge && getPlayerWaterLevel() > 1) {
+      const hit = fireBeamUnderwaterDischarge(profile.underwaterDischarge);
+      playFireAnimation();
+      if (hit) onHit();
+      syncCrosshairTarget();
+      return true;
+    }
     consumeWeaponAmmo(profile);
     playWeaponFireSound(profile, now);
     const hit = fireWeaponProfile(profile, now);
@@ -647,6 +779,30 @@ export function createQuakeWeaponsController({
     return damageBeamTraces(profile, damageOrigin, damageEnd);
   }
 
+  function fireBeamUnderwaterDischarge(profile: QuakeBeamUnderwaterDischargeProfile): boolean {
+    const ammoCells = Math.max(0, getAmmo(profile.clearsAmmoField));
+    if (ammoCells <= 0) return false;
+    consumeAmmo(profile.clearsAmmoField, ammoCells);
+    syncHud();
+    const damageUnits = profile.damagePerAmmoCell * ammoCells;
+    const radius = quakeUnitsToCollisionUnits(damageUnits + profile.radiusAddUnits);
+    const origin = playerQuakeEntityOrigin();
+    let hit = false;
+    for (const shootable of getShootables()) {
+      if (shootable.dead) continue;
+      const distance = distanceToShootableCenter(origin, shootable);
+      if (distance > radius) continue;
+      let damage = radiusDamageAtDistance(damageUnits, distance, profile.distanceScale);
+      if (damage <= 0) continue;
+      if (profile.shamblerScale !== undefined && shootable.entity.classname === "monster_shambler") {
+        damage *= profile.shamblerScale;
+      }
+      if (damageShootable(shootable.entity.index, scaledWeaponDamage(damage))) hit = true;
+    }
+    if (damagePlayerRadiusDamage(origin, damageUnits, radius, profile)) hit = true;
+    return hit;
+  }
+
   function fireLinearProjectile(profile: QuakeLinearProjectileFireProfile, now: number): void {
     const aim = weaponAimForFire();
     const { right, up } = weaponSpreadAxes();
@@ -780,12 +936,64 @@ export function createQuakeWeaponsController({
       if (shootable.dead || entityIndex === ignoredEntityIndex) continue;
       const distance = distanceToShootableCenter(origin, shootable);
       if (distance > profile.splashRadius) continue;
-      let damage = profile.splashDamage - 0.5 * (distance / QUAKE_COLLISION_UNIT_SCALE);
+      let damage = projectileSplashDamageAtDistance(profile, distance);
       if (damage <= 0) continue;
       if (profile.halfDamageClassnames?.includes(shootable.entity.classname)) damage *= 0.5;
       if (damageShootable(entityIndex, scaledWeaponDamage(damage))) hit = true;
     }
+    if (damagePlayerProjectileSplash(origin, profile)) hit = true;
     return hit;
+  }
+
+  function damagePlayerProjectileSplash(origin: Vec3, profile: QuakeLinearProjectileFireProfile): boolean {
+    if (!profile.splashDamage || !profile.splashRadius) return false;
+    const distance = distanceToPlayerCenter(origin);
+    if (distance > profile.splashRadius) return false;
+    const damage = projectileSplashDamageAtDistance(profile, distance) * 0.5;
+    if (damage <= 0) return false;
+    return damagePlayer(scaledWeaponDamage(damage));
+  }
+
+  function damagePlayerRadiusDamage(
+    origin: Vec3,
+    damageUnits: number,
+    radius: number,
+    profile: Pick<QuakeBeamUnderwaterDischargeProfile, "attackerSelfScale" | "distanceScale">,
+  ): boolean {
+    const distance = distanceToPlayerCenter(origin);
+    if (distance > radius) return false;
+    const damage = radiusDamageAtDistance(damageUnits, distance, profile.distanceScale) * profile.attackerSelfScale;
+    if (damage <= 0) return false;
+    return damagePlayer(scaledWeaponDamage(damage));
+  }
+
+  function distanceToPlayerCenter(origin: Vec3): number {
+    const center = playerDamageCenter();
+    return Math.hypot(
+      origin[0] - center[0],
+      origin[1] - center[1],
+      origin[2] - center[2],
+    );
+  }
+
+  function playerDamageCenter(): Vec3 {
+    const origin = controls.getOrigin();
+    const eyeHeight = Math.max(0, getPlayerEyeHeight());
+    return [
+      origin[0],
+      origin[1],
+      origin[2] - eyeHeight + PLAYER_HEIGHT * 0.5,
+    ];
+  }
+
+  function playerQuakeEntityOrigin(): Vec3 {
+    const origin = controls.getOrigin();
+    const eyeHeight = Math.max(0, getPlayerEyeHeight());
+    return [
+      origin[0],
+      origin[1],
+      origin[2] - eyeHeight - QUAKE_PLAYER_MINS_Z,
+    ];
   }
 
   function damageBeamTraces(profile: QuakeBeamFireProfile, start: Vec3, end: Vec3): boolean {
@@ -898,13 +1106,12 @@ function weaponProjectileSourceOrigin(
   viewOrigin: Vec3,
   direction: Vec3,
   right: Vec3,
-  offsets: { forwardOffsetUnits: number; rightOffsetUnits: number; sourceZOffsetUnits?: number },
+  offsets: { forwardOffsetUnits: number; rightOffsetUnits: number; sourceZOffsetUnits: number },
 ): Vec3 {
   const forwardOffset = offsets.forwardOffsetUnits * QUAKE_COLLISION_UNIT_SCALE;
   const rightOffset = offsets.rightOffsetUnits * QUAKE_COLLISION_UNIT_SCALE;
   const sourceZOffset = (
-    (offsets.sourceZOffsetUnits ?? QUAKE_PROJECTILE_DEFAULT_SOURCE_Z_OFFSET_UNITS) -
-    QUAKE_PLAYER_VIEW_Z / QUAKE_COLLISION_UNIT_SCALE
+    offsets.sourceZOffsetUnits - QUAKE_PLAYER_VIEW_Z / QUAKE_COLLISION_UNIT_SCALE
   ) * QUAKE_COLLISION_UNIT_SCALE;
   return [
     viewOrigin[0] + direction[0] * forwardOffset + right[0] * rightOffset,
@@ -932,6 +1139,14 @@ function distanceToShootableCenter(origin: Vec3, shootable: QuakeWeaponShootable
     origin[1] - (shootable.bounds.min[1] + shootable.bounds.max[1]) * 0.5,
     origin[2] - (shootable.bounds.min[2] + shootable.bounds.max[2]) * 0.5,
   );
+}
+
+function projectileSplashDamageAtDistance(profile: QuakeLinearProjectileFireProfile, distance: number): number {
+  return radiusDamageAtDistance(profile.splashDamage ?? 0, distance, 0.5);
+}
+
+function radiusDamageAtDistance(damageUnits: number, distance: number, distanceScale: number): number {
+  return damageUnits - distanceScale * (distance / QUAKE_COLLISION_UNIT_SCALE);
 }
 
 function lightningDamageOffset(start: Vec3, end: Vec3, offsetUnits: number): Vec3 {

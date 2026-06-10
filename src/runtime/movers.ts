@@ -4,6 +4,7 @@ import type {
   QuakeGameLogicFacts,
   QuakeGameLogicResolvedFuncButtonFact,
   QuakeGameLogicResolvedFuncDoorFact,
+  QuakeGameLogicResolvedFuncDoorSecretFact,
   QuakeGameLogicResolvedFuncPlatFact,
   QuakeGameLogicResolvedFuncTrainFact,
 } from "../prepare/gameLogicFacts";
@@ -49,6 +50,7 @@ export interface QuakeMoverState {
   prebakedButton?: QuakeGameLogicResolvedFuncButtonFact;
   prebakedDoor?: QuakeGameLogicResolvedFuncDoorFact;
   prebakedPlat?: QuakeGameLogicResolvedFuncPlatFact;
+  prebakedSecretDoor?: QuakeGameLogicResolvedFuncDoorSecretFact;
   prebakedTrain?: QuakeGameLogicResolvedFuncTrainFact;
   pathBaseOrigin?: Vec3;
   pathCurrentTarget?: string;
@@ -593,6 +595,12 @@ export function quakeMoverBlockDamage(state: QuakeMoverState): number {
   return Math.max(0, Number.isFinite(amount) ? amount : 0);
 }
 
+export function quakeMoverBlockDamageCooldownMs(state: QuakeMoverState): number {
+  if (state.kind === "secret-door") return Math.max(0, (state.prebakedSecretDoor?.blocker.throttleSeconds ?? 0.5) * 1000);
+  if (state.kind === "train") return 500;
+  return 0;
+}
+
 function quakeMoverDefaultSpeed(classname: string): number {
   if (classname === "func_plat") return 150;
   if (classname === "func_button") return 40;
@@ -712,6 +720,9 @@ function createQuakeMoverState(
   const prebakedDoor = kind === "door" && resolvedMover?.kind === "func_door"
     ? resolvedMover
     : undefined;
+  const prebakedSecretDoor = kind === "secret-door" && resolvedMover?.kind === "func_door_secret"
+    ? resolvedMover
+    : undefined;
   const prebakedPlat = kind === "plat" && resolvedMover?.kind === "func_plat"
     ? resolvedMover
     : undefined;
@@ -782,6 +793,7 @@ function createQuakeMoverState(
     ...(prebakedButton ? { prebakedButton } : {}),
     ...(prebakedDoor ? { prebakedDoor } : {}),
     ...(prebakedPlat ? { prebakedPlat } : {}),
+    ...(prebakedSecretDoor ? { prebakedSecretDoor } : {}),
   };
 }
 
@@ -963,6 +975,8 @@ function moveOffsetToward(offset: Vec3, target: Vec3, maxStep: number): Vec3 {
 }
 
 function handleBlockedMover(state: QuakeMoverState, now: number): void {
+  const policy = quakeMoverBlockPolicy(state);
+  if (!policy.reverses) return;
   if (state.kind === "plat") {
     state.mode = state.mode === "opening" ? "closing" : "opening";
     state.waitUntil = 0;
@@ -970,6 +984,16 @@ function handleBlockedMover(state: QuakeMoverState, now: number): void {
   }
   if (state.kind === "door" || state.kind === "secret-door") {
     state.mode = state.mode === "closing" ? "opening" : "closing";
-    state.waitUntil = state.mode === "closing" ? 0 : now + 0.2 * 1000;
+    state.waitUntil = state.mode === "closing" ? 0 : now + policy.reopenHoldMs;
   }
+}
+
+function quakeMoverBlockPolicy(state: QuakeMoverState): { reopenHoldMs: number; reverses: boolean } {
+  if (state.kind === "button" || state.kind === "train") return { reopenHoldMs: 0, reverses: false };
+  if (state.kind === "plat") return { reopenHoldMs: 0, reverses: true };
+  if (state.kind === "secret-door") {
+    return { reopenHoldMs: 0, reverses: state.prebakedSecretDoor?.blocker.reverses ?? false };
+  }
+  if (state.kind === "door") return { reopenHoldMs: 0.2 * 1000, reverses: state.wait >= 0 };
+  return { reopenHoldMs: 0, reverses: false };
 }
