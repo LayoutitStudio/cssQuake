@@ -416,6 +416,10 @@ function sanitizeQuakeMultiplayerInteger(
 }
 
 function defaultQuakeMultiplayerPartyHost(): string {
+  const configuredHost = normalizeQuakePartySocketHost(
+    (import.meta.env as { VITE_CSSQUAKE_PARTY_HOST?: string }).VITE_CSSQUAKE_PARTY_HOST,
+  );
+  if (configuredHost) return configuredHost;
   return normalizeQuakePartySocketHost(import.meta.env.DEV ? "localhost:1999" : window.location.host) ??
     window.location.host;
 }
@@ -2783,6 +2787,9 @@ function sendQuakeMultiplayerWorldChanged(
   entityIndex: number,
   data: Record<string, string | number | boolean> = {},
 ): void {
+  // Legacy world.changed events are room-to-client only. Client-originated
+  // world changes must go through structured authoritative intents.
+  if (QUAKE_MULTIPLAYER_ENABLED) return;
   if (
     quakeMultiplayerApplyingWorldEvent ||
     !QUAKE_MULTIPLAYER_ENABLED ||

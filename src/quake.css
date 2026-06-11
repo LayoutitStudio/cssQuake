@@ -1258,21 +1258,27 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 .quake-multiplayer-form {
   --quake-menu-row-text-size: calc(8 * var(--quake-menu-px));
   position: absolute;
-  top: 11.75cqw;
-  left: 12cqw;
+  top: 12cqw;
+  left: 18cqw;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: calc(4 * var(--quake-menu-px)) calc(12 * var(--quake-menu-px));
-  width: 76cqw;
+  grid-template-columns: minmax(0, 1fr);
+  gap: calc(3 * var(--quake-menu-px));
+  width: 74cqw;
   margin: 0;
 }
 .quake-multiplayer-field {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: calc(1 * var(--quake-menu-px));
+  grid-template-columns: calc(88 * var(--quake-menu-px)) minmax(0, 1fr);
+  align-items: center;
+  gap: calc(6 * var(--quake-menu-px));
+  min-height: calc(13 * var(--quake-menu-px));
   min-width: 0;
   color: rgba(246, 241, 223, 0.84);
+}
+.quake-multiplayer-field > span {
+  display: block;
+  min-width: 0;
+  min-height: var(--quake-menu-row-text-size);
 }
 .quake-multiplayer-field > span .quake-bitmap-text,
 .quake-multiplayer-status .quake-bitmap-text {
@@ -1283,6 +1289,7 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 }
 .quake-multiplayer-field input,
 .quake-multiplayer-field select {
+  width: 100%;
   min-width: 0;
   height: calc(12 * var(--quake-menu-px));
   padding: 0 calc(2 * var(--quake-menu-px));
@@ -1299,6 +1306,7 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   border-color: #f0ad5c;
 }
 .quake-multiplayer-color-field input {
+  width: calc(20 * var(--quake-menu-px));
   padding: 0;
 }
 .quake-multiplayer-actions {
