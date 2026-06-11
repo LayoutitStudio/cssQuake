@@ -3,12 +3,12 @@ import {
   type Vec3,
 } from "@layoutit/polycss";
 
-import {
-  QUAKE_LIGHT_STYLE_PATTERNS,
-  type QuakePreparedRenderBundle,
-  type QuakeScene,
-  type QuakeVisibility,
-} from "../prepare/scene";
+import { QUAKE_LIGHT_STYLE_PATTERNS } from "../prepare/scene";
+import type {
+  QuakePreparedRenderBundle,
+  QuakeScene,
+  QuakeVisibility,
+} from "../types/quake";
 import {
   createQuakeWorldVisibilityChurnStats,
   recordQuakeWorldVisibilitySync,
@@ -42,6 +42,7 @@ export interface QuakeFaceLeaf {
   textureName?: string;
   buttonBaseTexture?: string;
   buttonPressedTexture?: string;
+  skyTexture: boolean;
   specialTexture: boolean;
   textureAnimated: boolean;
   lightstyleAnimated: boolean;
@@ -97,6 +98,7 @@ export interface QuakeWorldDebugStats {
   mountedLeaves: number;
   unmountedLeaves: number;
   mountedAtlasLeaves: number;
+  mountedSkyTextureLeaves: number;
   mountedSpecialTextureLeaves: number;
   mountedTextureAnimatedLeaves: number;
   mountedLightstyleLeaves: number;
@@ -322,6 +324,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     const visibleFaces = currentVisibility?.visibleFacesAt(origin) ?? null;
     let mountedLeaves = 0;
     let mountedAtlasLeaves = 0;
+    let mountedSkyTextureLeaves = 0;
     let mountedSpecialTextureLeaves = 0;
     let mountedTextureAnimatedLeaves = 0;
     let mountedLightstyleLeaves = 0;
@@ -335,6 +338,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       if (mounted) {
         mountedLeaves++;
         if (leaf.tagName === "s") mountedAtlasLeaves++;
+        if (leaf.skyTexture) mountedSkyTextureLeaves++;
         if (leaf.specialTexture) mountedSpecialTextureLeaves++;
         if (leaf.textureAnimated) mountedTextureAnimatedLeaves++;
         if (leaf.lightstyleAnimated) mountedLightstyleLeaves++;
@@ -354,6 +358,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       mountedLeaves,
       unmountedLeaves: quakeLeaves.length - mountedLeaves,
       mountedAtlasLeaves,
+      mountedSkyTextureLeaves,
       mountedSpecialTextureLeaves,
       mountedTextureAnimatedLeaves,
       mountedLightstyleLeaves,
@@ -423,7 +428,9 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       const buttonPressedTexture = leaf.dataset.pressed;
       const textureAnimationMetadata = registerQuakeTextureAnimationLeaf(leaf);
       const tagName = leaf.tagName.toLowerCase();
-      const specialTexture = textureName?.startsWith("*") === true;
+      const normalizedTextureName = textureName?.toLowerCase() ?? "";
+      const skyTexture = normalizedTextureName.startsWith("sky");
+      const specialTexture = normalizedTextureName.startsWith("*");
       if (specialTexture) quakeBackfaceVisibleLeaves.add(leaf);
       applyQuakeLeafPresentation(leaf);
       stripQuakeWorldLeafMetadata(leaf);
@@ -441,6 +448,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
         ...(textureName ? { textureName } : {}),
         ...(buttonBaseTexture ? { buttonBaseTexture } : {}),
         ...(buttonPressedTexture ? { buttonPressedTexture } : {}),
+        skyTexture,
         specialTexture,
         textureAnimated: textureAnimationMetadata !== undefined,
         lightstyleAnimated: lightstyleStyleId !== undefined || Number.isInteger(lightstyleValue),

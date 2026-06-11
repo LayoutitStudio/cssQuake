@@ -19,7 +19,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@layoutit/polycss": "^0.2.3",
+    "@layoutit/polycss": "^0.2.5",
     "nipplejs": "^1.0.4"
   },
   "devDependencies": {

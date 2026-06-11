@@ -1,6 +1,6 @@
 import type { Vec3 } from "@layoutit/polycss";
 
-import type { QuakeEntity } from "../../prepare/scene";
+import type { QuakeEntity } from "../../types/quake";
 import { QUAKE_PLAYER_MINS_Z, STEP_HEIGHT } from "../constants";
 import type { QuakePlayerInventory, QuakeWeaponId } from "../hud";
 import type { QuakeMoversDebugStats } from "../movers";

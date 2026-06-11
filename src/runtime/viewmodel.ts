@@ -1,8 +1,10 @@
 import {
-  BASE_TILE,
+  buildPolySceneTransform,
+  polyCssDistanceToWorld,
   type PolyFirstPersonControlsHandle,
   type PolySceneHandle,
   type Vec3,
+  worldPositionToPolyCss,
 } from "@layoutit/polycss";
 
 import { QUAKE_COLLISION_UNIT_SCALE } from "./constants";
@@ -36,6 +38,7 @@ export interface QuakeViewmodelSyncOptions {
 export interface QuakeViewmodelFireAnimation {
   frameIntervalMs: number;
   frames: readonly number[];
+  firstFrameMuzzleFlash?: boolean;
 }
 
 export interface QuakeViewmodelTuning {
@@ -254,6 +257,7 @@ const QUAKE_WEAPON_MODEL_TUNING_OVERRIDES: Record<string, QuakeViewmodelTuning> 
 };
 const QUAKE_WEAPON_SCREEN_ROT_X = 90;
 const QUAKE_WEAPON_MUZZLE_FLASH_MS = 45;
+const QUAKE_WEAPON_FIRE_ANIMATION_FRAME_MS = QUAKE_WEAPON_MUZZLE_FLASH_MS;
 const QUAKE_WEAPON_DEFAULT_FIRE_ANIMATION: QuakeViewmodelFireAnimation = {
   frameIntervalMs: QUAKE_WEAPON_MUZZLE_FLASH_MS,
   frames: [1],
@@ -352,8 +356,7 @@ export function createQuakeViewmodelController({
     const rotY = scene.camera.state.rotY ?? 270;
     const currentTuning = activeTuning();
     const weapon = debugWeaponTransform(weaponTransform(origin, rotX, rotY, walkBob));
-    const sceneElement = scene.sceneElement;
-    const stageTransform = weaponStageTransform(sceneElement.style.transform);
+    const stageTransform = weaponStageTransform();
     const target = roundDebugVec3(weaponStageTarget(origin, rotX, rotY));
     return {
       mounted: carrier !== null,
@@ -387,9 +390,9 @@ export function createQuakeViewmodelController({
       stage: stage ? {
         ...elementDebugSnapshot(stage),
         target,
-        lookOffset: roundDebugNumber(weaponPerspectivePx() / BASE_TILE),
-        cameraScale: readCameraScale(sceneElement.style.transform),
-        cameraTranslateZ: readCameraTranslateZ(sceneElement.style.transform),
+        lookOffset: roundDebugNumber(polyCssDistanceToWorld(weaponPerspectivePx())),
+        cameraScale: roundDebugNumber(polyCssDistanceToWorld(scene.camera.state.zoom ?? 1)),
+        cameraTranslateZ: roundDebugNumber(-(scene.camera.state.distance ?? 0)),
         inlineStyle: {
           ...elementInlineStyleSnapshot(stage),
           transform: stageTransform || null,
@@ -451,17 +454,23 @@ export function createQuakeViewmodelController({
 
   function playFireAnimation(animation: QuakeViewmodelFireAnimation = QUAKE_WEAPON_DEFAULT_FIRE_ANIMATION): void {
     const frames = sanitizeFireAnimationFrames(animation.frames);
-    const frameIntervalMs = sanitizeFireAnimationFrameInterval(animation.frameIntervalMs);
+    const frameIntervalMs = Math.min(
+      sanitizeFireAnimationFrameInterval(animation.frameIntervalMs),
+      QUAKE_WEAPON_FIRE_ANIMATION_FRAME_MS,
+    );
+    const firstFrameDurationMs = animation.firstFrameMuzzleFlash
+      ? Math.min(QUAKE_WEAPON_MUZZLE_FLASH_MS, frameIntervalMs)
+      : frameIntervalMs;
     clearFrameTimers();
     setWeaponFrameIndex(frames[0] ?? 1);
     frames.slice(1).forEach((frame, index) => {
-      fireFrameTimers.push(window.setTimeout(() => setWeaponFrameIndex(frame), frameIntervalMs * (index + 1)));
+      fireFrameTimers.push(window.setTimeout(() => setWeaponFrameIndex(frame), firstFrameDurationMs + frameIntervalMs * index));
     });
     if (fireAnimationTimer !== null) window.clearTimeout(fireAnimationTimer);
     fireAnimationTimer = window.setTimeout(() => {
       setWeaponFrameIndex(0);
       fireAnimationTimer = null;
-    }, Math.max(QUAKE_WEAPON_MUZZLE_FLASH_MS, frameIntervalMs * frames.length));
+    }, firstFrameDurationMs + frameIntervalMs * Math.max(0, frames.length - 1));
 
     clearKickTimers();
     setKick(-0.52, -0.1);
@@ -588,7 +597,7 @@ export function createQuakeViewmodelController({
     if (!layer || !stage) return;
     const sceneElement = scene.sceneElement;
     syncViewportLayer();
-    setStyleValue(stage, "transform", weaponStageTransform(sceneElement.style.transform));
+    setStyleValue(stage, "transform", weaponStageTransform());
     const zoom = sceneElement.style.getPropertyValue("zoom");
     setStyleValue(stage, "zoom", zoom);
   }
@@ -698,26 +707,22 @@ export function createQuakeViewmodelController({
     return transforms.filter(Boolean).join(" ");
   }
 
-  function weaponStageTransform(transform: string): string {
-    const scale = readCameraScale(transform);
-    const translateZ = readCameraTranslateZ(transform);
+  function weaponStageTransform(): string {
     const origin = getRenderOrigin?.() ?? controls.getOrigin();
     const rotX = weaponViewRotX(scene.camera.state.rotX ?? 88);
     const rotY = scene.camera.state.rotY ?? 270;
-    const target = weaponStageTarget(origin, rotX, rotY);
-    const parts = [
-      translateZ ? `translateZ(${translateZ}px)` : "",
-      `scale(${scale})`,
-      `rotateX(${rotX}deg)`,
-      `rotate(${rotY}deg)`,
-      `translate3d(${-target[1] * BASE_TILE}px, ${-target[0] * BASE_TILE}px, ${-target[2] * BASE_TILE}px)`,
-    ];
-    return parts.filter(Boolean).join(" ");
+    return buildPolySceneTransform({
+      target: weaponStageTarget(origin, rotX, rotY),
+      rotX,
+      rotY,
+      zoom: scene.camera.state.zoom ?? 1,
+      distance: scene.camera.state.distance ?? 0,
+    });
   }
 
   function weaponStageTarget(origin: Vec3, rotX: number, rotY: number): Vec3 {
     const forward = forwardDirection(rotX, rotY);
-    const lookOffset = weaponPerspectivePx() / BASE_TILE;
+    const lookOffset = polyCssDistanceToWorld(weaponPerspectivePx());
     return [
       origin[0] + forward[0] * lookOffset,
       origin[1] + forward[1] * lookOffset,
@@ -772,18 +777,6 @@ function sanitizeFireAnimationFrameInterval(value: number): number {
   return Number.isFinite(value) && value > 0 ? Math.max(1, value) : QUAKE_WEAPON_MUZZLE_FLASH_MS;
 }
 
-function readCameraScale(transform: string): number {
-  const match = /\bscale\(([-+0-9.eE]+)\)/.exec(transform);
-  const scale = match ? Number.parseFloat(match[1]) : 1;
-  return Number.isFinite(scale) && scale > 0 ? scale : 1;
-}
-
-function readCameraTranslateZ(transform: string): number {
-  const match = /\btranslateZ\(([-+0-9.eE]+)px\)/.exec(transform);
-  const translateZ = match ? Number.parseFloat(match[1]) : 0;
-  return Number.isFinite(translateZ) ? translateZ : 0;
-}
-
 function sanitizeViewmodelTuning(
   next: QuakeViewmodelTuning,
   current: QuakeResolvedViewmodelTuning,
@@ -836,10 +829,11 @@ function weaponRasterPostTransform(tuning: QuakeResolvedViewmodelTuning): QuakeV
 
 function weaponTransformCss(weapon: QuakeViewmodelDebugSnapshot["weapon"]): string {
   const [x, y, z] = weapon.position;
+  const cssPosition = worldPositionToPolyCss([x, y, z]);
   const [rotX, rotY, rotZ] = weapon.rotation;
   const [scaleX, scaleY, scaleZ] = weapon.scale;
   return [
-    `translate3d(${y * BASE_TILE}px, ${x * BASE_TILE}px, ${z * BASE_TILE}px)`,
+    `translate3d(${cssPosition[0]}px, ${cssPosition[1]}px, ${cssPosition[2]}px)`,
     Math.abs(rotX) > 0.001 ? `rotateY(${-rotX}deg)` : "",
     Math.abs(rotY) > 0.001 ? `rotateX(${rotY}deg)` : "",
     Math.abs(rotZ) > 0.001 ? `rotateZ(${-rotZ}deg)` : "",

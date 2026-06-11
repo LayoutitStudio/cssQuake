@@ -1,7 +1,7 @@
 import type { Vec3 } from "@layoutit/polycss";
 
 import type { QuakeGameLogicFacts } from "../prepare/gameLogicFacts";
-import type { QuakeEntity } from "../prepare/scene";
+import type { QuakeEntity } from "../types/quake";
 import { PLAYER_HEIGHT, QUAKE_COLLISION_UNIT_SCALE } from "./constants";
 import { quakeTriggerHurtDamageAmount } from "./triggerEffects";
 

@@ -2335,8 +2335,10 @@ async function addTextureAnimationSpritesToRenderCandidates(
 
 function quakeMergeGroupKey(candidate: QuakeFaceCandidate, visibilityKeys: Map<number, string>): string {
   const polygon = candidate.polygon;
+  const visibilityKey = visibilityKeys.get(candidate.faceIndex) ?? `face:${candidate.faceIndex}`;
   if (quakePolygonIsSky(polygon)) {
     return [
+      visibilityKey,
       "sky",
       polygon.texture ?? "",
       polygon.color ?? "",
@@ -2350,7 +2352,7 @@ function quakeMergeGroupKey(candidate: QuakeFaceCandidate, visibilityKeys: Map<n
     ].join("\u001f");
   }
   return [
-    visibilityKeys.get(candidate.faceIndex) ?? `face:${candidate.faceIndex}`,
+    visibilityKey,
     polygon.texture ?? "",
     polygon.color ?? "",
     polygon.textureWrap?.s ?? "",

@@ -1,4 +1,4 @@
-import type { QuakeEntity } from "../prepare/scene";
+import type { QuakeEntity } from "../types/quake";
 
 export type QuakeSolidGateKind = "boss" | "episode";
 

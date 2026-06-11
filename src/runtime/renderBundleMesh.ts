@@ -5,7 +5,7 @@ import {
   type Vec3,
 } from "@layoutit/polycss";
 
-import type { QuakePreparedRenderBundle, QuakeRenderBundleLeafFrameStyle } from "../prepare/scene";
+import type { QuakePreparedRenderBundle, QuakeRenderBundleLeafFrameStyle } from "../types/quake";
 import { isQuakeDebugDomMetadataEnabled, markQuakeTrace } from "./debug/traceMarks";
 
 export interface QuakeRenderBundleFrameSetFrame {
