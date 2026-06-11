@@ -33,8 +33,11 @@ import {
 } from "./pickups";
 import {
   isQuakeRenderBundleFrameSetHandle,
+  markQuakeRenderBundleFrameSetHandleMotionMaterial,
   setQuakeRenderBundleFrameSetHandleFrame,
   stripPolyMeshMetadata,
+  type QuakeRenderBundleFrameSetMotionMaterialOptions,
+  type QuakeRenderBundleFrameSetMountOptions,
 } from "./renderBundleMesh";
 import type { QuakeMonsterStateRunner, QuakeMonsterStateStep } from "./quakeMonsterStateRunner";
 import { quakeTriggerMonsterJumpActivationFromRule } from "./triggerEffects";
@@ -212,7 +215,12 @@ export interface QuakeShootablesController {
 type QuakeShootableCollisionOriginValidator = (origin: [number, number, number]) => boolean;
 
 export interface QuakeShootablesControllerOptions {
-  addMesh(entity: QuakeEntity, model?: QuakePickupModel, frameIndex?: number): PolyMeshHandle | null;
+  addMesh(
+    entity: QuakeEntity,
+    model?: QuakePickupModel,
+    frameIndex?: number,
+    options?: QuakeShootableMeshMountOptions,
+  ): PolyMeshHandle | null;
   bossLightningElectrodesReady?: (
     targetName: string,
     alignment: QuakeMonsterScriptedLifecycle["lightning"]["alignment"],
@@ -226,6 +234,7 @@ export interface QuakeShootablesControllerOptions {
   contentsAt?(point: Vec3): number | null;
   dropBackpack?: (drop: QuakeMonsterBackpackDropRuntime) => boolean | void;
   enemyAnimationsEnabled?: () => boolean;
+  enemyMotionMaterial?: QuakeRenderBundleFrameSetMotionMaterialOptions | null;
   enemyRandomSalt?: number | (() => number);
   floorAt(x: number, y: number, maxZ?: number, minZ?: number): number | null;
   getPlayerForward(): Vec3;
@@ -248,6 +257,10 @@ export interface QuakeShootablesControllerOptions {
 
 export interface QuakeShootableActivationOptions {
   skill?: number;
+}
+
+export interface QuakeShootableMeshMountOptions {
+  frameSetMountOptions?: QuakeRenderBundleFrameSetMountOptions;
 }
 
 interface QuakeShootableSoundOptions {
@@ -281,6 +294,8 @@ const QUAKE_MONSTER_DEATH_OUTPUT_LIFETIME_MS = 4000;
 const QUAKE_MONSTER_PATH_TOUCH_RADIUS = 16 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_CONTENTS_SOLID = -2;
 const QUAKE_SHOOTABLE_TRANSFORM_EPSILON = COLLISION_EPSILON;
+const QUAKE_SHOOTABLE_MOTION_MATERIAL_ORIGIN_EPSILON_SQ = 0.000001;
+const QUAKE_SHOOTABLE_MOTION_MATERIAL_FORWARD_EPSILON_SQ = 0.000001;
 type QuakeShootableTraceDetails = Record<string, boolean | number | string | null | undefined>;
 
 function markShootableTrace(
@@ -308,6 +323,7 @@ export function createQuakeShootablesController({
   contentsAt,
   dropBackpack,
   enemyAnimationsEnabled,
+  enemyMotionMaterial = null,
   enemyRandomSalt = 0,
   floorAt,
   getPlayerForward,
@@ -336,6 +352,8 @@ export function createQuakeShootablesController({
   let monsterJumpTriggers: QuakeMonsterJumpTrigger[] = [];
   let visibilityChurn = createQuakeShootablesVisibilityChurnStats();
   let lastVisibilitySelectionKey = "";
+  let lastMotionMaterialForward: Vec3 | null = null;
+  let lastMotionMaterialOrigin: Vec3 | null = null;
   const prewarmQueues = createQuakeShootablePrewarmQueues<QuakeShootableState>({
     canPoolAnimationFrame: canPoolShootableAnimationFrames,
     canPrewarmShootable: canPrewarmShootableHandle,
@@ -470,6 +488,8 @@ export function createQuakeShootablesController({
     enemyLoop.resetPause();
     visibilityChurn = createQuakeShootablesVisibilityChurnStats();
     lastVisibilitySelectionKey = "";
+    lastMotionMaterialForward = null;
+    lastMotionMaterialOrigin = null;
   }
 
   function clearDeathTimers(): void {
@@ -1374,6 +1394,7 @@ export function createQuakeShootablesController({
         frameRemoved: frameHandlesRemoved,
       });
     }
+    syncEnemyMotionMaterialsForView(origin, force ? "view-force" : "view");
   }
 
   function shootableVisibilitySelectionNeedsApply(
@@ -1541,7 +1562,10 @@ export function createQuakeShootablesController({
       active: visible,
       handles: countShootableHandles(shootable),
     });
-    if (visible) scheduleNextShootableAnimationFramePrewarm(shootable);
+    if (visible) {
+      markEnemyMotionMaterial(shootable, shootable.handle, "visible");
+      scheduleNextShootableAnimationFramePrewarm(shootable);
+    }
   }
 
   function canPoolShootableAnimationFrames(shootable: QuakeShootableState): boolean {
@@ -1620,10 +1644,17 @@ export function createQuakeShootablesController({
 
   function addShootableMesh(entity: QuakeEntity, model?: QuakePickupModel, frameIndex = 0): PolyMeshHandle | null {
     if (!entity.origin) return null;
-    const handle = addMesh(entity, model, frameIndex);
+    const usesEnemyRuntime = quakeMonsterUsesEnemyRuntime(entity);
+    const handle = addMesh(
+      entity,
+      model,
+      frameIndex,
+      usesEnemyRuntime && enemyMotionMaterial
+        ? { frameSetMountOptions: { motionMaterial: enemyMotionMaterial } }
+        : undefined,
+    );
     if (!handle) return null;
     visibilityChurn.totalMeshHandlesCreated++;
-    const usesEnemyRuntime = quakeMonsterUsesEnemyRuntime(entity);
     handle.element.classList.add("shootable");
     if (usesEnemyRuntime) handle.element.classList.add("enemy");
     stripPolyMeshMetadata(handle.element);
@@ -2625,6 +2656,32 @@ export function createQuakeShootablesController({
         z: renderPosition[2],
       });
     }
+  }
+
+  function syncEnemyMotionMaterialsForView(origin: [number, number, number], reason: string): void {
+    if (!enemyMotionMaterial) return;
+    const forward = getPlayerForward();
+    const originChanged = !lastMotionMaterialOrigin ||
+      distanceSq3(origin, lastMotionMaterialOrigin) > QUAKE_SHOOTABLE_MOTION_MATERIAL_ORIGIN_EPSILON_SQ;
+    const forwardChanged = !lastMotionMaterialForward ||
+      distanceSq3(forward, lastMotionMaterialForward) > QUAKE_SHOOTABLE_MOTION_MATERIAL_FORWARD_EPSILON_SQ;
+    lastMotionMaterialOrigin = [...origin] as Vec3;
+    lastMotionMaterialForward = [...forward] as Vec3;
+    if (!originChanged && !forwardChanged) return;
+    for (const shootable of shootables.values()) {
+      markEnemyMotionMaterial(shootable, shootable.handle, reason);
+    }
+  }
+
+  function markEnemyMotionMaterial(
+    shootable: QuakeShootableState,
+    handle: PolyMeshHandle | null,
+    reason: string,
+  ): boolean {
+    if (!enemyMotionMaterial || !shootable.enemy || shootable.dead || !shootable.visible || handle !== shootable.handle) {
+      return false;
+    }
+    return markQuakeRenderBundleFrameSetHandleMotionMaterial(handle, reason);
   }
 
   function normalizeShootableYaw(yaw: number): number {

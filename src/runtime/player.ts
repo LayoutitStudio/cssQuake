@@ -1,6 +1,6 @@
 import type { PolyFirstPersonControlsHandle, Vec3 } from "@layoutit/polycss";
 
-import type { QuakeEntity, QuakeScene } from "../prepare/scene";
+import type { QuakeEntity, QuakeScene } from "../types/quake";
 import type { QuakeCollisionWorld, QuakeTouchedTrigger } from "./collision";
 import {
   COLLISION_EPSILON,
@@ -137,6 +137,7 @@ export interface QuakePlayerControllerOptions {
   isGameplayPaused?: () => boolean;
   isInvulnerable?: () => boolean;
   jumpVelocity: number;
+  onHazardDamage?: (hazard: QuakeHazardDamage) => boolean;
   onDamageFlash: (active: boolean, feedback?: QuakePlayerDamageFeedback) => void;
   onDeath: () => void;
   onHazardState: (kind: QuakeHazardDamage["kind"] | null) => void;
@@ -180,6 +181,7 @@ export interface QuakePlayerController {
   snapshotProgress: () => QuakePlayerProgressSnapshot;
   spawn: (spawn: QuakeScene["spawn"]) => void;
   setAnalogMove: (x: number, y: number) => void;
+  setAuthoritativeOrigin: (origin: [number, number, number]) => void;
   setCrouching: (crouching: boolean) => void;
   setDebugOrigin: (origin: [number, number, number]) => void;
   syncCollision: () => void;
@@ -522,6 +524,14 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     stopFalling();
     stopPush();
     setOrigin(origin, origin[2] - currentEyeHeight);
+  };
+
+  const setAuthoritativeOrigin = (origin: [number, number, number]): void => {
+    moveVelocity = [0, 0, 0];
+    stopFalling();
+    stopPush();
+    setOrigin(origin, origin[2] - currentEyeHeight, true, true, "smooth-step");
+    if (hasMoveInput()) scheduleMoveFrame();
   };
 
   const setCrouching = (crouching: boolean): void => {
@@ -979,6 +989,11 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     }
 
     markQuakeTrace("hazard-damage", { kind: hazard.kind, amount: hazard.amount });
+    if (options.onHazardDamage?.(hazard)) {
+      nextDamageAt = performance.now() + QUAKE_DAMAGE_INTERVAL_MS;
+      scheduleHazardTick(QUAKE_DAMAGE_INTERVAL_MS);
+      return false;
+    }
     const died = applyDamage(hazard.amount);
     nextDamageAt = performance.now() + QUAKE_DAMAGE_INTERVAL_MS;
     if (!died) scheduleHazardTick(QUAKE_DAMAGE_INTERVAL_MS);
@@ -1257,6 +1272,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     snapshotProgress,
     spawn,
     setAnalogMove,
+    setAuthoritativeOrigin,
     setCrouching,
     setDebugOrigin,
     syncCollision,

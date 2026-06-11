@@ -9,6 +9,7 @@ export type QuakeHazardKind = "trigger" | "slime" | "lava" | "fireball";
 
 export interface QuakeHazardDamage {
   amount: number;
+  entityIndex?: number;
   kind: QuakeHazardKind;
 }
 
