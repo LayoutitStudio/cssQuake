@@ -1,18 +1,19 @@
 # cssQuake 👹
 
-A port of id Software's [Quake](https://github.com/id-software/quake) that uses the [PolyCSS](https://github.com/LayoutitStudio/polycss) engine instead of webGL. cssQuake preprocesses the original data into browser-ready JSON and image assets, then renders the game as real HTML/CSS 3D geometry. 
+A port of id Software's [Quake](https://github.com/id-software/quake) that renders BSP worlds as real HTML/CSS 3D geometry through [PolyCSS](https://github.com/LayoutitStudio/polycss), without a WebGL or canvas world renderer. cssQuake preprocesses original Quake data into browser-ready JSON, image assets, and PolyCSS render bundles, then runs the game in TypeScript.
 
 Play the live version: [cssquake.com](https://cssquake.com) 🕹️
 
 <img src="src/assets/cssquake-social.webp" alt="cssQuake gameplay rendered as DOM and CSS markup" width="960">
 
-## How to Run
+## How to Play
 
-Install dependencies and generate the Quake assets once:
+Install dependencies and generate the Quake assets once. Set either `QUAKE_SHAREWARE_URL` for the Quake 1.06 shareware archive, or `QUAKE_PAK_PATH` for a local `pak0.pak`:
 
 ```sh
 pnpm install
 export QUAKE_SHAREWARE_URL="<Quake 1.06 shareware zip URL>"
+# or: export QUAKE_PAK_PATH=".local/quake/pak0.pak"
 pnpm prepare:quake
 ```
 
@@ -34,11 +35,27 @@ cssQuake is built around the [PolyCSS](https://github.com/LayoutitStudio/polycss
 
 The browser does not parse the original PAK or BSP files while the game is running. Generated game assets are intentionally ignored by Git.
 
-## Asset Pipeline
+## Build and Runtime
 
-`src/prepare/assets.mjs` downloads the Quake 1.06 shareware archive from `QUAKE_SHAREWARE_URL`, verifies the extracted `resource.1`, extracts `ID1/PAK0.PAK`, parses the original BSP, WAD, MDL, LMP, entity, visibility, collision, HUD, menu, pickup, and weapon data, then writes browser-ready assets under the `build/generated/public/q` folder.
+cssQuake splits Quake-like behavior between prepared source-backed facts and a TypeScript-owned runtime.
 
-Textures are decoded through the Quake palette into generated PNG assets, animated texture sequences become CSS animation inputs, and episode maps get prebuilt PolyCSS render bundles. Those bundles let the browser attach the prepared world DOM directly instead of rebuilding every surface at startup.
+`src/prepare/assets.mjs` downloads the Quake 1.06 shareware archive from `QUAKE_SHAREWARE_URL`, verifies the extracted `resource.1`, extracts `ID1/PAK0.PAK`, and writes browser-ready assets under the ignored `build/generated/public/q` folder.
+
+The prepare step parses original BSP, WAD, MDL, LMP, entity, visibility, collision, HUD, menu, pickup, weapon, and QuakeC-derived gameplay data. Textures are decoded through the Quake palette into PNG assets, animated texture sequences become CSS animation inputs, and episode maps get prebuilt PolyCSS render bundles so the browser can attach prepared world DOM instead of rebuilding every surface at startup.
+
+The runtime is not a Quake VM. TypeScript owns the browser game loop, player movement, collision response, enemy state, pickups, weapons, UI, audio, routing, debug hooks, and PolyCSS DOM updates. When cssQuake needs a more faithful behavior, the default is to add a prepared fact from the original source material first, then consume it through explicit TypeScript systems.
+
+## URL API
+
+cssQuake keeps its shareable game state in small, Quake-native URL parameters. `map=e1m1` opens a map directly, and `view=x,y,z,pitch,yaw,roll` places the player at a Quake-style pose: origin in Quake units, with pitch, yaw, and roll in degrees.
+
+```text
+https://cssquake.com/?map=e1m1&view=480,-192,72,0,90,0
+```
+
+This makes a URL behave like a lightweight console command for reproducing bugs, sharing exact views, capturing screenshots, and comparing cssQuake against native Quake tools such as vkQuake. Roll must currently be zero because cssQuake does not render camera roll yet.
+
+Developer-oriented params such as `debugPolys=1`, `debugFly=1`, `debugPointer=1`, `perspective=...`, and `zoom=...` are kept separate from the core route so debug sessions can be reproduced without turning the URL API into a save system.
 
 ## Embedding
 
@@ -54,14 +71,6 @@ cssQuake can run inside an iframe. Add `relayKeys=1` only if the parent page wan
 
 When enabled, cssQuake posts `cssquake:key` messages for gameplay keys only. Parent pages should validate `event.origin` before reading them. Using `referrerpolicy="no-referrer"` disables the relay because cssQuake will not have a parent origin to target.
 
-## URL API
+## License and Data
 
-cssQuake keeps its shareable game state in small, Quake-native URL parameters. `map=e1m1` opens a map directly, and `view=x,y,z,pitch,yaw,roll` places the player at a Quake-style pose: origin in Quake units, with pitch, yaw, and roll in degrees.
-
-```text
-https://cssquake.com/?map=e1m1&view=480,-192,72,0,90,0
-```
-
-This makes a URL behave like a lightweight console command for reproducing bugs, sharing exact views, capturing screenshots, and comparing cssQuake against native Quake tools such as vkQuake. Roll must currently be zero because cssQuake does not render camera roll yet.
-
-Developer-oriented params such as `debugPolys=1`, `debugFly=1`, `debugPointer=1`, `perspective=...`, and `zoom=...` are kept separate from the core route so debug sessions can be reproduced without turning the URL API into a save system.
+cssQuake source code is [GPL-2.0-only](LICENSE). Original Quake game data is not included in this repository; the prepare step reads shareware or local PAK input and writes ignored generated assets for local or deployed use.
