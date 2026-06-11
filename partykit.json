@@ -1,6 +1,6 @@
 {
   "name": "cssquake",
-  "main": "party/quake.ts",
+  "main": "src/runtime/multiplayer/partyRoom.ts",
   "port": 1999,
   "compatibilityDate": "2026-06-11"
 }

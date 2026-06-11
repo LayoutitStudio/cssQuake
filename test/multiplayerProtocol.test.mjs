@@ -19,7 +19,7 @@ const cadence = await importTsModule("src/runtime/multiplayer/cadence.ts");
 const heartbeat = await importTsModule("src/runtime/multiplayer/heartbeat.ts");
 const world = await importTsModule("src/runtime/multiplayer/world.ts");
 const constants = await importTsModule("src/runtime/constants.ts");
-const partyRoom = await importTsModule("party/quake.ts");
+const partyRoom = await importTsModule("src/runtime/multiplayer/partyRoom.ts");
 
 const {
   QUAKE_MULTIPLAYER_PROTOCOL_VERSION,

@@ -3,7 +3,7 @@ import type * as Party from "partykit/server";
 import {
   buildQuakeClipCollisionWorld,
   type QuakeCollisionWorld,
-} from "../src/runtime/collision";
+} from "../collision";
 import {
   createQuakeMultiplayerEnvelope,
   createQuakeMultiplayerRoomCompatibilityKey,
@@ -27,25 +27,25 @@ import {
   type QuakeMultiplayerSpawnPoint,
   type QuakeMultiplayerVec3,
   type QuakeMultiplayerWorldDefinition,
-} from "../src/runtime/multiplayer/protocol";
+} from "./protocol";
 import {
   validateQuakeMultiplayerClientEnvelope,
-} from "../src/runtime/multiplayer/validation";
+} from "./validation";
 import {
   validateQuakeMultiplayerClientAuthority,
   type QuakeMultiplayerClientAuthorityState,
-} from "../src/runtime/multiplayer/authority";
+} from "./authority";
 import {
   QUAKE_MULTIPLAYER_ROOM_SNAPSHOT_INTERVAL_MS,
   shouldEmitQuakeMultiplayerRoomSnapshot,
-} from "../src/runtime/multiplayer/cadence";
+} from "./cadence";
 import {
   QUAKE_MULTIPLAYER_ROOM_HEARTBEAT_INTERVAL_MS,
   QUAKE_MULTIPLAYER_STALE_CLIENT_MS,
   isQuakeMultiplayerClientStale,
   quakeMultiplayerPingMsFromPong,
   shouldSendQuakeMultiplayerRoomPing,
-} from "../src/runtime/multiplayer/heartbeat";
+} from "./heartbeat";
 import {
   QUAKE_MULTIPLAYER_DEATHMATCH_RESPAWN_DELAY_MS,
   quakeMultiplayerDeathmatchFireFromPlayer,
@@ -58,7 +58,7 @@ import {
   quakeMultiplayerDeathmatchWeaponCooldownMs,
   quakeMultiplayerDeathmatchWeaponDamage,
   rejectQuakeMultiplayerClientDamageIntent,
-} from "../src/runtime/multiplayer/deathmatch";
+} from "./deathmatch";
 import {
   createQuakeMultiplayerInitialInventory,
   quakeMultiplayerApplyDamageToInventory,
@@ -74,15 +74,15 @@ import {
   quakeMultiplayerPickupStateRespawned,
   quakeMultiplayerPickupStateWithoutOwner,
   quakeMultiplayerPruneExpiredPowerups,
-} from "../src/runtime/multiplayer/items";
+} from "./items";
 import {
   checkQuakeMultiplayerGameplayFactsClaim,
   sameQuakeMultiplayerGameplayFacts,
-} from "../src/runtime/multiplayer/facts";
+} from "./facts";
 import {
   quakeMultiplayerGameplayDefinitionsFromScene,
   type QuakeMultiplayerSceneGameplaySource,
-} from "../src/runtime/multiplayer/sceneFacts";
+} from "./sceneFacts";
 import {
   QUAKE_MULTIPLAYER_TELEFRAG_DAMAGE,
   QUAKE_MULTIPLAYER_TELEPORT_TARGET_ACTIVATION_WINDOW_MS,
@@ -97,7 +97,7 @@ import {
   quakeMultiplayerWorldDefinitionsFromScene,
   rejectQuakeMultiplayerClientWorldEvent,
   resolveQuakeMultiplayerWorldIntent,
-} from "../src/runtime/multiplayer/world";
+} from "./world";
 import {
   QUAKE_MULTIPLAYER_ROOM_SIMULATION_TICK_MS,
   QUAKE_MULTIPLAYER_TELEPORT_BACKPEDAL_LOCK_MS,
@@ -106,8 +106,8 @@ import {
   pauseQuakeMultiplayerRoomPlayerSimulation,
   queueQuakeMultiplayerRoomInput,
   type QuakeMultiplayerRoomPlayerSimulationState,
-} from "../src/runtime/multiplayer/simulation";
-import type { QuakePreparedCollision } from "../src/types/quake";
+} from "./simulation";
+import type { QuakePreparedCollision } from "../../types/quake";
 
 interface CssQuakeConnectionState {
   authority: QuakeMultiplayerClientAuthorityState;

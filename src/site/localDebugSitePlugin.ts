@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
 
-const REPO_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const REPO_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const LOCAL_DEBUG_DIR = path.join(REPO_DIR, "debug");
 const DEFAULT_CSSQUAKE_URL = "http://localhost:5173/";
 const DEFAULT_CAPTURE_SCRIPT = path.join(
