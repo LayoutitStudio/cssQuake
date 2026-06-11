@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "@layoutit/polycss": "^0.2.5",
-    "nipplejs": "^1.0.4"
+    "nipplejs": "^1.0.4",
+    "partysocket": "1.1.19"
   },
   "devDependencies": {
     "7z-bin": "^0.0.8",
@@ -28,6 +29,7 @@
     "@types/node": "^25.5.0",
     "esbuild": "^0.28.0",
     "happy-dom": "^20.10.2",
+    "partykit": "0.0.115",
     "sharp": "^0.34.5",
     "vite": "^7.3.1"
   }

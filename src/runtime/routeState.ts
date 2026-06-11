@@ -5,6 +5,8 @@ const QUAKE_URL_VIEW_PITCH_MIN = -90;
 const QUAKE_URL_VIEW_PITCH_MAX = 90;
 const QUAKE_URL_VIEW_ANGLE_LIMIT = 36000;
 const QUAKE_URL_VIEW_ROLL_EPSILON = 0.001;
+const QUAKE_URL_MULTIPLAYER_INVITE_PARAM = "room";
+const QUAKE_URL_MULTIPLAYER_INVITE_ID_PATTERN = /^[0-9a-z]{2}[bcdfghjkmnpqrstvwxyz23456789]{8}$/i;
 
 export type QuakeUrlUpdateMode = "none" | "push" | "replace";
 
@@ -19,10 +21,12 @@ export interface QuakeUrlRoute {
   mapName: string;
   mapParamPresent: boolean;
   mapParamValid: boolean;
+  compactMultiplayerInvitePresent: boolean;
   view: QuakeUrlView | null;
 }
 
 interface QuakeUrlRouteOptions {
+  compactMultiplayerInviteMapName?: (inviteId: string) => string | null;
   mapExists: (mapName: string) => boolean;
   startMap: string;
 }
@@ -32,13 +36,16 @@ export function parseQuakeUrlRouteFromLocation(
   options: QuakeUrlRouteOptions,
 ): QuakeUrlRoute {
   const params = new URLSearchParams(location.search);
-  const mapName = quakeUrlMapName(params, options.mapExists);
-  const mapParamPresent = params.has("map");
+  const compactMultiplayerInvitePresent = params.has(QUAKE_URL_MULTIPLAYER_INVITE_PARAM);
+  const mapName = quakeUrlMapName(params, options.mapExists) ??
+    quakeUrlCompactMultiplayerInviteMapName(params, options);
+  const mapParamPresent = params.has("map") || compactMultiplayerInvitePresent;
   const view = mapName !== null || !mapParamPresent ? quakeUrlView(params) : null;
   return {
     mapName: mapName ?? options.startMap,
     mapParamPresent,
     mapParamValid: mapName !== null,
+    compactMultiplayerInvitePresent,
     view,
   };
 }
@@ -48,12 +55,23 @@ export function quakeUrlRouteIsDirect(route: QuakeUrlRoute): boolean {
 }
 
 export function quakeUrlRouteShouldNormalize(route: QuakeUrlRoute): boolean {
+  if (route.compactMultiplayerInvitePresent) return false;
   return !route.mapParamPresent || route.mapParamValid;
 }
 
 function quakeUrlMapName(params: URLSearchParams, mapExists: (mapName: string) => boolean): string | null {
   const mapName = params.get("map")?.trim().toLowerCase();
   return mapName && mapExists(mapName) ? mapName : null;
+}
+
+function quakeUrlCompactMultiplayerInviteMapName(
+  params: URLSearchParams,
+  options: QuakeUrlRouteOptions,
+): string | null {
+  const rawValue = params.get(QUAKE_URL_MULTIPLAYER_INVITE_PARAM)?.trim().toLowerCase();
+  if (!rawValue || !QUAKE_URL_MULTIPLAYER_INVITE_ID_PATTERN.test(rawValue)) return null;
+  const mapName = options.compactMultiplayerInviteMapName?.(rawValue)?.trim().toLowerCase() ?? "";
+  return mapName && options.mapExists(mapName) ? mapName : null;
 }
 
 export function quakeUrlView(params: URLSearchParams): QuakeUrlView | null {

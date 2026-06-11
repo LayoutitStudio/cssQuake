@@ -13,12 +13,14 @@ const {
 } = await importTsModule("src/runtime/routeState.ts");
 
 const mapExists = (mapName) => new Set(["start", "e1m1", "e1m5"]).has(mapName);
+const compactMultiplayerInviteMapName = (inviteId) => inviteId === "01bcdfgh23" ? "e1m1" : null;
 
 test("valid map routes normalize map names and enter direct gameplay", () => {
   const route = parseQuakeUrlRouteFromLocation({ search: "?map=E1M1" }, { mapExists, startMap: "start" });
   assert.equal(route.mapName, "e1m1");
   assert.equal(route.mapParamPresent, true);
   assert.equal(route.mapParamValid, true);
+  assert.equal(route.compactMultiplayerInvitePresent, false);
   assert.equal(route.view, null);
   assert.equal(quakeUrlRouteIsDirect(route), true);
   assert.equal(quakeUrlRouteShouldNormalize(route), true);
@@ -32,6 +34,7 @@ test("invalid map routes fall back without applying a view", () => {
   assert.equal(route.mapName, "start");
   assert.equal(route.mapParamPresent, true);
   assert.equal(route.mapParamValid, false);
+  assert.equal(route.compactMultiplayerInvitePresent, false);
   assert.equal(route.view, null);
   assert.equal(quakeUrlRouteIsDirect(route), false);
   assert.equal(quakeUrlRouteShouldNormalize(route), false);
@@ -45,6 +48,7 @@ test("view-only routes use the start map but still enter direct gameplay", () =>
   assert.equal(route.mapName, "start");
   assert.equal(route.mapParamPresent, false);
   assert.equal(route.mapParamValid, false);
+  assert.equal(route.compactMultiplayerInvitePresent, false);
   assert.deepEqual(route.view, {
     origin: [-576, 192, 184],
     pitch: 0,
@@ -53,6 +57,44 @@ test("view-only routes use the start map but still enter direct gameplay", () =>
   });
   assert.equal(quakeUrlRouteIsDirect(route), true);
   assert.equal(quakeUrlRouteShouldNormalize(route), true);
+});
+
+test("compact multiplayer invites route to their map without URL normalization", () => {
+  const route = parseQuakeUrlRouteFromLocation(
+    { search: "?room=01bcdfgh23" },
+    { compactMultiplayerInviteMapName, mapExists, startMap: "start" },
+  );
+  assert.equal(route.mapName, "e1m1");
+  assert.equal(route.mapParamPresent, true);
+  assert.equal(route.mapParamValid, true);
+  assert.equal(route.compactMultiplayerInvitePresent, true);
+  assert.equal(route.view, null);
+  assert.equal(quakeUrlRouteIsDirect(route), true);
+  assert.equal(quakeUrlRouteShouldNormalize(route), false);
+});
+
+test("compact multiplayer invites reject map-prefixed ids", () => {
+  const route = parseQuakeUrlRouteFromLocation(
+    { search: "?room=e1m1-bcdfgh23" },
+    { compactMultiplayerInviteMapName, mapExists, startMap: "start" },
+  );
+  assert.equal(route.mapName, "start");
+  assert.equal(route.mapParamPresent, true);
+  assert.equal(route.mapParamValid, false);
+  assert.equal(route.compactMultiplayerInvitePresent, true);
+  assert.equal(quakeUrlRouteIsDirect(route), false);
+});
+
+test("compact multiplayer invites reject token-only ids", () => {
+  const route = parseQuakeUrlRouteFromLocation(
+    { search: "?room=bcdfgh23" },
+    { compactMultiplayerInviteMapName, mapExists, startMap: "start" },
+  );
+  assert.equal(route.mapName, "start");
+  assert.equal(route.mapParamPresent, true);
+  assert.equal(route.mapParamValid, false);
+  assert.equal(route.compactMultiplayerInvitePresent, true);
+  assert.equal(quakeUrlRouteIsDirect(route), false);
 });
 
 test("Quake-native view parsing rejects unsupported shapes", () => {

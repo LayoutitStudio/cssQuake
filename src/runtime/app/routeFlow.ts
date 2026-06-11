@@ -27,6 +27,7 @@ export interface QuakeRouteFlowOptions<TView> {
   loadMap(mapName: string, options: QuakeMapLoadOptions): Promise<void>;
   mapExists(mapName: string): boolean;
   menuEnabled: boolean;
+  compactMultiplayerInviteMapName?: (inviteId: string) => string | null;
   setAssetsRegenerating(message: string): void;
   setGameplayStarted(started: boolean): void;
   setLoadingError(error?: unknown): void;
@@ -54,6 +55,7 @@ export function createQuakeRouteFlow<TView>(
 ): QuakeRouteFlow<TView> {
   function routeFromLocation(): QuakeUrlRoute {
     return parseQuakeUrlRouteFromLocation(window.location, {
+      compactMultiplayerInviteMapName: options.compactMultiplayerInviteMapName,
       mapExists: options.mapExists,
       startMap: options.startMap(),
     });
@@ -76,9 +78,10 @@ export function createQuakeRouteFlow<TView>(
 
   function clearGameRoute(): void {
     const url = new URL(window.location.href);
-    const hadGameRoute = url.searchParams.has("map") || url.searchParams.has("view");
+    const hadGameRoute = url.searchParams.has("map") || url.searchParams.has("view") || url.searchParams.has("room");
     url.searchParams.delete("map");
     url.searchParams.delete("view");
+    url.searchParams.delete("room");
     if (!hadGameRoute && url.href === window.location.href) return;
     window.history.replaceState({ cssQuake: true, mapName: null, view: null }, "", url);
   }
