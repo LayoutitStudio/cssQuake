@@ -16,11 +16,10 @@ export QUAKE_SHAREWARE_URL="<Quake 1.06 shareware zip URL>"
 pnpm prepare:quake
 ```
 
-After the assets exist, run the local dev server or build the app:
+After the assets exist, run the local dev server:
 
 ```sh
 pnpm dev
-pnpm build
 ```
 
 `pnpm build` only builds the Vite app. Use `pnpm build:full` when you intentionally want to regenerate Quake assets and build the app in one command.
