@@ -9,7 +9,7 @@ import type {
   QuakeGameLogicResolvedFuncTrainFact,
 } from "../prepare/gameLogicFacts";
 import { indexQuakeGameLogicEntityFacts } from "../prepare/gameLogicFacts";
-import type { QuakeEntity, QuakePreparedModel } from "../prepare/scene";
+import type { QuakeEntity, QuakePreparedModel } from "../types/quake";
 import type { QuakeTouchedTrigger } from "./collision";
 import {
   COLLISION_EPSILON,

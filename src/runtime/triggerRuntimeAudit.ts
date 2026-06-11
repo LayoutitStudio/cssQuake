@@ -5,7 +5,7 @@ import type {
   QuakeGameLogicResolvedTriggerKind,
   QuakeGameLogicSingleplayerMode,
 } from "../prepare/gameLogicFacts";
-import type { QuakeEntity, QuakeEntityRuntimeManifest, QuakeVertex } from "../prepare/scene";
+import type { QuakeEntity, QuakeEntityRuntimeManifest, QuakeVertex } from "../types/quake";
 import type { QuakeTouchedTrigger } from "./collision";
 import { quakeEntityNumber, quakeEntitySpawnflags } from "./entities";
 import { quakeTriggerHurtDamage } from "./hazards";

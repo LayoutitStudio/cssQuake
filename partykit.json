@@ -1,0 +1,6 @@
+{
+  "name": "cssquake",
+  "main": "party/quake.ts",
+  "port": 1999,
+  "compatibilityDate": "2026-06-11"
+}

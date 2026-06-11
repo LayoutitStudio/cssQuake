@@ -33,8 +33,8 @@ const BSP_HEADER_SIZE = 4 + BSP_LUMP_COUNT * 8;
 const QUAKE_PLAYER_MINS_Z = -24;
 const QUAKE_DETERMINISTIC_ATLAS_PAGE_SIZE = 4096;
 const QUAKE_DETERMINISTIC_ATLAS_PAGE_PADDING = 1;
-const QUAKE_DETERMINISTIC_SKY_TEXTURE_DOWNSAMPLE = 2;
-// vkQuake projects sky as a separate layer; the static atlas bake needs coarser UVs than BSP face texture coordinates.
+// Quake renders sky through a separate projected tile path, not direct BSP texture scale.
+// Keep the coarser sky UV scale, but sample from the full prepared sky texture.
 const QUAKE_DETERMINISTIC_SKY_UV_SCALE = 0.25;
 const QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_MIN = 1;
 const QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_STEP = 1;
@@ -699,8 +699,8 @@ async function deterministicPreparedTextureLeafTile({
   if (!texture) return { skip: "missing-prepared-texture", sample: sourceSample() };
 
   const planMatrix = parseMatrix3dDeclaration(plan.atlasMatrix);
-  const tileWidth = leaf.sourceWidth ?? leaf.width;
-  const tileHeight = leaf.sourceHeight ?? leaf.height;
+  const tileWidth = leaf.width;
+  const tileHeight = leaf.height;
   const rgba = Buffer.alloc(tileWidth * tileHeight * 4);
   let solidPixels = 0;
   const derivedUvAffine = plan.uvAffine ? null : derivePlanUvAffine(plan, polygon);
@@ -773,8 +773,8 @@ async function deterministicPreparedTextureLeafTile({
     matrix: planMatrix,
     rgba,
     sourceTexture: source.texture.name,
-    transformCompensationX: 1,
-    transformCompensationY: 1,
+    transformCompensationX: leaf.transformCompensationX,
+    transformCompensationY: leaf.transformCompensationY,
     solidPixels,
     width: tileWidth,
   };
@@ -891,29 +891,11 @@ function quakeCompositeSkyPixels(texture) {
 }
 
 function quakePreparedSkyTexture(texture) {
-  const pixels = quakeCompositeSkyPixels(texture);
-  const width = Math.max(1, Math.floor(texture.width / QUAKE_DETERMINISTIC_SKY_TEXTURE_DOWNSAMPLE));
-  const height = Math.max(1, Math.floor(texture.height / QUAKE_DETERMINISTIC_SKY_TEXTURE_DOWNSAMPLE));
-  if (width === texture.width && height === texture.height) {
-    return { height, pixels, width };
-  }
   return {
-    height,
-    pixels: downsampleIndexedPixelsNearest(pixels, texture.width, texture.height, width, height),
-    width,
+    height: texture.height,
+    pixels: quakeCompositeSkyPixels(texture),
+    width: texture.width,
   };
-}
-
-function downsampleIndexedPixelsNearest(source, sourceWidth, sourceHeight, width, height) {
-  const out = new Uint8Array(width * height);
-  for (let y = 0; y < height; y++) {
-    const sourceY = Math.min(sourceHeight - 1, Math.floor(((y + 0.5) * sourceHeight) / height));
-    for (let x = 0; x < width; x++) {
-      const sourceX = Math.min(sourceWidth - 1, Math.floor(((x + 0.5) * sourceWidth) / width));
-      out[y * width + x] = source[sourceY * sourceWidth + sourceX] ?? 0;
-    }
-  }
-  return out;
 }
 
 function clampByte(value) {
@@ -2563,23 +2545,25 @@ function parseRenderBundleAtlasLeaves(html, metadata) {
     const style = attrs.style ?? "";
     const width = style.match(/(?:^|;)\s*width:\s*(\d+(?:\.\d+)?)px\b/);
     const height = style.match(/(?:^|;)\s*height:\s*(\d+(?:\.\d+)?)px\b/);
-    const sizing = atlasLeafSizingFromStyle(style, width?.[1], height?.[1]);
+    const leafMetadata = metadata[index];
+    const sizing = atlasLeafSizingFromStyle(style, width?.[1], height?.[1], leafMetadata);
     const matrix = compensatedAtlasLeafMatrix(style, sizing);
     out.push({
       attrs,
       index,
       matrix,
-      metadata: metadata[index],
+      metadata: leafMetadata,
       ...sizing,
     });
   }
   return out;
 }
 
-function atlasLeafSizingFromStyle(style, inlineWidth, inlineHeight) {
+function atlasLeafSizingFromStyle(style, inlineWidth, inlineHeight, metadata) {
   const width = inlineWidth ? Math.max(1, Math.round(Number(inlineWidth))) : null;
   const height = inlineHeight ? Math.max(1, Math.round(Number(inlineHeight))) : null;
-  if (width && height) {
+  const adaptive = quakeTextureNeedsAdaptivePreparedAtlasLeaf(metadata?.t);
+  if (width && height && !adaptive) {
     return {
       height,
       sourceHeight: height,
@@ -2595,14 +2579,14 @@ function atlasLeafSizingFromStyle(style, inlineWidth, inlineHeight) {
   const beforeHeight = height ?? 64;
   const matrixScaleX = matrix ? Math.hypot(matrix[0], matrix[1], matrix[2]) : 1;
   const matrixScaleY = matrix ? Math.hypot(matrix[4], matrix[5], matrix[6]) : 1;
-  const afterWidth = width ?? adaptiveQuakeAtlasLeafSide(beforeWidth, matrixScaleX);
-  const afterHeight = height ?? adaptiveQuakeAtlasLeafSide(beforeHeight, matrixScaleY);
+  const afterWidth = adaptive || !width ? adaptiveQuakeAtlasLeafSide(beforeWidth, matrixScaleX) : width;
+  const afterHeight = adaptive || !height ? adaptiveQuakeAtlasLeafSide(beforeHeight, matrixScaleY) : height;
   return {
     height: afterHeight,
     sourceHeight: beforeHeight,
     sourceWidth: beforeWidth,
-    transformCompensationX: width ? 1 : beforeWidth / afterWidth,
-    transformCompensationY: height ? 1 : beforeHeight / afterHeight,
+    transformCompensationX: adaptive || !width ? beforeWidth / afterWidth : 1,
+    transformCompensationY: adaptive || !height ? beforeHeight / afterHeight : 1,
     width: afterWidth,
   };
 }
@@ -2612,6 +2596,11 @@ function adaptiveQuakeAtlasLeafSide(beforeSide, matrixScale) {
   const roundedSide = Math.round(desiredSide / QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_STEP) *
     QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_STEP;
   return Math.max(QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_MIN, roundedSide);
+}
+
+function quakeTextureNeedsAdaptivePreparedAtlasLeaf(name) {
+  const normalized = String(name ?? "").toLowerCase();
+  return normalized.startsWith("sky") || normalized.startsWith("*") || normalized.startsWith("+");
 }
 
 function compensateAtlasLeafTransform(style, scaleX = 1, scaleY = 1, matrixOverride = null) {

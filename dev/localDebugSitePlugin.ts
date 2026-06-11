@@ -1,0 +1,343 @@
+import { spawn } from "node:child_process";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import type { Plugin } from "vite";
+
+const REPO_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const LOCAL_DEBUG_DIR = path.join(REPO_DIR, "debug");
+const DEFAULT_CSSQUAKE_URL = "http://localhost:5173/";
+const DEFAULT_CAPTURE_SCRIPT = path.join(
+  process.env.HOME ?? "/Users/ekrof",
+  ".codex",
+  "cssquake-tools",
+  "vkquake-shot.mjs",
+);
+const DEFAULT_CAPTURE_OUTDIR = path.join(process.env.HOME ?? "/Users/ekrof", "Desktop", "cssquake-captures");
+const CAPTURE_SCRIPT = process.env.CSSQUAKE_CAPTURE_SCRIPT || DEFAULT_CAPTURE_SCRIPT;
+const CAPTURE_OUTDIR = process.env.CSSQUAKE_CAPTURE_OUTDIR || DEFAULT_CAPTURE_OUTDIR;
+const CAPTURE_WEAPONS = new Set([
+  "axe",
+  "shotgun",
+  "supershotgun",
+  "nailgun",
+  "supernailgun",
+  "grenadelauncher",
+  "rocketlauncher",
+  "lightning",
+]);
+
+const DEBUG_CONTENT_TYPES = new Map([
+  [".css", "text/css; charset=utf-8"],
+  [".html", "text/html; charset=utf-8"],
+  [".js", "text/javascript; charset=utf-8"],
+  [".json", "application/json; charset=utf-8"],
+  [".png", "image/png"],
+  [".svg", "image/svg+xml; charset=utf-8"],
+  [".txt", "text/plain; charset=utf-8"],
+  [".webp", "image/webp"],
+]);
+
+let activeCapture: { startedAt: string; args: string[] } | null = null;
+
+function sendJson(res: ServerResponse, status: number, data: unknown): void {
+  res.statusCode = status;
+  res.setHeader("content-type", "application/json; charset=utf-8");
+  res.setHeader("cache-control", "no-store");
+  res.end(`${JSON.stringify(data, null, 2)}\n`);
+}
+
+function sendText(res: ServerResponse, status: number, body: string, contentType = "text/plain; charset=utf-8"): void {
+  res.statusCode = status;
+  res.setHeader("content-type", contentType);
+  res.setHeader("cache-control", "no-store");
+  res.end(body);
+}
+
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 64_000) {
+        reject(new Error("Request body too large"));
+        req.destroy();
+      }
+    });
+    req.on("end", () => resolve(body));
+    req.on("error", reject);
+  });
+}
+
+function safeString(value: unknown, fallback: string): string {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+function safePositiveInt(value: unknown, fallback: string): string {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return fallback;
+  return String(Math.round(number));
+}
+
+function safePositiveNumber(value: unknown, fallback: string): string {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return fallback;
+  return String(number);
+}
+
+function safeWeapon(value: unknown): string {
+  const weapon = String(value ?? "").trim().toLowerCase();
+  return CAPTURE_WEAPONS.has(weapon) ? weapon : "";
+}
+
+interface CapturePoseInput {
+  mapName: string | null;
+  pose: string;
+}
+
+function quakePoseFromViewParam(view: string): string {
+  const parts = view.trim().split(/[,\s]+/).filter(Boolean).map((part) => Number(part));
+  if (parts.length !== 6 || parts.some((part) => !Number.isFinite(part))) {
+    throw new Error("URL view must be x,y,z,pitch,yaw,roll.");
+  }
+  const roll = parts[5];
+  if (Math.abs(roll) > 0.001) {
+    throw new Error("cssQuake URL capture only supports zero roll.");
+  }
+  return [...parts.slice(0, 5), 0].join(" ");
+}
+
+function parseCapturePoseInput(value: unknown): CapturePoseInput {
+  const pose = safeString(value, "");
+  if (!pose) throw new Error("Paste a cssQuake URL with view=x,y,z,pitch,yaw,roll.");
+  let url: URL;
+  try {
+    url = new URL(pose, DEFAULT_CSSQUAKE_URL);
+  } catch (error) {
+    throw new Error(`Invalid cssQuake URL: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const view = url.searchParams.get("view");
+  if (!view) throw new Error("cssQuake capture URL must include view=x,y,z,pitch,yaw,roll.");
+  return {
+    mapName: url.searchParams.get("map")?.trim().toLowerCase() || null,
+    pose: quakePoseFromViewParam(view),
+  };
+}
+
+function captureArgs(input: Record<string, unknown>): string[] {
+  const useSpawn = input.spawn === true;
+  const parsedPose = useSpawn ? null : parseCapturePoseInput(input.pose);
+  const args = [
+    CAPTURE_SCRIPT,
+    "--map", parsedPose?.mapName ?? safeString(input.map, "e1m1"),
+    "--skill", safeString(input.skill, "easy"),
+    "--vk-palettize", safeString(input.vkPalettize, "0"),
+    "--vk-filter", safeString(input.vkFilter, "1"),
+    "--width", safePositiveInt(input.width, "2560"),
+    "--height", safePositiveInt(input.height, "1295"),
+    "--diff-gain", safePositiveNumber(input.diffGain, "4"),
+    "--out", CAPTURE_OUTDIR,
+  ];
+  if (useSpawn) {
+    args.push("--spawn");
+  } else {
+    args.push("--quake", parsedPose.pose);
+  }
+  if (input.weaponOnly === true) {
+    args.push("--weapon-only");
+  } else if (input.hudOnly === true) {
+    args.push("--hud-only");
+  } else if (input.worldOnly !== false) {
+    args.push("--world-only");
+  }
+  if (input.weaponTuning && typeof input.weaponTuning === "object" && !Array.isArray(input.weaponTuning)) {
+    args.push("--weapon-tuning", JSON.stringify(input.weaponTuning));
+  }
+  const weapon = safeWeapon(input.weapon);
+  if (weapon) args.push("--weapon", weapon);
+  if (input.openFolder === true) args.push("--open");
+  return args;
+}
+
+function dryRunCapture(input: Record<string, unknown>): Record<string, unknown> {
+  const args = captureArgs(input);
+  return {
+    ok: true,
+    dryRun: true,
+    command: [process.execPath, ...args].join(" "),
+    args,
+  };
+}
+
+function runCapture(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (activeCapture) throw new Error("A capture is already running.");
+  const args = captureArgs(input);
+  const startedAt = new Date().toISOString();
+  activeCapture = { startedAt, args };
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, args, {
+      cwd: REPO_DIR,
+      env: process.env,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("close", (code, signal) => {
+      activeCapture = null;
+      const reportPath = path.join(CAPTURE_OUTDIR, "report.json");
+      let report: unknown = null;
+      let reportParseError: string | null = null;
+      if (existsSync(reportPath)) {
+        try {
+          report = JSON.parse(readFileSync(reportPath, "utf8"));
+        } catch (error) {
+          reportParseError = error instanceof Error ? error.message : String(error);
+        }
+      }
+      resolve({
+        ok: code === 0,
+        code,
+        signal,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        command: [process.execPath, ...args].join(" "),
+        stdout,
+        stderr,
+        reportParseError,
+        report,
+        files: {
+          folder: CAPTURE_OUTDIR,
+          quakecss: "/debug/captures/quakecss.png",
+          quakevk: "/debug/captures/quakevk.png",
+          diff: "/debug/captures/diff.png",
+          overlay: "/debug/captures/overlay.png",
+          report: "/debug/api/report",
+        },
+      });
+    });
+    child.on("error", (error) => {
+      activeCapture = null;
+      resolve({
+        ok: false,
+        code: null,
+        signal: null,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        command: [process.execPath, ...args].join(" "),
+        stdout,
+        stderr,
+        error: error instanceof Error ? error.message : String(error),
+        report: null,
+      });
+    });
+  });
+}
+
+function reportResponse(res: ServerResponse): void {
+  const reportPath = path.join(CAPTURE_OUTDIR, "report.json");
+  if (!existsSync(reportPath)) {
+    sendJson(res, 404, { error: "No report.json yet. Run a capture first." });
+    return;
+  }
+  sendText(res, 200, readFileSync(reportPath, "utf8"), "application/json; charset=utf-8");
+}
+
+function captureImageResponse(res: ServerResponse, imageName: string): void {
+  const name = path.basename(imageName);
+  if (!["quakecss.png", "quakevk.png", "diff.png", "overlay.png"].includes(name)) {
+    sendText(res, 404, "Not found");
+    return;
+  }
+  const filePath = path.join(CAPTURE_OUTDIR, name);
+  if (!existsSync(filePath)) {
+    sendText(res, 404, "Not found");
+    return;
+  }
+  res.statusCode = 200;
+  res.setHeader("content-type", "image/png");
+  res.setHeader("cache-control", "no-store");
+  createReadStream(filePath).pipe(res);
+}
+
+export function localDebugSitePlugin(): Plugin {
+  return {
+    name: "cssquake-local-debug-site",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = new URL(req.url ?? "/", "http://localhost");
+        if (url.pathname !== "/debug" && !url.pathname.startsWith("/debug/")) {
+          next();
+          return;
+        }
+        if (url.pathname === "/debug") {
+          res.statusCode = 302;
+          res.setHeader("location", `/debug/${url.search}`);
+          res.end();
+          return;
+        }
+        if (url.pathname === "/debug/api/status") {
+          sendJson(res, 200, { activeCapture });
+          return;
+        }
+        if (url.pathname === "/debug/api/report") {
+          reportResponse(res);
+          return;
+        }
+        if (url.pathname.startsWith("/debug/captures/")) {
+          captureImageResponse(res, url.pathname.slice("/debug/captures/".length));
+          return;
+        }
+        if (req.method === "POST" && url.pathname === "/debug/api/capture") {
+          void (async () => {
+            let input: Record<string, unknown> = {};
+            try {
+              input = JSON.parse(await readBody(req));
+            } catch (error) {
+              sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+              return;
+            }
+            try {
+              const result = input.dryRun === true ? dryRunCapture(input) : await runCapture(input);
+              sendJson(res, result.ok === true ? 200 : 500, result);
+            } catch (error) {
+              sendJson(res, 409, { error: error instanceof Error ? error.message : String(error), activeCapture });
+            }
+          })();
+          return;
+        }
+        if (!existsSync(LOCAL_DEBUG_DIR)) {
+          next();
+          return;
+        }
+
+        const relativePath = decodeURIComponent(url.pathname.slice("/debug/".length)) || "index.html";
+        let filePath = path.resolve(LOCAL_DEBUG_DIR, relativePath);
+        if (!filePath.startsWith(`${LOCAL_DEBUG_DIR}${path.sep}`)) {
+          res.statusCode = 403;
+          res.end("Forbidden");
+          return;
+        }
+        if (existsSync(filePath) && statSync(filePath).isDirectory()) {
+          filePath = path.join(filePath, "index.html");
+        }
+        if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+          res.statusCode = 404;
+          res.end("Not found");
+          return;
+        }
+
+        res.setHeader("content-type", DEBUG_CONTENT_TYPES.get(path.extname(filePath)) ?? "application/octet-stream");
+        res.setHeader("cache-control", "no-store");
+        res.end(readFileSync(filePath));
+      });
+    },
+  };
+}

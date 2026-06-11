@@ -1,6 +1,6 @@
 import type { QuakeGameLogicFacts } from "../prepare/gameLogicFacts";
 import { quakeGameLogicResolvedTriggerFact } from "../prepare/gameLogicFacts";
-import type { QuakeEntity } from "../prepare/scene";
+import type { QuakeEntity } from "../types/quake";
 
 export interface QuakeTriggerSecretActivation {
   message: string;

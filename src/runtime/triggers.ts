@@ -1,4 +1,4 @@
-import type { QuakeEntity } from "../prepare/scene";
+import type { QuakeEntity } from "../types/quake";
 import type { QuakeTouchedTrigger } from "./collision";
 import { quakeEntityNumber } from "./entities";
 import { normalizeVec3 } from "./math";
@@ -24,11 +24,19 @@ export interface QuakeTriggersControllerOptions {
 
 export interface QuakeTriggersController {
   clear: () => void;
+  debugStats: () => QuakeTriggersDebugStats;
   resetActive: () => void;
   setActive: (triggers: QuakeTouchedTrigger[]) => void;
   sync: (origin: [number, number, number]) => QuakeTouchedTrigger[];
   activateCounterEntity: (entity: QuakeEntity) => void;
   activateTeleporterEntity: (entity: QuakeEntity) => boolean;
+}
+
+export interface QuakeTriggersDebugStats {
+  activeTriggerIndexes: number[];
+  activeTeleporterIndexes: number[];
+  cooldownTriggerIndexes: number[];
+  usedTriggerIndexes: number[];
 }
 
 const QUAKE_TRIGGER_MULTIPLE_DEFAULT_WAIT = 0.2;
@@ -191,12 +199,22 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
 
   return {
     clear,
+    debugStats: () => ({
+      activeTriggerIndexes: sortedTriggerIndexes(activeTriggers),
+      activeTeleporterIndexes: sortedTriggerIndexes(activeTeleportersUntil),
+      cooldownTriggerIndexes: sortedTriggerIndexes(triggerCooldownUntil),
+      usedTriggerIndexes: sortedTriggerIndexes(usedTriggers),
+    }),
     resetActive,
     setActive,
     sync,
     activateCounterEntity,
     activateTeleporterEntity,
   };
+}
+
+function sortedTriggerIndexes(values: Set<number> | Map<number, unknown>): number[] {
+  return [...values.keys()].sort((a, b) => a - b);
 }
 
 function subtractOrigin(

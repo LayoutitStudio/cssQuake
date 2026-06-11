@@ -4,7 +4,7 @@ import {
   type QuakeGameLogicTextFact,
   type QuakeGameLogicResolvedTriggerFact,
 } from "../prepare/gameLogicFacts";
-import type { QuakeEntity, QuakeEntityRuntimeManifest } from "../prepare/scene";
+import type { QuakeEntity, QuakeEntityRuntimeManifest } from "../types/quake";
 import { quakeEntityNumber } from "./entities";
 
 export interface QuakeTargetsControllerOptions {

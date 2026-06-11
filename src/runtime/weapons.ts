@@ -5,7 +5,7 @@ import {
   QUAKE_PROGRAM_SOURCE_FACTS,
   type QuakePlayerWeaponFireProfileFact,
 } from "../generated/quakeProgramFacts";
-import type { QuakeEntity } from "../prepare/scene";
+import type { QuakeEntity } from "../types/quake";
 import type { QuakeAmmoField, QuakeWeaponId } from "./hud";
 import type { QuakeViewmodelFireAnimation } from "./viewmodel";
 import {
@@ -43,6 +43,15 @@ export interface QuakeWeaponsController {
   traceIsShootable(trace: QuakeUseTrace | null): trace is QuakeUseTrace;
 }
 
+export interface QuakeWeaponFireEvent {
+  firedAt: number;
+  fireKind: "hitscan" | "melee" | "projectile" | "beam";
+  weapon: QuakeWeaponId;
+  origin: Vec3;
+  direction: Vec3;
+  range: number;
+}
+
 export interface QuakeWeaponsControllerOptions {
   scene: PolySceneHandle;
   controls: Pick<PolyFirstPersonControlsHandle, "getOrigin">;
@@ -66,6 +75,7 @@ export interface QuakeWeaponsControllerOptions {
   damagePlayer(amount: number): boolean;
   damageMultiplier?: () => number;
   random?: () => number;
+  onFire?(event: QuakeWeaponFireEvent): void;
   onHit(): void;
   showLightningBeam?(beam: QuakeWeaponLightningBeamVisual): void;
   syncCrosshairTarget(): void;
@@ -103,6 +113,7 @@ export type QuakeWeaponFireSoundId =
 type QuakeWeaponFireKind = "hitscan-pellets" | "melee-trace" | "projectile" | "beam";
 
 interface QuakeWeaponFireAnimationSequenceVariant {
+  firstFrameMuzzleFlash?: boolean;
   frames: readonly number[];
   otherwise?: boolean;
   randomLessThan?: number;
@@ -449,13 +460,22 @@ function quakeWeaponFireAnimationProfile(
     };
   }
   const variants = animation.variants
-    .map((variant) => ({
-      frames: variant.frames
-        .map((frame) => frame.weaponFrame)
-        .filter((frame): frame is number => typeof frame === "number" && Number.isFinite(frame)),
-      ...(variant.otherwise ? { otherwise: true } : {}),
-      ...(typeof variant.randomLessThan === "number" ? { randomLessThan: variant.randomLessThan } : {}),
-    }))
+    .map((variant) => {
+      const frames = variant.frames
+        .map((frame) => ({
+          muzzleFlash: frame.muzzleFlash === true,
+          weaponFrame: frame.weaponFrame,
+        }))
+        .filter((frame): frame is { muzzleFlash: boolean; weaponFrame: number } =>
+          typeof frame.weaponFrame === "number" && Number.isFinite(frame.weaponFrame),
+        );
+      return {
+        frames: frames.map((frame) => frame.weaponFrame),
+        ...(frames[0]?.muzzleFlash ? { firstFrameMuzzleFlash: true } : {}),
+        ...(variant.otherwise ? { otherwise: true } : {}),
+        ...(typeof variant.randomLessThan === "number" ? { randomLessThan: variant.randomLessThan } : {}),
+      };
+    })
     .filter((variant) => variant.frames.length > 0);
   if (!variants.length) return undefined;
   return {
@@ -594,6 +614,7 @@ export function createQuakeWeaponsController({
   damagePlayer,
   damageMultiplier,
   random = Math.random,
+  onFire,
   onHit,
   showLightningBeam,
   syncCrosshairTarget,
@@ -647,6 +668,7 @@ export function createQuakeWeaponsController({
     playWeaponFireSound(profile, now);
     const hit = fireWeaponProfile(profile, now);
     playWeaponFireAnimation(profile);
+    onFire?.(quakeWeaponFireEvent(profile, now));
     if (hit) onHit();
     syncCrosshairTarget();
     return true;
@@ -837,6 +859,7 @@ export function createQuakeWeaponsController({
     return {
       frameIntervalMs: animation.frameIntervalMs,
       frames: variant.frames,
+      ...(variant.firstFrameMuzzleFlash ? { firstFrameMuzzleFlash: true } : {}),
     };
   }
 
@@ -854,6 +877,30 @@ export function createQuakeWeaponsController({
     if (!profile.ammoField || profile.ammoCost <= 0) return;
     consumeAmmo(profile.ammoField, profile.ammoCost);
     syncHud();
+  }
+
+  function quakeWeaponFireEvent(profile: QuakeRuntimeWeaponFireProfile, now: number): QuakeWeaponFireEvent {
+    const aim = weaponAimForFire();
+    return {
+      firedAt: now,
+      fireKind: quakeMultiplayerFireKind(profile),
+      weapon: profile.weapon,
+      origin: aim.ray.origin,
+      direction: aim.direction,
+      range: quakeWeaponFireEventRange(profile),
+    };
+  }
+
+  function quakeMultiplayerFireKind(profile: QuakeRuntimeWeaponFireProfile): QuakeWeaponFireEvent["fireKind"] {
+    if (profile.kind === "hitscan-pellets") return "hitscan";
+    if (profile.kind === "melee-trace") return "melee";
+    return profile.kind;
+  }
+
+  function quakeWeaponFireEventRange(profile: QuakeRuntimeWeaponFireProfile): number {
+    if (profile.kind === "hitscan-pellets") return QUAKE_WEAPON_TRACE_RANGE;
+    if (profile.kind === "melee-trace" || profile.kind === "beam") return profile.range;
+    return profile.speed * (profile.lifetimeMs / 1000);
   }
 
   function fireShotgunPellets(profile: QuakeHitscanPelletFireProfile): boolean {

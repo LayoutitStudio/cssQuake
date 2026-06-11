@@ -1,6 +1,6 @@
 import type { Vec3 } from "@layoutit/polycss";
 
-import type { QuakeEntity } from "../prepare/scene";
+import type { QuakeEntity } from "../types/quake";
 import { QUAKE_COLLISION_UNIT_SCALE } from "./constants";
 import { quakeEntityNumber } from "./entities";
 import type { QuakeHazardDamage } from "./hazards";

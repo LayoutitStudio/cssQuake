@@ -1,6 +1,6 @@
 import type { QuakeGameLogicFacts } from "../prepare/gameLogicFacts";
 import { quakeGameLogicResolvedPickupFact } from "../prepare/gameLogicFacts";
-import type { QuakeEntity } from "../prepare/scene";
+import type { QuakeEntity } from "../types/quake";
 
 export interface QuakeSoundManifest {
   version: number;

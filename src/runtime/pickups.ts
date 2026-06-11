@@ -2,7 +2,7 @@ import type { Polygon, PolyMeshHandle, Vec3 } from "@layoutit/polycss";
 
 import type { QuakeGameLogicFacts } from "../prepare/gameLogicFacts";
 import { quakeGameLogicResolvedPickupFact } from "../prepare/gameLogicFacts";
-import type { QuakeEntity, QuakePreparedRenderBundle } from "../prepare/scene";
+import type { QuakeEntity, QuakePreparedRenderBundle } from "../types/quake";
 import {
   QUAKE_WEAPON_ITEM_FLAG_EXPRESSIONS,
   QUAKE_WEAPON_ITEM_FLAGS,
@@ -198,8 +198,16 @@ export interface QuakePickupProgressSnapshot {
   pickedEntityIndexes: number[];
 }
 
+export interface QuakeAuthoritativePickupOptions {
+  applyEffect?: boolean;
+  feedback?: QuakeRuntimePickupFeedback;
+  hide?: boolean;
+}
+
 export interface QuakePickupController {
   addRuntimePickup: (input: QuakeRuntimePickupInput) => boolean;
+  applyAuthoritativePickup: (entityIndex: number, options?: QuakeAuthoritativePickupOptions) => boolean;
+  applyAuthoritativeRespawn: (entityIndex: number) => boolean;
   clear: () => void;
   restoreProgress: (snapshot: QuakePickupProgressSnapshot) => void;
   snapshotProgress: () => QuakePickupProgressSnapshot;
@@ -389,6 +397,29 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     }
   };
 
+  const applyAuthoritativePickup = (
+    entityIndex: number,
+    authoritativeOptions: QuakeAuthoritativePickupOptions = {},
+  ): boolean => {
+    const pickup = pickups.find((candidate) => candidate.entity.index === entityIndex);
+    if (!pickup) return false;
+    if (authoritativeOptions.applyEffect !== false) {
+      applyPickupEffectAndSideEffects(pickup, authoritativeOptions.feedback);
+    }
+    if (authoritativeOptions.hide !== false) {
+      hidePickedPickup(pickup);
+      if (pickup.runtime) removeRuntimePickup(pickup);
+    }
+    return true;
+  };
+
+  const applyAuthoritativeRespawn = (entityIndex: number): boolean => {
+    const pickup = pickups.find((candidate) => candidate.entity.index === entityIndex);
+    if (!pickup) return false;
+    respawnPickup(pickup);
+    return true;
+  };
+
   const isPickupRenderVisible = (
     pickup: QuakePickupState,
     origin: [number, number, number] | undefined,
@@ -530,12 +561,28 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     );
     // Leave-in-place pickups need per-player ownership; keep them facts-only until multiplayer exists.
     if (lifecycleAction?.action === "leave") return;
+    hidePickedPickup(pickup);
+    applyPickupEffectAndSideEffects(pickup);
+    if (lifecycleAction?.action === "respawn" && lifecycleAction.delaySeconds !== undefined) {
+      schedulePickupRespawn(pickup, lifecycleAction.delaySeconds);
+    }
+    if (pickup.runtime) removeRuntimePickup(pickup);
+  };
+
+  const hidePickedPickup = (pickup: QuakePickupState): void => {
     pickup.picked = true;
     pickup.visible = false;
     pickup.handle?.remove();
     handles = handles.filter((handle) => handle !== pickup.handle);
     pickup.handle = null;
-    options.applyEffect(pickup.effect, pickup.entity, pickup.feedback);
+  };
+
+  const applyPickupEffectAndSideEffects = (
+    pickup: QuakePickupState,
+    feedbackOverride?: QuakeRuntimePickupFeedback,
+  ): void => {
+    const gameLogic = options.gameLogic();
+    options.applyEffect(pickup.effect, pickup.entity, feedbackOverride ?? pickup.feedback);
     const powerup = quakePickupPowerupBehaviorForEntity(pickup.entity, gameLogic);
     if (powerup) {
       options.startPowerup?.(pickup.entity, powerup);
@@ -547,10 +594,6 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     if (quakePickupFiresTargetsForEntity(pickup.entity, gameLogic)) {
       options.useTargets?.(pickup.entity);
     }
-    if (lifecycleAction?.action === "respawn" && lifecycleAction.delaySeconds !== undefined) {
-      schedulePickupRespawn(pickup, lifecycleAction.delaySeconds);
-    }
-    if (pickup.runtime) removeRuntimePickup(pickup);
   };
 
   const removeRuntimePickup = (pickup: QuakePickupState): void => {
@@ -625,6 +668,8 @@ export function createQuakePickupController(options: QuakePickupControllerOption
 
   return {
     addRuntimePickup,
+    applyAuthoritativePickup,
+    applyAuthoritativeRespawn,
     clear,
     restoreProgress,
     snapshotProgress,

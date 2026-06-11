@@ -1,4 +1,4 @@
-import { BASE_TILE, type Vec3 } from "@layoutit/polycss";
+import { type Vec3, worldPositionToPolyCss } from "@layoutit/polycss";
 
 export interface QuakeViewmodelRasterModel {
   version: 1;
@@ -325,7 +325,8 @@ function projectVertex(
   shade: number,
 ): ProjectedVertex | null {
   if (!vertex) return null;
-  const local = new DOMPoint(vertex[1] * BASE_TILE, vertex[0] * BASE_TILE, vertex[2] * BASE_TILE, 1);
+  const [x, y, z] = worldPositionToPolyCss(vertex);
+  const local = new DOMPoint(x, y, z, 1);
   const transformed = local.matrixTransform(meshMatrix).matrixTransform(stageMatrix);
   const layerX = state.stageLeftPx + transformed.x;
   const layerY = state.stageTopPx + transformed.y;

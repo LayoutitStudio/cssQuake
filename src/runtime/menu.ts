@@ -23,11 +23,13 @@ export interface QuakeMenuControllerOptions {
   mainMenu: HTMLElement | null;
   mainMenuArt: HTMLElement | null;
   singlePlayerPanel: HTMLElement | null;
+  multiplayerPanel: HTMLElement | null;
   levelPanel: HTMLElement | null;
   aboutPanel: HTMLElement | null;
   optionsPanel: HTMLElement | null;
   debugPanel: HTMLElement | null;
   onSelectNewGame?(): void | Promise<void>;
+  onShowMultiplayer?(): void;
   onLoadGame?(): void | Promise<void>;
   onSaveGame?(): void | Promise<void>;
   onSelectLevel?(mapName: string): void | Promise<void>;
@@ -36,6 +38,7 @@ export interface QuakeMenuControllerOptions {
   canLoadGame?(): boolean;
   canSaveGame?(): boolean;
   isQuitEnabled?(): boolean;
+  onMenuVisibilityChange?(visible: boolean): void;
   onMenuPauseChange?(paused: boolean): void;
   onResumeMainMenuFromEscape?(): void;
   shouldResumeMainMenuOnEscape?(): boolean;
@@ -44,11 +47,12 @@ export interface QuakeMenuControllerOptions {
   syncCrosshairTarget(): void;
 }
 
-type QuakeMainMenuAction = "single-player" | "level-select" | "options" | "debug" | "quit";
+type QuakeMainMenuAction = "single-player" | "multiplayer" | "level-select" | "options" | "debug" | "quit";
 type QuakeSinglePlayerAction = "new-game" | "load" | "save";
 
 const QUAKE_MAIN_MENU_ACTION_ATTRIBUTE = "data-quake-main-menu-action";
 const QUAKE_SINGLE_PLAYER_ACTION_ATTRIBUTE = "data-quake-single-player-action";
+const QUAKE_OPTION_CYCLE_EVENT = "quake-option-cycle";
 const QUAKE_MAIN_MENU_SELECTABLE_CLASS = "quake-main-menu-item-selectable";
 const QUAKE_MAIN_MENU_DISABLED_CLASS = "quake-main-menu-item-disabled";
 
@@ -59,11 +63,13 @@ export function createQuakeMenuController({
   mainMenu,
   mainMenuArt,
   singlePlayerPanel,
+  multiplayerPanel,
   levelPanel,
   aboutPanel,
   optionsPanel,
   debugPanel,
   onSelectNewGame,
+  onShowMultiplayer,
   onLoadGame,
   onSaveGame,
   onSelectLevel,
@@ -72,6 +78,7 @@ export function createQuakeMenuController({
   canLoadGame,
   canSaveGame,
   isQuitEnabled,
+  onMenuVisibilityChange,
   onMenuPauseChange,
   onResumeMainMenuFromEscape,
   shouldResumeMainMenuOnEscape,
@@ -94,12 +101,14 @@ export function createQuakeMenuController({
     controls.update({ moveEnabled: false });
     updateMainMenuCursor();
     singlePlayerPanel?.setAttribute("hidden", "");
+    multiplayerPanel?.setAttribute("hidden", "");
     levelPanel?.setAttribute("hidden", "");
     aboutPanel?.setAttribute("hidden", "");
     optionsPanel?.setAttribute("hidden", "");
     debugPanel?.setAttribute("hidden", "");
     mainMenu.hidden = false;
     document.body.classList.add("quake-menu-open");
+    onMenuVisibilityChange?.(true);
     onMenuPauseChange?.(true);
     clearCrosshairTarget();
     mainMenu.focus({ preventScroll: true });
@@ -110,11 +119,13 @@ export function createQuakeMenuController({
     controls.update({ moveEnabled: true });
     mainMenu.hidden = true;
     singlePlayerPanel?.setAttribute("hidden", "");
+    multiplayerPanel?.setAttribute("hidden", "");
     levelPanel?.setAttribute("hidden", "");
     aboutPanel?.setAttribute("hidden", "");
     optionsPanel?.setAttribute("hidden", "");
     debugPanel?.setAttribute("hidden", "");
     document.body.classList.remove("quake-menu-open");
+    onMenuVisibilityChange?.(false);
     onMenuPauseChange?.(false);
     host.focus({ preventScroll: true });
     syncCrosshairTarget();
@@ -197,6 +208,11 @@ export function createQuakeMenuController({
     return Boolean(singlePlayerPanel && !singlePlayerPanel.hidden);
   }
 
+  function isMultiplayerPanelOpen(): boolean {
+    if (!enabled) return false;
+    return Boolean(multiplayerPanel && !multiplayerPanel.hidden);
+  }
+
   function isLevelPanelOpen(): boolean {
     if (!enabled) return false;
     return Boolean(levelPanel && !levelPanel.hidden);
@@ -213,7 +229,7 @@ export function createQuakeMenuController({
   }
 
   function isMenuPanelOpen(): boolean {
-    return isSinglePlayerPanelOpen() || isLevelPanelOpen() || isAboutPanelOpen() || isOptionsPanelOpen() ||
+    return isSinglePlayerPanelOpen() || isMultiplayerPanelOpen() || isLevelPanelOpen() || isAboutPanelOpen() || isOptionsPanelOpen() ||
       isDebugPanelOpen();
   }
 
@@ -222,12 +238,14 @@ export function createQuakeMenuController({
     controls.update({ moveEnabled: false });
     mainMenu.hidden = true;
     singlePlayerPanel?.setAttribute("hidden", "");
+    multiplayerPanel?.setAttribute("hidden", "");
     levelPanel?.setAttribute("hidden", "");
     aboutPanel?.setAttribute("hidden", "");
     optionsPanel?.setAttribute("hidden", "");
     debugPanel?.setAttribute("hidden", "");
     panel.hidden = false;
     document.body.classList.add("quake-menu-open");
+    onMenuVisibilityChange?.(true);
     onMenuPauseChange?.(true);
     panel.focus({ preventScroll: true });
   }
@@ -240,6 +258,16 @@ export function createQuakeMenuController({
     showMenuPanel(singlePlayerPanel);
     syncSinglePlayerItemAvailability();
     firstSinglePlayerButton()?.focus({ preventScroll: true });
+  }
+
+  function showMultiplayerPanel(): void {
+    if (!enabled || !multiplayerPanel) {
+      startFromMainMenu();
+      return;
+    }
+    showMenuPanel(multiplayerPanel);
+    onShowMultiplayer?.();
+    firstMultiplayerControl()?.focus({ preventScroll: true });
   }
 
   function showLevelPanel(): void {
@@ -280,7 +308,7 @@ export function createQuakeMenuController({
   function menuBackButtonFor(target: EventTarget | null): HTMLButtonElement | null {
     const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
     return element?.closest(
-      "#quake-single-player-back, #quake-level-back, #quake-about-back, #quake-options-back, #quake-debug-menu-back",
+      "#quake-single-player-back, #quake-multiplayer-back, #quake-level-back, #quake-about-back, #quake-options-back, #quake-debug-menu-back",
     ) as HTMLButtonElement | null;
   }
 
@@ -302,6 +330,40 @@ export function createQuakeMenuController({
   function singlePlayerButtonFor(target: EventTarget | null): HTMLButtonElement | null {
     const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
     return element?.closest(".quake-single-player-button") as HTMLButtonElement | null;
+  }
+
+  function multiplayerControlFor(target: EventTarget | null): HTMLElement | null {
+    const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+    return element?.closest("#quake-multiplayer-panel input, #quake-multiplayer-panel select, #quake-multiplayer-panel button") as HTMLElement | null;
+  }
+
+  function multiplayerControls(): HTMLElement[] {
+    if (!multiplayerPanel) return [];
+    return Array.from(multiplayerPanel.querySelectorAll<HTMLElement>("input, select, button"))
+      .filter((element) => !(element instanceof HTMLButtonElement && element.disabled));
+  }
+
+  function firstMultiplayerControl(): HTMLElement | null {
+    return multiplayerControls()[0] ?? null;
+  }
+
+  function currentMultiplayerControl(): HTMLElement | null {
+    const active = multiplayerControlFor(document.activeElement);
+    if (!active || !multiplayerPanel?.contains(active)) return firstMultiplayerControl();
+    return active;
+  }
+
+  function focusMultiplayerControl(delta: number): void {
+    const controls = multiplayerControls();
+    if (!controls.length) return;
+    const current = currentMultiplayerControl() ?? controls[0];
+    const index = Math.max(0, controls.indexOf(current));
+    controls[(index + delta + controls.length) % controls.length]?.focus({ preventScroll: true });
+  }
+
+  function isTextEntryTarget(target: EventTarget | null): boolean {
+    const element = target instanceof HTMLElement ? target : target instanceof Node ? target.parentElement : null;
+    return Boolean(element?.closest("input[type=\"text\"], input[type=\"number\"], input:not([type]), textarea, select"));
   }
 
   function syncSinglePlayerItemAvailability(): void {
@@ -387,7 +449,14 @@ export function createQuakeMenuController({
     toggles[(index + delta + toggles.length) % toggles.length]?.focus({ preventScroll: true });
   }
 
-  function toggleMenuOption(toggle: HTMLElement | null): void {
+  function toggleMenuOption(toggle: HTMLElement | null, direction = 1): void {
+    if (toggle instanceof HTMLButtonElement) {
+      toggle.dispatchEvent(new CustomEvent(QUAKE_OPTION_CYCLE_EVENT, {
+        bubbles: true,
+        detail: { direction },
+      }));
+      return;
+    }
     const input = toggle?.querySelector<HTMLInputElement>("input[type=\"checkbox\"]");
     if (!input || input.disabled) return;
     input.click();
@@ -445,6 +514,7 @@ export function createQuakeMenuController({
     const item = mainMenuItems()[mainMenuSelectionIndex];
     const action = item?.getAttribute(QUAKE_MAIN_MENU_ACTION_ATTRIBUTE) as QuakeMainMenuAction | null;
     if (action === "single-player") showSinglePlayerPanel();
+    if (action === "multiplayer") showMultiplayerPanel();
     if (action === "level-select") showLevelPanel();
     if (action === "options") showOptionsPanel();
     if (action === "debug") showDebugPanel();
@@ -607,6 +677,27 @@ export function createQuakeMenuController({
 
   function handleMenuPanelKey(event: KeyboardEvent): boolean {
     if (!isMenuPanelOpen()) return false;
+    if (isMultiplayerPanelOpen()) {
+      if (event.code === "Escape" || event.code === "Backspace") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeMenuPanel();
+        return true;
+      }
+      if (isTextEntryTarget(event.target)) return false;
+      if (event.code === "ArrowDown" || event.code === "KeyS") {
+        event.preventDefault();
+        event.stopPropagation();
+        focusMultiplayerControl(1);
+        return true;
+      }
+      if (event.code === "ArrowUp" || event.code === "KeyW") {
+        event.preventDefault();
+        event.stopPropagation();
+        focusMultiplayerControl(-1);
+        return true;
+      }
+    }
     if (handleSinglePlayerPanelKey(event)) return true;
     if (handleLevelPanelKey(event)) return true;
     const sourceLink = aboutSourceLinkFor(event.target);
@@ -622,7 +713,7 @@ export function createQuakeMenuController({
         if (optionToggle) {
           event.preventDefault();
           event.stopPropagation();
-          toggleMenuOption(optionToggle);
+          toggleMenuOption(optionToggle, 1);
           return true;
         }
         if (sourceLink) return false;
@@ -634,7 +725,7 @@ export function createQuakeMenuController({
         event.preventDefault();
         event.stopPropagation();
         if (optionToggle) {
-          toggleMenuOption(optionToggle);
+          toggleMenuOption(optionToggle, 1);
         } else if (sourceLink) {
           sourceLink.click();
         } else {
@@ -654,12 +745,16 @@ export function createQuakeMenuController({
         if (currentOptionPanel()) focusMenuOptionToggle(-1);
         return true;
       case "ArrowLeft":
-      case "ArrowRight":
       case "KeyA":
+        event.preventDefault();
+        event.stopPropagation();
+        if (currentOptionPanel()) toggleMenuOption(currentMenuOptionToggle(), -1);
+        return true;
+      case "ArrowRight":
       case "KeyD":
         event.preventDefault();
         event.stopPropagation();
-        if (currentOptionPanel()) toggleMenuOption(currentMenuOptionToggle());
+        if (currentOptionPanel()) toggleMenuOption(currentMenuOptionToggle(), 1);
         return true;
       default:
         return false;
@@ -786,6 +881,8 @@ export function createQuakeMenuController({
   function focusCurrent(): void {
     if (isSinglePlayerPanelOpen()) {
       (currentSinglePlayerButton() ?? firstSinglePlayerButton() ?? singlePlayerPanel)?.focus({ preventScroll: true });
+    } else if (isMultiplayerPanelOpen()) {
+      (currentMultiplayerControl() ?? multiplayerPanel)?.focus({ preventScroll: true });
     } else if (isLevelPanelOpen()) {
       (currentLevelButton() ?? firstLevelButton() ?? levelPanel)?.focus({ preventScroll: true });
     } else if (isAboutPanelOpen()) {
@@ -815,6 +912,7 @@ export function createQuakeMenuController({
     mainMenu?.removeEventListener("pointermove", handleMainMenuPointerMove);
     mainMenu?.removeEventListener("pointerleave", handleMainMenuPointerLeave);
     singlePlayerPanel?.removeEventListener("click", handleMenuPanelClick);
+    multiplayerPanel?.removeEventListener("click", handleMenuPanelClick);
     levelPanel?.removeEventListener("click", handleMenuPanelClick);
     aboutPanel?.removeEventListener("click", handleMenuPanelClick);
     optionsPanel?.removeEventListener("click", handleMenuPanelClick);
@@ -828,6 +926,7 @@ export function createQuakeMenuController({
     mainMenu?.addEventListener("pointermove", handleMainMenuPointerMove);
     mainMenu?.addEventListener("pointerleave", handleMainMenuPointerLeave);
     singlePlayerPanel?.addEventListener("click", handleMenuPanelClick);
+    multiplayerPanel?.addEventListener("click", handleMenuPanelClick);
     levelPanel?.addEventListener("click", handleMenuPanelClick);
     aboutPanel?.addEventListener("click", handleMenuPanelClick);
     optionsPanel?.addEventListener("click", handleMenuPanelClick);

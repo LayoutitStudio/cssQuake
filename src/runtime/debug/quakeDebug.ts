@@ -1,6 +1,6 @@
 import type { Vec3 } from "@layoutit/polycss";
 
-import type { QuakeEntity } from "../../prepare/scene";
+import type { QuakeEntity } from "../../types/quake";
 import { QUAKE_PLAYER_MINS_Z, STEP_HEIGHT } from "../constants";
 import type { QuakePlayerInventory, QuakeWeaponId } from "../hud";
 import type { QuakeMoversDebugStats } from "../movers";
@@ -96,6 +96,7 @@ export interface QuakeDebugRuntime {
   setWeaponTuning(tuning: QuakeViewmodelTuning): QuakeResolvedViewmodelTuning;
   viewmodelDebug(): QuakeViewmodelDebugSnapshot;
   moversStats(): QuakeMoversDebugStats;
+  multiplayerStats(): Record<string, unknown> | null;
   playerEyeHeight(): number;
   playerMoveDebug(): Record<string, unknown>;
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
@@ -405,6 +406,7 @@ function buildQuakeDebugStats(runtime: QuakeDebugRuntime): Record<string, unknow
     enemyProjection: buildQuakeProjectionStats(activeEnemyMeshes, "enemy"),
     pickupProjection: buildQuakeProjectionStats(activePickupMeshes, "pickup"),
     movers: runtime.moversStats(),
+    multiplayer: runtime.multiplayerStats(),
     worldLeaves: worldStats.mountedLeaves,
     worldAtlasLeaves: worldStats.mountedAtlasLeaves,
     viewmodel: runtime.viewmodelDebug(),
