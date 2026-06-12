@@ -19,6 +19,7 @@ import type {
   QuakeMultiplayerRoomMessageType,
   QuakeMultiplayerRoomRejectPayload,
   QuakeMultiplayerPoseSample,
+  QuakeMultiplayerSpawnPoint,
   QuakeMultiplayerVec3,
   QuakeMultiplayerWorldDefinition,
 } from "./protocol";
@@ -28,6 +29,7 @@ import {
   quakeMultiplayerDeathmatchFragDeltaForKill,
   quakeMultiplayerDeathmatchHitscanHit,
   quakeMultiplayerDeathmatchLightningDischarge,
+  quakeMultiplayerDeathmatchSpawnOrder,
   quakeMultiplayerDeathmatchPlayerWithDamageMomentum,
   quakeMultiplayerDeathmatchSplashHits,
   quakeMultiplayerDeathmatchWeaponCooldownMs,
@@ -313,12 +315,15 @@ export function createQuakeLoopbackMultiplayerSession(
         playerColor = message.payload.color;
         matchSettings = message.payload.matchSettings ?? matchSettings;
         presenceStatus = "active";
-        playerState = createLoopbackPlayerState(roomKey, clientId, displayName, playerColor, now());
+        const trustedDefinitions = trustedGameplayDefinitionsForRoom();
+        const initialSpawn = quakeLoopbackInitialSpawnPoint(
+          trustedDefinitions?.deathmatchSpawns ?? message.payload.deathmatchSpawns,
+        );
+        playerState = createLoopbackPlayerState(roomKey, clientId, displayName, playerColor, now(), initialSpawn);
         playerSimulationState = createQuakeMultiplayerRoomPlayerSimulationState({
           playerId: playerState.playerId,
           now: now(),
         });
-        const trustedDefinitions = trustedGameplayDefinitionsForRoom();
         const pickupDefinitionsForRoom = trustedDefinitions?.pickupDefinitions ?? message.payload.pickupDefinitions;
         if (pickupDefinitionsForRoom?.length) {
           registerPickupDefinitions(pickupDefinitionsForRoom);
@@ -2032,6 +2037,7 @@ function createLoopbackPlayerState(
   displayName: string,
   color: string | undefined,
   updatedAt: number,
+  spawn?: QuakeMultiplayerSpawnPoint,
 ): QuakeMultiplayerAuthoritativePlayerState {
   const inventory = createQuakeMultiplayerInitialInventory();
   return {
@@ -2040,10 +2046,11 @@ function createLoopbackPlayerState(
     displayName,
     ...(color ? { color } : {}),
     mapName: roomKey.mapName,
-    origin: [0, 0, 0],
+    ...(spawn ? { spawnId: spawn.spawnId } : {}),
+    origin: spawn?.origin ?? [0, 0, 0],
     velocity: [0, 0, 0],
-    rotX: 0,
-    rotY: 0,
+    rotX: spawn?.rotX ?? 0,
+    rotY: spawn?.rotY ?? 0,
     health: inventory.health,
     armor: inventory.armor,
     activeWeapon: inventory.activeWeapon,
@@ -2054,6 +2061,12 @@ function createLoopbackPlayerState(
     lastInputSequence: 0,
     updatedAt,
   };
+}
+
+function quakeLoopbackInitialSpawnPoint(
+  spawns: readonly QuakeMultiplayerSpawnPoint[] | undefined,
+): QuakeMultiplayerSpawnPoint | undefined {
+  return spawns?.length ? quakeMultiplayerDeathmatchSpawnOrder(spawns)[0] : undefined;
 }
 
 function createLoopbackPlayerStateFromPose(

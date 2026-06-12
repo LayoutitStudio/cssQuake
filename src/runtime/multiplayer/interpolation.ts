@@ -30,6 +30,7 @@ export function interpolateQuakeMultiplayerRemoteState(
     playerId,
     renderAt,
     renderOrigin: lerpVec3(previous.origin, next.origin, t),
+    renderVelocity: lerpVec3(previous.velocity, next.velocity, t),
     renderRotX: lerp(previous.rotX, next.rotX, t),
     renderRotY: lerp(previous.rotY, next.rotY, t),
     alive: next.alive,

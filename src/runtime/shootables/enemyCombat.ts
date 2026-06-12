@@ -37,6 +37,7 @@ import { quakecProjectileCombatProfile } from "./enemyProjectiles";
 import type {
   QuakeDamageTraceResult,
   QuakeEnemyAnimationContext,
+  QuakeEnemyAttackTarget,
   QuakeEnemyState,
   QuakeMonsterAnimationMode,
   QuakeShootableState,
@@ -97,6 +98,7 @@ export interface QuakeEnemyCombatRuntime extends QuakeEnemyCombatContext {
     playerOrigin: [number, number, number],
     profile: QuakeMonsterCombatProfile,
     now: number,
+    target?: QuakeEnemyAttackTarget,
   ): void;
   runFrameEvents(
     shootable: QuakeShootableState,
@@ -219,20 +221,27 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
     const traceRange = quakecScaleUnits(event.traceRangeUnits);
     const enemy = shootable.enemy;
     if (!enemy) return;
+    const target = quakeEnemyCombatTarget(options, context);
     let hitPellets = 0;
     let blockedPellets = 0;
     let missedPellets = 0;
     let rangedOutPellets = 0;
     for (let pellet = 0; pellet < event.pellets; pellet += 1) {
-      const target = quakecSpreadTraceTarget(
+      const traceTarget = quakecSpreadTraceTarget(
         options,
         context.enemyEye,
-        context.playerOrigin,
+        target.origin,
         traceRange,
         event.spread,
         enemy,
       );
-      const trace = quakecTraceHitsPlayer(options, context.enemyEye, target, traceRange, context.playerOrigin);
+      const trace = quakecTraceHitsBounds(
+        options,
+        context.enemyEye,
+        traceTarget,
+        traceRange,
+        target.bounds,
+      );
       if (trace.hit) {
         hitPellets += 1;
       } else if (trace.reason === "blocked") {
@@ -262,7 +271,7 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
       time: now,
       type: event.type,
     });
-    if (damage > 0) options.damagePlayer(damage);
+    if (damage > 0) damageQuakeEnemyCombatTarget(target, damage, shootable);
   }
 
   function runLightningDamageEvent(
@@ -275,17 +284,18 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
     const origin = quakecOffsetPoint(
       shootable.origin,
       shootable.origin,
-      context.playerOrigin,
+      quakeEnemyCombatTarget(options, context).origin,
       event.originOffsetUnits,
     );
+    const combatTarget = quakeEnemyCombatTarget(options, context);
     const target = quakecOffsetPoint(
-      context.playerOrigin,
+      combatTarget.origin,
       shootable.origin,
-      context.playerOrigin,
+      combatTarget.origin,
       event.targetOffsetUnits,
     );
     const range = quakecScaleUnits(event.rangeUnits);
-    const trace = quakecTraceHitsPlayer(options, origin, target, range, context.playerOrigin);
+    const trace = quakecTraceHitsBounds(options, origin, target, range, combatTarget.bounds);
     options.markTrace("enemy-quakec-event", shootable, {
       call: event.call,
       damage: event.damage,
@@ -299,7 +309,7 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
       time: now,
       type: event.type,
     });
-    if (trace.hit) options.damagePlayer(event.damage);
+    if (trace.hit) damageQuakeEnemyCombatTarget(combatTarget, event.damage, shootable);
   }
 
   function runMeleeDamageEvent(
@@ -311,11 +321,12 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
   ): void {
     const enemy = shootable.enemy;
     if (!enemy) return;
+    const target = quakeEnemyCombatTarget(options, context);
     const range = quakecScaleUnits(event.rangeUnits ?? context.profile.range / QUAKE_COLLISION_UNIT_SCALE);
-    const distanceSq = quakecPointToPlayerBoundsDistanceSq(options, shootable.origin, context.playerOrigin);
+    const distanceSq = pointToAabbDistanceSq(shootable.origin, target.bounds);
     const inRange = distanceSq <= range * range;
     const canDamage = !event.requiresCanDamage ||
-      quakecCanDamagePlayer(options, options.shootableEyeOrigin(shootable), context.playerOrigin);
+      quakecCanDamageTarget(options, options.shootableEyeOrigin(shootable), target);
     const damage = quakecRandomDamage(event.damageBase, event.damageRandomTerms, () => options.nextRandom(enemy));
     const hit = inRange && canDamage;
     options.markTrace("enemy-quakec-event", shootable, {
@@ -334,7 +345,7 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
       time: now,
       type: event.type,
     });
-    if (hit) options.damagePlayer(damage);
+    if (hit) damageQuakeEnemyCombatTarget(target, damage, shootable);
   }
 
   function runProjectileEvent(
@@ -429,6 +440,7 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
     playerOrigin: [number, number, number],
     profile: QuakeMonsterCombatProfile,
     now: number,
+    target?: QuakeEnemyAttackTarget,
   ): void {
     const enemy = shootable.enemy;
     const active = enemy?.quakecActiveTouchDamage;
@@ -443,7 +455,12 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
       finishAttack(shootable, profile, now);
       return;
     }
-    const hit = quakecTouchDamageHits(options, shootable, playerOrigin, active.event);
+    const combatTarget = target ?? quakeEnemyCombatTarget(options, {
+      enemyEye: options.shootableEyeOrigin(shootable),
+      playerOrigin,
+      profile,
+    });
+    const hit = quakecTouchDamageHits(options, shootable, combatTarget, active.event);
     if (!hit) return;
     const damage = quakecRandomDamage(active.event.damageBase, active.event.damageRandomTerms, () => options.nextRandom(enemy));
     options.markTrace("enemy-quakec-event", shootable, {
@@ -462,7 +479,7 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
       time: now,
       type: active.event.type,
     });
-    options.damagePlayer(damage);
+    damageQuakeEnemyCombatTarget(combatTarget, damage, shootable);
     enemy.quakecActiveTouchDamage = null;
     finishAttack(shootable, profile, now);
   }
@@ -590,12 +607,12 @@ function quakecHorizontalRight(direction: Vec3): Vec3 {
   return [-direction[1] / horizontal, direction[0] / horizontal, 0];
 }
 
-function quakecTraceHitsPlayer(
+function quakecTraceHitsBounds(
   context: QuakeEnemyCombatContext,
   start: Vec3,
   target: Vec3,
   range: number,
-  playerOrigin: [number, number, number] | Vec3,
+  bounds: QuakeBounds,
 ): QuakeDamageTraceResult {
   const delta = subtractVec3(target, start);
   const targetDistance = Math.hypot(delta[0], delta[1], delta[2]);
@@ -609,7 +626,7 @@ function quakecTraceHitsPlayer(
     start[1] + direction[1] * traceDistance,
     start[2] + direction[2] * traceDistance,
   ];
-  const hitDistance = segmentAabbIntersectionDistance(start, end, context.playerDamageBounds(playerOrigin));
+  const hitDistance = segmentAabbIntersectionDistance(start, end, bounds);
   if (hitDistance === null) {
     const reason = targetDistance > range ? "range" : "miss";
     return { distance: traceDistance, hit: false, hitPoint: end, reason };
@@ -625,29 +642,19 @@ function quakecTraceHitsPlayer(
   return { distance: hitDistance, hit: true, hitPoint, reason: "hit" };
 }
 
-function quakecCanDamagePlayer(
+function quakecCanDamageTarget(
   context: QuakeEnemyCombatContext,
   start: Vec3,
-  playerOrigin: [number, number, number] | Vec3,
+  target: QuakeEnemyAttackTarget,
 ): boolean {
-  const bounds = context.playerDamageBounds(playerOrigin);
+  const targetOrigin = target.kind === "player"
+    ? [target.origin[0], target.origin[1], target.bounds.min[2] - QUAKE_PLAYER_MINS_Z] as Vec3
+    : target.origin;
   return quakecCanDamageAnyTracePointClear(
     start,
-    quakecCanDamageTracePointsForRuntimeOrigin([
-      playerOrigin[0],
-      playerOrigin[1],
-      bounds.min[2] - QUAKE_PLAYER_MINS_Z,
-    ]),
+    quakecCanDamageTracePointsForRuntimeOrigin(targetOrigin),
     context.hasLineOfSight,
   );
-}
-
-function quakecPointToPlayerBoundsDistanceSq(
-  context: QuakeEnemyCombatContext,
-  point: Vec3,
-  playerOrigin: [number, number, number] | Vec3,
-): number {
-  return pointToAabbDistanceSq(point, context.playerDamageBounds(playerOrigin));
 }
 
 function quakecBoundsCenter(bounds: QuakeBounds): Vec3 {
@@ -661,14 +668,51 @@ function quakecBoundsCenter(bounds: QuakeBounds): Vec3 {
 function quakecTouchDamageHits(
   context: QuakeEnemyCombatRuntimeOptions,
   shootable: QuakeShootableState,
-  playerOrigin: [number, number, number],
+  target: QuakeEnemyAttackTarget,
   event: QuakeMonsterTouchDamageFrameEvent,
 ): boolean {
   const range = quakecScaleUnits(event.rangeUnits);
-  const playerBounds = context.playerDamageBounds(playerOrigin);
   const shootableBounds = inflateBounds(context.shootableBoundsForDamage(shootable), QUAKE_SHOOTABLE_COLLISION_EPSILON);
-  return aabbsOverlap(playerBounds, shootableBounds) ||
-    aabbDistanceSq(playerBounds, shootableBounds) <= range * range;
+  return aabbsOverlap(target.bounds, shootableBounds) ||
+    aabbDistanceSq(target.bounds, shootableBounds) <= range * range;
+}
+
+function quakeEnemyCombatTarget(
+  options: QuakeEnemyCombatRuntimeOptions,
+  context: QuakeEnemyAnimationContext,
+): QuakeEnemyAttackTarget {
+  if (context.target) return context.target;
+  return {
+    bounds: options.playerDamageBounds(context.playerOrigin),
+    classname: "player",
+    damage: (amount) => options.damagePlayer(amount),
+    id: "player",
+    kind: "player",
+    origin: context.playerOrigin,
+  };
+}
+
+function damageQuakeEnemyCombatTarget(
+  target: QuakeEnemyAttackTarget,
+  amount: number,
+  attacker: QuakeShootableState,
+): boolean {
+  return target.damage?.(amount, {
+    attacker: {
+      classname: attacker.entity.classname,
+      entityIndex: attacker.entity.index,
+      id: attacker.entity.index,
+      kind: "shootable",
+      origin: attacker.origin,
+    },
+    inflictor: {
+      classname: attacker.entity.classname,
+      entityIndex: attacker.entity.index,
+      id: attacker.entity.index,
+      kind: "shootable",
+      origin: attacker.origin,
+    },
+  }) ?? false;
 }
 
 function quakecOffsetPoint(

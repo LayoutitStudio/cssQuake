@@ -53,7 +53,7 @@ import {
   quakeMultiplayerDeathmatchHitHasLineOfSight,
   quakeMultiplayerDeathmatchHitscanHit,
   quakeMultiplayerDeathmatchLightningDischarge,
-  quakeMultiplayerDeathmatchNearbySpawnOrder,
+  quakeMultiplayerDeathmatchSpawnOrder,
   quakeMultiplayerDeathmatchPlayerWithDamageMomentum,
   quakeMultiplayerDeathmatchSplashHits,
   quakeMultiplayerDeathmatchWeaponCooldownMs,
@@ -366,7 +366,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     const trustedDefinitions = this.trustedGameplayDefinitions();
     const deathmatchSpawns = trustedDefinitions?.deathmatchSpawns ?? message.payload.deathmatchSpawns;
     if (!this.spawnPoints.length && deathmatchSpawns?.length) {
-      this.spawnPoints = quakeMultiplayerDeathmatchNearbySpawnOrder(deathmatchSpawns);
+      this.spawnPoints = quakeMultiplayerDeathmatchSpawnOrder(deathmatchSpawns);
     }
     const pickupDefinitions = trustedDefinitions?.pickupDefinitions ?? message.payload.pickupDefinitions;
     if (!this.pickupDefinitions.size && pickupDefinitions?.length) {
