@@ -1445,6 +1445,7 @@ const weapons = createQuakeWeaponsController({
   damageShootable: shootables.damage,
   damageBrushEntity: (entityIndex, amount) => quakeDamageableBrushes.damage(entityIndex, amount),
   damagePlayer: (amount) => getPlayer().damage(amount),
+  canDamageTargetOrigin: (start, targetOrigin) => shootables.canDamageTargetOrigin(start, targetOrigin),
   damageMultiplier: () => quakePowerups.damageMultiplier(),
   onFire: sendQuakeMultiplayerFireIntent,
   onHit: () => quakeWeaponPresentation.flashCrosshairHit(),

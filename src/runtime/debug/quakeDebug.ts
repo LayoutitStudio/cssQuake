@@ -4,8 +4,10 @@ import type { QuakeEntity } from "../../types/quake";
 import { QUAKE_PLAYER_MINS_Z, STEP_HEIGHT } from "../constants";
 import type { QuakePlayerInventory, QuakeWeaponId } from "../hud";
 import type { QuakeMoversDebugStats } from "../movers";
+import type { QuakeCanDamageResult } from "../shootables/damage";
 import type { QuakeShootablesDebugStats } from "../shootables";
 import type { QuakeResolvedViewmodelTuning, QuakeViewmodelDebugSnapshot, QuakeViewmodelTuning } from "../viewmodel";
+import type { QuakeWeaponProjectileImpactDebugResult } from "../weapons";
 import type { QuakeWorldDebugStats } from "../world";
 
 const QUAKE_DEBUG_PROJECTION_LEAF_BUDGET_PX = 5000;
@@ -17,15 +19,35 @@ const QUAKE_DEBUG_POSE_EPSILON = 0.0001;
 
 export interface QuakeDebugHooks {
   activateEntity(entityIndex: number, sourceEntityIndex?: number): boolean;
+  canDamage(
+    inflictorX: number,
+    inflictorY: number,
+    inflictorZ: number,
+    targetX: number,
+    targetY: number,
+    targetZ: number,
+  ): QuakeCanDamageResult | null;
   copyViewUrl(): Promise<string>;
   damage(amount?: number): boolean;
+  damageWeaponTarget(entityIndex: number, amount?: number): boolean;
   debugMountEntity(entityIndex: number): boolean;
+  entityIndexes(classname?: string): number[];
   fire(): boolean;
   floorAt(x: number, y: number, maxZ?: number, minZ?: number): number | null;
   focusEntity(entityIndex: number, distance?: number, rotX?: number, rotY?: number): boolean;
   loadMap(mapName: string): Promise<boolean>;
   getWeaponTuning(): QuakeResolvedViewmodelTuning;
   resetWeaponTuning(): QuakeResolvedViewmodelTuning;
+  setExpandedLogicalCombat(enabled: boolean): boolean;
+  projectileImpact(
+    weapon: QuakeWeaponId,
+    entityIndex: number,
+    x: number,
+    y: number,
+    z: number,
+    directDamage?: number,
+  ): QuakeWeaponProjectileImpactDebugResult | null;
+  setUnmountedAi(enabled: boolean): boolean;
   setEntityOrigin(entityIndex: number, x: number, y: number, z: number): boolean;
   setWeapon(weapon: QuakeWeaponId): boolean;
   setWeaponTuning(tuning: QuakeViewmodelTuning): QuakeResolvedViewmodelTuning;
@@ -69,6 +91,10 @@ export function isQuakeDebugHooksEnabled(): boolean {
 
 export interface QuakeDebugRuntime {
   cameraRotation(): { rotX: number; rotY: number };
+  canDamage(
+    inflictorOrigin: { x: number; y: number; z: number },
+    targetOrigin: { x: number; y: number; z: number },
+  ): QuakeCanDamageResult;
   copyViewUrl(): Promise<string>;
   controls: {
     getOrigin(): [number, number, number];
@@ -77,6 +103,7 @@ export interface QuakeDebugRuntime {
   currentMapName(): string;
   activateEntity(entityIndex: number, sourceEntityIndex?: number): boolean;
   damagePlayer(amount: number): boolean;
+  damageWeaponTarget(entityIndex: number, amount: number): boolean;
   debugMountEntity(entityIndex: number): boolean;
   entities(): ReadonlyMap<number, QuakeEntity>;
   fireWeapon(): void;
@@ -92,6 +119,8 @@ export interface QuakeDebugRuntime {
   mapExists(mapName: string): boolean;
   getWeaponTuning(): QuakeResolvedViewmodelTuning;
   resetWeaponTuning(): QuakeResolvedViewmodelTuning;
+  setExpandedLogicalCombat(enabled: boolean): void;
+  setUnmountedAi(enabled: boolean): void;
   setWeapon(weapon: QuakeWeaponId): boolean;
   setWeaponTuning(tuning: QuakeViewmodelTuning): QuakeResolvedViewmodelTuning;
   viewmodelDebug(): QuakeViewmodelDebugSnapshot;
@@ -100,6 +129,12 @@ export interface QuakeDebugRuntime {
   playerEyeHeight(): number;
   playerMoveDebug(): Record<string, unknown>;
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
+  projectileImpact(
+    weapon: QuakeWeaponId,
+    entityIndex: number,
+    origin: Vec3,
+    directDamage?: number,
+  ): QuakeWeaponProjectileImpactDebugResult | null;
   setCollisionBypassUntil(until: number): void;
   setShootableOrigin(entityIndex: number, origin: Vec3): boolean;
   shootablesStats(): QuakeShootablesDebugStats;
@@ -119,18 +154,27 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
   (window as QuakeDebugWindow).__cssQuakeDebug = {
     activateEntity: (entityIndex, sourceEntityIndex) =>
       activateQuakeDebugEntity(runtime, entityIndex, sourceEntityIndex),
+    canDamage: (inflictorX, inflictorY, inflictorZ, targetX, targetY, targetZ) =>
+      canDamageQuakeDebugTrace(runtime, inflictorX, inflictorY, inflictorZ, targetX, targetY, targetZ),
     copyViewUrl: () => runtime.copyViewUrl(),
     damage: (amount) => damageQuakeDebugPlayer(runtime, amount),
+    damageWeaponTarget: (entityIndex, amount) =>
+      damageQuakeDebugWeaponTarget(runtime, entityIndex, amount),
     debugMountEntity: (entityIndex) => debugMountQuakeEntity(runtime, entityIndex),
+    entityIndexes: (classname) => quakeDebugEntityIndexes(runtime, classname),
     fire: () => fireQuakeDebugWeapon(runtime),
     floorAt: (x, y, maxZ, minZ) => runtime.floorAt(x, y, maxZ, minZ),
     focusEntity: (entityIndex, distance, rotX, rotY) =>
       focusQuakeDebugEntity(runtime, entityIndex, distance, rotX, rotY),
     getWeaponTuning: () => runtime.getWeaponTuning(),
     loadMap: (mapName) => loadQuakeDebugMap(runtime, mapName),
+    projectileImpact: (weapon, entityIndex, x, y, z, directDamage) =>
+      projectileImpactQuakeDebugWeapon(runtime, weapon, entityIndex, x, y, z, directDamage),
     resetWeaponTuning: () => runtime.resetWeaponTuning(),
+    setExpandedLogicalCombat: (enabled) => setQuakeDebugExpandedLogicalCombat(runtime, enabled),
     setEntityOrigin: (entityIndex, x, y, z) =>
       setQuakeDebugEntityOrigin(runtime, entityIndex, x, y, z),
+    setUnmountedAi: (enabled) => setQuakeDebugUnmountedAi(runtime, enabled),
     setWeapon: (weapon) => setQuakeDebugWeapon(runtime, weapon),
     setWeaponTuning: (tuning) => runtime.setWeaponTuning(tuning),
     viewmodel: () => runtime.viewmodelDebug(),
@@ -154,6 +198,25 @@ function activateQuakeDebugEntity(
   return runtime.activateEntity(entityIndex, sourceEntityIndex);
 }
 
+function canDamageQuakeDebugTrace(
+  runtime: QuakeDebugRuntime,
+  inflictorX: number,
+  inflictorY: number,
+  inflictorZ: number,
+  targetX: number,
+  targetY: number,
+  targetZ: number,
+): QuakeCanDamageResult | null {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return null;
+  if (!Number.isFinite(inflictorX) || !Number.isFinite(inflictorY) || !Number.isFinite(inflictorZ)) return null;
+  if (!Number.isFinite(targetX) || !Number.isFinite(targetY) || !Number.isFinite(targetZ)) return null;
+  runtime.hideMainMenu();
+  return runtime.canDamage(
+    { x: inflictorX, y: inflictorY, z: inflictorZ },
+    { x: targetX, y: targetY, z: targetZ },
+  );
+}
+
 function damageQuakeDebugPlayer(runtime: QuakeDebugRuntime, amount = 10): boolean {
   if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
   const previousHealth = runtime.inventory().health;
@@ -164,10 +227,30 @@ function damageQuakeDebugPlayer(runtime: QuakeDebugRuntime, amount = 10): boolea
     runtime.inventory().armor < previousArmor;
 }
 
+function damageQuakeDebugWeaponTarget(
+  runtime: QuakeDebugRuntime,
+  entityIndex: number,
+  amount = 100,
+): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  if (!Number.isFinite(entityIndex) || !Number.isFinite(amount)) return false;
+  runtime.hideMainMenu();
+  return runtime.damageWeaponTarget(Math.round(entityIndex), amount);
+}
+
 function debugMountQuakeEntity(runtime: QuakeDebugRuntime, entityIndex: number): boolean {
   if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
   runtime.hideMainMenu();
   return runtime.debugMountEntity(entityIndex);
+}
+
+function quakeDebugEntityIndexes(runtime: QuakeDebugRuntime, classname?: string): number[] {
+  const selectedClassname = classname?.trim() ?? "";
+  return [...runtime.entities().values()]
+    .filter((entity) => !selectedClassname || entity.classname === selectedClassname)
+    .map((entity) => entity.index)
+    .filter((entityIndex) => Number.isFinite(entityIndex))
+    .sort((a, b) => a - b);
 }
 
 async function loadQuakeDebugMap(runtime: QuakeDebugRuntime, mapName: string): Promise<boolean> {
@@ -191,6 +274,27 @@ function fireQuakeDebugWeapon(runtime: QuakeDebugRuntime): boolean {
   return true;
 }
 
+function projectileImpactQuakeDebugWeapon(
+  runtime: QuakeDebugRuntime,
+  weapon: QuakeWeaponId,
+  entityIndex: number,
+  x: number,
+  y: number,
+  z: number,
+  directDamage?: number,
+): QuakeWeaponProjectileImpactDebugResult | null {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return null;
+  if (!Number.isFinite(entityIndex) || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+  if (directDamage !== undefined && !Number.isFinite(directDamage)) return null;
+  runtime.hideMainMenu();
+  return runtime.projectileImpact(
+    weapon,
+    Math.round(entityIndex),
+    runtime.pointToPoly({ x, y, z }),
+    directDamage,
+  );
+}
+
 function setQuakeDebugEntityOrigin(
   runtime: QuakeDebugRuntime,
   entityIndex: number,
@@ -202,6 +306,18 @@ function setQuakeDebugEntityOrigin(
   if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return false;
   runtime.hideMainMenu();
   return runtime.setShootableOrigin(entityIndex, runtime.pointToPoly({ x, y, z }));
+}
+
+function setQuakeDebugExpandedLogicalCombat(runtime: QuakeDebugRuntime, enabled: boolean): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  runtime.setExpandedLogicalCombat(Boolean(enabled));
+  return true;
+}
+
+function setQuakeDebugUnmountedAi(runtime: QuakeDebugRuntime, enabled: boolean): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  runtime.setUnmountedAi(Boolean(enabled));
+  return true;
 }
 
 function setQuakeDebugWeapon(runtime: QuakeDebugRuntime, weapon: QuakeWeaponId): boolean {

@@ -2,9 +2,11 @@ import type {
   QuakeShootablesVisibilityChurnStats,
   QuakeShootablesVisibilitySnapshot,
 } from "../debug/churnStats";
+import type { QuakeCombatBudgetDebugStats } from "./combatBudget";
 import type { QuakeShootableState } from "./state";
 
 export interface QuakeShootablesDebugStats {
+  combatBudget: QuakeCombatBudgetDebugStats;
   totalShootables: number;
   liveShootables: number;
   deadShootables: number;
@@ -94,6 +96,7 @@ export interface QuakeShootablesDebugCullingSnapshot {
 
 export interface QuakeShootablesDebugStatsOptions {
   animationFramePrewarmQueue: number;
+  combatBudget: QuakeCombatBudgetDebugStats;
   desiredPrewarm: number;
   prewarmQueue: number;
   shootables: Iterable<QuakeShootableState>;
@@ -103,6 +106,7 @@ export interface QuakeShootablesDebugStatsOptions {
 
 export function quakeShootablesDebugStats({
   animationFramePrewarmQueue,
+  combatBudget,
   desiredPrewarm,
   prewarmQueue,
   shootables,
@@ -122,6 +126,7 @@ export function quakeShootablesDebugStats({
     }
   }
   return {
+    combatBudget,
     totalShootables,
     liveShootables: totalShootables - deadShootables,
     deadShootables,

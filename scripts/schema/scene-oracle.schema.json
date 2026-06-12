@@ -1,0 +1,271 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cssquake.local/schema/scene-oracle.schema.json",
+  "title": "cssQuake vkQuake scene oracle scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "map",
+    "skill",
+    "seed",
+    "coordinateSpace",
+    "sourceAuthority",
+    "tickHz",
+    "durationTicks",
+    "player",
+    "edits",
+    "actions",
+    "watch",
+    "snapshotsEveryTicks"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "map": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "skill": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "coordinateSpace": {
+      "const": "quake-units"
+    },
+    "sourceAuthority": {
+      "type": "string",
+      "enum": [
+        "quakec-progs-dat-via-vkquake",
+        "netquake-source",
+        "vkquake-runtime"
+      ]
+    },
+    "tickHz": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "durationTicks": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "player": {
+      "$ref": "#/$defs/player"
+    },
+    "edits": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/edit"
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/action"
+      }
+    },
+    "watch": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/watch"
+      }
+    },
+    "snapshotsEveryTicks": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "tolerances": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "eventTicks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "originUnits": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "number"
+      }
+    },
+    "player": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "origin",
+        "angles",
+        "health"
+      ],
+      "properties": {
+        "origin": {
+          "$ref": "#/$defs/vec3"
+        },
+        "angles": {
+          "$ref": "#/$defs/vec3"
+        },
+        "health": {
+          "type": "number"
+        },
+        "weapon": {
+          "type": "string"
+        }
+      }
+    },
+    "edit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "select"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
+        },
+        "select": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "classname": {
+              "type": "string"
+            },
+            "targetname": {
+              "type": "string"
+            },
+            "edict": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "nth": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "minProperties": 1
+        },
+        "origin": {
+          "$ref": "#/$defs/vec3"
+        },
+        "health": {
+          "type": "number"
+        },
+        "enemy": {
+          "type": "string"
+        },
+        "goalentity": {
+          "type": "string"
+        },
+        "flags": {
+          "type": "integer"
+        },
+        "spawnflags": {
+          "type": "integer"
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tick",
+        "type"
+      ],
+      "properties": {
+        "tick": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "canDamage",
+            "damage",
+            "rocketTouch",
+            "fire",
+            "use",
+            "move"
+          ]
+        },
+        "target": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "attacker": {
+          "type": "string"
+        },
+        "inflictor": {
+          "type": "string"
+        },
+        "expectedResult": {
+          "type": "boolean"
+        },
+        "weapon": {
+          "type": "string"
+        },
+        "missileOrigin": {
+          "$ref": "#/$defs/vec3"
+        },
+        "missileVelocity": {
+          "$ref": "#/$defs/vec3"
+        },
+        "expectedDirectDamageMin": {
+          "type": "number"
+        },
+        "expectedDirectDamageMax": {
+          "type": "number"
+        },
+        "expectedPlayerSplashDamageMin": {
+          "type": "number"
+        },
+        "expectedPlayerSplashDamageMax": {
+          "type": "number"
+        },
+        "expectedTargetKilled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "watch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "classname": {
+          "type": "string"
+        },
+        "edict": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "minProperties": 1
+    }
+  }
+}

@@ -12,7 +12,7 @@ import {
   type QuakeMonsterProjectileOffsetUnits,
   type QuakeMonsterTouchDamageFrameEvent,
 } from "../../generated/quakeMonsterLogic";
-import { COLLISION_EPSILON, QUAKE_COLLISION_UNIT_SCALE } from "../constants";
+import { COLLISION_EPSILON, QUAKE_COLLISION_UNIT_SCALE, QUAKE_PLAYER_MINS_Z } from "../constants";
 import { normalizeVec3, subtractVec3 } from "../math";
 import type { QuakeMonsterStateStep } from "../quakeMonsterStateRunner";
 import {
@@ -28,7 +28,11 @@ import {
   type QuakeMonsterCombatProfile,
   type QuakeMonsterProjectileOffset,
 } from "./combatFacts";
-import { quakecRandomDamage } from "./damage";
+import {
+  quakecCanDamageAnyTracePointClear,
+  quakecCanDamageTracePointsForRuntimeOrigin,
+  quakecRandomDamage,
+} from "./damage";
 import { quakecProjectileCombatProfile } from "./enemyProjectiles";
 import type {
   QuakeDamageTraceResult,
@@ -627,7 +631,15 @@ function quakecCanDamagePlayer(
   playerOrigin: [number, number, number] | Vec3,
 ): boolean {
   const bounds = context.playerDamageBounds(playerOrigin);
-  return context.hasLineOfSight(start, quakecBoundsCenter(bounds)) || context.hasLineOfSight(start, playerOrigin);
+  return quakecCanDamageAnyTracePointClear(
+    start,
+    quakecCanDamageTracePointsForRuntimeOrigin([
+      playerOrigin[0],
+      playerOrigin[1],
+      bounds.min[2] - QUAKE_PLAYER_MINS_Z,
+    ]),
+    context.hasLineOfSight,
+  );
 }
 
 function quakecPointToPlayerBoundsDistanceSq(

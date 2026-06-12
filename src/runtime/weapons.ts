@@ -23,10 +23,15 @@ import {
   type QuakeProjectileState,
   type QuakeProjectileTrace,
 } from "./projectiles";
+import {
+  quakecCanDamageAnyTracePointClear,
+  quakecCanDamageTracePointsForRuntimeOrigin,
+} from "./shootables/damage";
 
 export interface QuakeWeaponShootableTarget {
   entity: QuakeEntity;
   dead: boolean;
+  origin: Vec3;
   bounds: {
     min: Vec3;
     max: Vec3;
@@ -36,6 +41,12 @@ export interface QuakeWeaponShootableTarget {
 export interface QuakeWeaponsController {
   reset(): void;
   canFire(now?: number): boolean;
+  debugProjectileImpact(
+    weapon: QuakeWeaponId,
+    entityIndex: number,
+    origin: Vec3,
+    directDamage?: number,
+  ): QuakeWeaponProjectileImpactDebugResult | null;
   fire(now?: number): boolean;
   viewTraceAtCrosshair(range: number): QuakeUseTrace | null;
   weaponTraceAtCrosshair(): QuakeUseTrace | null;
@@ -73,6 +84,7 @@ export interface QuakeWeaponsControllerOptions {
   damageShootable(entityIndex: number, amount: number): boolean;
   damageBrushEntity(entityIndex: number, amount: number): boolean;
   damagePlayer(amount: number): boolean;
+  canDamageTargetOrigin?(start: Vec3, targetOrigin: Vec3): boolean;
   damageMultiplier?: () => number;
   random?: () => number;
   onFire?(event: QuakeWeaponFireEvent): void;
@@ -90,6 +102,20 @@ export interface QuakeWeaponLightningBeamVisual {
   end: Vec3;
   start: Vec3;
   tempEntity: string;
+  weapon: QuakeWeaponId;
+}
+
+export interface QuakeWeaponProjectileImpactDebugResult {
+  directDamage: number;
+  directEntityIndex: number;
+  directEntityClassname: string | null;
+  impactResult: "keep" | "remove";
+  origin: Vec3;
+  splashDamage: number;
+  splashIgnoresDirectHit: boolean;
+  splashRadius: number;
+  splashRadiusQuakeUnits: number;
+  splashRequiresCanDamage: boolean;
   weapon: QuakeWeaponId;
 }
 
@@ -142,6 +168,7 @@ interface QuakeBeamUnderwaterDischargeProfile {
   distanceScale: number;
   radiusAddUnits: number;
   clearsAmmoField: QuakeAmmoField;
+  requiresCanDamage: boolean;
   shamblerScale?: number;
 }
 
@@ -192,6 +219,7 @@ interface QuakeLinearProjectileFireProfile extends QuakeWeaponFireProfileBase {
   sourceZOffsetUnits: number;
   splashDamage?: number;
   splashIgnoresDirectHit?: boolean;
+  splashRequiresCanDamage?: boolean;
   splashRadius?: number;
   verticalVelocity?: number;
 }
@@ -246,8 +274,6 @@ const QUAKE_WEAPON_SOURCE_Z_OFFSET = quakeHitscanSourceZOffset(QUAKE_SHOTGUN_FIR
 // Runtime aim assist, not QuakeC logic: keeps CSS hit-feel stable without a recurring correction loop.
 const QUAKE_WEAPON_AIM_DOT = 0.93;
 const QUAKE_WEAPON_AIM_POINT_Z = 0.6;
-// Compatibility override: source facts say rocket launcher cooldown is 800ms, but WPF-2 froze current gameplay at 600ms.
-const QUAKE_RUNTIME_ROCKET_COOLDOWN_COMPAT_MS = 600;
 // Runtime projectile physics constants owned by this TypeScript simulation, not weapon fire-profile source facts.
 const QUAKE_PROJECTILE_BOUNCE_OVERBOUNCE = 1.5;
 const QUAKE_PROJECTILE_BOUNCE_STOP_EPSILON = 0.1 * QUAKE_COLLISION_UNIT_SCALE;
@@ -275,9 +301,7 @@ const QUAKE_WEAPON_FIRE_PROFILES: Record<QuakeWeaponId, QuakeWeaponFireProfile> 
   grenadelauncher: quakeProjectileFireProfile("grenadelauncher", {
     gravity: QUAKE_GRENADE_PROJECTILE_GRAVITY,
   }),
-  rocketlauncher: quakeProjectileFireProfile("rocketlauncher", {
-    cooldownMs: QUAKE_RUNTIME_ROCKET_COOLDOWN_COMPAT_MS,
-  }),
+  rocketlauncher: quakeProjectileFireProfile("rocketlauncher"),
   lightning: quakeBeamFireProfile("lightning"),
 };
 
@@ -371,6 +395,7 @@ function quakeProjectileFireProfile(
     ...(directDamage?.halfDamageClassnames ? { halfDamageClassnames: directDamage.halfDamageClassnames } : {}),
     ...(radiusDamage?.damageUnits !== undefined ? { splashDamage: radiusDamage.damageUnits } : {}),
     ...(radiusDamage?.ignore === "world" ? { splashIgnoresDirectHit: false } : {}),
+    ...(radiusDamage?.requiresCanDamage ? { splashRequiresCanDamage: true } : {}),
     ...(radiusDamage?.radiusUnits !== undefined
       ? { splashRadius: quakeUnitsToCollisionUnits(radiusDamage.radiusUnits) }
       : {}),
@@ -434,6 +459,7 @@ function quakeBeamUnderwaterDischargeProfile(
     damagePerAmmoCell,
     distanceScale: radiusDamage.distanceScale ?? 0.5,
     radiusAddUnits: radiusDamage.radiusAddUnits ?? 0,
+    requiresCanDamage: radiusDamage.requiresCanDamage === true,
     ...(radiusDamage.shamblerScale !== undefined ? { shamblerScale: radiusDamage.shamblerScale } : {}),
   };
 }
@@ -612,6 +638,7 @@ export function createQuakeWeaponsController({
   damageShootable,
   damageBrushEntity,
   damagePlayer,
+  canDamageTargetOrigin,
   damageMultiplier,
   random = Math.random,
   onFire,
@@ -704,6 +731,58 @@ export function createQuakeWeaponsController({
 
   function weaponTraceForFire(): QuakeUseTrace | null {
     return weaponAimForFire().trace;
+  }
+
+  function debugProjectileImpact(
+    weapon: QuakeWeaponId,
+    entityIndex: number,
+    origin: Vec3,
+    directDamage?: number,
+  ): QuakeWeaponProjectileImpactDebugResult | null {
+    const profile = QUAKE_WEAPON_FIRE_PROFILES[weapon];
+    if (!Number.isFinite(entityIndex) || !vec3IsFinite(origin)) return null;
+    if (!profile || !quakeWeaponFireProfileIsRuntimeSupported(profile) || profile.kind !== "projectile") return null;
+    const directEntityIndex = Math.round(entityIndex);
+    const entity = getEntities().get(directEntityIndex);
+    if (!entity) return null;
+    const damage = Number.isFinite(directDamage) ? Math.max(0, directDamage) : projectileDirectDamage(profile);
+    const direction: Vec3 = [0, -1, 0];
+    const impactOrigin = [...origin] as Vec3;
+    const velocity: Vec3 = [
+      direction[0] * profile.speed,
+      direction[1] * profile.speed,
+      direction[2] * profile.speed,
+    ];
+    const projectile: QuakeWeaponProjectile = {
+      damage,
+      direction,
+      expiresAt: performance.now() + profile.lifetimeMs,
+      origin: impactOrigin,
+      profile,
+      speed: profile.speed,
+      velocity,
+    };
+    const trace: QuakeProjectileTrace = {
+      classname: entity.classname,
+      end: impactOrigin,
+      entityIndex: directEntityIndex,
+      fraction: 0,
+      planeNormal: null,
+    };
+    const impactResult = handleProjectileImpact(projectile, trace);
+    return {
+      directDamage: damage,
+      directEntityClassname: entity.classname ?? null,
+      directEntityIndex,
+      impactResult,
+      origin: impactOrigin,
+      splashDamage: profile.splashDamage ?? 0,
+      splashIgnoresDirectHit: profile.splashIgnoresDirectHit !== false,
+      splashRadius: profile.splashRadius ?? 0,
+      splashRadiusQuakeUnits: (profile.splashRadius ?? 0) / QUAKE_COLLISION_UNIT_SCALE,
+      splashRequiresCanDamage: profile.splashRequiresCanDamage === true,
+      weapon,
+    };
   }
 
   function weaponAimForFire(): { ray: QuakeViewRay; direction: Vec3; trace: QuakeUseTrace | null } {
@@ -967,6 +1046,7 @@ export function createQuakeWeaponsController({
       if (shootable.dead) continue;
       const distance = distanceToShootableCenter(origin, shootable);
       if (distance > radius) continue;
+      if (!radiusDamageCanDamage(origin, shootable.origin, profile.requiresCanDamage)) continue;
       let damage = radiusDamageAtDistance(damageUnits, distance, profile.distanceScale);
       if (damage <= 0) continue;
       if (profile.shamblerScale !== undefined && shootable.entity.classname === "monster_shambler") {
@@ -1136,6 +1216,7 @@ export function createQuakeWeaponsController({
       if (shootable.dead || entityIndex === ignoredEntityIndex) continue;
       const distance = distanceToShootableCenter(origin, shootable);
       if (distance > profile.splashRadius) continue;
+      if (!radiusDamageCanDamage(origin, shootable.origin, profile.splashRequiresCanDamage === true)) continue;
       let damage = projectileSplashDamageAtDistance(profile, distance);
       if (damage <= 0) continue;
       if (profile.halfDamageClassnames?.includes(shootable.entity.classname)) damage *= 0.5;
@@ -1149,6 +1230,7 @@ export function createQuakeWeaponsController({
     if (!profile.splashDamage || !profile.splashRadius) return false;
     const distance = distanceToPlayerCenter(origin);
     if (distance > profile.splashRadius) return false;
+    if (!radiusDamageCanDamage(origin, playerQuakeEntityOrigin(), profile.splashRequiresCanDamage === true)) return false;
     const damage = projectileSplashDamageAtDistance(profile, distance) * 0.5;
     if (damage <= 0) return false;
     return damagePlayer(scaledWeaponDamage(damage));
@@ -1158,10 +1240,11 @@ export function createQuakeWeaponsController({
     origin: Vec3,
     damageUnits: number,
     radius: number,
-    profile: Pick<QuakeBeamUnderwaterDischargeProfile, "attackerSelfScale" | "distanceScale">,
+    profile: Pick<QuakeBeamUnderwaterDischargeProfile, "attackerSelfScale" | "distanceScale" | "requiresCanDamage">,
   ): boolean {
     const distance = distanceToPlayerCenter(origin);
     if (distance > radius) return false;
+    if (!radiusDamageCanDamage(origin, playerQuakeEntityOrigin(), profile.requiresCanDamage)) return false;
     const damage = radiusDamageAtDistance(damageUnits, distance, profile.distanceScale) * profile.attackerSelfScale;
     if (damage <= 0) return false;
     return damagePlayer(scaledWeaponDamage(damage));
@@ -1194,6 +1277,18 @@ export function createQuakeWeaponsController({
       origin[1],
       origin[2] - eyeHeight - QUAKE_PLAYER_MINS_Z,
     ];
+  }
+
+  function radiusDamageCanDamage(start: Vec3, targetOrigin: Vec3, required: boolean): boolean {
+    if (!required) return true;
+    if (canDamageTargetOrigin) return canDamageTargetOrigin(start, targetOrigin);
+    const collisionWorld = getCollisionWorld();
+    if (!collisionWorld?.traceUse) return true;
+    return quakecCanDamageAnyTracePointClear(
+      start,
+      quakecCanDamageTracePointsForRuntimeOrigin(targetOrigin),
+      (traceStart, traceEnd) => collisionWorld.traceUse(traceStart, traceEnd) === null,
+    );
   }
 
   function damageBeamTraces(profile: QuakeBeamFireProfile, start: Vec3, end: Vec3): boolean {
@@ -1259,6 +1354,7 @@ export function createQuakeWeaponsController({
   return {
     reset,
     canFire,
+    debugProjectileImpact,
     fire,
     viewTraceAtCrosshair,
     weaponTraceAtCrosshair,
@@ -1300,6 +1396,10 @@ function quakeWeaponFireProfileIsRuntimeSupported(
   profile: QuakeWeaponFireProfile,
 ): profile is QuakeRuntimeWeaponFireProfile {
   return profile.runtime === "supported";
+}
+
+function vec3IsFinite(value: Vec3): boolean {
+  return value.every(Number.isFinite);
 }
 
 function weaponProjectileSourceOrigin(

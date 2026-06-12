@@ -55,6 +55,7 @@ export function createQuakeEntityMeshMountFlow(
     if (!handle) return null;
     handle.element.classList.add("pickup");
     stripPolyMeshMetadata(handle.element);
+    keepPickupBackfacesVisible(handle.element);
     if (isQuakeDebugDomMetadataEnabled()) {
       handle.element.dataset.entityIndex = String(entity.index);
       handle.element.dataset.classname = entity.classname;
@@ -122,6 +123,12 @@ function mountEntityModelMesh(
   return frameSet
     ? mountQuakeRenderBundleFrameSetMesh(sceneElement, frameSet, frameIndex, frameSetMountOptions)
     : mountQuakeRenderBundleMesh(sceneElement, quakePickupModelRenderBundle(model, frameIndex));
+}
+
+function keepPickupBackfacesVisible(element: HTMLElement): void {
+  for (const leaf of element.querySelectorAll<HTMLElement>("b,i,s,u")) {
+    leaf.style.backfaceVisibility = "visible";
+  }
 }
 
 function makeParseResult(polygons: Polygon[]): ParseResult {

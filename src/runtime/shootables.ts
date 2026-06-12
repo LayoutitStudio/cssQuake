@@ -14,6 +14,7 @@ import {
   PLAYER_HEIGHT,
   PLAYER_RADIUS,
   QUAKE_COLLISION_UNIT_SCALE,
+  QUAKE_PLAYER_MINS_Z,
   STEP_HEIGHT,
 } from "./constants";
 import type { QuakeCollisionResult } from "./collision";
@@ -54,6 +55,7 @@ import {
   type QuakeBounds,
   type QuakeShootableBounds,
 } from "./shootables/bounds";
+import { createQuakeCombatBudgetRuntime, QUAKE_COMBAT_BUDGET_LIMITS } from "./shootables/combatBudget";
 import {
   quakeBossHealthForSkill,
   quakeBossPainBranchForHealth,
@@ -91,6 +93,11 @@ import {
   type QuakeShootablesDebugStats,
 } from "./shootables/debugStats";
 import {
+  quakecCanDamageAnyTracePointClear,
+  quakecCanDamageFromTracePoints,
+  quakecCanDamageTracePointsForRuntimeOrigin,
+  type QuakeCanDamageResult,
+  type QuakeCanDamageTracePoint,
   quakeRadiusDamageAmount,
   quakeShootableDeathRadiusDamage,
   shootableHealth,
@@ -176,10 +183,15 @@ export type { QuakeShootableProgressEntry, QuakeShootablesProgressSnapshot } fro
 
 export interface QuakeShootablesController {
   clear(): void;
+  canDamageTargetOrigin(start: Vec3, targetOrigin: Vec3): boolean;
   debugCullingSnapshot(origin: [number, number, number]): QuakeShootablesDebugCullingSnapshot;
   debugStats(): QuakeShootablesDebugStats;
+  debugCanDamageTrace(start: Vec3, tracePoints: readonly QuakeCanDamageTracePoint[]): QuakeCanDamageResult;
+  debugDamageWeaponTarget(entityIndex: number, amount: number): boolean;
   debugMountEntity(entityIndex: number): boolean;
   debugSetOrigin(entityIndex: number, origin: Vec3): boolean;
+  setExpandedLogicalCombatEnabled(enabled: boolean): void;
+  setUnmountedAiEnabled(enabled: boolean): void;
   spawn(
     entities: QuakeEntity[],
     modelLibrary: QuakePickupModelLibrary | null,
@@ -296,6 +308,7 @@ const QUAKE_CONTENTS_SOLID = -2;
 const QUAKE_SHOOTABLE_TRANSFORM_EPSILON = COLLISION_EPSILON;
 const QUAKE_SHOOTABLE_MOTION_MATERIAL_ORIGIN_EPSILON_SQ = 0.000001;
 const QUAKE_SHOOTABLE_MOTION_MATERIAL_FORWARD_EPSILON_SQ = 0.000001;
+type QuakeShootableLineOfSightResult = "clear" | "blocked" | "deferred";
 type QuakeShootableTraceDetails = Record<string, boolean | number | string | null | undefined>;
 
 function markShootableTrace(
@@ -329,7 +342,7 @@ export function createQuakeShootablesController({
   getPlayerForward,
   getPlayerEyeHeight,
   getPlayerOrigin,
-  hasLineOfSight,
+  hasLineOfSight: sourceHasLineOfSight,
   isPlayerInvisible,
   isGameplayPaused,
   isInPlayerView,
@@ -351,6 +364,7 @@ export function createQuakeShootablesController({
   let monsterPathCornersByTargetname = new Map<string, QuakeMonsterPathCorner>();
   let monsterJumpTriggers: QuakeMonsterJumpTrigger[] = [];
   let visibilityChurn = createQuakeShootablesVisibilityChurnStats();
+  const combatBudget = createQuakeCombatBudgetRuntime();
   let lastVisibilitySelectionKey = "";
   let lastMotionMaterialForward: Vec3 | null = null;
   let lastMotionMaterialOrigin: Vec3 | null = null;
@@ -366,6 +380,20 @@ export function createQuakeShootablesController({
     timeoutMs: QUAKE_SHOOTABLE_PREWARM_TIMEOUT_MS,
     trimAnimationFrameHandles: trimShootableAnimationFrameHandles,
   });
+
+  function budgetedLineOfSight(start: Vec3, end: Vec3): QuakeShootableLineOfSightResult {
+    if (!combatBudget.tryRecordLineOfSightCheck()) return "deferred";
+    return sourceHasLineOfSight(start, end) ? "clear" : "blocked";
+  }
+
+  function unbudgetedLineOfSight(start: Vec3, end: Vec3): QuakeShootableLineOfSightResult {
+    return sourceHasLineOfSight(start, end) ? "clear" : "blocked";
+  }
+
+  function hasLineOfSight(start: Vec3, end: Vec3): boolean {
+    return budgetedLineOfSight(start, end) === "clear";
+  }
+
   const enemyProjectiles = createQuakeEnemyProjectileRuntime({
     addMesh,
     boundsCenter: quakecBoundsCenter,
@@ -482,6 +510,7 @@ export function createQuakeShootablesController({
     shootables = createQuakeShootableStateMap();
     destroyedEntityIndexes = new Set();
     enemyProjectiles.clear();
+    combatBudget.reset();
     currentModelLibrary = null;
     monsterPathCornersByTargetname = new Map();
     monsterJumpTriggers = [];
@@ -615,6 +644,7 @@ export function createQuakeShootablesController({
 
     const now = performance.now();
     enemy.awake = true;
+    recordShootableCombatInterest(shootable, now);
     enemy.quakecIdealYaw = quakeYawToOrigin(shootable.origin, getPlayerOrigin());
     enemy.animationMode = "idle";
     enemy.animationLockUntil = Math.max(enemy.animationLockUntil, now + QUAKE_MONSTER_USE_FOUND_TARGET_DELAY_MS);
@@ -700,6 +730,7 @@ export function createQuakeShootablesController({
     if (!shootable || shootable.dead) return false;
     const now = performance.now();
     const damageAmount = Math.max(0, amount);
+    recordShootableCombatInterest(shootable, now);
     if (quakeBossScriptedLifecycle(shootable.entity.classname)) {
       markShootableTrace("boss-damage-ignored", shootable, { amount: damageAmount });
       return false;
@@ -882,7 +913,9 @@ export function createQuakeShootablesController({
     const playerCenter = quakecBoundsCenter(playerBounds);
     const distanceSq = distanceSq3(origin, playerCenter);
     if (distanceSq > radius * radius) return false;
-    if (radiusDamage.requiresCanDamage && !hasLineOfSight(origin, playerCenter)) return false;
+    if (radiusDamage.requiresCanDamage && !quakecCanDamageTargetOrigin(origin, quakecPlayerEntityOrigin(playerOrigin))) {
+      return false;
+    }
     const damageAmount = quakeRadiusDamageAmount(radiusDamage, distanceSq, 1);
     if (damageAmount <= 0) return false;
     const damaged = damagePlayer(damageAmount);
@@ -903,9 +936,26 @@ export function createQuakeShootablesController({
     const radius = quakecScaleUnits(radiusDamage.radiusUnits);
     const distanceSq = distanceSq3(origin, targetCenter);
     if (distanceSq > radius * radius) return 0;
-    if (radiusDamage.requiresCanDamage && !hasLineOfSight(origin, targetCenter)) return 0;
+    if (radiusDamage.requiresCanDamage && !quakecCanDamageTargetOrigin(origin, target.origin)) return 0;
     const classnameScale = target.entity.classname === "monster_shambler" ? radiusDamage.shamblerScale : 1;
     return quakeRadiusDamageAmount(radiusDamage, distanceSq, classnameScale);
+  }
+
+  function quakecCanDamageTargetOrigin(start: Vec3, targetOrigin: Vec3): boolean {
+    return quakecCanDamageAnyTracePointClear(
+      start,
+      quakecCanDamageTracePointsForRuntimeOrigin(targetOrigin),
+      hasLineOfSight,
+    );
+  }
+
+  function quakecPlayerEntityOrigin(playerOrigin: [number, number, number] | Vec3): Vec3 {
+    const eyeHeight = Math.max(getPlayerEyeHeight(), PLAYER_HEIGHT);
+    return [
+      playerOrigin[0],
+      playerOrigin[1],
+      playerOrigin[2] - eyeHeight - QUAKE_PLAYER_MINS_Z,
+    ];
   }
 
   function resolvePlayerCollision(
@@ -929,14 +979,50 @@ export function createQuakeShootablesController({
   }
 
   function* weaponTargets(): Iterable<QuakeWeaponShootableTarget> {
+    combatBudget.recordWeaponTargetQuery();
+    const expandedLogicalCombat = combatBudget.expandedLogicalCombatEnabled();
+    const playerOrigin = expandedLogicalCombat ? getPlayerOrigin() : null;
+    let logicalWeaponTargetsYielded = 0;
     for (const shootable of shootables.values()) {
-      if (!shootable.handle || !shootable.visible) continue;
+      combatBudget.recordWeaponTargetCandidate();
+      if (!shouldYieldWeaponTarget(shootable, playerOrigin, logicalWeaponTargetsYielded)) continue;
+      if (!shootable.handle || !shootable.visible) logicalWeaponTargetsYielded++;
+      combatBudget.recordWeaponTargetYield();
       yield {
         entity: shootable.entity,
         dead: shootable.dead || isZombieNonSolid(shootable),
+        origin: shootable.origin,
         bounds: shootableCollisionWorldBounds(shootable),
       };
     }
+  }
+
+  function shouldYieldWeaponTarget(
+    shootable: QuakeShootableState,
+    playerOrigin: [number, number, number] | null,
+    logicalWeaponTargetsYielded: number,
+  ): boolean {
+    if (shootable.handle && shootable.visible) return true;
+    if (!playerOrigin || !isLiveLogicalWeaponTarget(shootable)) return false;
+    if (logicalWeaponTargetsYielded >= QUAKE_COMBAT_BUDGET_LIMITS.combatInterestSet) return false;
+    if (!isEventBoundLogicalWeaponTarget(shootable, playerOrigin)) return false;
+    combatBudget.recordCombatInterest(shootable.entity.index);
+    return true;
+  }
+
+  function isEventBoundLogicalWeaponTarget(
+    shootable: QuakeShootableState,
+    playerOrigin: [number, number, number],
+  ): boolean {
+    if (distanceSq3(playerOrigin, shootable.origin) > QUAKE_SHOOTABLE_MOUNT_DISTANCE_SQ) return false;
+    return isShootableInFrontOfCameraNearPlane(shootable, playerOrigin);
+  }
+
+  function isLiveLogicalWeaponTarget(shootable: QuakeShootableState): boolean {
+    return Boolean(shootable.enemy) &&
+      !shootable.dead &&
+      shootable.health > 0 &&
+      !isZombieNonSolid(shootable);
   }
 
   function snapshotProgress(): QuakeShootablesProgressSnapshot {
@@ -950,12 +1036,26 @@ export function createQuakeShootablesController({
   function debugStats(): QuakeShootablesDebugStats {
     return quakeShootablesDebugStats({
       animationFramePrewarmQueue: prewarmQueues.animationFrameQueueLength(),
+      combatBudget: combatBudget.debugStats(),
       desiredPrewarm: prewarmQueues.desiredCount(),
       prewarmQueue: prewarmQueues.prewarmQueueLength(),
       shootables: shootables.values(),
       visibilityChurn,
       visibilitySnapshot: shootableVisibilitySnapshot(),
     });
+  }
+
+  function debugCanDamageTrace(start: Vec3, tracePoints: readonly QuakeCanDamageTracePoint[]): QuakeCanDamageResult {
+    combatBudget.beginFrame(performance.now());
+    return quakecCanDamageFromTracePoints(start, tracePoints, hasLineOfSight);
+  }
+
+  function debugDamageWeaponTarget(entityIndex: number, amount: number): boolean {
+    for (const target of weaponTargets()) {
+      if (target.dead || target.entity.index !== entityIndex) continue;
+      return damage(entityIndex, amount);
+    }
+    return false;
   }
 
   function debugCullingSnapshot(origin: [number, number, number]): QuakeShootablesDebugCullingSnapshot {
@@ -1168,7 +1268,9 @@ export function createQuakeShootablesController({
         visibleTargetCount: visibleTargets.length,
       };
     }
-    const lineOfSightTargetCount = visibleTargets.filter((target) => hasLineOfSight(playerOrigin, target)).length;
+    const lineOfSightTargetCount = visibleTargets.filter(
+      (target) => unbudgetedLineOfSight(playerOrigin, target) === "clear",
+    ).length;
     return {
       canMount: lineOfSightTargetCount > 0,
       inFrontOfCamera,
@@ -1295,6 +1397,7 @@ export function createQuakeShootablesController({
 
   function syncVisibility(origin: [number, number, number], force = false): void {
     const startedAt = performance.now();
+    combatBudget.beginFrame(startedAt);
     const before = shootableVisibilitySnapshot();
     const meshHandlesCreatedBefore = visibilityChurn.totalMeshHandlesCreated;
     const meshHandlesRemovedBefore = visibilityChurn.totalMeshHandlesRemoved;
@@ -1322,6 +1425,7 @@ export function createQuakeShootablesController({
       const strictMountCandidate = visibleLeaf &&
         distanceSq <= maxDistanceSq &&
         canMountShootableHandle(shootable, origin);
+      if (strictMountCandidate) recordShootableCombatInterest(shootable, now);
       if (strictMountCandidate) shootable.lastMountCandidateAt = now;
       if (strictMountCandidate || canKeepShootableMountedByVisibilityGrace(shootable, distanceSq, now)) {
         candidates.push({ index: shootable.entity.index, distanceSq });
@@ -1494,7 +1598,13 @@ export function createQuakeShootablesController({
     const visibleTargets = shootableMountVisibilityTargets(shootable).filter((target) => isInPlayerView(target));
     if (!visibleTargets.length) return false;
     if (isOversizedShootableRenderVolume(shootable)) return true;
-    return visibleTargets.some((target) => hasLineOfSight(playerOrigin, target));
+    let lineOfSightDeferred = false;
+    for (const target of visibleTargets) {
+      const result = budgetedLineOfSight(playerOrigin, target);
+      if (result === "clear") return true;
+      if (result === "deferred") lineOfSightDeferred = true;
+    }
+    return lineOfSightDeferred && shootable.visible;
   }
 
   function canKeepShootableMountedByVisibilityGrace(
@@ -1699,6 +1809,7 @@ export function createQuakeShootablesController({
     dt: number,
     now: number,
   ): void {
+    combatBudget.beginEnemyFrame(now);
     for (const shootable of shootables.values()) {
       updateEnemy(shootable, playerOrigin, dt, now);
     }
@@ -1726,7 +1837,12 @@ export function createQuakeShootablesController({
     now: number,
   ): void {
     const enemy = shootable.enemy;
-    if (!enemy || !shootable.handle || !shootable.visible) return;
+    if (!enemy) return;
+    if (!shootable.handle || !shootable.visible) {
+      combatBudget.recordEnemyUpdate("skipped-unmounted");
+      return;
+    }
+    combatBudget.recordEnemyUpdate("mounted-visible");
     if (shootable.dead) {
       if (isShootableDeathAnimating(shootable, now)) updateEnemyAnimation(shootable, "death", now);
       return;
@@ -1803,6 +1919,20 @@ export function createQuakeShootablesController({
     } else {
       enemyMovement.faceShootableAtOrigin(shootable, movementTarget);
     }
+  }
+
+  function recordShootableCombatInterest(shootable: QuakeShootableState, now = performance.now()): void {
+    if (!combatBudget.expandedLogicalCombatEnabled()) return;
+    if (!isLiveLogicalWeaponTarget(shootable)) return;
+    combatBudget.recordCombatInterest(shootable.entity.index, now);
+  }
+
+  function setExpandedLogicalCombatEnabled(enabled: boolean): void {
+    combatBudget.setExpandedLogicalCombatEnabled(enabled);
+  }
+
+  function setUnmountedAiEnabled(enabled: boolean): void {
+    combatBudget.setUnmountedAiEnabled(enabled);
   }
 
   function enemyCombatProfile(shootable: QuakeShootableState): QuakeMonsterCombatProfile | undefined {
@@ -2030,6 +2160,7 @@ export function createQuakeShootablesController({
       return false;
     }
     if (now < enemy.nextAttackAt) return false;
+    combatBudget.recordAttackChainCheck(now);
     const quakecAttackChain = selectEnemyAttackChain(shootable, enemy, Math.sqrt(attackDistanceSq), playerOrigin, now);
     if (quakecAttackChain === null) return false;
     enemyMovement.faceShootableAtOrigin(shootable, playerOrigin);
@@ -2804,11 +2935,16 @@ export function createQuakeShootablesController({
   }
 
   return {
+    canDamageTargetOrigin: quakecCanDamageTargetOrigin,
     clear,
     debugCullingSnapshot,
     debugStats,
+    debugCanDamageTrace,
+    debugDamageWeaponTarget,
     debugMountEntity,
     debugSetOrigin,
+    setExpandedLogicalCombatEnabled,
+    setUnmountedAiEnabled,
     spawn,
     setupMonsterJumpTriggers,
     has,

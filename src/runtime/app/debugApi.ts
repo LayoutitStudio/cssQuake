@@ -1,6 +1,7 @@
 import type { Vec3 } from "@layoutit/polycss";
 
 import { QUAKE_WEAPON_ITEM_FLAGS, type QuakeWeaponId } from "../hud";
+import { quakecCanDamageTracePointsForTargetOrigin, type QuakeCanDamageResult } from "../shootables/damage";
 import {
   installQuakeDebugHooks,
   isQuakeDebugHooksEnabled,
@@ -60,6 +61,11 @@ function createQuakeAppDebugRuntime({
       rotX: runtime.scene.camera.state.rotX ?? 88,
       rotY: runtime.scene.camera.state.rotY ?? 270,
     }),
+    canDamage: (inflictorOrigin, targetOrigin): QuakeCanDamageResult =>
+      runtime.controllers.shootables.debugCanDamageTrace(
+        pointToPoly(inflictorOrigin),
+        quakecCanDamageTracePointsForTargetOrigin(targetOrigin, pointToPoly),
+      ),
     copyViewUrl,
     controls: {
       getOrigin: () => runtime.controls.getOrigin(),
@@ -67,6 +73,8 @@ function createQuakeAppDebugRuntime({
     },
     currentMapName: runtime.session.currentMapName,
     damagePlayer: (amount) => runtime.controllers.player().damage(amount),
+    damageWeaponTarget: (entityIndex, amount) =>
+      runtime.controllers.shootables.debugDamageWeaponTarget(entityIndex, amount),
     debugMountEntity: (entityIndex) => runtime.controllers.shootables.debugMountEntity(entityIndex),
     entities: runtime.session.entities,
     fireWeapon: () => runtime.controllers.weapons.fire(),
@@ -85,6 +93,7 @@ function createQuakeAppDebugRuntime({
     mapExists,
     getWeaponTuning: () => runtime.controllers.viewmodel.getTuning(),
     resetWeaponTuning: () => runtime.controllers.viewmodel.resetTuning(),
+    setExpandedLogicalCombat: (enabled) => runtime.controllers.shootables.setExpandedLogicalCombatEnabled(enabled),
     setWeapon: (weapon) => setQuakeDebugWeapon(runtime, weapon, syncHud),
     setWeaponTuning: (tuning) => runtime.controllers.viewmodel.setTuning(tuning),
     viewmodelDebug: () => runtime.controllers.viewmodel.debugSnapshot(),
@@ -93,6 +102,9 @@ function createQuakeAppDebugRuntime({
     playerEyeHeight: () => runtime.controllers.player().eyeHeight(),
     playerMoveDebug: () => runtime.controllers.player().debugMovement(),
     pointToPoly,
+    projectileImpact: (weapon, entityIndex, origin, directDamage) =>
+      runtime.controllers.weapons.debugProjectileImpact(weapon, entityIndex, origin, directDamage),
+    setUnmountedAi: (enabled) => runtime.controllers.shootables.setUnmountedAiEnabled(enabled),
     setCollisionBypassUntil,
     setShootableOrigin: (entityIndex, origin) => runtime.controllers.shootables.debugSetOrigin(entityIndex, origin),
     shootablesStats: () => runtime.controllers.shootables.debugStats(),

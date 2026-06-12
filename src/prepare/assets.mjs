@@ -4325,7 +4325,7 @@ function quakeWeaponVertex(vertex) {
 
 function quakePickupVertex(vertex) {
   const [x, y, z] = vertex;
-  return [x * QUAKE_PICKUP_MODEL_SCALE, y * QUAKE_PICKUP_MODEL_SCALE, z * QUAKE_PICKUP_MODEL_SCALE];
+  return [-x * QUAKE_PICKUP_MODEL_SCALE, -y * QUAKE_PICKUP_MODEL_SCALE, z * QUAKE_PICKUP_MODEL_SCALE];
 }
 
 function scaleQuakeModelPolygons(polygons, scale) {
@@ -4516,17 +4516,28 @@ function quakeAliasPolygonsFromPlan(model, frame, entry, options = {}) {
 }
 
 function quakeAliasPolygonFromPlan(model, frame, entry, options = {}) {
+  const indexOrder = quakeAliasRenderBundleWindingOrder(entry.indexOrder);
+  const uvs = entry.uvs ? quakeAliasRenderBundleWindingOrder(entry.uvs) : null;
   return {
-    vertices: entry.indexOrder.map((index) => quakeAliasFramePlanVertex(frame, entry, index, options)),
-    ...(entry.uvs ? { uvs: entry.uvs.map((uv) => [...uv]) } : {}),
+    vertices: indexOrder.map((index) => quakeAliasFramePlanVertex(frame, entry, index, options)),
+    ...(uvs ? { uvs: uvs.map((uv) => [...uv]) } : {}),
     ...(entry.textureTriangles ? {
-      textureTriangles: entry.textureTriangles.map((triangle) => ({
-        vertices: triangle.indices.map((index) => quakeAliasFramePlanVertex(frame, entry, index, options)),
-        uvs: triangle.uvs.map((uv) => [...uv]),
-      })),
+      textureTriangles: entry.textureTriangles.map((triangle) => {
+        const indices = quakeAliasRenderBundleWindingOrder(triangle.indices);
+        const triangleUvs = quakeAliasRenderBundleWindingOrder(triangle.uvs);
+        return {
+          vertices: indices.map((index) => quakeAliasFramePlanVertex(frame, entry, index, options)),
+          uvs: triangleUvs.map((uv) => [...uv]),
+        };
+      }),
     } : {}),
     ...(entry.data ? { data: { ...entry.data } } : {}),
   };
+}
+
+function quakeAliasRenderBundleWindingOrder(values) {
+  if (values.length < 3) return [...values];
+  return [values[0], ...values.slice(1).reverse()];
 }
 
 function quakeAliasFramePlanVertex(frame, entry, index, options = {}) {
