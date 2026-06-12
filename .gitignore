@@ -12,7 +12,6 @@ bench/
 /debug/
 .partykit/
 notes/*
-!notes/cssquake-testing-suite-plan.md
 scripts/audit*.mjs
 scripts/check*.mjs
 scripts/local/
