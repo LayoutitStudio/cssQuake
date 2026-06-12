@@ -14,7 +14,9 @@ export interface QuakeDebugRecordingSnapshotFlowOptions {
   isLoading(): boolean;
   isPaused(): boolean;
   isPointerLocked(): boolean;
+  multiplayer(): Record<string, unknown> | null;
   moversStats(): Record<string, unknown>;
+  pickupsStats(): Record<string, unknown>;
   playerMovement(): Record<string, unknown>;
   playerProgress(): Record<string, unknown>;
   shootableCulling(origin: [number, number, number]): QuakeDebugRecordingSnapshot["shootableCulling"];
@@ -57,7 +59,10 @@ export function createQuakeDebugRecordingSnapshotFlow(
       },
       shootables: options.shootablesStats(),
       shootableCulling: options.shootableCulling(view.origin),
-      pickups: capturePickupSnapshot(),
+      pickups: {
+        ...capturePickupSnapshot(),
+        ...options.pickupsStats(),
+      },
       movers: options.moversStats(),
       triggers: {
         ...options.triggersStats(),
@@ -65,6 +70,7 @@ export function createQuakeDebugRecordingSnapshotFlow(
       },
       targets: options.targets(),
       hazards: options.hazards(),
+      multiplayer: options.multiplayer(),
       viewmodel: options.viewmodel(),
       input: options.input(),
       gameplay: options.gameplay(),

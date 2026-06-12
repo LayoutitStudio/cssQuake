@@ -16,6 +16,7 @@ export interface QuakeTriggersControllerOptions {
   isEntityDisabled: (entityIndex: number) => boolean;
   isOneShotTrigger: (entity: QuakeEntity, fallback: boolean) => boolean;
   onActiveKeyChange: (key: string) => void;
+  requestTouch?: (entity: QuakeEntity) => boolean;
   triggerSpecial: (entity: QuakeEntity) => boolean;
   triggerWait: (entity: QuakeEntity, fallback: number) => number;
   transitionSerial: () => number;
@@ -36,6 +37,7 @@ export interface QuakeTriggersDebugStats {
   activeTriggerIndexes: number[];
   activeTeleporterIndexes: number[];
   cooldownTriggerIndexes: number[];
+  triggerMultipleActivationCounts: { count: number; entityIndex: number }[];
   usedTriggerIndexes: number[];
 }
 
@@ -47,6 +49,7 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
   let activeTriggers = new Set<number>();
   let usedTriggers = new Set<number>();
   let triggerCooldownUntil = new Map<number, number>();
+  let triggerMultipleActivationCounts = new Map<number, number>();
   let activeTeleportersUntil = new Map<number, number>();
   let lastOrigin: [number, number, number] | null = null;
   let activeTriggerKey = "";
@@ -55,6 +58,7 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
     activeTriggers = new Set();
     usedTriggers = new Set();
     triggerCooldownUntil = new Map();
+    triggerMultipleActivationCounts = new Map();
     activeTeleportersUntil = new Map();
     lastOrigin = null;
     setActiveKey("");
@@ -118,6 +122,7 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
       options.completeLevel(entity);
       return true;
     }
+    if (isRoomAuthoritativeTouchTrigger(entity) && options.requestTouch?.(entity)) return true;
     if (entity.classname === "trigger_once" || entity.classname === "trigger_secret") {
       options.useTargets(entity);
       if (options.isOneShotTrigger(entity, true)) options.disableEntity(entity.index);
@@ -137,6 +142,10 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
 
   const isContinuousTouchTrigger = (trigger: QuakeTouchedTrigger): boolean => {
     return trigger.classname === "trigger_push" || trigger.contact === "plat-trigger";
+  };
+
+  const isRoomAuthoritativeTouchTrigger = (entity: QuakeEntity): boolean => {
+    return entity.classname === "trigger_once" || entity.classname === "trigger_multiple";
   };
 
   const activateCounterEntity = (entity: QuakeEntity): void => {
@@ -170,6 +179,7 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
     if (wait >= 0) {
       triggerCooldownUntil.set(entity.index, now + Math.max(0, wait) * 1000);
     }
+    triggerMultipleActivationCounts.set(entity.index, (triggerMultipleActivationCounts.get(entity.index) ?? 0) + 1);
     return true;
   };
 
@@ -202,7 +212,10 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
     debugStats: () => ({
       activeTriggerIndexes: sortedTriggerIndexes(activeTriggers),
       activeTeleporterIndexes: sortedTriggerIndexes(activeTeleportersUntil),
-      cooldownTriggerIndexes: sortedTriggerIndexes(triggerCooldownUntil),
+      cooldownTriggerIndexes: activeCooldownTriggerIndexes(triggerCooldownUntil),
+      triggerMultipleActivationCounts: [...triggerMultipleActivationCounts]
+        .map(([entityIndex, count]) => ({ count, entityIndex }))
+        .sort((a, b) => a.entityIndex - b.entityIndex),
       usedTriggerIndexes: sortedTriggerIndexes(usedTriggers),
     }),
     resetActive,
@@ -211,6 +224,14 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
     activateCounterEntity,
     activateTeleporterEntity,
   };
+}
+
+function activeCooldownTriggerIndexes(values: Map<number, number>): number[] {
+  const now = performance.now();
+  return [...values]
+    .filter(([, cooldownUntil]) => now < cooldownUntil)
+    .map(([entityIndex]) => entityIndex)
+    .sort((a, b) => a - b);
 }
 
 function sortedTriggerIndexes(values: Set<number> | Map<number, unknown>): number[] {

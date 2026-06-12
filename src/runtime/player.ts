@@ -42,6 +42,8 @@ const PUSH_GROUND_FRICTION = 5.5;
 const PUSH_MAX_SPEED = 2000 * QUAKE_COLLISION_UNIT_SCALE;
 const PUSH_STOP_SPEED = 16 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_DAMAGE_INTERVAL_MS = 1000;
+const QUAKE_LAVA_DAMAGE_INTERVAL_MS = 200;
+const QUAKE_LAVA_RADSUIT_DAMAGE_INTERVAL_MS = 1000;
 const QUAKE_DAMAGE_FLASH_MS = 260;
 const PLAYER_MOVE_STOP_SPEED = 1 * QUAKE_COLLISION_UNIT_SCALE;
 const PLAYER_MOVE_STOP_SPEED_SQ = PLAYER_MOVE_STOP_SPEED * PLAYER_MOVE_STOP_SPEED;
@@ -989,14 +991,15 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     }
 
     markQuakeTrace("hazard-damage", { kind: hazard.kind, amount: hazard.amount });
+    const nextIntervalMs = quakeHazardDamageIntervalMs(hazard);
     if (options.onHazardDamage?.(hazard)) {
-      nextDamageAt = performance.now() + QUAKE_DAMAGE_INTERVAL_MS;
-      scheduleHazardTick(QUAKE_DAMAGE_INTERVAL_MS);
+      nextDamageAt = performance.now() + nextIntervalMs;
+      scheduleHazardTick(nextIntervalMs);
       return false;
     }
     const died = applyDamage(hazard.amount);
-    nextDamageAt = performance.now() + QUAKE_DAMAGE_INTERVAL_MS;
-    if (!died) scheduleHazardTick(QUAKE_DAMAGE_INTERVAL_MS);
+    nextDamageAt = performance.now() + nextIntervalMs;
+    if (!died) scheduleHazardTick(nextIntervalMs);
     return died;
   };
 
@@ -1279,4 +1282,11 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     syncHazard,
     teleportTo,
   };
+}
+
+function quakeHazardDamageIntervalMs(hazard: QuakeHazardDamage): number {
+  if (hazard.kind === "lava") {
+    return hazard.radsuitActive ? QUAKE_LAVA_RADSUIT_DAMAGE_INTERVAL_MS : QUAKE_LAVA_DAMAGE_INTERVAL_MS;
+  }
+  return QUAKE_DAMAGE_INTERVAL_MS;
 }

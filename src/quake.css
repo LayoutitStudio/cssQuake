@@ -128,9 +128,7 @@ body.quake-menu-open #quake-hud {
   border: 1px solid rgba(214, 181, 92, 0.8);
   background: rgba(9, 7, 5, 0.78);
   color: #f4df9a;
-  font: 700 12px/1.35 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   letter-spacing: 0;
-  text-shadow: 1px 1px 0 #000000;
   pointer-events: none;
 }
 .quake-multiplayer-scoreboard[hidden] {
@@ -144,19 +142,30 @@ body.quake-menu-open #quake-hud {
   max-width: 180px;
   padding: 2px 5px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+.quake-multiplayer-scoreboard .quake-bitmap-text {
+  --quake-bitmap-glyph-size: 12px;
+  --quake-bitmap-sheet-size: 192px;
+  --quake-bitmap-space-size: 8px;
+  flex-wrap: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  gap: 0 var(--quake-bitmap-space-size);
+  filter: drop-shadow(1px 1px 0 #000000);
 }
 .quake-multiplayer-scoreboard td:first-child {
   border-left: 3px solid var(--quake-multiplayer-player-color, transparent);
 }
 .quake-multiplayer-scoreboard-number {
   width: 40px;
-  color: #ffffff;
-  text-align: right;
 }
-.quake-multiplayer-scoreboard-local td:first-child {
-  color: #f08a43;
+.quake-multiplayer-scoreboard-number .quake-bitmap-text {
+  width: 100%;
+  justify-content: flex-end;
+}
+.quake-multiplayer-scoreboard-local td:first-child .quake-bitmap-text {
+  filter: brightness(1.18) saturate(1.2) drop-shadow(1px 1px 0 #000000);
 }
 #quake-damage-overlay {
   position: absolute;
@@ -1272,17 +1281,22 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   min-width: 0;
   color: rgba(246, 241, 223, 0.84);
 }
-.quake-multiplayer-field > span {
+.quake-multiplayer-field-label {
   display: block;
   min-width: 0;
   min-height: var(--quake-menu-row-text-size);
 }
-.quake-multiplayer-field > span .quake-bitmap-text,
+.quake-multiplayer-field-label .quake-bitmap-text,
 .quake-multiplayer-status .quake-bitmap-text {
   --quake-bitmap-glyph-size: var(--quake-menu-row-text-size);
   --quake-bitmap-sheet-size: calc(16 * var(--quake-menu-row-text-size));
   --quake-bitmap-space-size: var(--quake-menu-row-text-size);
   gap: 0 var(--quake-bitmap-space-size);
+}
+.quake-multiplayer-control-shell {
+  position: relative;
+  display: block;
+  min-width: 0;
 }
 .quake-multiplayer-field input,
 .quake-multiplayer-field select {
@@ -1297,6 +1311,34 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   font: 400 calc(6 * var(--quake-menu-px))/1 ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
   letter-spacing: 0;
   outline: none;
+}
+.quake-multiplayer-control-shell input,
+.quake-multiplayer-control-shell select {
+  color: transparent;
+  caret-color: #f6f1df;
+}
+.quake-multiplayer-control-shell select option {
+  color: #f6f1df;
+  background: #050403;
+}
+.quake-multiplayer-control-glyph {
+  position: absolute;
+  top: 50%;
+  left: calc(3 * var(--quake-menu-px));
+  right: calc(2 * var(--quake-menu-px));
+  display: flex;
+  min-width: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.quake-multiplayer-control-glyph .quake-bitmap-text {
+  --quake-bitmap-glyph-size: calc(6 * var(--quake-menu-px));
+  --quake-bitmap-sheet-size: calc(96 * var(--quake-menu-px));
+  --quake-bitmap-space-size: calc(5 * var(--quake-menu-px));
+  flex-wrap: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  gap: 0 var(--quake-bitmap-space-size);
 }
 .quake-multiplayer-field input:focus,
 .quake-multiplayer-field select:focus {
@@ -2094,7 +2136,7 @@ body.quake-ui-unlocked #quake-viewmodel-layer {
   background: rgba(74, 30, 14, 0.56);
   border-color: rgba(232, 154, 72, 0.86);
 }
-@media (any-pointer: coarse), (max-width: 960px) and (orientation: landscape) {
+@media (any-pointer: coarse) and (orientation: landscape), (max-width: 960px) and (orientation: landscape) {
   body:not(.quake-loading):not(.quake-menu-open):not(.quake-dead):not(.quake-level-complete) #quake-mobile-controls {
     display: block;
   }

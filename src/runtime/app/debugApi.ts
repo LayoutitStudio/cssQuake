@@ -1,5 +1,6 @@
 import type { Vec3 } from "@layoutit/polycss";
 
+import type { QuakeDebugRecorder } from "../debug/recording";
 import { QUAKE_WEAPON_ITEM_FLAGS, type QuakeWeaponId } from "../hud";
 import { quakecCanDamageTracePointsForTargetOrigin, type QuakeCanDamageResult } from "../shootables/damage";
 import {
@@ -20,6 +21,7 @@ export interface QuakeAppDebugApiOptions {
   runtime: QuakeAppRuntimeContext;
   activateEntity(entityIndex: number, sourceEntityIndex?: number): boolean;
   copyViewUrl(): Promise<string>;
+  debugRecorder(): QuakeDebugRecorder | null;
   fireballEmittersCount(): number;
   fireballsCount(): number;
   forwardDirection(rotX: number, rotY: number): Vec3;
@@ -27,10 +29,13 @@ export interface QuakeAppDebugApiOptions {
   mapExists(mapName: string): boolean;
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
   setCollisionBypassUntil(until: number): void;
+  setMultiplayerInputPaused(paused: boolean): boolean;
   syncHud(): void;
   syncCrosshairTarget(): void;
   syncGameplay(origin: [number, number, number]): void;
+  syncMultiplayerPose(): boolean;
   syncSceneCameraAt(origin: [number, number, number], rotX: number, rotY: number): void;
+  touchEntity(entityIndex: number): boolean;
   viewUrl(): string;
 }
 
@@ -42,6 +47,7 @@ function createQuakeAppDebugRuntime({
   runtime,
   activateEntity,
   copyViewUrl,
+  debugRecorder,
   fireballEmittersCount,
   fireballsCount,
   forwardDirection,
@@ -49,10 +55,13 @@ function createQuakeAppDebugRuntime({
   mapExists,
   pointToPoly,
   setCollisionBypassUntil,
+  setMultiplayerInputPaused,
   syncHud,
   syncCrosshairTarget,
   syncGameplay,
+  syncMultiplayerPose,
   syncSceneCameraAt,
+  touchEntity,
   viewUrl,
 }: QuakeAppDebugApiOptions): QuakeDebugRuntime {
   return {
@@ -66,6 +75,7 @@ function createQuakeAppDebugRuntime({
         pointToPoly(inflictorOrigin),
         quakecCanDamageTracePointsForTargetOrigin(targetOrigin, pointToPoly),
       ),
+    contentsAt: (point) => runtime.session.collisionWorld()?.contentsAt?.(pointToPoly(point)) ?? null,
     copyViewUrl,
     controls: {
       getOrigin: () => runtime.controls.getOrigin(),
@@ -76,10 +86,12 @@ function createQuakeAppDebugRuntime({
     damageWeaponTarget: (entityIndex, amount) =>
       runtime.controllers.shootables.debugDamageWeaponTarget(entityIndex, amount),
     debugMountEntity: (entityIndex) => runtime.controllers.shootables.debugMountEntity(entityIndex),
+    debugRecorder,
     enemyAcquisition: (entityIndex, playerSourceOrigin, monsterYaw) =>
       runtime.controllers.shootables.debugEnemyAcquisition(entityIndex, playerSourceOrigin, { monsterYaw }),
     entities: runtime.session.entities,
     fireWeapon: () => runtime.controllers.weapons.fire(),
+    fireWeaponDebug: (options) => runtime.controllers.weapons.debugFireProjectile(options),
     fireballEmittersCount,
     fireballsCount,
     floorAt: (x, y, maxZ, minZ) =>
@@ -98,27 +110,36 @@ function createQuakeAppDebugRuntime({
     setExpandedLogicalCombat: (enabled) => runtime.controllers.shootables.setExpandedLogicalCombatEnabled(enabled),
     setMountedEnemyAcquisition: (enabled) =>
       runtime.controllers.shootables.setMountedEnemyAcquisitionEnabled(enabled),
+    setMultiplayerInputPaused,
+    setPowerup: (finishedField, durationMs) => setQuakeDebugPowerup(runtime, finishedField, durationMs, syncHud),
     setWeapon: (weapon) => setQuakeDebugWeapon(runtime, weapon, syncHud),
     setWeaponTuning: (tuning) => runtime.controllers.viewmodel.setTuning(tuning),
     viewmodelDebug: () => runtime.controllers.viewmodel.debugSnapshot(),
     moversStats: () => runtime.controllers.movers.debugStats(),
     multiplayerStats: () => runtime.multiplayer?.snapshot() ?? null,
+    pickupsStats: () => runtime.controllers.pickups().debugStats(),
     playerEyeHeight: () => runtime.controllers.player().eyeHeight(),
     playerMoveDebug: () => runtime.controllers.player().debugMovement(),
     pointToPoly,
     projectileImpact: (weapon, entityIndex, origin, directDamage) =>
       runtime.controllers.weapons.debugProjectileImpact(weapon, entityIndex, origin, directDamage),
+    projectileTraceCapture: () => runtime.controllers.weapons.debugProjectileCapture(),
+    projectileTraceClear: () => runtime.controllers.weapons.debugClearProjectileCapture(),
+    projectileTraceEnabled: (enabled) => runtime.controllers.weapons.debugSetProjectileCaptureEnabled(enabled),
     setUnmountedAi: (enabled) => runtime.controllers.shootables.setUnmountedAiEnabled(enabled),
     setCollisionBypassUntil,
     setShootableOrigin: (entityIndex, origin) => runtime.controllers.shootables.debugSetOrigin(entityIndex, origin),
     shootablesStats: () => runtime.controllers.shootables.debugStats(),
+    triggersStats: () => runtime.controllers.triggers.debugStats(),
     syncCrosshairTarget,
     syncGameplay,
+    syncMultiplayerPose,
     syncPickupsVisibility: (origin) => runtime.controllers.pickups().syncVisibility(origin),
     syncSceneCameraAt,
     syncShootablesVisibility: (origin, force) => runtime.controllers.shootables.syncVisibility(origin, force),
     syncViewmodel: (options) => runtime.controllers.viewmodel.syncTransform(options),
     syncWorldVisibility: (force) => runtime.controllers.world.syncVisibility(force),
+    touchEntity,
     viewUrl,
     worldStats: () => runtime.controllers.world.debugStats(),
   };
@@ -138,6 +159,30 @@ function setQuakeDebugWeapon(
   inventory.rockets = Math.max(inventory.rockets, QUAKE_DEBUG_WEAPON_AMMO.rockets);
   inventory.cells = Math.max(inventory.cells, QUAKE_DEBUG_WEAPON_AMMO.cells);
   inventory.activeWeapon = weapon;
+  syncHud();
+  return true;
+}
+
+function setQuakeDebugPowerup(
+  runtime: QuakeAppRuntimeContext,
+  finishedField: string,
+  durationMs: number,
+  syncHud: () => void,
+): boolean {
+  if (!finishedField || !Number.isFinite(durationMs)) return false;
+  const inventory = runtime.controllers.player().inventory();
+  if (durationMs <= 0) {
+    delete inventory.powerups[finishedField];
+    syncHud();
+    return true;
+  }
+  inventory.powerups[finishedField] = {
+    active: true,
+    activationField: "debug",
+    finishedAt: performance.now() + durationMs,
+    itemFlag: 0,
+    itemFlagExpression: "debug",
+  };
   syncHud();
   return true;
 }

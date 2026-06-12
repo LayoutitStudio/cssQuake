@@ -1456,6 +1456,10 @@ export function createQuakeShootablesController({
         const blockReasons = input
           ? debugShootableBlockReasons(shootable, input, desiredMounted, desiredPrewarmed)
           : [];
+        const enemy = shootable.enemy;
+        const quakecState = enemy?.quakecLastState ?? null;
+        const pendingAttack = enemy?.pendingAttack ?? null;
+        const movetarget = enemy?.movetarget ?? null;
         return {
           entityIndex: shootable.entity.index,
           classname: shootable.entity.classname,
@@ -1493,15 +1497,45 @@ export function createQuakeShootablesController({
           handleCount,
           frameHandles: shootable.frameHandles.size,
           yaw: shootable.yaw,
-          animationFrame: shootable.enemy?.animationFrameIndex ?? null,
-          animationMode: shootable.enemy?.animationMode ?? null,
-          quakecChain: shootable.enemy?.quakecAnimationChain ?? null,
-          attackVisual: shootable.enemy?.attackVisual ?? null,
-          awake: shootable.enemy?.awake ?? null,
-          currentTarget: enemyTargetTraceLabel(shootable.enemy?.currentTarget ?? null),
-          oldTarget: enemyTargetTraceLabel(shootable.enemy?.oldTarget ?? null),
-          pendingAttack: Boolean(shootable.enemy?.pendingAttack),
-          movetargetEntityIndex: shootable.enemy?.movetarget?.entity.index ?? null,
+          animationFrame: enemy?.animationFrameIndex ?? null,
+          animationMode: enemy?.animationMode ?? null,
+          quakecChain: enemy?.quakecAnimationChain ?? null,
+          quakecIdealYaw: enemy?.quakecIdealYaw ?? null,
+          quakecMovementCall: enemy?.quakecMovementCall ?? null,
+          quakecMovementHandledStep: enemy?.quakecMovementHandledStep ?? null,
+          quakecMovementStateName: enemy?.quakecMovementStateName ?? null,
+          quakecMovementUnitsRemaining: enemy?.quakecMovementUnitsRemaining ?? null,
+          quakecPartialGround: enemy?.quakecPartialGround ?? null,
+          quakecStateCalls: quakecState ? [...quakecState.calls] : [],
+          quakecStateChain: quakecState?.chain ?? null,
+          quakecStateChainCycleEnd: quakecState?.chainCycleEnd ?? null,
+          quakecStateFrame: quakecState?.frame ?? null,
+          quakecStateFrameIndex: quakecState?.frameIndex ?? null,
+          quakecStateName: quakecState?.stateName ?? null,
+          quakecStateNext: quakecState?.next ?? null,
+          attackVisual: enemy?.attackVisual ?? null,
+          awake: enemy?.awake ?? null,
+          currentTarget: enemyTargetTraceLabel(enemy?.currentTarget ?? null),
+          oldTarget: enemyTargetTraceLabel(enemy?.oldTarget ?? null),
+          pendingAttack: Boolean(pendingAttack),
+          pendingAttackFireInMs: pendingAttack && Number.isFinite(pendingAttack.fireAt)
+            ? Math.max(0, pendingAttack.fireAt - now)
+            : null,
+          pendingAttackQuakecChain: pendingAttack?.quakecChain ?? null,
+          pendingAttackTarget: pendingAttack ? [
+            pendingAttack.target[0],
+            pendingAttack.target[1],
+            pendingAttack.target[2],
+          ] : null,
+          movetargetEntityIndex: movetarget?.entity.index ?? null,
+          movetargetOrigin: movetarget ? [
+            movetarget.origin[0],
+            movetarget.origin[1],
+            movetarget.origin[2],
+          ] : null,
+          movetargetTarget: movetarget?.target ?? null,
+          movetargetTargetname: movetarget?.targetname ?? null,
+          monsterJumpTouchedTriggerEntityIndex: enemy?.monsterJumpTouchedTriggerEntityIndex ?? null,
         };
       }).sort((a, b) => a.entityIndex - b.entityIndex),
     };

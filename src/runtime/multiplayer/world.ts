@@ -620,7 +620,14 @@ function quakeMultiplayerPlayerTouchesWorldDefinition(
   definition: QuakeMultiplayerWorldDefinition,
 ): boolean {
   if (!definition.bounds) return true;
-  return quakeMultiplayerPointInBounds(player.origin, definition.bounds, QUAKE_MULTIPLAYER_WORLD_TOUCH_TOLERANCE);
+  return quakeMultiplayerBoundsOverlap(
+    quakeMultiplayerPlayerEyeBounds(
+      player.origin,
+      QUAKE_MULTIPLAYER_WORLD_TOUCH_TOLERANCE,
+      QUAKE_MULTIPLAYER_PLAYER_EYE_HEIGHT,
+    ),
+    definition.bounds,
+  );
 }
 
 function quakeMultiplayerPointInBounds(

@@ -6,6 +6,7 @@ import type {
   QuakeMultiplayerRemoteInterpolationSample,
   QuakeMultiplayerRemoteInterpolationState,
   QuakeMultiplayerRoomEnvelope,
+  QuakeMultiplayerSharedWorldEvent,
 } from "./protocol";
 
 const QUAKE_MULTIPLAYER_REMOTE_RENDER_DELAY_MS = 100;
@@ -32,6 +33,8 @@ interface QuakeMultiplayerRemotePlayerEntry {
   player: QuakeMultiplayerAuthoritativePlayerState;
   samples: QuakeMultiplayerRemoteInterpolationSample[];
   visual: QuakeMultiplayerRemoteVisualHandle | null;
+  lastPainAt?: number;
+  deathAt?: number;
 }
 
 export interface QuakeMultiplayerRemotePlayerPresenter {
@@ -58,8 +61,8 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
       if (disposed) return;
       if (message.type === "room.snapshot") {
         syncSnapshot(message.payload.players);
-      } else if (message.type === "room.event" && message.payload.event.eventType === "player.left") {
-        removeRemotePlayer(message.payload.event.playerId);
+      } else if (message.type === "room.event") {
+        handleRoomEvent(message.payload.event);
       }
     },
     clear(): void {
@@ -93,6 +96,7 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
 
   function syncRemotePlayer(player: QuakeMultiplayerAuthoritativePlayerState): void {
     let entry = players.get(player.playerId);
+    const wasAlive = entry?.player.alive ?? player.alive;
     if (!entry) {
       entry = {
         player,
@@ -111,8 +115,49 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
       rotY: player.rotY,
       alive: player.alive,
     });
+    if (player.alive) {
+      if (!wasAlive || entry.deathAt !== undefined) {
+        entry.lastPainAt = undefined;
+        entry.deathAt = undefined;
+      }
+    } else if (wasAlive || entry.deathAt === undefined) {
+      entry.lastPainAt = undefined;
+      entry.deathAt = now();
+    }
     entry.samples.sort((a, b) => a.sampledAt - b.sampledAt);
     while (entry.samples.length > QUAKE_MULTIPLAYER_REMOTE_SAMPLE_LIMIT) entry.samples.shift();
+  }
+
+  function handleRoomEvent(event: QuakeMultiplayerSharedWorldEvent): void {
+    if (event.eventType === "player.left") {
+      removeRemotePlayer(event.playerId);
+    } else if (event.eventType === "player.damaged") {
+      markRemotePlayerPain(event.victimPlayerId);
+    } else if (event.eventType === "player.killed") {
+      markRemotePlayerDeath(event.victimPlayerId);
+    } else if (event.eventType === "player.respawned") {
+      if (event.player.clientId === options.localClientId) return;
+      syncRemotePlayer(event.player);
+    }
+  }
+
+  function markRemotePlayerPain(playerId: string): void {
+    const entry = players.get(playerId);
+    if (!entry || entry.player.clientId === options.localClientId || !entry.player.alive) return;
+    entry.lastPainAt = now();
+    scheduleFrame();
+  }
+
+  function markRemotePlayerDeath(playerId: string): void {
+    const entry = players.get(playerId);
+    if (!entry || entry.player.clientId === options.localClientId) return;
+    entry.lastPainAt = undefined;
+    entry.deathAt = now();
+    entry.player = {
+      ...entry.player,
+      alive: false,
+    };
+    scheduleFrame();
   }
 
   function scheduleFrame(): void {
@@ -131,9 +176,29 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
       }
       const state = interpolateQuakeMultiplayerRemoteState(playerId, entry.samples, renderAt, staleAfterMs);
       if (!state) continue;
-      entry.visual.setState(state);
+      entry.visual.setState(quakeMultiplayerRemoteStateWithEvents(entry, state));
     }
     if (players.size) scheduleFrame();
+  }
+
+  function quakeMultiplayerRemoteStateWithEvents(
+    entry: QuakeMultiplayerRemotePlayerEntry,
+    state: QuakeMultiplayerRemoteInterpolationState,
+  ): QuakeMultiplayerRemoteInterpolationState {
+    if (entry.deathAt !== undefined) {
+      return {
+        ...state,
+        alive: false,
+        deathAt: entry.deathAt,
+      };
+    }
+    if (entry.lastPainAt !== undefined) {
+      return {
+        ...state,
+        lastPainAt: entry.lastPainAt,
+      };
+    }
+    return state;
   }
 
   function removeRemotePlayer(playerId: string): void {

@@ -1884,28 +1884,43 @@
             </header>
             <form id="quake-multiplayer-form" class="quake-multiplayer-form" autocomplete="off">
               <label class="quake-multiplayer-field">
-                <span class="quake-bm-label quake-bm-alt">Name</span>
-                <input id="quake-multiplayer-name" type="text" maxlength="16" spellcheck="false" autocomplete="nickname" />
+                <span class="quake-multiplayer-field-label quake-bm-label quake-bm-alt">Name</span>
+                <span class="quake-multiplayer-control-shell">
+                  <input id="quake-multiplayer-name" type="text" maxlength="16" spellcheck="false" autocomplete="nickname" />
+                  <span class="quake-multiplayer-control-glyph quake-bm-label quake-bm-alt" aria-hidden="true"></span>
+                </span>
               </label>
               <label class="quake-multiplayer-field quake-multiplayer-color-field">
-                <span class="quake-bm-label quake-bm-alt">Color</span>
+                <span class="quake-multiplayer-field-label quake-bm-label quake-bm-alt">Color</span>
                 <input id="quake-multiplayer-color" type="color" value="#d8893f" />
               </label>
               <label class="quake-multiplayer-field">
-                <span class="quake-bm-label quake-bm-alt">Map</span>
-                <select id="quake-multiplayer-map"></select>
+                <span class="quake-multiplayer-field-label quake-bm-label quake-bm-alt">Map</span>
+                <span class="quake-multiplayer-control-shell">
+                  <select id="quake-multiplayer-map"></select>
+                  <span class="quake-multiplayer-control-glyph quake-bm-label quake-bm-alt" aria-hidden="true"></span>
+                </span>
               </label>
               <label class="quake-multiplayer-field">
-                <span class="quake-bm-label quake-bm-alt">Fraglimit</span>
-                <input id="quake-multiplayer-fraglimit" type="number" min="1" max="100" step="1" value="20" />
+                <span class="quake-multiplayer-field-label quake-bm-label quake-bm-alt">Fraglimit</span>
+                <span class="quake-multiplayer-control-shell">
+                  <input id="quake-multiplayer-fraglimit" type="number" min="1" max="100" step="1" value="20" />
+                  <span class="quake-multiplayer-control-glyph quake-bm-label quake-bm-alt" aria-hidden="true"></span>
+                </span>
               </label>
               <label class="quake-multiplayer-field">
-                <span class="quake-bm-label quake-bm-alt">Timelimit</span>
-                <input id="quake-multiplayer-timelimit" type="number" min="0" max="120" step="5" value="0" />
+                <span class="quake-multiplayer-field-label quake-bm-label quake-bm-alt">Timelimit</span>
+                <span class="quake-multiplayer-control-shell">
+                  <input id="quake-multiplayer-timelimit" type="number" min="0" max="120" step="5" value="0" />
+                  <span class="quake-multiplayer-control-glyph quake-bm-label quake-bm-alt" aria-hidden="true"></span>
+                </span>
               </label>
               <label class="quake-multiplayer-field">
-                <span class="quake-bm-label quake-bm-alt">Max Players</span>
-                <input id="quake-multiplayer-maxplayers" type="number" min="2" max="16" step="1" value="8" />
+                <span class="quake-multiplayer-field-label quake-bm-label quake-bm-alt">Max Players</span>
+                <span class="quake-multiplayer-control-shell">
+                  <input id="quake-multiplayer-maxplayers" type="number" min="2" max="16" step="1" value="8" />
+                  <span class="quake-multiplayer-control-glyph quake-bm-label quake-bm-alt" aria-hidden="true"></span>
+                </span>
               </label>
               <div class="quake-multiplayer-actions">
                 <button id="quake-multiplayer-create" class="quake-bm-label quake-bm-alt" type="button">Create</button>

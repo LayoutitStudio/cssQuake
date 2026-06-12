@@ -1,6 +1,7 @@
 import type { Vec3 } from "@layoutit/polycss";
 
 import type { QuakeUseTrace } from "../collision";
+import { markQuakeTrace } from "../debug/traceMarks";
 import { normalizeQuakeUrlAngle } from "../routeState";
 import { createQuakeAttackInputController } from "./attackInput";
 import { QUAKE_CAMERA_ROT_X_MAX, QUAKE_CAMERA_ROT_X_MIN } from "./cameraFeedbackFlow";
@@ -10,7 +11,7 @@ const QUAKE_POINTER_LOCK_RETRY_MS = 500;
 const QUAKE_MOBILE_MOVE_SPEED = 5.4;
 const QUAKE_MOBILE_MOVE_DEADZONE = 0.08;
 const QUAKE_MOBILE_MOVE_DT_CLAMP = 0.035;
-const QUAKE_MOBILE_LOOK_SENSITIVITY = 0.12;
+const QUAKE_MOBILE_LOOK_SENSITIVITY = 0.2;
 const QUAKE_MOBILE_LOOK_EPSILON = 0.01;
 
 interface QuakePointerGameplayControls {
@@ -87,6 +88,7 @@ export function createQuakePointerGameplayFlow(
     moveDeadzone: QUAKE_MOBILE_MOVE_DEADZONE,
     moveDtClamp: QUAKE_MOBILE_MOVE_DT_CLAMP,
     canUseInput: options.canUseGameplayInput,
+    isAttackDown: isMobileAttackDown,
     isDisposed: options.isDisposed,
     useMoveFrame: options.isDebugFlyModeActive,
     onAvailabilityChange: options.onAvailabilityChange,
@@ -251,7 +253,7 @@ export function createQuakePointerGameplayFlow(
     return true;
   }
 
-  function applyMobileLookDelta(deltaX: number, deltaY: number): void {
+  function applyMobileLookDelta(deltaX: number, deltaY: number, pointerId: number): void {
     if (Math.abs(deltaX) <= QUAKE_MOBILE_LOOK_EPSILON && Math.abs(deltaY) <= QUAKE_MOBILE_LOOK_EPSILON) return;
     const { rotX: currentRotX, rotY: currentRotY } = options.rotation();
     const pitchDirection = options.invertMouse() ? 1 : -1;
@@ -264,6 +266,17 @@ export function createQuakePointerGameplayFlow(
     options.applyCameraAt(options.currentCameraRenderOrigin(), nextRotX, nextRotY);
     options.viewmodelSyncTransform();
     options.queueCrosshairTargetSync();
+    markQuakeTrace("mobile-look-delta", {
+      dx: deltaX,
+      dy: deltaY,
+      pointerId,
+      rotX: nextRotX,
+      rotY: nextRotY,
+    });
+  }
+
+  function isMobileAttackDown(): boolean {
+    return attackInput.isDown();
   }
 
   function moveFromMobileStick(dt: number, moveX: number, moveY: number): void {
@@ -303,11 +316,19 @@ export function createQuakePointerGameplayFlow(
       return true;
     }
     attackInput.start(event.pointerId, performance.now());
+    markQuakeTrace("mobile-fire-down", {
+      attackDown: attackInput.isDown(),
+      pointerId: event.pointerId,
+    });
     return true;
   }
 
   function handleMobileFirePointerEnd(event: PointerEvent): void {
     attackInput.handlePointerEnd(event);
+    markQuakeTrace("mobile-fire-up", {
+      attackDown: attackInput.isDown(),
+      pointerId: event.pointerId,
+    });
   }
 
   return {

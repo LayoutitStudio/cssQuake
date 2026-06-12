@@ -11,6 +11,7 @@ export interface QuakeHazardDamage {
   amount: number;
   entityIndex?: number;
   kind: QuakeHazardKind;
+  radsuitActive?: boolean;
 }
 
 export const QUAKE_CONTENTS_WATER = -3;
@@ -30,6 +31,18 @@ export function quakeTriggerHurtDamage(
 export function quakeContentsDamage(contents: number | null | undefined): QuakeHazardDamage | null {
   if (contents === QUAKE_CONTENTS_LAVA) return { amount: 10, kind: "lava" };
   if (contents === QUAKE_CONTENTS_SLIME) return { amount: 4, kind: "slime" };
+  if (contents === QUAKE_CONTENTS_WATER) return null;
+  return null;
+}
+
+export function quakeContentsDamageForWaterLevel(
+  contents: number | null | undefined,
+  waterLevel: number,
+): QuakeHazardDamage | null {
+  const normalizedWaterLevel = Math.max(0, Math.floor(waterLevel));
+  if (normalizedWaterLevel <= 0) return null;
+  if (contents === QUAKE_CONTENTS_LAVA) return { amount: 10 * normalizedWaterLevel, kind: "lava" };
+  if (contents === QUAKE_CONTENTS_SLIME) return { amount: 4 * normalizedWaterLevel, kind: "slime" };
   if (contents === QUAKE_CONTENTS_WATER) return null;
   return null;
 }
@@ -67,5 +80,6 @@ export function quakeRadsuitProtectedContentsDamage(
   radsuitActive: boolean,
 ): QuakeHazardDamage | null {
   if (radsuitActive && hazard?.kind === "slime") return null;
+  if (radsuitActive && hazard?.kind === "lava") return { ...hazard, radsuitActive: true };
   return hazard;
 }

@@ -136,7 +136,7 @@ export function createQuakeEntityActivationFlow(
     options.addBodyClasses("quake-level-complete");
     options.player().clearLevelState();
     options.audio.playEvent("levelExit", { volume: 0.58 });
-    const nextMap = quakeChangelevelMap(entity, options.currentGameLogic());
+    const nextMap = quakeTriggerChangelevelMap(entity, options.currentGameLogic());
     if (!nextMap) options.text.setCenterPrint("EXIT REACHED");
     if (!nextMap || !options.mapExists(nextMap)) return;
     levelLoadTimer = window.setTimeout(() => {
