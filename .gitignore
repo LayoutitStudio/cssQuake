@@ -11,14 +11,8 @@ dist/**
 bench/
 /debug/
 .partykit/
-notes/*
-!notes/cssquake-testing-suite-plan.md
-scripts/audit*.mjs
-scripts/check*.mjs
-scripts/local/
-scripts/perfetto*.mjs
-scripts/probe*.mjs
-scripts/rebake*.mjs
-scripts/summarize-monster-lab.mjs
+notes/
+scripts/
+test/
 netlify.toml
 chrome-trace*.json
