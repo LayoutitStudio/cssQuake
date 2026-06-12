@@ -69,6 +69,8 @@ export interface QuakeShootableDebugCullingEntry {
   quakecChain: string | null;
   attackVisual: string | null;
   awake: boolean | null;
+  currentTarget: string | null;
+  oldTarget: string | null;
   pendingAttack: boolean;
   movetargetEntityIndex: number | null;
 }

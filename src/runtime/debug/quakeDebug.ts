@@ -5,7 +5,7 @@ import { QUAKE_PLAYER_MINS_Z, STEP_HEIGHT } from "../constants";
 import type { QuakePlayerInventory, QuakeWeaponId } from "../hud";
 import type { QuakeMoversDebugStats } from "../movers";
 import type { QuakeCanDamageResult } from "../shootables/damage";
-import type { QuakeShootablesDebugStats } from "../shootables";
+import type { QuakeShootableEnemyAcquisitionDebugResult, QuakeShootablesDebugStats } from "../shootables";
 import type { QuakeResolvedViewmodelTuning, QuakeViewmodelDebugSnapshot, QuakeViewmodelTuning } from "../viewmodel";
 import type { QuakeWeaponProjectileImpactDebugResult } from "../weapons";
 import type { QuakeWorldDebugStats } from "../world";
@@ -31,6 +31,13 @@ export interface QuakeDebugHooks {
   damage(amount?: number): boolean;
   damageWeaponTarget(entityIndex: number, amount?: number): boolean;
   debugMountEntity(entityIndex: number): boolean;
+  enemyAcquisition(
+    entityIndex: number,
+    playerX: number,
+    playerY: number,
+    playerZ: number,
+    monsterYaw?: number,
+  ): QuakeShootableEnemyAcquisitionDebugResult | null;
   entityIndexes(classname?: string): number[];
   fire(): boolean;
   floorAt(x: number, y: number, maxZ?: number, minZ?: number): number | null;
@@ -39,6 +46,7 @@ export interface QuakeDebugHooks {
   getWeaponTuning(): QuakeResolvedViewmodelTuning;
   resetWeaponTuning(): QuakeResolvedViewmodelTuning;
   setExpandedLogicalCombat(enabled: boolean): boolean;
+  setMountedEnemyAcquisition(enabled: boolean): boolean;
   projectileImpact(
     weapon: QuakeWeaponId,
     entityIndex: number,
@@ -105,6 +113,11 @@ export interface QuakeDebugRuntime {
   damagePlayer(amount: number): boolean;
   damageWeaponTarget(entityIndex: number, amount: number): boolean;
   debugMountEntity(entityIndex: number): boolean;
+  enemyAcquisition(
+    entityIndex: number,
+    playerSourceOrigin: { x: number; y: number; z: number },
+    monsterYaw?: number,
+  ): QuakeShootableEnemyAcquisitionDebugResult | null;
   entities(): ReadonlyMap<number, QuakeEntity>;
   fireWeapon(): void;
   fireballEmittersCount(): number;
@@ -120,6 +133,7 @@ export interface QuakeDebugRuntime {
   getWeaponTuning(): QuakeResolvedViewmodelTuning;
   resetWeaponTuning(): QuakeResolvedViewmodelTuning;
   setExpandedLogicalCombat(enabled: boolean): void;
+  setMountedEnemyAcquisition(enabled: boolean): void;
   setUnmountedAi(enabled: boolean): void;
   setWeapon(weapon: QuakeWeaponId): boolean;
   setWeaponTuning(tuning: QuakeViewmodelTuning): QuakeResolvedViewmodelTuning;
@@ -161,6 +175,8 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
     damageWeaponTarget: (entityIndex, amount) =>
       damageQuakeDebugWeaponTarget(runtime, entityIndex, amount),
     debugMountEntity: (entityIndex) => debugMountQuakeEntity(runtime, entityIndex),
+    enemyAcquisition: (entityIndex, playerX, playerY, playerZ, monsterYaw) =>
+      enemyAcquisitionQuakeDebugProbe(runtime, entityIndex, playerX, playerY, playerZ, monsterYaw),
     entityIndexes: (classname) => quakeDebugEntityIndexes(runtime, classname),
     fire: () => fireQuakeDebugWeapon(runtime),
     floorAt: (x, y, maxZ, minZ) => runtime.floorAt(x, y, maxZ, minZ),
@@ -172,6 +188,7 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
       projectileImpactQuakeDebugWeapon(runtime, weapon, entityIndex, x, y, z, directDamage),
     resetWeaponTuning: () => runtime.resetWeaponTuning(),
     setExpandedLogicalCombat: (enabled) => setQuakeDebugExpandedLogicalCombat(runtime, enabled),
+    setMountedEnemyAcquisition: (enabled) => setQuakeDebugMountedEnemyAcquisition(runtime, enabled),
     setEntityOrigin: (entityIndex, x, y, z) =>
       setQuakeDebugEntityOrigin(runtime, entityIndex, x, y, z),
     setUnmountedAi: (enabled) => setQuakeDebugUnmountedAi(runtime, enabled),
@@ -244,6 +261,27 @@ function debugMountQuakeEntity(runtime: QuakeDebugRuntime, entityIndex: number):
   return runtime.debugMountEntity(entityIndex);
 }
 
+function enemyAcquisitionQuakeDebugProbe(
+  runtime: QuakeDebugRuntime,
+  entityIndex: number,
+  playerX: number,
+  playerY: number,
+  playerZ: number,
+  monsterYaw?: number,
+): QuakeShootableEnemyAcquisitionDebugResult | null {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return null;
+  if (!Number.isFinite(entityIndex) || !Number.isFinite(playerX) || !Number.isFinite(playerY) || !Number.isFinite(playerZ)) {
+    return null;
+  }
+  if (monsterYaw !== undefined && !Number.isFinite(monsterYaw)) return null;
+  runtime.hideMainMenu();
+  return runtime.enemyAcquisition(
+    Math.round(entityIndex),
+    { x: playerX, y: playerY, z: playerZ },
+    monsterYaw,
+  );
+}
+
 function quakeDebugEntityIndexes(runtime: QuakeDebugRuntime, classname?: string): number[] {
   const selectedClassname = classname?.trim() ?? "";
   return [...runtime.entities().values()]
@@ -311,6 +349,12 @@ function setQuakeDebugEntityOrigin(
 function setQuakeDebugExpandedLogicalCombat(runtime: QuakeDebugRuntime, enabled: boolean): boolean {
   if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
   runtime.setExpandedLogicalCombat(Boolean(enabled));
+  return true;
+}
+
+function setQuakeDebugMountedEnemyAcquisition(runtime: QuakeDebugRuntime, enabled: boolean): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  runtime.setMountedEnemyAcquisition(Boolean(enabled));
   return true;
 }
 

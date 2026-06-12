@@ -69,7 +69,9 @@ export interface QuakeEnemyState {
   attackVisual: "cooldown" | "windup" | null;
   awake: boolean;
   burstShotsRemaining: number;
+  currentTarget: QuakeEnemyTargetReference | null;
   nextAttackAt: number;
+  oldTarget: QuakeEnemyTargetReference | null;
   pendingAttack: QuakeEnemyPendingAttack | null;
   movetarget: QuakeMonsterPathCorner | null;
   monsterJumpVelocity: Vec3;
@@ -120,6 +122,30 @@ export interface QuakeEnemyPendingAttack {
   target: Vec3;
 }
 
+export type QuakeDamageActorReference =
+  | { kind: "player"; classname: "player"; id: "player" }
+  | { kind: "shootable"; classname: string; entityIndex: number; id: number; origin?: Vec3 }
+  | { kind: "world"; classname: "world"; id: "world" };
+
+export interface QuakeEnemyTargetReference {
+  classname: string;
+  entityIndex?: number;
+  id: number | "player";
+  kind: "player" | "shootable";
+}
+
+export interface QuakeShootableDamageContext {
+  attacker?: QuakeDamageActorReference;
+  inflictor?: QuakeDamageActorReference;
+  radiusVisited?: Set<number>;
+}
+
+export interface QuakeEnemyAttackTarget extends QuakeEnemyTargetReference {
+  bounds: QuakeBounds;
+  damage?: (amount: number, context?: QuakeShootableDamageContext) => boolean;
+  origin: Vec3;
+}
+
 export interface QuakeEnemyActiveTouchDamage {
   event: QuakeMonsterTouchDamageFrameEvent;
   expiresAt: number;
@@ -132,6 +158,7 @@ export interface QuakeEnemyAnimationContext {
   enemyEye: Vec3;
   playerOrigin: [number, number, number];
   profile: QuakeMonsterCombatProfile;
+  target?: QuakeEnemyAttackTarget;
 }
 
 export type QuakeMonsterAnimationMode = "attack" | "death" | "idle" | "pain" | "path" | "walk";
@@ -177,10 +204,6 @@ export interface QuakeDamageTraceResult {
   hit: boolean;
   hitPoint: Vec3;
   reason: "blocked" | "hit" | "miss" | "range";
-}
-
-export interface QuakeShootableDamageContext {
-  radiusVisited?: Set<number>;
 }
 
 export interface QuakeIdleDeadline {

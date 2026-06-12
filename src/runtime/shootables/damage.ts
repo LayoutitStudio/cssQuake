@@ -8,6 +8,7 @@ import type { QuakeEntity } from "../../types/quake";
 import { QUAKE_COLLISION_UNIT_SCALE } from "../constants";
 import { quakeEntityNumber } from "../entities";
 import { quakeMonsterSpawnProfileForEntity } from "./bounds";
+import type { QuakeDamageActorReference, QuakeEnemyTargetReference } from "./state";
 
 const QUAKE_SHOOTABLE_HEALTH: Record<string, number> = {
   misc_explobox: 20,
@@ -47,6 +48,32 @@ export interface QuakeCanDamageTraceResult extends QuakeCanDamageTracePoint {
 export interface QuakeCanDamageResult {
   result: boolean;
   traces: QuakeCanDamageTraceResult[];
+}
+
+export type QuakeDamageRetargetReason =
+  | "attacker-is-current-enemy"
+  | "attacker-is-self"
+  | "attacker-not-targetable"
+  | "not-monster"
+  | "retarget"
+  | "same-class"
+  | "world";
+
+export interface QuakeDamageRetargetDecision {
+  preserveOldEnemy: boolean;
+  reason: QuakeDamageRetargetReason;
+  retarget: boolean;
+  target: QuakeEnemyTargetReference | null;
+}
+
+export interface QuakeDamageRetargetInput {
+  attacker: QuakeDamageActorReference;
+  currentEnemy?: QuakeEnemyTargetReference | null;
+  target: {
+    classname: string;
+    entityIndex: number;
+    monster: boolean;
+  };
 }
 
 export const QUAKE_CANDAMAGE_TRACE_OFFSETS: readonly QuakeCanDamageTraceOffset[] = Object.freeze([
@@ -89,6 +116,33 @@ export function quakecRandomDamage(
   nextRandom: () => number,
 ): number {
   return randomTerms.reduce((total, scale) => total + nextRandom() * scale, base);
+}
+
+export function quakeDamageRetargetDecision(
+  input: QuakeDamageRetargetInput,
+): QuakeDamageRetargetDecision {
+  if (!input.target.monster) return quakeDamageNoRetarget("not-monster");
+  if (input.attacker.kind === "world") return quakeDamageNoRetarget("world");
+  const attackerTarget = quakeDamageAttackerTarget(input.attacker);
+  if (!attackerTarget) return quakeDamageNoRetarget("attacker-not-targetable");
+  if (attackerTarget.kind === "shootable" && attackerTarget.entityIndex === input.target.entityIndex) {
+    return quakeDamageNoRetarget("attacker-is-self");
+  }
+  if (input.currentEnemy && quakeDamageTargetsMatch(attackerTarget, input.currentEnemy)) {
+    return quakeDamageNoRetarget("attacker-is-current-enemy");
+  }
+  if (
+    input.target.classname === input.attacker.classname &&
+    input.target.classname !== "monster_army"
+  ) {
+    return quakeDamageNoRetarget("same-class");
+  }
+  return {
+    preserveOldEnemy: input.currentEnemy?.kind === "player",
+    reason: "retarget",
+    retarget: true,
+    target: attackerTarget,
+  };
 }
 
 export function quakecCanDamageTracePointsForTargetOrigin(
@@ -141,5 +195,40 @@ export function quakecCanDamageFromTracePoints(
   return {
     result: traces.some((trace) => trace.clear),
     traces,
+  };
+}
+
+function quakeDamageAttackerTarget(
+  attacker: QuakeDamageActorReference,
+): QuakeEnemyTargetReference | null {
+  if (attacker.kind === "player") {
+    return { classname: "player", id: "player", kind: "player" };
+  }
+  if (attacker.kind === "shootable") {
+    return {
+      classname: attacker.classname,
+      entityIndex: attacker.entityIndex,
+      id: attacker.entityIndex,
+      kind: "shootable",
+    };
+  }
+  return null;
+}
+
+function quakeDamageTargetsMatch(
+  a: QuakeEnemyTargetReference,
+  b: QuakeEnemyTargetReference,
+): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "player") return true;
+  return a.entityIndex === b.entityIndex;
+}
+
+function quakeDamageNoRetarget(reason: Exclude<QuakeDamageRetargetReason, "retarget">): QuakeDamageRetargetDecision {
+  return {
+    preserveOldEnemy: false,
+    reason,
+    retarget: false,
+    target: null,
   };
 }

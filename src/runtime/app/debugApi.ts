@@ -76,6 +76,8 @@ function createQuakeAppDebugRuntime({
     damageWeaponTarget: (entityIndex, amount) =>
       runtime.controllers.shootables.debugDamageWeaponTarget(entityIndex, amount),
     debugMountEntity: (entityIndex) => runtime.controllers.shootables.debugMountEntity(entityIndex),
+    enemyAcquisition: (entityIndex, playerSourceOrigin, monsterYaw) =>
+      runtime.controllers.shootables.debugEnemyAcquisition(entityIndex, playerSourceOrigin, { monsterYaw }),
     entities: runtime.session.entities,
     fireWeapon: () => runtime.controllers.weapons.fire(),
     fireballEmittersCount,
@@ -94,6 +96,8 @@ function createQuakeAppDebugRuntime({
     getWeaponTuning: () => runtime.controllers.viewmodel.getTuning(),
     resetWeaponTuning: () => runtime.controllers.viewmodel.resetTuning(),
     setExpandedLogicalCombat: (enabled) => runtime.controllers.shootables.setExpandedLogicalCombatEnabled(enabled),
+    setMountedEnemyAcquisition: (enabled) =>
+      runtime.controllers.shootables.setMountedEnemyAcquisitionEnabled(enabled),
     setWeapon: (weapon) => setQuakeDebugWeapon(runtime, weapon, syncHud),
     setWeaponTuning: (tuning) => runtime.controllers.viewmodel.setTuning(tuning),
     viewmodelDebug: () => runtime.controllers.viewmodel.debugSnapshot(),

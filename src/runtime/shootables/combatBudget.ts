@@ -43,6 +43,7 @@ export interface QuakeCombatBudgetSecondStats {
 export interface QuakeCombatBudgetDebugStats {
   limits: QuakeCombatBudgetLimits;
   expandedLogicalCombatEnabled: boolean;
+  mountedEnemyAcquisitionEnabled: boolean;
   unmountedAiEnabled: boolean;
   combatInterestSetSize: number;
   unmountedAiActiveSetSize: number;
@@ -63,6 +64,7 @@ export interface QuakeCombatBudgetRuntime {
   debugStats(): QuakeCombatBudgetDebugStats;
   expandedLogicalCombatEnabled(): boolean;
   hasCombatInterest(entityIndex: number): boolean;
+  mountedEnemyAcquisitionEnabled(): boolean;
   recordAttackChainCheck(now?: number): void;
   recordCapDeferral(): void;
   recordCombatInterest(entityIndex: number, now?: number): QuakeCombatInterestResult;
@@ -73,6 +75,7 @@ export interface QuakeCombatBudgetRuntime {
   recordWeaponTargetYield(): void;
   reset(): void;
   setExpandedLogicalCombatEnabled(enabled: boolean): void;
+  setMountedEnemyAcquisitionEnabled(enabled: boolean): void;
   setUnmountedAiEnabled(enabled: boolean): void;
   tryRecordLineOfSightCheck(now?: number): boolean;
   tryStartUnmountedAiTick(entityIndex: number, now?: number): QuakeUnmountedAiTickResult;
@@ -135,6 +138,7 @@ export function createQuakeCombatBudgetRuntime(): QuakeCombatBudgetRuntime {
   let maxFrame = { attackChainChecks: 0, lineOfSightChecks: 0 };
   let maxPerSecond = { attackChainChecks: 0, lineOfSightChecks: 0 };
   let expandedLogicalCombatEnabled = false;
+  let mountedEnemyAcquisitionEnabled = true;
   let unmountedAiEnabled = false;
   let interestSequence = 0;
   const combatInterest = new Map<number, QuakeCombatInterestEntry>();
@@ -148,6 +152,7 @@ export function createQuakeCombatBudgetRuntime(): QuakeCombatBudgetRuntime {
     maxFrame = { attackChainChecks: 0, lineOfSightChecks: 0 };
     maxPerSecond = { attackChainChecks: 0, lineOfSightChecks: 0 };
     expandedLogicalCombatEnabled = false;
+    mountedEnemyAcquisitionEnabled = true;
     unmountedAiEnabled = false;
     interestSequence = 0;
     combatInterest.clear();
@@ -257,6 +262,12 @@ export function createQuakeCombatBudgetRuntime(): QuakeCombatBudgetRuntime {
     }
   }
 
+  function setMountedEnemyAcquisitionEnabled(enabled: boolean): void {
+    if (mountedEnemyAcquisitionEnabled === enabled) return;
+    mountedEnemyAcquisitionEnabled = enabled;
+    counters.disableSwitchActivationsTotal++;
+  }
+
   function setUnmountedAiEnabled(enabled: boolean): void {
     const nextEnabled = enabled && expandedLogicalCombatEnabled;
     if (unmountedAiEnabled === nextEnabled) return;
@@ -310,6 +321,10 @@ export function createQuakeCombatBudgetRuntime(): QuakeCombatBudgetRuntime {
     return expandedLogicalCombatEnabled;
   }
 
+  function isMountedEnemyAcquisitionEnabled(): boolean {
+    return mountedEnemyAcquisitionEnabled;
+  }
+
   function debugStats(): QuakeCombatBudgetDebugStats {
     return {
       combatInterestEntityIndexes: [...combatInterest.keys()],
@@ -319,6 +334,7 @@ export function createQuakeCombatBudgetRuntime(): QuakeCombatBudgetRuntime {
       currentSecond: { ...currentSecond },
       expandedLogicalCombatEnabled,
       limits: { ...QUAKE_COMBAT_BUDGET_LIMITS },
+      mountedEnemyAcquisitionEnabled,
       maxFrame: { ...maxFrame },
       maxPerSecond: { ...maxPerSecond },
       unmountedAiActiveEntityIndexes: [...unmountedAiActive],
@@ -363,6 +379,7 @@ export function createQuakeCombatBudgetRuntime(): QuakeCombatBudgetRuntime {
     debugStats,
     expandedLogicalCombatEnabled: isExpandedLogicalCombatEnabled,
     hasCombatInterest,
+    mountedEnemyAcquisitionEnabled: isMountedEnemyAcquisitionEnabled,
     recordAttackChainCheck,
     recordCapDeferral,
     recordCombatInterest,
@@ -373,6 +390,7 @@ export function createQuakeCombatBudgetRuntime(): QuakeCombatBudgetRuntime {
     recordWeaponTargetYield,
     reset,
     setExpandedLogicalCombatEnabled,
+    setMountedEnemyAcquisitionEnabled,
     setUnmountedAiEnabled,
     tryRecordLineOfSightCheck,
     tryStartUnmountedAiTick,
