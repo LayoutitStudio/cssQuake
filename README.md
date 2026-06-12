@@ -71,6 +71,6 @@ cssQuake can run inside an iframe. Add `relayKeys=1` only if the parent page wan
 
 When enabled, cssQuake posts `cssquake:key` messages for gameplay keys only. Parent pages should validate `event.origin` before reading them. Using `referrerpolicy="no-referrer"` disables the relay because cssQuake will not have a parent origin to target.
 
-## License and Data
+## License
 
 cssQuake source code is [GPL-2.0-only](LICENSE). Original Quake game data is not included in this repository; the prepare step reads shareware or local PAK input and writes ignored generated assets for local or deployed use.
