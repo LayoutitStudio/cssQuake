@@ -2444,11 +2444,20 @@ function quakeReferencedModelPathsForPreparedMaps(preparedMaps, programMetadata,
   for (const modelPath of quakeMultiplayerPlayerModelPathsFromCandidates(candidateByPath)) {
     referencedModelPaths.add(modelPath);
   }
+  for (const modelPath of quakePlayerWeaponProjectileModelPathsFromCandidates(candidateByPath, programMetadata)) {
+    referencedModelPaths.add(modelPath);
+  }
   return referencedModelPaths;
 }
 
 function quakeMultiplayerPlayerModelPathsFromCandidates(candidateByPath) {
   return QUAKE_MULTIPLAYER_PLAYER_ALIAS_MODEL_PATHS
+    .map((modelPath) => candidateByPath.get(modelPath.toLowerCase()))
+    .filter(Boolean);
+}
+
+function quakePlayerWeaponProjectileModelPathsFromCandidates(candidateByPath, programMetadata) {
+  return (programMetadata?.sourcePlayerProjectileModelPaths ?? [])
     .map((modelPath) => candidateByPath.get(modelPath.toLowerCase()))
     .filter(Boolean);
 }
@@ -3388,6 +3397,23 @@ function quakePlayerWeaponViewModelPaths(sourceProgramFacts) {
   return paths;
 }
 
+function quakePlayerWeaponProjectileModelPaths(sourceProgramFacts) {
+  const paths = [];
+  const seen = new Set();
+  const profiles = sourceProgramFacts?.playerWeapons?.profiles;
+  if (!profiles || typeof profiles !== "object") return paths;
+  const addPath = (value) => {
+    const modelPath = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (!/^progs\/.+\.mdl$/.test(modelPath) || seen.has(modelPath)) return;
+    seen.add(modelPath);
+    paths.push(modelPath);
+  };
+  for (const profile of Object.values(profiles)) {
+    addPath(profile?.projectile?.modelPath);
+  }
+  return paths;
+}
+
 function quakeWeaponModelOutputPath(modelPath) {
   const filename = path.basename(modelPath, path.extname(modelPath))
     .toLowerCase()
@@ -4056,6 +4082,9 @@ function buildQuakeProgramMetadata(assets, sourceProgramFacts = null) {
   const sourceRuntimeModelsByClassname = sourceProgramFacts
     ? buildQuakeProgramSourceRuntimeModelsByClassname(sourceProgramFacts)
     : null;
+  const sourcePlayerProjectileModelPaths = sourceProgramFacts
+    ? quakePlayerWeaponProjectileModelPaths(sourceProgramFacts)
+    : [];
   return {
     version: 1,
     crc: header.crc,
@@ -4063,6 +4092,7 @@ function buildQuakeProgramMetadata(assets, sourceProgramFacts = null) {
     modelsByClassname,
     soundsByClassname,
     ...(sourceRuntimeModelsByClassname ? { sourceRuntimeModelsByClassname } : {}),
+    ...(sourcePlayerProjectileModelPaths.length ? { sourcePlayerProjectileModelPaths } : {}),
     ...(sourceFactChecks ? { sourceFactChecks } : {}),
   };
 }
