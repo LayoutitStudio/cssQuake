@@ -6,6 +6,7 @@ import {
   type QuakePlayerWeaponFireProfileFact,
 } from "../generated/quakeProgramFacts";
 import type { QuakeEntity } from "../types/quake";
+import { quakeAliasModelRenderYaw } from "./aliasModelOrientation";
 import type { QuakeAmmoField, QuakeWeaponId } from "./hud";
 import type { QuakeViewmodelFireAnimation } from "./viewmodel";
 import {
@@ -536,7 +537,7 @@ function requiredString(value: string | undefined, label: string): string {
 }
 
 function quakeProjectileRenderYaw(yaw: number): number {
-  return ((yaw % 360) + 360) % 360;
+  return quakeAliasModelRenderYaw(yaw);
 }
 
 export function quakeWeaponFireProfileAuditFacts() {

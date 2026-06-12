@@ -15,6 +15,7 @@ import {
 import { COLLISION_EPSILON, PLAYER_RADIUS, QUAKE_COLLISION_UNIT_SCALE } from "./constants";
 import { distanceSq3, dotVec3, normalizeVec3 } from "./math";
 import { quakeEntityNumber, quakeEntitySpawnflags } from "./entities";
+import { quakeAliasModelRenderYaw, normalizeQuakeRenderYaw } from "./aliasModelOrientation";
 import {
   isQuakeRenderBundleFrameSetHandle,
   setQuakeRenderBundleFrameSetHandleFrame,
@@ -466,7 +467,7 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     const angle = animation?.baseAngle ?? pickup.entity.angle ?? quakeEntityNumber(pickup.entity, "angle", 0);
     pickup.handle.setTransform({
       position: pickup.origin,
-      rotation: [0, 0, angle],
+      rotation: [0, 0, pickup.model ? quakeAliasModelRenderYaw(angle) : normalizeQuakeRenderYaw(angle)],
       scale: 1,
     });
   };
@@ -545,7 +546,7 @@ export function createQuakePickupController(options: QuakePickupControllerOption
       rotation: [
         0,
         0,
-        (animation.baseAngle + seconds * QUAKE_PICKUP_ALIAS_SPIN_DEGREES_PER_SECOND) % 360,
+        quakeAliasModelRenderYaw(animation.baseAngle + seconds * QUAKE_PICKUP_ALIAS_SPIN_DEGREES_PER_SECOND),
       ],
       scale: 1,
     });

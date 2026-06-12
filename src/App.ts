@@ -14,6 +14,7 @@ import type {
 } from "./types/quake";
 import { QUAKE_PLAYER_WEAPON_FIRE_FACTS } from "./generated/quakeProgramFacts";
 import { createQuakeSoundController, type QuakeSoundEvent } from "./runtime/audio";
+import { QUAKE_ALIAS_MODEL_RENDER_YAW_OFFSET } from "./runtime/aliasModelOrientation";
 import { mountQuakeBitmapText } from "./runtime/bitmapText";
 import {
   QUAKE_COLLISION_UNIT_SCALE,
@@ -2193,7 +2194,7 @@ function quakeRemotePlayerVisualOrigin(origin: Vec3, zOffset: number): Vec3 {
 function quakeRemotePlayerVisualRotYOffset(element: HTMLElement): number {
   return element.classList.contains("remote-player-fallback")
     ? QUAKE_MULTIPLAYER_REMOTE_FALLBACK_ROT_Y_OFFSET
-    : 0;
+    : QUAKE_ALIAS_MODEL_RENDER_YAW_OFFSET;
 }
 
 function addQuakeProceduralRemotePlayerMesh(): PolyMeshHandle | null {

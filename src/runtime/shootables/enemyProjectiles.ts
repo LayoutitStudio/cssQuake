@@ -5,6 +5,7 @@ import type {
   QuakeMonsterProjectileOffsetUnits,
 } from "../../generated/quakeMonsterLogic";
 import type { QuakeEntity } from "../../types/quake";
+import { quakeAliasModelRenderYaw, normalizeQuakeRenderYaw } from "../aliasModelOrientation";
 import { COLLISION_EPSILON, QUAKE_COLLISION_UNIT_SCALE } from "../constants";
 import { normalizeVec3, subtractVec3 } from "../math";
 import type { QuakePickupModel, QuakePickupModelLibrary } from "../pickups";
@@ -304,7 +305,7 @@ export function createQuakeEnemyProjectileRuntime(
       : undefined;
     handle.setTransform({
       position: projectile.origin,
-      rotation: [0, 0, normalizeProjectileYaw(yaw)],
+      rotation: [0, 0, normalizeProjectileYaw(yaw, Boolean(model))],
       scale: projectile.profile.projectileScale ?? (model?.renderScale ? 1 / model.renderScale : 1),
     });
   }
@@ -424,6 +425,6 @@ function quakecScaleUnits(value: number): number {
   return value * QUAKE_COLLISION_UNIT_SCALE;
 }
 
-function normalizeProjectileYaw(yaw: number): number {
-  return ((yaw % 360) + 360) % 360;
+function normalizeProjectileYaw(yaw: number, hasAliasModel = false): number {
+  return hasAliasModel ? quakeAliasModelRenderYaw(yaw) : normalizeQuakeRenderYaw(yaw);
 }

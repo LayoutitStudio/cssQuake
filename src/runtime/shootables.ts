@@ -17,6 +17,7 @@ import {
   QUAKE_PLAYER_MINS_Z,
   STEP_HEIGHT,
 } from "./constants";
+import { quakeAliasModelRenderYaw, normalizeQuakeRenderYaw } from "./aliasModelOrientation";
 import type { QuakeCollisionResult } from "./collision";
 import {
   createQuakeShootablesVisibilityChurnStats,
@@ -1785,7 +1786,7 @@ export function createQuakeShootablesController({
       rotation: [
         0,
         0,
-        normalizeShootableYaw(entity.angle ?? quakeEntityNumber(entity, "angle", 0)),
+        normalizeShootableYaw(entity.angle ?? quakeEntityNumber(entity, "angle", 0), Boolean(model)),
       ],
       scale: model?.renderScale ? 1 / model.renderScale : 1,
     });
@@ -2718,7 +2719,7 @@ export function createQuakeShootablesController({
     stripPolyMeshMetadata(handle.element);
     handle.setTransform({
       position: origin,
-      rotation: [0, 0, normalizeShootableYaw(yaw)],
+      rotation: [0, 0, normalizeShootableYaw(yaw, true)],
       scale: model.renderScale ? 1 / model.renderScale : 1,
     });
     return handle;
@@ -2770,7 +2771,7 @@ export function createQuakeShootablesController({
   ): void {
     const renderPosition = shootable.origin;
     const scale = shootable.model?.renderScale ? 1 / shootable.model.renderScale : 1;
-    const renderYaw = normalizeShootableYaw(yaw);
+    const renderYaw = normalizeShootableYaw(yaw, Boolean(shootable.model));
     if (!setQuakeShootableHandleTransformIfChanged(
       handle,
       renderPosition,
@@ -2815,8 +2816,8 @@ export function createQuakeShootablesController({
     return markQuakeRenderBundleFrameSetHandleMotionMaterial(handle, reason);
   }
 
-  function normalizeShootableYaw(yaw: number): number {
-    return ((yaw % 360) + 360) % 360;
+  function normalizeShootableYaw(yaw: number, hasAliasModel = false): number {
+    return hasAliasModel ? quakeAliasModelRenderYaw(yaw) : normalizeQuakeRenderYaw(yaw);
   }
 
   function shootableEyeOrigin(shootable: QuakeShootableState): Vec3 {

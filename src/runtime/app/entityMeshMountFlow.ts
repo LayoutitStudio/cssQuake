@@ -9,6 +9,7 @@ import type {
 import type { QuakeEntity } from "../../types/quake";
 import { isQuakeDebugDomMetadataEnabled } from "../debug/traceMarks";
 import { quakeEntityNumber } from "../entities";
+import { quakeAliasModelRenderYaw, normalizeQuakeRenderYaw } from "../aliasModelOrientation";
 import {
   quakePickupModelRenderBundle,
   quakePickupModelRenderBundleFrameSet,
@@ -63,7 +64,7 @@ export function createQuakeEntityMeshMountFlow(
     const angle = entity.angle ?? quakeEntityNumber(entity, "angle", 0);
     handle.setTransform({
       position: options.pointToPoly(entity.origin),
-      rotation: [0, 0, angle],
+      rotation: [0, 0, model ? quakeAliasModelRenderYaw(angle) : normalizeQuakeRenderYaw(angle)],
       scale: 1,
     });
     if (!model) {
