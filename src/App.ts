@@ -204,6 +204,7 @@ import {
   mountQuakeRenderBundleMesh,
   syncQuakeRenderBundleDebugOutlineLeaves,
   stripPolyMeshMetadata,
+  type QuakeRenderBundleFrameSet,
 } from "./runtime/renderBundleMesh";
 
 declare const __CSSQUAKE_VERSION__: string;
@@ -511,7 +512,10 @@ const QUAKE_MULTIPLAYER_POSE_SAMPLE_MS = 50;
 const QUAKE_MULTIPLAYER_HARD_CORRECTION_DISTANCE = 4096 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MULTIPLAYER_SOFT_CORRECTION_DISTANCE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MULTIPLAYER_MAX_BLEND_CORRECTION_DISTANCE = 64 * QUAKE_COLLISION_UNIT_SCALE;
-const QUAKE_MULTIPLAYER_REMOTE_MODEL_PATHS = ["progs/player.mdl", "progs/soldier.mdl"] as const;
+const QUAKE_MULTIPLAYER_REMOTE_MODEL_PATHS = ["progs/player.mdl"] as const;
+const QUAKE_MULTIPLAYER_REMOTE_DEFAULT_FRAME = "stand1";
+const QUAKE_MULTIPLAYER_REMOTE_PLAYER_EYE_HEIGHT = QUAKE_PLAYER_VIEW_Z - QUAKE_PLAYER_MINS_Z;
+const QUAKE_MULTIPLAYER_REMOTE_FALLBACK_ROT_Y_OFFSET = 45;
 const quakeMultiplayerScoreboard = QUAKE_MULTIPLAYER_ENABLED && quakeHud
   ? mountQuakeMultiplayerScoreboard(quakeHud)
   : null;
@@ -547,6 +551,11 @@ function currentQuakeCssView(): QuakeCssView {
     rotX: scene.camera.state.rotX ?? 88,
     rotY: scene.camera.state.rotY ?? 270,
   };
+}
+
+function shouldSpawnQuakeShootableForCurrentMode(entity: QuakeEntity): boolean {
+  if (QUAKE_MULTIPLAYER_ENABLED && entity.classname.startsWith("monster_")) return false;
+  return shouldSpawnQuakeEntityForCurrentGame(entity);
 }
 
 function currentQuakeViewUrl(): string {
@@ -1313,9 +1322,9 @@ const shootables = createQuakeShootablesController({
   isGameplayPaused: isQuakeGamePaused,
   isInPlayerView: (point) => quakeSceneMount.isPointInPlayerView(point, QUAKE_MONSTER_MOUNT_VIEW_DOT_MIN),
   leafIndexAt: world.leafIndexAt,
-  monsterRuntimeEnabled: () => QUAKE_MONSTER_RUNTIME_ENABLED && !quakeEnemiesDisabled,
+  monsterRuntimeEnabled: () => QUAKE_MONSTER_RUNTIME_ENABLED && !QUAKE_MULTIPLAYER_ENABLED && !quakeEnemiesDisabled,
   pointToPoly: quakeCameraView.pointToPoly,
-  shouldSpawn: shouldSpawnQuakeEntityForCurrentGame,
+  shouldSpawn: shouldSpawnQuakeShootableForCurrentMode,
   pixelate: world.pixelate,
   schedulePresentationResync: world.schedulePresentationResync,
   visibleLeavesAt: world.visibleLeavesAt,
@@ -2099,35 +2108,45 @@ function setQuakeAssetsRegenerating(message?: string): void {
 function createQuakeRemotePlayerVisual(
   playerState: QuakeMultiplayerAuthoritativePlayerState,
 ): QuakeMultiplayerRemoteVisualHandle | null {
-  const handle = addQuakeRemotePlayerMesh();
-  if (!handle) return null;
-  handle.element.classList.add("remote-player", "remote-player-prototype");
-  handle.element.dataset.playerId = playerState.playerId;
-  handle.element.dataset.clientId = playerState.clientId;
+  const remote = addQuakeRemotePlayerMesh();
+  if (!remote) return null;
+  remote.handle.element.classList.add("remote-player", "remote-player-prototype");
+  remote.handle.element.dataset.playerId = playerState.playerId;
+  remote.handle.element.dataset.clientId = playerState.clientId;
   if (playerState.color) {
-    handle.element.dataset.playerColor = playerState.color;
-    handle.element.style.setProperty("--quake-multiplayer-player-color", playerState.color);
+    remote.handle.element.dataset.playerColor = playerState.color;
+    remote.handle.element.style.setProperty("--quake-multiplayer-player-color", playerState.color);
   }
-  stripPolyMeshMetadata(handle.element);
+  stripPolyMeshMetadata(remote.handle.element);
   return {
-    element: handle.element,
-    setState: (state) => syncQuakeRemotePlayerVisual(handle, state),
-    remove: () => handle.remove(),
+    element: remote.handle.element,
+    setState: (state) => syncQuakeRemotePlayerVisual(remote, state),
+    remove: () => remote.handle.remove(),
   };
 }
 
-function addQuakeRemotePlayerMesh(): PolyMeshHandle | null {
+interface QuakeRemotePlayerMeshMount {
+  handle: PolyMeshHandle;
+  scale: number;
+  zOffset: number;
+}
+
+function addQuakeRemotePlayerMesh(): QuakeRemotePlayerMeshMount | null {
   const model = quakeRemotePlayerModel();
   const frameSet = model ? quakePickupModelRenderBundleFrameSet(model) : undefined;
   const handle = frameSet
-    ? mountQuakeRenderBundleFrameSetMesh(sceneElement, frameSet, 0)
+    ? mountQuakeRenderBundleFrameSetMesh(sceneElement, frameSet, quakeRemotePlayerDefaultFrameIndex(frameSet))
     : model
     ? mountQuakeRenderBundleMesh(sceneElement, quakePickupModelRenderBundle(model, 0))
     : addQuakeProceduralRemotePlayerMesh();
   if (!handle) return null;
   world.pixelate(handle);
   void world.schedulePresentationResync(handle);
-  return handle;
+  return {
+    handle,
+    scale: model?.renderScale ? 1 / model.renderScale : 1,
+    zOffset: model ? quakeRemotePlayerModelZOffset(model) : -QUAKE_MULTIPLAYER_REMOTE_PLAYER_EYE_HEIGHT,
+  };
 }
 
 function quakeRemotePlayerModel(): QuakePickupModel | null {
@@ -2141,15 +2160,39 @@ function quakeRemotePlayerModel(): QuakePickupModel | null {
 }
 
 function syncQuakeRemotePlayerVisual(
-  handle: PolyMeshHandle,
+  remote: QuakeRemotePlayerMeshMount,
   state: QuakeMultiplayerRemoteInterpolationState,
 ): void {
+  const { handle } = remote;
   handle.element.hidden = state.stale || !state.alive;
   handle.setTransform({
-    position: state.renderOrigin,
-    rotation: [0, 0, state.renderRotY],
-    scale: 1,
+    position: quakeRemotePlayerVisualOrigin(state.renderOrigin, remote.zOffset),
+    rotation: [0, 0, state.renderRotY + quakeRemotePlayerVisualRotYOffset(handle.element)],
+    scale: remote.scale,
   });
+}
+
+function quakeRemotePlayerDefaultFrameIndex(frameSet: QuakeRenderBundleFrameSet): number {
+  const frameIndex = frameSet.frames.findIndex((frame) => frame.name === QUAKE_MULTIPLAYER_REMOTE_DEFAULT_FRAME);
+  return frameIndex >= 0 ? frameIndex : 0;
+}
+
+function quakeRemotePlayerModelZOffset(model: QuakePickupModel): number {
+  return -QUAKE_MULTIPLAYER_REMOTE_PLAYER_EYE_HEIGHT - (model.bounds?.min[2] ?? 0);
+}
+
+function quakeRemotePlayerVisualOrigin(origin: Vec3, zOffset: number): Vec3 {
+  return [
+    origin[0],
+    origin[1],
+    origin[2] + zOffset,
+  ];
+}
+
+function quakeRemotePlayerVisualRotYOffset(element: HTMLElement): number {
+  return element.classList.contains("remote-player-fallback")
+    ? QUAKE_MULTIPLAYER_REMOTE_FALLBACK_ROT_Y_OFFSET
+    : 0;
 }
 
 function addQuakeProceduralRemotePlayerMesh(): PolyMeshHandle | null {
@@ -2991,12 +3034,13 @@ function sendQuakeMultiplayerHello(roomKey: QuakeMultiplayerRoomCompatibilityKey
   }));
 }
 
-function requestQuakeMultiplayerPickup(entityIndex: number): void {
+function requestQuakeMultiplayerPickup(entityIndex: number): boolean {
+  if (!Number.isInteger(entityIndex) || entityIndex < 0) return false;
   const now = Date.now();
   const lastRequestedAt = quakeMultiplayerPickupRequestAt.get(entityIndex) ?? -Infinity;
-  if (now - lastRequestedAt < 250) return;
+  if (now - lastRequestedAt < 250) return true;
   const roomKey = currentQuakeMultiplayerRoomKey();
-  if (!roomKey) return;
+  if (!roomKey) return false;
   quakeMultiplayerPickupRequestAt.set(entityIndex, now);
   quakeMultiplayerSession.send(createQuakeMultiplayerEnvelope({
     direction: "client",
@@ -3013,6 +3057,7 @@ function requestQuakeMultiplayerPickup(entityIndex: number): void {
       },
     },
   }));
+  return true;
 }
 
 function sendQuakeMultiplayerHazardDamageIntent(hazard: QuakeHazardDamage): boolean {

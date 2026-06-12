@@ -98,6 +98,59 @@ export function quakeMultiplayerDeathmatchSpawnsFromScene(
   }];
 }
 
+export function quakeMultiplayerDeathmatchNearbySpawnOrder(
+  spawns: readonly QuakeMultiplayerSpawnPoint[],
+): QuakeMultiplayerSpawnPoint[] {
+  if (spawns.length <= 2) return [...spawns];
+
+  let firstIndex = 0;
+  let secondIndex = 1;
+  let bestDistance = quakeMultiplayerSpawnDistanceSq(spawns[0]!, spawns[1]!);
+  for (let i = 0; i < spawns.length; i++) {
+    for (let j = i + 1; j < spawns.length; j++) {
+      const distance = quakeMultiplayerSpawnDistanceSq(spawns[i]!, spawns[j]!);
+      if (distance < bestDistance) {
+        firstIndex = i;
+        secondIndex = j;
+        bestDistance = distance;
+      }
+    }
+  }
+
+  const ordered = [spawns[firstIndex]!, spawns[secondIndex]!];
+  const remaining = spawns
+    .map((spawn, index) => ({ spawn, index }))
+    .filter(({ index }) => index !== firstIndex && index !== secondIndex);
+  while (remaining.length) {
+    let bestRemainingIndex = 0;
+    let bestRemainingDistance = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const candidate = remaining[i]!;
+      const distance = Math.min(
+        ...ordered.map((spawn) => quakeMultiplayerSpawnDistanceSq(candidate.spawn, spawn)),
+      );
+      if (distance < bestRemainingDistance) {
+        bestRemainingIndex = i;
+        bestRemainingDistance = distance;
+      }
+    }
+    const [next] = remaining.splice(bestRemainingIndex, 1);
+    if (next) ordered.push(next.spawn);
+  }
+
+  return ordered;
+}
+
+function quakeMultiplayerSpawnDistanceSq(
+  a: QuakeMultiplayerSpawnPoint,
+  b: QuakeMultiplayerSpawnPoint,
+): number {
+  const dx = a.origin[0] - b.origin[0];
+  const dy = a.origin[1] - b.origin[1];
+  const dz = a.origin[2] - b.origin[2];
+  return dx * dx + dy * dy + dz * dz;
+}
+
 function quakeMultiplayerSpawnPointFromEntity(
   entity: QuakeEntity,
   options: QuakeMultiplayerDeathmatchSpawnOptions,
