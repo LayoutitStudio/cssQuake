@@ -128,6 +128,7 @@ import {
   createQuakeNoopMultiplayerSession,
   decideQuakeMultiplayerLocalCorrection,
   normalizeQuakePartySocketHost,
+  quakeMultiplayerDeathmatchSpawnOrder,
   quakeMultiplayerGameplayDefinitionsFromScene,
   quakeMultiplayerWorldDefinitionsFromScene,
   type QuakeMultiplayerAuthoritativePickupState,
@@ -2256,6 +2257,19 @@ function currentQuakeMultiplayerRoomKey(): QuakeMultiplayerRoomCompatibilityKey 
   };
 }
 
+function applyQuakeMultiplayerInitialSpawnHint(): void {
+  if (!QUAKE_MULTIPLAYER_ENABLED || !currentResult || quakeMultiplayerLocalSpawnId) return;
+  const gameplayDefinitions = quakeMultiplayerGameplayDefinitionsFromScene(currentResult, {
+    pointToRoom: quakeCameraView.pointToPoly,
+    playerEyeHeight: getPlayer().eyeHeight(),
+    playerMinsZ: QUAKE_PLAYER_MINS_Z,
+  });
+  const spawn = quakeMultiplayerDeathmatchSpawnOrder(gameplayDefinitions.deathmatchSpawns)[0];
+  if (!spawn) return;
+  quakeMultiplayerLocalSpawnId = spawn.spawnId;
+  applyQuakeMultiplayerView(spawn.origin, spawn.rotX, spawn.rotY);
+}
+
 function quakeMultiplayerRoomId(roomKey: QuakeMultiplayerRoomCompatibilityKey): string {
   return QUAKE_MULTIPLAYER_ROOM_ID || quakeMultiplayerFallbackRoomId(roomKey.mapName);
 }
@@ -2356,6 +2370,7 @@ function startQuakeMultiplayerScene(): void {
   if (!QUAKE_MULTIPLAYER_ENABLED || quakeAppDisposed) return;
   const roomKey = currentQuakeMultiplayerRoomKey();
   if (!roomKey) return;
+  applyQuakeMultiplayerInitialSpawnHint();
   const sceneSerial = ++quakeMultiplayerSceneSerial;
   void quakeMultiplayerSession.connect({
     roomKey,
@@ -2992,14 +3007,18 @@ function sendQuakeMultiplayerPong(payload: Extract<QuakeMultiplayerRoomEnvelope,
 }
 
 function applyQuakeMultiplayerAuthoritativeView(playerState: QuakeMultiplayerAuthoritativePlayerState): void {
-  const origin: [number, number, number] = [
-    playerState.origin[0],
-    playerState.origin[1],
-    playerState.origin[2],
+  applyQuakeMultiplayerView(playerState.origin, playerState.rotX, playerState.rotY);
+}
+
+function applyQuakeMultiplayerView(originValue: readonly [number, number, number], rotX: number, rotY: number): void {
+  const origin: Vec3 = [
+    originValue[0],
+    originValue[1],
+    originValue[2],
   ];
   quakeCameraView.clearWeaponViewPunch(false);
   getPlayer().setDebugOrigin(origin);
-  quakeCameraView.syncSceneCameraAt(origin, playerState.rotX, playerState.rotY);
+  quakeCameraView.syncSceneCameraAt(origin, rotX, rotY);
   shootables.syncVisibility(origin, true);
   viewmodel.syncTransform();
   world.syncVisibility(true);
