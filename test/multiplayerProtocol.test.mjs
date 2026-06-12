@@ -19,7 +19,7 @@ const cadence = await importTsModule("src/runtime/multiplayer/cadence.ts");
 const heartbeat = await importTsModule("src/runtime/multiplayer/heartbeat.ts");
 const world = await importTsModule("src/runtime/multiplayer/world.ts");
 const constants = await importTsModule("src/runtime/constants.ts");
-const partyRoom = await importTsModule("party/quake.ts");
+const partyRoom = await importTsModule("src/runtime/multiplayer/partyRoom.ts");
 
 const {
   QUAKE_MULTIPLAYER_PROTOCOL_VERSION,
@@ -83,6 +83,7 @@ const {
 const {
   quakeMultiplayerDeathmatchHitHasLineOfSight,
   quakeMultiplayerDeathmatchLightningDischarge,
+  quakeMultiplayerDeathmatchNearbySpawnOrder,
   quakeMultiplayerDeathmatchPlayerWithDamageMomentum,
 } = deathmatch;
 const {
@@ -387,6 +388,39 @@ test("PartySocket host overrides normalize to bare hosts", () => {
   assert.equal(normalizeQuakePartySocketHost("https://user:pass@cssquake.example.com/"), null);
   assert.equal(normalizeQuakePartySocketHost("ftp://cssquake.example.com"), null);
   assert.equal(normalizeQuakePartySocketHost("cssquake.example.com?room=abc"), null);
+});
+
+test("deathmatch spawn ordering puts the closest pair first", () => {
+  const spawns = [{
+    spawnId: "far-a",
+    classname: "info_player_deathmatch",
+    origin: [0, 0, 0],
+    rotX: 90,
+    rotY: 0,
+  }, {
+    spawnId: "far-b",
+    classname: "info_player_deathmatch",
+    origin: [500, 0, 0],
+    rotX: 90,
+    rotY: 90,
+  }, {
+    spawnId: "near-a",
+    classname: "info_player_deathmatch",
+    origin: [100, 100, 0],
+    rotX: 90,
+    rotY: 180,
+  }, {
+    spawnId: "near-b",
+    classname: "info_player_deathmatch",
+    origin: [102, 100, 0],
+    rotX: 90,
+    rotY: 270,
+  }];
+
+  const ordered = quakeMultiplayerDeathmatchNearbySpawnOrder(spawns);
+
+  assert.deepEqual(ordered.map((spawn) => spawn.spawnId).slice(0, 2), ["near-a", "near-b"]);
+  assert.deepEqual(spawns.map((spawn) => spawn.spawnId), ["far-a", "far-b", "near-a", "near-b"]);
 });
 
 test("valid client hello envelopes pass protocol validation", () => {
@@ -1139,6 +1173,19 @@ test("validation rejects stale, wrong-map, wrong-protocol, and malformed message
           factsHash: "not-a-hash",
         },
       },
+    }),
+    { roomKey, now: 1000 },
+  ).code, "malformed");
+});
+
+test("validation rejects local runtime pickup entity indexes", () => {
+  assert.equal(validateQuakeMultiplayerClientEnvelope(
+    createPickupEnvelope({
+      messageId: "runtime-backpack",
+      entityIndex: -300001,
+      pickupSequence: 1,
+      sequence: 6,
+      sentAt: 1000,
     }),
     { roomKey, now: 1000 },
   ).code, "malformed");
@@ -3232,6 +3279,89 @@ test("PartyKit room can use trusted gameplay definitions instead of first-client
     updatedAt: snapshot.payload.pickups[0].updatedAt,
   });
   assert.equal(goodConnection.sent.some((message) => message.type === "room.reject"), false);
+
+  server.stopSimulationTicker();
+  server.stopSnapshotTicker();
+  server.stopHeartbeatTicker();
+});
+
+test("PartyKit room spawns the first two players at nearby deathmatch starts", () => {
+  const trustedDefinitions = createQuakeMultiplayerGameplayDefinitions({
+    deathmatchSpawns: [{
+      spawnId: "far-a",
+      classname: "info_player_deathmatch",
+      origin: [0, 0, 0],
+      rotX: 90,
+      rotY: 0,
+      sourceEntityIndex: 1,
+    }, {
+      spawnId: "far-b",
+      classname: "info_player_deathmatch",
+      origin: [500, 0, 0],
+      rotX: 90,
+      rotY: 90,
+      sourceEntityIndex: 2,
+    }, {
+      spawnId: "near-a",
+      classname: "info_player_deathmatch",
+      origin: [100, 100, 0],
+      rotX: 90,
+      rotY: 180,
+      sourceEntityIndex: 3,
+    }, {
+      spawnId: "near-b",
+      classname: "info_player_deathmatch",
+      origin: [102, 100, 0],
+      rotX: 90,
+      rotY: 270,
+      sourceEntityIndex: 4,
+    }],
+  });
+  const fakeRoom = createFakePartyRoom();
+  const server = new CssQuakeMultiplayerRoom(fakeRoom, {
+    trustedGameplayDefinitions: trustedDefinitions,
+  });
+  const firstConnection = createFakePartyConnection("conn-nearby-a");
+  const secondConnection = createFakePartyConnection("conn-nearby-b");
+  fakeRoom.addConnection(firstConnection);
+  fakeRoom.addConnection(secondConnection);
+  server.onConnect(firstConnection);
+  server.onConnect(secondConnection);
+  const timestamp = Date.now();
+
+  server.onMessage(JSON.stringify(createQuakeMultiplayerEnvelope({
+    direction: "client",
+    type: "client.hello",
+    messageId: "party-nearby-hello-a",
+    sequence: 1,
+    sentAt: timestamp,
+    roomKey,
+    payload: {
+      clientId: "client-a",
+      displayName: "Player A",
+    },
+  })), firstConnection);
+  server.onMessage(JSON.stringify(createQuakeMultiplayerEnvelope({
+    direction: "client",
+    type: "client.hello",
+    messageId: "party-nearby-hello-b",
+    sequence: 1,
+    sentAt: timestamp + 10,
+    roomKey,
+    payload: {
+      clientId: "client-b",
+      displayName: "Player B",
+    },
+  })), secondConnection);
+
+  const snapshot = fakeRoom.broadcasts.at(-1);
+  assert.equal(snapshot?.type, "room.snapshot");
+  const firstPlayer = snapshot.payload.players.find((player) => player.clientId === "client-a");
+  const secondPlayer = snapshot.payload.players.find((player) => player.clientId === "client-b");
+  assert.equal(firstPlayer?.spawnId, "near-a");
+  assert.deepEqual(firstPlayer?.origin, [100, 100, 0]);
+  assert.equal(secondPlayer?.spawnId, "near-b");
+  assert.deepEqual(secondPlayer?.origin, [102, 100, 0]);
 
   server.stopSimulationTicker();
   server.stopSnapshotTicker();

@@ -10,7 +10,15 @@ build/reports/gmqcc-oracle.json
 dist/**
 bench/
 /debug/
-notes/
-scripts/
+.partykit/
+notes/*
+!notes/cssquake-testing-suite-plan.md
+scripts/audit*.mjs
+scripts/check*.mjs
+scripts/local/
+scripts/perfetto*.mjs
+scripts/probe*.mjs
+scripts/rebake*.mjs
+scripts/summarize-monster-lab.mjs
 netlify.toml
 chrome-trace*.json

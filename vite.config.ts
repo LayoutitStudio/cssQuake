@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import { localDebugSitePlugin } from "./dev/localDebugSitePlugin";
+import { localDebugSitePlugin } from "./src/site/localDebugSitePlugin";
 
 const CONFIG_DIR = path.dirname(fileURLToPath(import.meta.url));
 

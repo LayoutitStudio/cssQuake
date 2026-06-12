@@ -233,6 +233,7 @@ const QUAKE_MAIN_MENU_LEVEL_LABEL_SCALE = 2;
 const QUAKE_PICKUP_MODEL_SCALE = QUAKE_UNIT_SCALE;
 const QUAKE_WEAPON_MODEL_PIVOT = parseQuakeWeaponModelPivot(process.env.QUAKE_WEAPON_MODEL_PIVOT);
 const QUAKE_ENEMY_ALIAS_MODEL_RENDER_SCALE = 4;
+const QUAKE_PLAYER_ALIAS_MODEL_RENDER_SCALE = 4;
 const QUAKE_ANIMATION_FRAME_SET_MIN_COMMON_LEAF_RATIO = 0.95;
 const QUAKE_ALIAS_MERGE_MAX_NONPLANAR_DISTANCE = 0.03;
 const QUAKE_ALIAS_MERGE_UV_EPSILON = 1e-6;
@@ -261,6 +262,7 @@ const QUAKE_DEBUG_OUTLINE_COLORS = {
   brush: "#ffff00",
   entity: "#ffff00",
   pickup: "#ffff00",
+  player: "#ff8b1f",
   enemy: "#ff0000",
   lightstyle: "#00ffff",
   viewmodel: "#ffff00",
@@ -324,6 +326,13 @@ const QUAKE_ANIMATED_MONSTER_ALIAS_MODEL_PATHS = [
   "progs/soldier.mdl",
   "progs/wizard.mdl",
   "progs/zombie.mdl",
+];
+const QUAKE_MULTIPLAYER_PLAYER_ALIAS_MODEL_PATHS = [
+  "progs/player.mdl",
+  "progs/h_player.mdl",
+];
+const QUAKE_ANIMATED_PLAYER_ALIAS_MODEL_PATHS = [
+  "progs/player.mdl",
 ];
 const QUAKE_PROJECTILE_ALIAS_MODEL_PATHS = [
   "progs/bolt.mdl",
@@ -482,15 +491,17 @@ function parseQuakeDomTighteningTargets(value) {
     if (!token || token === "0" || token === "off" || token === "false" || token === "none") continue;
     if (token === "pickup") token = "pickups";
     if (token === "monster") token = "monsters";
+    if (token === "player") token = "players";
     if (token === "models") {
       targets.add("pickups");
       targets.add("monsters");
+      targets.add("players");
       continue;
     }
-    if (!["all", "world", "pickups", "monsters", "other"].includes(token)) {
+    if (!["all", "world", "pickups", "monsters", "players", "other"].includes(token)) {
       throw new Error(
         `Unknown QUAKE_DOM_TIGHTENING target ${JSON.stringify(token)}. ` +
-        "Use world,pickups,monsters,models,all,none.",
+        "Use world,pickups,monsters,players,models,all,none.",
       );
     }
     targets.add(token);
@@ -2304,6 +2315,10 @@ function buildQuakeAssetManifest(preparedMaps, programMetadata, pickupModels, so
       ? gameLogicModelPaths
       : quakeMapModelPaths(outputPath, preparedMaps, programMetadata)
         .filter((modelPath) => preparedModelPaths.has(modelPath));
+    for (const playerModelPath of quakeMultiplayerPlayerModelPathsFromPreparedModels(preparedModelPaths)) {
+      if (!modelPaths.includes(playerModelPath)) modelPaths.push(playerModelPath);
+    }
+    modelPaths.sort();
     return {
       mapName,
       title: quakeMapTitles.get(mapName) ?? mapName.toUpperCase(),
@@ -2328,6 +2343,11 @@ function buildQuakeAssetManifest(preparedMaps, programMetadata, pickupModels, so
       soundManifestUrl: generatedPublicUrl(soundManifestOutputPath),
     },
   };
+}
+
+function quakeMultiplayerPlayerModelPathsFromPreparedModels(preparedModelPaths) {
+  return QUAKE_MULTIPLAYER_PLAYER_ALIAS_MODEL_PATHS
+    .filter((modelPath) => preparedModelPaths.has(modelPath));
 }
 
 async function writeQuakeAssetManifestFromGeneratedFiles() {
@@ -2421,7 +2441,16 @@ function quakeReferencedModelPathsForPreparedMaps(preparedMaps, programMetadata,
       if (candidate) referencedModelPaths.add(candidate);
     }
   }
+  for (const modelPath of quakeMultiplayerPlayerModelPathsFromCandidates(candidateByPath)) {
+    referencedModelPaths.add(modelPath);
+  }
   return referencedModelPaths;
+}
+
+function quakeMultiplayerPlayerModelPathsFromCandidates(candidateByPath) {
+  return QUAKE_MULTIPLAYER_PLAYER_ALIAS_MODEL_PATHS
+    .map((modelPath) => candidateByPath.get(modelPath.toLowerCase()))
+    .filter(Boolean);
 }
 
 async function writeQuakeAssetRegenerationManifest({ mode = "full", mapNames = [] } = {}) {
@@ -3422,6 +3451,8 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
     projectileAliasModelPaths,
     enemyAliasModelPaths,
     animatedMonsterAliasModelPaths,
+    multiplayerPlayerAliasModelPaths,
+    animatedPlayerAliasModelPaths,
   } = modelPathSets;
   let aliasModelPaths = new Set(modelPathSets.aliasModelPaths);
   let bspModelPaths = new Set(modelPathSets.bspModelPaths);
@@ -3463,8 +3494,14 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
       palette: assets.palette,
       brightness: 1.22,
     });
-    const includeAnimationFrames = animatedAliasModelPaths.has(source) || animatedMonsterAliasModelPaths.has(source);
-    const renderScale = enemyAliasModelPaths.has(source) ? QUAKE_ENEMY_ALIAS_MODEL_RENDER_SCALE : 1;
+    const includeAnimationFrames = animatedAliasModelPaths.has(source) ||
+      animatedMonsterAliasModelPaths.has(source) ||
+      animatedPlayerAliasModelPaths.has(source);
+    const renderScale = enemyAliasModelPaths.has(source)
+      ? QUAKE_ENEMY_ALIAS_MODEL_RENDER_SCALE
+      : multiplayerPlayerAliasModelPaths.has(source)
+      ? QUAKE_PLAYER_ALIAS_MODEL_RENDER_SCALE
+      : 1;
     const twoSidedTriangleIndices = quakeAliasTwoSidedTriangleIndices(model, source);
     const swordTriangleIndices = quakeAliasSwordTriangleIndices(source);
     const noMergeTriangleIndices = quakeAliasNoMergeTriangleIndices(model, source) ?? swordTriangleIndices;
@@ -3497,9 +3534,11 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
         animatedAliasModelPaths,
         enemyAliasModelPaths,
         projectileAliasModelPaths,
+        multiplayerPlayerAliasModelPaths,
       }),
       debugOutlineKind: quakeAliasModelDebugOutlineKind(source, {
         enemyAliasModelPaths,
+        multiplayerPlayerAliasModelPaths,
       }),
       ...(includeAnimationFrames && renderAnimationFrames.length > 1 ? { animationFrames: renderAnimationFrames } : {}),
       ...(renderScale !== 1 ? { renderScale } : {}),
@@ -3579,11 +3618,18 @@ function quakePickupModelPathSets(assets, programMetadata) {
   const projectileAliasModelPaths = new Set(
     QUAKE_PROJECTILE_ALIAS_MODEL_PATHS.filter((model) => assets.entries.has(model)),
   );
+  const multiplayerPlayerAliasModelPaths = new Set(
+    QUAKE_MULTIPLAYER_PLAYER_ALIAS_MODEL_PATHS.filter((model) => assets.entries.has(model)),
+  );
+  const animatedPlayerAliasModelPaths = new Set(
+    QUAKE_ANIMATED_PLAYER_ALIAS_MODEL_PATHS.filter((model) => multiplayerPlayerAliasModelPaths.has(model)),
+  );
   const enemyAliasModelPaths = new Set(
     programEnemyModels
       .filter((model) => model.endsWith(".mdl") &&
         !animatedAliasModelPaths.has(model) &&
-        !projectileAliasModelPaths.has(model)),
+        !projectileAliasModelPaths.has(model) &&
+        !multiplayerPlayerAliasModelPaths.has(model)),
   );
   const animatedMonsterAliasModelPaths = new Set(
     QUAKE_ANIMATED_MONSTER_ALIAS_MODEL_PATHS.filter((model) => enemyAliasModelPaths.has(model)),
@@ -3592,6 +3638,7 @@ function quakePickupModelPathSets(assets, programMetadata) {
     ...animatedAliasModelPaths,
     ...enemyAliasModelPaths,
     ...projectileAliasModelPaths,
+    ...multiplayerPlayerAliasModelPaths,
     ...programRuntimeModels.filter((model) => model.endsWith(".mdl")),
   ]);
   let bspModelPaths = new Set([
@@ -3604,6 +3651,8 @@ function quakePickupModelPathSets(assets, programMetadata) {
     projectileAliasModelPaths,
     enemyAliasModelPaths,
     animatedMonsterAliasModelPaths,
+    multiplayerPlayerAliasModelPaths,
+    animatedPlayerAliasModelPaths,
     aliasModelPaths,
     bspModelPaths,
     modelPaths: new Set([...aliasModelPaths, ...bspModelPaths]),
@@ -3629,12 +3678,14 @@ function hasRenderableQuakePickupModelBundle(model) {
 }
 
 function quakeAliasModelDomTighteningTarget(source, sets) {
+  if (sets.multiplayerPlayerAliasModelPaths?.has(source)) return "players";
   if (sets.animatedAliasModelPaths?.has(source)) return "pickups";
   if (sets.enemyAliasModelPaths?.has(source) || sets.projectileAliasModelPaths?.has(source)) return "monsters";
   return "other";
 }
 
 function quakeAliasModelDebugOutlineKind(source, sets) {
+  if (sets.multiplayerPlayerAliasModelPaths?.has(source)) return "player";
   return sets.enemyAliasModelPaths?.has(source) ? "enemy" : "pickup";
 }
 
@@ -4274,7 +4325,7 @@ function quakeWeaponVertex(vertex) {
 
 function quakePickupVertex(vertex) {
   const [x, y, z] = vertex;
-  return [x * QUAKE_PICKUP_MODEL_SCALE, y * QUAKE_PICKUP_MODEL_SCALE, z * QUAKE_PICKUP_MODEL_SCALE];
+  return [-x * QUAKE_PICKUP_MODEL_SCALE, -y * QUAKE_PICKUP_MODEL_SCALE, z * QUAKE_PICKUP_MODEL_SCALE];
 }
 
 function scaleQuakeModelPolygons(polygons, scale) {
@@ -4465,17 +4516,28 @@ function quakeAliasPolygonsFromPlan(model, frame, entry, options = {}) {
 }
 
 function quakeAliasPolygonFromPlan(model, frame, entry, options = {}) {
+  const indexOrder = quakeAliasRenderBundleWindingOrder(entry.indexOrder);
+  const uvs = entry.uvs ? quakeAliasRenderBundleWindingOrder(entry.uvs) : null;
   return {
-    vertices: entry.indexOrder.map((index) => quakeAliasFramePlanVertex(frame, entry, index, options)),
-    ...(entry.uvs ? { uvs: entry.uvs.map((uv) => [...uv]) } : {}),
+    vertices: indexOrder.map((index) => quakeAliasFramePlanVertex(frame, entry, index, options)),
+    ...(uvs ? { uvs: uvs.map((uv) => [...uv]) } : {}),
     ...(entry.textureTriangles ? {
-      textureTriangles: entry.textureTriangles.map((triangle) => ({
-        vertices: triangle.indices.map((index) => quakeAliasFramePlanVertex(frame, entry, index, options)),
-        uvs: triangle.uvs.map((uv) => [...uv]),
-      })),
+      textureTriangles: entry.textureTriangles.map((triangle) => {
+        const indices = quakeAliasRenderBundleWindingOrder(triangle.indices);
+        const triangleUvs = quakeAliasRenderBundleWindingOrder(triangle.uvs);
+        return {
+          vertices: indices.map((index) => quakeAliasFramePlanVertex(frame, entry, index, options)),
+          uvs: triangleUvs.map((uv) => [...uv]),
+        };
+      }),
     } : {}),
     ...(entry.data ? { data: { ...entry.data } } : {}),
   };
+}
+
+function quakeAliasRenderBundleWindingOrder(values) {
+  if (values.length < 3) return [...values];
+  return [values[0], ...values.slice(1).reverse()];
 }
 
 function quakeAliasFramePlanVertex(frame, entry, index, options = {}) {

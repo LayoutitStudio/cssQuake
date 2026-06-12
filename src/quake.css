@@ -158,9 +158,6 @@ body.quake-menu-open #quake-hud {
 .quake-multiplayer-scoreboard-local td:first-child {
   color: #f08a43;
 }
-.remote-player {
-  filter: drop-shadow(0 0 7px var(--quake-multiplayer-player-color, rgba(111, 183, 216, 0.85)));
-}
 #quake-damage-overlay {
   position: absolute;
   inset: 0;

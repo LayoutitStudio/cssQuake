@@ -9,6 +9,7 @@ import type {
 import type { QuakeEntity } from "../../types/quake";
 import { isQuakeDebugDomMetadataEnabled } from "../debug/traceMarks";
 import { quakeEntityNumber } from "../entities";
+import { quakeAliasModelRenderYaw, normalizeQuakeRenderYaw } from "../aliasModelOrientation";
 import {
   quakePickupModelRenderBundle,
   quakePickupModelRenderBundleFrameSet,
@@ -55,6 +56,7 @@ export function createQuakeEntityMeshMountFlow(
     if (!handle) return null;
     handle.element.classList.add("pickup");
     stripPolyMeshMetadata(handle.element);
+    keepPickupBackfacesVisible(handle.element);
     if (isQuakeDebugDomMetadataEnabled()) {
       handle.element.dataset.entityIndex = String(entity.index);
       handle.element.dataset.classname = entity.classname;
@@ -62,7 +64,7 @@ export function createQuakeEntityMeshMountFlow(
     const angle = entity.angle ?? quakeEntityNumber(entity, "angle", 0);
     handle.setTransform({
       position: options.pointToPoly(entity.origin),
-      rotation: [0, 0, angle],
+      rotation: [0, 0, model ? quakeAliasModelRenderYaw(angle) : normalizeQuakeRenderYaw(angle)],
       scale: 1,
     });
     if (!model) {
@@ -122,6 +124,12 @@ function mountEntityModelMesh(
   return frameSet
     ? mountQuakeRenderBundleFrameSetMesh(sceneElement, frameSet, frameIndex, frameSetMountOptions)
     : mountQuakeRenderBundleMesh(sceneElement, quakePickupModelRenderBundle(model, frameIndex));
+}
+
+function keepPickupBackfacesVisible(element: HTMLElement): void {
+  for (const leaf of element.querySelectorAll<HTMLElement>("b,i,s,u")) {
+    leaf.style.backfaceVisibility = "visible";
+  }
 }
 
 function makeParseResult(polygons: Polygon[]): ParseResult {
