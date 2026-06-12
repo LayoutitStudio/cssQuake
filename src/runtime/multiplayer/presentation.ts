@@ -106,6 +106,7 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
       playerId: player.playerId,
       sampledAt: player.updatedAt,
       origin: player.origin,
+      velocity: player.velocity,
       rotX: player.rotX,
       rotY: player.rotY,
       alive: player.alive,

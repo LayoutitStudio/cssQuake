@@ -402,6 +402,7 @@ export interface QuakeMultiplayerRemoteInterpolationSample {
   playerId: string;
   sampledAt: number;
   origin: QuakeMultiplayerVec3;
+  velocity: QuakeMultiplayerVec3;
   rotX: number;
   rotY: number;
   alive: boolean;
@@ -411,6 +412,7 @@ export interface QuakeMultiplayerRemoteInterpolationState {
   playerId: string;
   renderAt: number;
   renderOrigin: QuakeMultiplayerVec3;
+  renderVelocity: QuakeMultiplayerVec3;
   renderRotX: number;
   renderRotY: number;
   alive: boolean;
