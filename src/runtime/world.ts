@@ -617,15 +617,6 @@ function stripQuakeLeafStyleMetadata(leaf: HTMLElement): void {
   leaf.style.removeProperty("--pnx");
   leaf.style.removeProperty("--pny");
   leaf.style.removeProperty("--pnz");
-  if (leaf.style.getPropertyValue("--polycss-atlas-size").trim() === "64px") {
-    leaf.style.removeProperty("--polycss-atlas-size");
-  }
-  if (leaf.style.imageRendering === "pixelated") {
-    leaf.style.removeProperty("image-rendering");
-  }
-  if (leaf.style.backgroundRepeat === "no-repeat" && !quakeLeafDebugOutlineBackgroundIsApplied(leaf)) {
-    leaf.style.removeProperty("background-repeat");
-  }
 }
 
 function observeQuakeMeshPresentation(element: HTMLElement): void {

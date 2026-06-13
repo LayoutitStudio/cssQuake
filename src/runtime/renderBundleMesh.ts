@@ -1668,6 +1668,7 @@ export function createQuakeRenderBundleMeshHandle(element: HTMLElement): PolyMes
     },
     dispose: removeElement,
     rebakeAtlas: () => undefined,
+    whenTexturesReady: () => Promise.resolve(),
     getPosition: () => transform.position,
     getRotation: () => transform.rotation,
     getScale: () => transform.scale,

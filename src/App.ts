@@ -914,6 +914,10 @@ const scene = createPolyScene(quakeApp, {
   directionalLight: { direction: [-0.4, -0.55, -0.65], color: "#ffffff", intensity: 0 },
   textureLighting: "baked",
   textureQuality: 1,
+  textureLeafSizing: "raster",
+  textureImageRendering: "pixelated",
+  textureBackend: "atlas",
+  textureProjection: "affine",
   autoCenter: false,
 });
 const host = scene.cameraEl as HTMLElement;

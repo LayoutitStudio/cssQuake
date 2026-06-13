@@ -1,6 +1,7 @@
 import {
   BASE_TILE,
   SOLID_QUAD_CANONICAL_SIZE,
+  collectPolyTextureReadiness,
   computeProjectiveQuadMatrix,
   computeTextureAtlasPlanPublic,
   createPolyPerspectiveCamera,
@@ -13,8 +14,10 @@ import { QUAKE_RENDER_SUPERSAMPLE } from "../quakeScale.js";
 
 const QUAKE_CAMERA_ZOOM = (BASE_TILE * 0.65) / QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_RENDER_BUNDLE_TIMEOUT_MS = 30000;
-const QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_MIN = 1;
-const QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_STEP = 1;
+const QUAKE_TEXTURE_LEAF_SIZING = "raster";
+const QUAKE_TEXTURE_IMAGE_RENDERING = "pixelated";
+const QUAKE_TEXTURE_BACKEND = "atlas";
+const QUAKE_TEXTURE_PROJECTION = "affine";
 const QUAKE_MATRIX_LINEAR_SNAP_EPSILON = 0.0015;
 const QUAKE_MATRIX_TRANSLATION_SNAP_EPSILON = 0.012;
 const QUAKE_MATRIX_TRANSLATION_SNAP_GRID = 0.125;
@@ -61,7 +64,6 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
   extractLeafStyles = false,
   styleClassName = "",
   tightenAtlasLeaves = false,
-  adaptiveAtlasLeafSize = false,
   optimizeAtlasLeafBasis = false,
   optimizeAtlasLeafHomography = false,
   skipAssetPayloads = false,
@@ -97,7 +99,7 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
     const needsTextureLeaves = !layoutOnly || canOptimizeAtlasLeafHomography;
     if (needsTextureLeaves) {
       await runQuakeRenderBundleStepAsync("texture-wait", () =>
-        waitForBakedTextureLeaves(handle.element)
+        waitForQuakeRenderBundleTextures(handle)
       );
     }
     const atlasLeafHomographyOptimizationStats = await runQuakeRenderBundleStepAsync("homography-optimize", () =>
@@ -107,9 +109,6 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
     );
     await runQuakeRenderBundleStepAsync("tighten-atlas", () =>
       tightenAtlasLeaves && !layoutOnly ? tightenQuakeAtlasLeaves(handle.element) : null
-    );
-    const adaptiveAtlasLeafSizeStats = runQuakeRenderBundleStep("adaptive-atlas-size", () =>
-      adaptiveAtlasLeafSize ? applyAdaptiveQuakeAtlasLeafSizes(handle.element) : null
     );
     const transformSnapStats = runQuakeRenderBundleStep("snap-transforms", () =>
       snapQuakeLeafTransformsToStableGrid(handle.element)
@@ -142,7 +141,6 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
       leafCount,
       atlasLeafCount,
       polygonCount: renderPolygons.length,
-      ...(adaptiveAtlasLeafSizeStats ? { adaptiveAtlasLeafSizeStats } : {}),
       ...(transformSnapStats.snappedLeaves || transformSnapStats.precisionLeaves ? { transformSnapStats } : {}),
       ...(atlasBackgroundSnapStats?.snappedLeaves ? { atlasBackgroundSnapStats } : {}),
       ...(layoutOnlyPendingStyleStats?.clearedOpacityLeaves ? { layoutOnlyPendingStyleStats } : {}),
@@ -163,7 +161,6 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
   textureQuality = 1,
   extractLeafStyles = true,
   tightenAtlasLeaves = false,
-  adaptiveAtlasLeafSize = false,
   fastFrameStyles = false,
   optimizeAtlasLeafBasis = false,
   optimizeAtlasLeafHomography = false,
@@ -231,7 +228,7 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
         (quakeRenderBundleDirectFrameStyleBundleAllowlist.has(animationBundleName) ||
           (quakeRenderBundleObservedDirectFrameStyles && isObservedDirectFrameStyleBundle)));
     await runQuakeRenderBundleStepAsync("initial-texture-wait", () =>
-      waitForBakedTextureLeaves(handle.element)
+      waitForQuakeRenderBundleTextures(handle)
     );
     const animatedAtlasLeafHomographyPlan = await runQuakeRenderBundleStepAsync("homography-plan", () =>
       optimizeAtlasLeafHomography
@@ -262,7 +259,7 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
       }
       const name = frame.name ?? `frame-${index}`;
       await runQuakeRenderBundleStepAsync("frame-texture-wait", () =>
-        waitForBakedTextureLeaves(handle.element)
+        waitForQuakeRenderBundleTextures(handle)
       );
       if (animatedAtlasLeafHomographyPlan) {
         runQuakeRenderBundleStep("frame-apply-homography", () =>
@@ -277,7 +274,6 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
       const directFrameStyleCandidate = runQuakeRenderBundleStep("frame-direct-style-candidate", () =>
         index > 0 &&
           fastFrameStyles &&
-          !adaptiveAtlasLeafSize &&
           (useDirectFrameStylesForBundle || quakeRenderBundleDirectFrameStylesShadow)
           ? extractRenderBundleFrameStylesDirectlyFromStableTightenPlan(handle.element, {
               baseLeafFrameStylesByClass,
@@ -288,7 +284,6 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
             })
           : null
       );
-      let adaptiveAtlasLeafSizeStats = null;
       let transformSnapStats = null;
       let atlasBackgroundSnapStats = null;
       let frameStyleResult = null;
@@ -304,11 +299,6 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
             baseTightAtlasPlan = createQuakeAtlasLeafStableTightenPlan(handle.element, baseTightAtlasBoundsByKey);
           }
         }
-        adaptiveAtlasLeafSizeStats = runQuakeRenderBundleStep("frame-adaptive-atlas-size", () =>
-          adaptiveAtlasLeafSize
-            ? applyAdaptiveQuakeAtlasLeafSizes(handle.element)
-            : null
-        );
         transformSnapStats = runQuakeRenderBundleStep("frame-snap-transforms", () =>
           snapQuakeLeafTransformsToStableGrid(handle.element)
         );
@@ -342,7 +332,6 @@ window.__buildQuakeAnimatedRenderBundle = async function buildQuakeAnimatedRende
             leafCount: handle.element.querySelectorAll("b,i,s,u").length,
             atlasLeafCount: handle.element.querySelectorAll("s").length,
             polygonCount: frame.polygons.length,
-            ...(adaptiveAtlasLeafSizeStats ? { adaptiveAtlasLeafSizeStats } : {}),
             ...(transformSnapStats.snappedLeaves || transformSnapStats.precisionLeaves ? { transformSnapStats } : {}),
             ...(atlasBackgroundSnapStats.snappedLeaves ? { atlasBackgroundSnapStats } : {}),
             ...(atlasLeafBasisRotationPlan?.stats?.rotatedPolygons
@@ -483,30 +472,38 @@ function createQuakeRenderScene(host, textureQuality) {
     directionalLight: { direction: [-0.4, -0.55, -0.65], color: "#ffffff", intensity: 0 },
     textureLighting: "baked",
     textureQuality,
+    textureLeafSizing: QUAKE_TEXTURE_LEAF_SIZING,
+    textureImageRendering: QUAKE_TEXTURE_IMAGE_RENDERING,
+    textureBackend: QUAKE_TEXTURE_BACKEND,
+    textureProjection: QUAKE_TEXTURE_PROJECTION,
     autoCenter: false,
   });
 }
 
-function waitForRenderBundleFrameUpdate() {
-  return new Promise((resolve) => {
-    requestAnimationFrame(resolve);
-  });
+async function waitForQuakeRenderBundleTextures(handle) {
+  let timeout = 0;
+  try {
+    await Promise.race([
+      typeof handle.whenTexturesReady === "function"
+        ? handle.whenTexturesReady()
+        : Promise.resolve(),
+      new Promise((_, reject) => {
+        timeout = window.setTimeout(() => {
+          reject(new Error(quakeTextureReadinessErrorMessage(handle.element)));
+        }, QUAKE_RENDER_BUNDLE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout) window.clearTimeout(timeout);
+  }
+  const readiness = collectPolyTextureReadiness(handle.element);
+  if (!readiness.ready) throw new Error(quakeTextureReadinessErrorMessage(handle.element, readiness));
 }
 
-async function waitForBakedTextureLeaves(mesh) {
-  const startedAt = performance.now();
-  while (true) {
-    const leaves = [...mesh.querySelectorAll("s")];
-    const pending = leaves.filter((leaf) => {
-      const style = leaf.getAttribute("style") ?? "";
-      return !/background(?:-image)?\s*:/.test(style);
-    });
-    if (leaves.length === 0 || pending.length === 0) return;
-    if (performance.now() - startedAt > QUAKE_RENDER_BUNDLE_TIMEOUT_MS) {
-      throw new Error(`Timed out waiting for ${pending.length}/${leaves.length} baked texture leaves.`);
-    }
-    await waitForRenderBundleFrameUpdate();
-  }
+function quakeTextureReadinessErrorMessage(mesh, readiness = collectPolyTextureReadiness(mesh)) {
+  return `Timed out waiting for PolyCSS textures: ` +
+    `${readiness.readyTextureLeafCount}/${readiness.textureLeafCount} ready, ` +
+    `${readiness.pendingTextureLeafCount} pending.`;
 }
 
 function optimizeQuakeAtlasLeafBasisPolygons(polygons) {
@@ -948,8 +945,7 @@ async function createQuakeAnimatedAtlasLeafHomographyPlan(handle, framePolygons)
       recomputeAutoCenter: false,
     });
     currentFrameIndex = frameIndex;
-    await waitForRenderBundleFrameUpdate();
-    await waitForBakedTextureLeaves(handle.element);
+    await waitForQuakeRenderBundleTextures(handle);
 
     const leavesByPolyIndex = quakeAtlasLeavesByPolyIndex(handle.element);
     const frameMatrices = new Map();
@@ -977,8 +973,7 @@ async function createQuakeAnimatedAtlasLeafHomographyPlan(handle, framePolygons)
       stableDom: true,
       recomputeAutoCenter: false,
     });
-    await waitForRenderBundleFrameUpdate();
-    await waitForBakedTextureLeaves(handle.element);
+    await waitForQuakeRenderBundleTextures(handle);
   }
 
   stats.animatedFrames = framePolygons.length;
@@ -1626,90 +1621,6 @@ function quakeAtlasLeafBoundsAreTight(bounds, atlasSize) {
   const fullArea = atlasSize * atlasSize;
   const tightArea = bounds.width * bounds.height;
   return tightArea > 0 && tightArea < fullArea * 0.985;
-}
-
-function applyAdaptiveQuakeAtlasLeafSizes(mesh) {
-  const stats = {
-    totalLeaves: 0,
-    resizedLeaves: 0,
-    beforeArea: 0,
-    afterArea: 0,
-    maxWidth: 0,
-    maxHeight: 0,
-  };
-  for (const leaf of mesh.querySelectorAll("s")) {
-    const result = applyAdaptiveQuakeAtlasLeafSize(leaf);
-    if (!result) continue;
-    stats.totalLeaves++;
-    stats.beforeArea += Math.round(result.beforeWidth * result.beforeHeight);
-    stats.afterArea += Math.round(result.afterWidth * result.afterHeight);
-    stats.maxWidth = Math.max(stats.maxWidth, result.afterWidth);
-    stats.maxHeight = Math.max(stats.maxHeight, result.afterHeight);
-    if (result.resized) stats.resizedLeaves++;
-  }
-  return stats;
-}
-
-function applyAdaptiveQuakeAtlasLeafSize(leaf) {
-  const win = leaf.ownerDocument.defaultView ?? window;
-  let computedStyle = null;
-  const style = () => {
-    computedStyle ??= win.getComputedStyle(leaf);
-    return computedStyle;
-  };
-  const matrix = parseMatrix3d(leaf.style.transform || style().transform);
-  if (!matrix) return null;
-
-  const beforeWidth = cssPixelValue(leaf.style.width) ||
-    cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
-    cssPixelValue(style().width) ||
-    64;
-  const beforeHeight = cssPixelValue(leaf.style.height) ||
-    cssPixelValue(leaf.style.getPropertyValue("--polycss-atlas-size")) ||
-    cssPixelValue(style().height) ||
-    64;
-  if (beforeWidth <= 0 || beforeHeight <= 0) return null;
-
-  const matrixScaleX = Math.hypot(matrix[0], matrix[1], matrix[2]);
-  const matrixScaleY = Math.hypot(matrix[4], matrix[5], matrix[6]);
-  const afterWidth = adaptiveQuakeAtlasLeafSide(beforeWidth, matrixScaleX);
-  const afterHeight = adaptiveQuakeAtlasLeafSide(beforeHeight, matrixScaleY);
-  if (afterWidth === beforeWidth && afterHeight === beforeHeight) {
-    return { beforeWidth, beforeHeight, afterWidth, afterHeight, resized: false };
-  }
-
-  const background = adaptiveQuakeAtlasLeafBackground(leaf, style(), afterWidth / beforeWidth, afterHeight / beforeHeight);
-  if (!background) return null;
-
-  const nextMatrix = [...matrix];
-  const matrixScaleCompensationX = beforeWidth / afterWidth;
-  const matrixScaleCompensationY = beforeHeight / afterHeight;
-  for (let index = 0; index < 4; index++) nextMatrix[index] *= matrixScaleCompensationX;
-  for (let index = 4; index < 8; index++) nextMatrix[index] *= matrixScaleCompensationY;
-
-  leaf.style.transform = formatMatrix3d(nextMatrix);
-  leaf.style.width = `${roundCssPx(afterWidth)}px`;
-  leaf.style.height = `${roundCssPx(afterHeight)}px`;
-  leaf.style.background = background;
-  return { beforeWidth, beforeHeight, afterWidth, afterHeight, resized: true };
-}
-
-function adaptiveQuakeAtlasLeafSide(beforeSide, matrixScale) {
-  const desiredSide = beforeSide * matrixScale;
-  const roundedSide = Math.round(desiredSide / QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_STEP) *
-    QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_STEP;
-  return Math.max(QUAKE_ADAPTIVE_ATLAS_LEAF_SIZE_MIN, roundedSide);
-}
-
-function adaptiveQuakeAtlasLeafBackground(leaf, style, scaleX, scaleY) {
-  const backgroundImage = style.backgroundImage;
-  if (!backgroundImage || backgroundImage === "none") return "";
-  const position = cssPixelPair(style.backgroundPosition, style.backgroundPositionX, style.backgroundPositionY);
-  const size = cssPixelPair(style.backgroundSize);
-  if (!position || !size || size[0] <= 0 || size[1] <= 0) return "";
-  return `${backgroundImage} ${roundCssIntegerPx(position[0] * scaleX)}px ` +
-    `${roundCssIntegerPx(position[1] * scaleY)}px / ${roundCssIntegerPx(size[0] * scaleX)}px ` +
-    `${roundCssIntegerPx(size[1] * scaleY)}px no-repeat`;
 }
 
 function snapQuakeLeafTransformsToStableGrid(mesh) {
@@ -2714,6 +2625,13 @@ function renderBundleIntegerAttr(element, name) {
   return Number.isInteger(value) ? value : undefined;
 }
 
+function renderBundleNumberAttr(element, name) {
+  const rawValue = element.getAttribute(name);
+  if (rawValue === null || rawValue === "") return undefined;
+  const value = Number(rawValue);
+  return Number.isFinite(value) ? value : undefined;
+}
+
 function extractRenderBundleLeafStyles(mesh, styleClassName, options = {}) {
   if (!styleClassName || !/^[a-z_][a-z0-9_-]*$/i.test(styleClassName)) {
     throw new Error(`Invalid render bundle style class name ${JSON.stringify(styleClassName)}.`);
@@ -2885,12 +2803,23 @@ function renderBundleLeafStyleWithExplicitAtlasSize(leaf, style, options = {}) {
     return renderBundleLeafStyleWithBox(style, baseWidth, baseHeight);
   }
   if (hasWidth && hasHeight) return style;
-  const atlasSize = declarations.find((part) => part.name === "--polycss-atlas-size")?.value || "64px";
+  const textureWidth = renderBundleLeafTextureBoxSize(leaf, declarations, "width");
+  const textureHeight = renderBundleLeafTextureBoxSize(leaf, declarations, "height");
   return [
     style.replace(/;+$/, ""),
-    ...(!hasWidth ? [`width:${baseWidth ? `${roundCssPx(baseWidth)}px` : atlasSize}`] : []),
-    ...(!hasHeight ? [`height:${baseHeight ? `${roundCssPx(baseHeight)}px` : atlasSize}`] : []),
+    ...(!hasWidth && textureWidth ? [`width:${textureWidth}`] : []),
+    ...(!hasHeight && textureHeight ? [`height:${textureHeight}`] : []),
   ].filter(Boolean).join(";");
+}
+
+function renderBundleLeafTextureBoxSize(leaf, declarations, axis) {
+  const attrValue = renderBundleNumberAttr(leaf, `data-polycss-texture-leaf-${axis}`);
+  if (attrValue !== undefined && attrValue > 0) return `${roundCssPx(attrValue)}px`;
+  const atlasAxisSize = declarations.find((part) => part.name === `--polycss-atlas-${axis}`)?.value;
+  if (cssPixelValue(atlasAxisSize) !== null) return atlasAxisSize;
+  const atlasSize = declarations.find((part) => part.name === "--polycss-atlas-size")?.value;
+  if (cssPixelValue(atlasSize) !== null) return atlasSize;
+  return "";
 }
 
 function renderBundleLeafStyleWithBox(style, width, height) {
@@ -3052,7 +2981,7 @@ function stripRenderBundleStyleMetadata(style) {
     .filter((part) =>
       part &&
       !/^--pn[xyz]\s*:/.test(part) &&
-      !/^--polycss-atlas-size\s*:\s*64px$/i.test(part) &&
+      !/^--polycss-atlas-size\s*:/i.test(part) &&
       !/^background-repeat\s*:\s*no-repeat$/i.test(part)
     )
     .join(";");

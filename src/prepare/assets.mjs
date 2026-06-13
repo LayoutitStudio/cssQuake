@@ -140,7 +140,6 @@ const quakePrepareWeaponOnly = quakePrepareOnly === "weapon";
 const quakePrepareManifestOnly = quakePrepareOnly === "manifest";
 const quakePrepareModelOnly = parseQuakePrepareModelOnly(process.env.QUAKE_PREPARE_MODEL_ONLY ?? "");
 const quakePrepareReferencedModelsOnly = process.env.QUAKE_PREPARE_REFERENCED_MODELS_ONLY !== "0";
-const quakeRenderBundleAdaptiveAtlasLeafSize = process.env.QUAKE_RENDER_BUNDLE_ADAPTIVE_ATLAS_LEAF_SIZE === "1";
 const quakePrepareMapOnlyAllowNewManifest = process.env.QUAKE_PREPARE_MAP_ONLY_ALLOW_NEW_MANIFEST === "1";
 const quakeDomTighteningTargets = parseQuakeDomTighteningTargets(process.env.QUAKE_DOM_TIGHTENING ?? "all");
 const quakeTriangleAtlasBasis = process.env.QUAKE_TRIANGLE_ATLAS_BASIS === "1";
@@ -1127,14 +1126,12 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
       const name = bundleName ?? mapName;
       if (!name) throw new Error("Render bundle build requires a bundleName or mapName.");
       const styleClassName = extractLeafStyles ? quakeRenderBundleStyleClassName(name) : "";
-      const adaptiveAtlasLeafSize = quakeRenderBundleAdaptiveAtlasLeafSize && Boolean(mapName);
       const renderInput = {
         polygons,
         textureQuality,
         extractLeafStyles,
         styleClassName,
         tightenAtlasLeaves,
-        adaptiveAtlasLeafSize,
         optimizeAtlasLeafBasis,
         optimizeAtlasLeafHomography,
         optimizeAtlasTriangleBasis,
@@ -1157,8 +1154,7 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
         `${written.writtenAssetCount} atlas assets` +
         `${written.deferredAssetCount ? " deferred" : ""}` +
         `${renderBundleAtlasLeafBasisLog(result)}` +
-        `${renderBundleAtlasLeafHomographyLog(result)}` +
-        `${renderBundleAdaptiveAtlasLeafSizeLog(result)}`,
+        `${renderBundleAtlasLeafHomographyLog(result)}`,
       );
       return written.renderBundle;
     },
@@ -1190,7 +1186,6 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
         textureQuality,
         extractLeafStyles,
         tightenAtlasLeaves,
-        adaptiveAtlasLeafSize: false,
         fastFrameStyles: quakeRenderBundleFastFrameStyles,
         optimizeAtlasLeafBasis,
         optimizeAtlasLeafHomography,
@@ -1226,7 +1221,6 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
         `${renderBundleAtlasLeafBasisLog(firstFrame)} ` +
         `${renderBundleAtlasLeafHomographyLog(firstFrame)} ` +
         `${renderBundleTriangleAtlasBasisLog(firstFrame)} ` +
-        `${renderBundleAdaptiveAtlasLeafSizeLog(firstFrame)} ` +
         `(${reusedAssetCount} frame references reused)`,
       );
       return frameBundles;
@@ -1397,13 +1391,6 @@ function renderBundleTexturePayload(input) {
 function collectRenderBundleTextureUrl(urls, polygon) {
   const texture = polygon?.texture;
   if (typeof texture === "string" && texture.startsWith(`${quakePublicPath}/`)) urls.add(texture);
-}
-
-function renderBundleAdaptiveAtlasLeafSizeLog(result) {
-  const stats = result?.adaptiveAtlasLeafSizeStats;
-  if (!stats?.resizedLeaves) return "";
-  return `, adaptive ${stats.resizedLeaves}/${stats.totalLeaves} leaves ` +
-    `${stats.beforeArea}->${stats.afterArea} local px`;
 }
 
 function renderBundleAtlasLeafBasisLog(result) {
