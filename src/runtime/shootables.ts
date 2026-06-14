@@ -287,6 +287,7 @@ export interface QuakeShootablesControllerOptions {
     frameIndex?: number,
     options?: QuakeShootableMeshMountOptions,
   ): PolyMeshHandle | null;
+  ambientMonsterPathingEnabled?: () => boolean;
   bossLightningElectrodesReady?: (
     targetName: string,
     alignment: QuakeMonsterScriptedLifecycle["lightning"]["alignment"],
@@ -368,6 +369,7 @@ const QUAKE_ENEMY_TICK_MS = 1000 / 60;
 const QUAKE_ENEMY_DT_CLAMP = 0.05;
 const QUAKE_WALKMONSTER_VIEW_Z = 25 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MONSTER_SIGHT_ENTITY_WINDOW_SECONDS = 0.1;
+const QUAKE_MONSTER_AMBUSH_OR_ZOMBIE_CRUCIFIED_FLAGS = 3;
 const QUAKE_MONSTER_JUMP_GRAVITY = 800 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MONSTER_DEATH_OUTPUT_CLASS = "quake-monster-death-output";
 const QUAKE_MONSTER_DEATH_OUTPUT_LIFETIME_MS = 4000;
@@ -449,6 +451,7 @@ function quakeMonsterInitialIdealYaw(
 
 export function createQuakeShootablesController({
   addMesh,
+  ambientMonsterPathingEnabled: sourceAmbientMonsterPathingEnabled,
   bossLightningDischarge,
   bossLightningElectrodesReady,
   createMonsterStateRunner,
@@ -616,6 +619,11 @@ export function createQuakeShootablesController({
 
   function enemyAnimationPresentationEnabled(): boolean {
     return enemyAnimationsEnabled?.() !== false;
+  }
+
+  function ambientMonsterPathingEnabled(): boolean {
+    return sourceAmbientMonsterPathingEnabled?.() === true ||
+      combatBudget.expandedLogicalCombatEnabled();
   }
 
   function enemyAttackRuntimeEnabled(): boolean {
@@ -2480,6 +2488,15 @@ export function createQuakeShootablesController({
     } else {
       canSeePlayer = hasLineOfSight(enemyEye, attackTargetOrigin);
     }
+    let acquiredByVisiblePressure = false;
+    if (
+      !enemy.awake &&
+      !canSeePlayer &&
+      canAcquireDormantEnemyFromVisiblePressure(shootable, playerOrigin, enemyEye, attackTargetOrigin, acquisitionDecision)
+    ) {
+      canSeePlayer = true;
+      acquiredByVisiblePressure = true;
+    }
     if (!enemy.awake) {
       if (!canSeePlayer) {
         if (acquisitionDecision) {
@@ -2491,12 +2508,12 @@ export function createQuakeShootablesController({
             visible: acquisitionDecision.visible,
           });
         }
-        updateEnemyPathWalking(shootable, profile, dt, now);
+        updateDormantEnemyWithoutTarget(shootable, profile, dt, now);
         return;
       }
       if (!quakeMonsterCanAcquirePlayer(isPlayerInvisible?.() === true)) {
         markShootableTrace("enemy-acquire-blocked", shootable, { reason: "invisibility" });
-        updateEnemyPathWalking(shootable, profile, dt, now);
+        updateDormantEnemyWithoutTarget(shootable, profile, dt, now);
         return;
       }
       enemy.awake = true;
@@ -2516,6 +2533,7 @@ export function createQuakeShootablesController({
         acquisitionRange: acquisitionDecision?.range ?? null,
         acquisitionReason: acquisitionDecision?.reason ?? null,
         acquisitionUsedSightEntity: acquisitionDecision?.usedSightEntity ?? false,
+        acquisitionVisiblePressure: acquiredByVisiblePressure,
         nextAttackMs: enemy.nextAttackAt - now,
       });
     }
@@ -2583,7 +2601,11 @@ export function createQuakeShootablesController({
     const enemy = shootable.enemy;
     if (!enemy || shootable.dead || shootable.health <= 0) return;
     if (!enemy.awake) {
-      updateUnmountedEnemyPathWalking(shootable, dt, now);
+      if (ambientMonsterPathingEnabled()) {
+        updateUnmountedEnemyPathWalking(shootable, dt, now);
+      } else {
+        clearQuakecMovementBudget(enemy);
+      }
       return;
     }
     const tick = combatBudget.tryStartUnmountedAiTick(shootable.entity.index, now);
@@ -2734,6 +2756,45 @@ export function createQuakeShootablesController({
       kind: "player",
       origin: playerOrigin,
     };
+  }
+
+  function updateDormantEnemyWithoutTarget(
+    shootable: QuakeShootableState,
+    profile: QuakeMonsterCombatProfile,
+    dt: number,
+    now: number,
+  ): void {
+    if (ambientMonsterPathingEnabled()) {
+      updateEnemyPathWalking(shootable, profile, dt, now);
+      return;
+    }
+    clearQuakecMovementBudget(shootable.enemy);
+    updateEnemyAnimation(shootable, "idle", now);
+  }
+
+  function canAcquireDormantEnemyFromVisiblePressure(
+    shootable: QuakeShootableState,
+    playerOrigin: [number, number, number],
+    enemyEye: Vec3,
+    attackTargetOrigin: [number, number, number],
+    acquisitionDecision: QuakeEnemyAcquisitionDecision | null,
+  ): boolean {
+    if (ambientMonsterPathingEnabled()) return false;
+    if (!shootable.visible || shootable.dead || shootable.health <= 0) return false;
+    if (isPlayerInvisible?.() === true) return false;
+    if (
+      acquisitionDecision?.reason !== "behind-mid" &&
+      acquisitionDecision?.reason !== "behind-near"
+    ) {
+      return false;
+    }
+    if ((quakeEntityNumber(shootable.entity, "spawnflags", 0) & QUAKE_MONSTER_AMBUSH_OR_ZOMBIE_CRUCIFIED_FLAGS) !== 0) {
+      return false;
+    }
+    if (!shootableHasPlayerViewTargetAtDot(shootable, playerOrigin, QUAKE_SHOOTABLE_ENEMY_PREWARM_VIEW_DOT_MIN)) {
+      return false;
+    }
+    return budgetedLineOfSight(enemyEye, attackTargetOrigin) === "clear";
   }
 
   function updateEnemyPathWalking(
