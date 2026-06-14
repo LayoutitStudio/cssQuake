@@ -49,9 +49,16 @@ export interface QuakeMonsterAttackBranchPolicy {
   requiresVerticalOverlap?: boolean;
 }
 
+export interface QuakeMonsterAttackChainChoice {
+  chain: string;
+  otherwise?: boolean;
+  randomLessThan?: number;
+}
+
 export interface QuakeMonsterAttackPolicy {
   branches?: readonly QuakeMonsterAttackBranchPolicy[];
   chain: string;
+  chainChoices?: readonly QuakeMonsterAttackChainChoice[];
   cooldownMs: number;
   cooldownRandomAddMs?: number;
   damage?: number;
@@ -69,6 +76,11 @@ export interface QuakeMonsterCombatPolicy {
 export interface QuakeMonsterAiMovementCall {
   call: string;
   distanceUnits?: number;
+}
+
+export interface QuakeMonsterConditionalFrameSound {
+  chance: number;
+  soundPath: string;
 }
 
 export type QuakeMonsterStartKind = "fly" | "swim" | "unknown" | "walk";
@@ -238,6 +250,7 @@ export type QuakeMonsterFrameEvent =
 
 export interface QuakeMonsterFrameState {
   calls: readonly string[];
+  conditionalSounds?: readonly QuakeMonsterConditionalFrameSound[];
   events?: readonly QuakeMonsterFrameEvent[];
   frame: string;
   frameIndex: number;
@@ -530,13 +543,7 @@ export const QUAKE_MONSTER_COMBAT_POLICIES = {
           "cooldownMs": 1000,
           "cooldownRandomAddMs": 2000,
           "maxRangeUnits": 1000,
-          "requiresClearShot": true,
-          "rangeChances": {
-            "far": 0,
-            "melee": 0,
-            "mid": 0.05,
-            "near": 0.1
-          }
+          "requiresClearShot": true
         }
       ],
       "damage": 40,
@@ -671,6 +678,20 @@ export const QUAKE_MONSTER_COMBAT_POLICIES = {
         "near": 500
       },
       "requiresClearShot": true,
+      "chainChoices": [
+        {
+          "chain": "attack",
+          "randomLessThan": 0.3
+        },
+        {
+          "chain": "attack_b",
+          "randomLessThan": 0.6
+        },
+        {
+          "chain": "attack_c",
+          "otherwise": true
+        }
+      ],
       "usesFrameEvents": true
     }
   },
@@ -900,6 +921,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "sound",
               "ai_walk"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.2,
+                "soundPath": "soldier/idle.wav"
+              }
+            ],
             "frame": "prowl_1",
             "frameIndex": 90,
             "movement": [
@@ -910,9 +937,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "army_walk1",
             "next": "army_walk2",
-            "sounds": [
-              "soldier/idle.wav"
-            ]
+            "sounds": []
           },
           {
             "calls": [
@@ -1292,6 +1317,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "sound",
               "ai_run"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.2,
+                "soundPath": "soldier/idle.wav"
+              }
+            ],
             "frame": "run1",
             "frameIndex": 73,
             "movement": [
@@ -1302,9 +1333,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "army_run1",
             "next": "army_run2",
-            "sounds": [
-              "soldier/idle.wav"
-            ]
+            "sounds": []
           },
           {
             "calls": [
@@ -2663,6 +2692,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "sound",
               "ai_walk"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.2,
+                "soundPath": "dog/idle.wav"
+              }
+            ],
             "frame": "walk1",
             "frameIndex": 78,
             "movement": [
@@ -2673,9 +2708,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "dog_walk1",
             "next": "dog_walk2",
-            "sounds": [
-              "dog/idle.wav"
-            ]
+            "sounds": []
           },
           {
             "calls": [
@@ -2799,6 +2832,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "sound",
               "ai_run"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.2,
+                "soundPath": "dog/idle.wav"
+              }
+            ],
             "frame": "run1",
             "frameIndex": 48,
             "movement": [
@@ -2809,9 +2848,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "dog_run1",
             "next": "dog_run2",
-            "sounds": [
-              "dog/idle.wav"
-            ]
+            "sounds": []
           },
           {
             "calls": [
@@ -3993,6 +4030,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "sound",
               "ai_walk"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.2,
+                "soundPath": "knight/idle.wav"
+              }
+            ],
             "frame": "walk1",
             "frameIndex": 53,
             "movement": [
@@ -4003,9 +4046,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "knight_walk1",
             "next": "knight_walk2",
-            "sounds": [
-              "knight/idle.wav"
-            ]
+            "sounds": []
           },
           {
             "calls": [
@@ -4225,6 +4266,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "sound",
               "ai_run"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.2,
+                "soundPath": "knight/idle.wav"
+              }
+            ],
             "frame": "runb1",
             "frameIndex": 9,
             "movement": [
@@ -4235,9 +4282,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "knight_run1",
             "next": "knight_run2",
-            "sounds": [
-              "knight/idle.wav"
-            ]
+            "sounds": []
           },
           {
             "calls": [
@@ -5335,6 +5380,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "sound",
               "ai_stand"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.2,
+                "soundPath": "ogre/ogidle.wav"
+              }
+            ],
             "frame": "stand5",
             "frameIndex": 4,
             "movement": [
@@ -5345,9 +5396,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "ogre_stand5",
             "next": "ogre_stand6",
-            "sounds": [
-              "ogre/ogidle.wav"
-            ]
+            "sounds": []
           },
           {
             "calls": [
@@ -5455,6 +5504,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "ai_walk",
               "sound"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.2,
+                "soundPath": "ogre/ogidle.wav"
+              }
+            ],
             "frame": "walk3",
             "frameIndex": 11,
             "movement": [
@@ -5465,9 +5520,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "ogre_walk3",
             "next": "ogre_walk4",
-            "sounds": [
-              "ogre/ogidle.wav"
-            ]
+            "sounds": []
           },
           {
             "calls": [
@@ -5506,6 +5559,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "ai_walk",
               "sound"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.1,
+                "soundPath": "ogre/ogdrag.wav"
+              }
+            ],
             "frame": "walk6",
             "frameIndex": 14,
             "movement": [
@@ -5516,9 +5575,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "ogre_walk6",
             "next": "ogre_walk7",
-            "sounds": [
-              "ogre/ogdrag.wav"
-            ]
+            "sounds": []
           },
           {
             "calls": [
@@ -5690,6 +5747,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "ai_run",
               "sound"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.2,
+                "soundPath": "ogre/ogidle2.wav"
+              }
+            ],
             "frame": "run1",
             "frameIndex": 25,
             "movement": [
@@ -5700,9 +5763,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "ogre_run1",
             "next": "ogre_run2",
-            "sounds": [
-              "ogre/ogidle2.wav"
-            ]
+            "sounds": []
           },
           {
             "calls": [
@@ -7471,6 +7532,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "sound",
               "ai_walk"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.2,
+                "soundPath": "demon/idle1.wav"
+              }
+            ],
             "frame": "walk1",
             "frameIndex": 13,
             "movement": [
@@ -7481,9 +7548,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "demon1_walk1",
             "next": "demon1_walk2",
-            "sounds": [
-              "demon/idle1.wav"
-            ]
+            "sounds": []
           },
           {
             "calls": [
@@ -7607,6 +7672,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "sound",
               "ai_run"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.2,
+                "soundPath": "demon/idle1.wav"
+              }
+            ],
             "frame": "run1",
             "frameIndex": 21,
             "movement": [
@@ -7617,9 +7688,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "demon1_run1",
             "next": "demon1_run2",
-            "sounds": [
-              "demon/idle1.wav"
-            ]
+            "sounds": []
           },
           {
             "calls": [
@@ -10046,6 +10115,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "ai_walk",
               "sound"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.19999999999999996,
+                "soundPath": "shambler/sidle.wav"
+              }
+            ],
             "frame": "walk12",
             "frameIndex": 28,
             "movement": [
@@ -10056,9 +10131,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "sham_walk12",
             "next": "sham_walk1",
-            "sounds": [
-              "shambler/sidle.wav"
-            ]
+            "sounds": []
           }
         ]
       },
@@ -10150,6 +10223,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "ai_run",
               "sound"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.19999999999999996,
+                "soundPath": "shambler/sidle.wav"
+              }
+            ],
             "frame": "run6",
             "frameIndex": 34,
             "movement": [
@@ -10160,9 +10239,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "sham_run6",
             "next": "sham_run1",
-            "sounds": [
-              "shambler/sidle.wav"
-            ]
+            "sounds": []
           }
         ]
       },
@@ -12086,6 +12163,12 @@ export const QUAKE_MONSTER_LOGIC = {
               "ai_walk",
               "sound"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.2,
+                "soundPath": "zombie/z_idle.wav"
+              }
+            ],
             "frame": "walk19",
             "frameIndex": 33,
             "movement": [
@@ -12096,9 +12179,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "zombie_walk19",
             "next": "zombie_walk1",
-            "sounds": [
-              "zombie/z_idle.wav"
-            ]
+            "sounds": []
           }
         ]
       },
@@ -12382,6 +12463,16 @@ export const QUAKE_MONSTER_LOGIC = {
               "ai_run",
               "sound"
             ],
+            "conditionalSounds": [
+              {
+                "chance": 0.2,
+                "soundPath": "zombie/z_idle.wav"
+              },
+              {
+                "chance": 0.19999999999999996,
+                "soundPath": "zombie/z_idle1.wav"
+              }
+            ],
             "frame": "run18",
             "frameIndex": 51,
             "movement": [
@@ -12392,10 +12483,7 @@ export const QUAKE_MONSTER_LOGIC = {
             ],
             "name": "zombie_run18",
             "next": "zombie_run1",
-            "sounds": [
-              "zombie/z_idle.wav",
-              "zombie/z_idle1.wav"
-            ]
+            "sounds": []
           }
         ]
       },
@@ -13214,6 +13302,472 @@ export const QUAKE_MONSTER_LOGIC = {
             "frame": "paine30",
             "frameIndex": 191,
             "name": "zombie_paine30",
+            "next": "zombie_run1",
+            "sounds": []
+          }
+        ]
+      },
+      "attack_b": {
+        "start": "zombie_attb1",
+        "states": [
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attb1",
+            "frameIndex": 65,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attb1",
+            "next": "zombie_attb2",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attb2",
+            "frameIndex": 66,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attb2",
+            "next": "zombie_attb3",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attb3",
+            "frameIndex": 67,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attb3",
+            "next": "zombie_attb4",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attb4",
+            "frameIndex": 68,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attb4",
+            "next": "zombie_attb5",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attb5",
+            "frameIndex": 69,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attb5",
+            "next": "zombie_attb6",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attb6",
+            "frameIndex": 70,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attb6",
+            "next": "zombie_attb7",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attb7",
+            "frameIndex": 71,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attb7",
+            "next": "zombie_attb8",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attb8",
+            "frameIndex": 72,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attb8",
+            "next": "zombie_attb9",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attb9",
+            "frameIndex": 73,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attb9",
+            "next": "zombie_attb10",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attb10",
+            "frameIndex": 74,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attb10",
+            "next": "zombie_attb11",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attb11",
+            "frameIndex": 75,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attb11",
+            "next": "zombie_attb12",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attb12",
+            "frameIndex": 76,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attb12",
+            "next": "zombie_attb13",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attb13",
+            "frameIndex": 77,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attb13",
+            "next": "zombie_attb14",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face",
+              "ZombieFireGrenade"
+            ],
+            "events": [
+              {
+                "call": "ZombieFireGrenade",
+                "classname": "enemy_projectile_zombie_grenade",
+                "damage": 10,
+                "lifetimeMs": 2500,
+                "modelPath": "progs/zom_gib.mdl",
+                "originOffsetUnits": {
+                  "forward": -10,
+                  "right": -24,
+                  "up": 5
+                },
+                "radiusUnits": 28,
+                "speedUnits": 600,
+                "target": "enemy",
+                "type": "projectile",
+                "verticalVelocityUnits": 200
+              }
+            ],
+            "frame": "attb13",
+            "frameIndex": 77,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attb14",
+            "next": "zombie_run1",
+            "sounds": []
+          }
+        ]
+      },
+      "attack_c": {
+        "start": "zombie_attc1",
+        "states": [
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attc1",
+            "frameIndex": 79,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attc1",
+            "next": "zombie_attc2",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attc2",
+            "frameIndex": 80,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attc2",
+            "next": "zombie_attc3",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attc3",
+            "frameIndex": 81,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attc3",
+            "next": "zombie_attc4",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attc4",
+            "frameIndex": 82,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attc4",
+            "next": "zombie_attc5",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attc5",
+            "frameIndex": 83,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attc5",
+            "next": "zombie_attc6",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attc6",
+            "frameIndex": 84,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attc6",
+            "next": "zombie_attc7",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attc7",
+            "frameIndex": 85,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attc7",
+            "next": "zombie_attc8",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attc8",
+            "frameIndex": 86,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attc8",
+            "next": "zombie_attc9",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attc9",
+            "frameIndex": 87,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attc9",
+            "next": "zombie_attc10",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attc10",
+            "frameIndex": 88,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attc10",
+            "next": "zombie_attc11",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face"
+            ],
+            "frame": "attc11",
+            "frameIndex": 89,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attc11",
+            "next": "zombie_attc12",
+            "sounds": []
+          },
+          {
+            "calls": [
+              "ai_face",
+              "ZombieFireGrenade"
+            ],
+            "events": [
+              {
+                "call": "ZombieFireGrenade",
+                "classname": "enemy_projectile_zombie_grenade",
+                "damage": 10,
+                "lifetimeMs": 2500,
+                "modelPath": "progs/zom_gib.mdl",
+                "originOffsetUnits": {
+                  "forward": -12,
+                  "right": -19,
+                  "up": 5
+                },
+                "radiusUnits": 28,
+                "speedUnits": 600,
+                "target": "enemy",
+                "type": "projectile",
+                "verticalVelocityUnits": 200
+              }
+            ],
+            "frame": "attc12",
+            "frameIndex": 90,
+            "movement": [
+              {
+                "call": "ai_face",
+                "distanceUnits": 0
+              }
+            ],
+            "name": "zombie_attc12",
             "next": "zombie_run1",
             "sounds": []
           }

@@ -4,6 +4,11 @@ import type {
   QuakeShootablesDebugStats,
 } from "../shootables";
 import type { QuakeWorldDebugStats } from "../world";
+import {
+  registerQuakeTraceMarkSink,
+  type QuakeTraceMarkDetails,
+  type QuakeTraceMarkEntry,
+} from "./traceMarks";
 
 const QUAKE_DEBUG_RECORDING_SAMPLE_MS = 125;
 const QUAKE_DEBUG_RECORDING_MAX_SAMPLES = 6000;
@@ -147,9 +152,18 @@ export interface QuakeDebugRecordingFrameHitchEvent {
   context: Record<string, unknown>;
 }
 
+export interface QuakeDebugRecordingTraceMarkEvent {
+  type: "trace-mark";
+  elapsedMs: number;
+  sequence: number;
+  kind: string;
+  details: Record<string, boolean | number | string | null>;
+}
+
 export type QuakeDebugRecordingEvent =
   | QuakeDebugRecordingCullingEvent
   | QuakeDebugRecordingFrameHitchEvent
+  | QuakeDebugRecordingTraceMarkEvent
   | QuakeDebugRecordingStateEvent;
 
 export interface QuakeDebugRecording {
@@ -212,6 +226,7 @@ export function createQuakeDebugRecorder(options: QuakeDebugRecorderOptions): Qu
   let startedAt = 0;
   let downloadOnStop = true;
   let lastRecording: QuakeDebugRecording | null = null;
+  let unregisterTraceMarkSink: (() => void) | null = null;
 
   function isRecording(): boolean {
     return recording !== null;
@@ -241,6 +256,11 @@ export function createQuakeDebugRecorder(options: QuakeDebugRecorderOptions): Qu
       samples: [],
       events: [],
     };
+    unregisterTraceMarkSink?.();
+    unregisterTraceMarkSink = registerQuakeTraceMarkSink((entry) => {
+      if (!recording || !isCombatTraceMark(entry.kind)) return;
+      appendRecordingEvents(recording, [traceMarkRecordingEvent(entry, performance.now() - startedAt)]);
+    });
     startFrameSampler();
     updatePresentation();
     captureSample("start");
@@ -266,6 +286,8 @@ export function createQuakeDebugRecorder(options: QuakeDebugRecorderOptions): Qu
     }
     if (reason !== "dispose") captureSample(reason === "limit" ? "limit" : "stop");
     stopFrameSampler();
+    unregisterTraceMarkSink?.();
+    unregisterTraceMarkSink = null;
     const finished = recording;
     finished.stoppedAt = new Date().toISOString();
     finished.durationMs = Math.max(0, performance.now() - startedAt);
@@ -368,6 +390,8 @@ export function createQuakeDebugRecorder(options: QuakeDebugRecorderOptions): Qu
 
   function dispose(): void {
     stop("dispose");
+    unregisterTraceMarkSink?.();
+    unregisterTraceMarkSink = null;
     options.button?.removeEventListener("click", handleClick);
   }
 
@@ -430,6 +454,55 @@ function appendRecordingEvents(
   const remaining = QUAKE_DEBUG_RECORDING_MAX_EVENTS - recording.events.length;
   if (remaining <= 0 || events.length === 0) return;
   recording.events.push(...events.slice(0, remaining));
+}
+
+function isCombatTraceMark(kind: string): boolean {
+  return kind === "enemy-attack" ||
+    kind === "enemy-attack-windup" ||
+    kind.startsWith("enemy-damage-") ||
+    kind.startsWith("enemy-projectile-") ||
+    kind.startsWith("enemy-quakec-") ||
+    kind.startsWith("boss-") ||
+    kind === "player-damage" ||
+    kind === "player-damage-blocked" ||
+    kind === "player-damage-momentum" ||
+    kind === "player-death" ||
+    kind.startsWith("player-death-") ||
+    kind.startsWith("player-quakec-") ||
+    kind === "shootable-damage" ||
+    kind === "shootable-destroy" ||
+    kind === "shootable-radius-damage" ||
+    kind === "shootable-radius-player-damage";
+}
+
+function traceMarkRecordingEvent(
+  entry: QuakeTraceMarkEntry,
+  elapsedMs: number,
+): QuakeDebugRecordingTraceMarkEvent {
+  return {
+    type: "trace-mark",
+    elapsedMs: Math.max(0, elapsedMs),
+    sequence: recordingTraceMarkSequence(elapsedMs),
+    kind: entry.kind,
+    details: recordingTraceMarkDetails(entry.details),
+  };
+}
+
+function recordingTraceMarkSequence(elapsedMs: number): number {
+  return Math.max(0, Math.floor(elapsedMs));
+}
+
+function recordingTraceMarkDetails(details: QuakeTraceMarkDetails): Record<string, boolean | number | string | null> {
+  const out: Record<string, boolean | number | string | null> = {};
+  for (const [key, value] of Object.entries(details)) {
+    if (value === undefined) continue;
+    if (value === null || typeof value === "boolean" || typeof value === "string") {
+      out[key] = value;
+      continue;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) out[key] = value;
+  }
+  return out;
 }
 
 function buildPerformanceEvents(sample: QuakeDebugRecordingSample): QuakeDebugRecordingFrameHitchEvent[] {

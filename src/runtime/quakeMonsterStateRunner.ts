@@ -1,6 +1,7 @@
 import {
   QUAKE_MONSTER_LOGIC,
   type QuakeMonsterAiMovementCall,
+  type QuakeMonsterConditionalFrameSound,
   type QuakeMonsterFrameState,
   type QuakeMonsterFrameEvent,
   type QuakeMonsterLogicDefinition,
@@ -19,6 +20,7 @@ export interface QuakeMonsterStateStep {
   chain: string;
   chainCycleEnd: boolean;
   classname: string;
+  conditionalSounds: readonly QuakeMonsterConditionalFrameSound[];
   events: readonly QuakeMonsterFrameEvent[];
   frame: string;
   frameIndex: number;
@@ -89,6 +91,7 @@ class QuakeMonsterGeneratedStateRunner implements QuakeMonsterStateRunner {
       chain: this.chainName,
       chainCycleEnd: this.currentStateEndsChainCycle(state),
       classname: this.classname,
+      conditionalSounds: state.conditionalSounds ?? [],
       events: state.events ?? [],
       frame: state.frame,
       frameIndex: state.frameIndex,

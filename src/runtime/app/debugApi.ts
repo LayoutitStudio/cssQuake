@@ -82,13 +82,19 @@ function createQuakeAppDebugRuntime({
       setOrigin: (origin) => runtime.controllers.player().setDebugOrigin(origin),
     },
     currentMapName: runtime.session.currentMapName,
-    damagePlayer: (amount) => runtime.controllers.player().damage(amount),
+    damagePlayer: (amount, context) => runtime.controllers.player().damage(amount, context),
     damageWeaponTarget: (entityIndex, amount) =>
       runtime.controllers.shootables.debugDamageWeaponTarget(entityIndex, amount),
     debugMountEntity: (entityIndex) => runtime.controllers.shootables.debugMountEntity(entityIndex),
+    setEnemyTickFilter: (entityIndexes) =>
+      runtime.controllers.shootables.debugSetEnemyTickFilter(entityIndexes),
     debugRecorder,
     enemyAcquisition: (entityIndex, playerSourceOrigin, monsterYaw) =>
       runtime.controllers.shootables.debugEnemyAcquisition(entityIndex, playerSourceOrigin, { monsterYaw }),
+    enemyProjectileTraceCapture: () => runtime.controllers.shootables.debugEnemyProjectileCapture(),
+    enemyProjectileTraceClear: () => runtime.controllers.shootables.debugClearEnemyProjectileCapture(),
+    enemyProjectileTraceEnabled: (enabled) =>
+      runtime.controllers.shootables.debugSetEnemyProjectileCaptureEnabled(enabled),
     entities: runtime.session.entities,
     fireWeapon: () => runtime.controllers.weapons.fire(),
     fireWeaponDebug: (options) => runtime.controllers.weapons.debugFireProjectile(options),
@@ -129,6 +135,7 @@ function createQuakeAppDebugRuntime({
     setUnmountedAi: (enabled) => runtime.controllers.shootables.setUnmountedAiEnabled(enabled),
     setCollisionBypassUntil,
     setShootableOrigin: (entityIndex, origin) => runtime.controllers.shootables.debugSetOrigin(entityIndex, origin),
+    setShootableYaw: (entityIndex, yaw) => runtime.controllers.shootables.debugSetYaw(entityIndex, yaw),
     shootablesStats: () => runtime.controllers.shootables.debugStats(),
     triggersStats: () => runtime.controllers.triggers.debugStats(),
     syncCrosshairTarget,

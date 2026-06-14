@@ -41,6 +41,10 @@ const PUSH_GROUND_FRICTION = 5.5;
 // Quake clamps trigger_push impulses through the default sv_maxvelocity cap.
 const PUSH_MAX_SPEED = 2000 * QUAKE_COLLISION_UNIT_SCALE;
 const PUSH_STOP_SPEED = 16 * QUAKE_COLLISION_UNIT_SCALE;
+const DEATH_TOSS_DT_CLAMP = 0.05;
+const DEATH_TOSS_MAX_MS = 1400;
+const DEATH_TOSS_STOP_SPEED = 8 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_PLAYER_DEATH_EYE_HEIGHT = 16 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_DAMAGE_INTERVAL_MS = 1000;
 const QUAKE_LAVA_DAMAGE_INTERVAL_MS = 200;
 const QUAKE_LAVA_RADSUIT_DAMAGE_INTERVAL_MS = 1000;
@@ -78,6 +82,25 @@ const QUAKE_PLAYER_PROGRESS_WEAPONS: readonly QuakeWeaponId[] = [
 const QUAKE_PLAYER_PROGRESS_KEYS: readonly QuakeKey[] = ["silver", "gold"];
 const QUAKE_PLAYER_PROGRESS_WEAPON_SET = new Set<QuakeWeaponId>(QUAKE_PLAYER_PROGRESS_WEAPONS);
 const QUAKE_PLAYER_PROGRESS_KEY_SET = new Set<QuakeKey>(QUAKE_PLAYER_PROGRESS_KEYS);
+
+export const QUAKE_PLAYER_DEATH_SOUND_PATHS = [
+  "player/death1.wav",
+  "player/death2.wav",
+  "player/death3.wav",
+  "player/death4.wav",
+  "player/death5.wav",
+] as const;
+
+export const QUAKE_PLAYER_GIB_SOUND_PATHS = [
+  "player/gib.wav",
+  "player/udeath.wav",
+] as const;
+
+export type QuakePlayerDeathRandomLabel =
+  | "DeathSound"
+  | "GibPlayer.sound"
+  | "PlayerDie.animation"
+  | "PlayerDie.velocity_z";
 
 function quakeMoveKeyBit(code: string): number {
   if (QUAKE_FORWARD_KEY_CODES.has(code)) return QUAKE_MOVE_FORWARD_BIT;
@@ -141,7 +164,7 @@ export interface QuakePlayerControllerOptions {
   jumpVelocity: number;
   onHazardDamage?: (hazard: QuakeHazardDamage) => boolean;
   onDamageFlash: (active: boolean, feedback?: QuakePlayerDamageFeedback) => void;
-  onDeath: () => void;
+  onDeath: (details: QuakePlayerDeathDetails) => QuakePlayerDeathResult | void;
   onHazardState: (kind: QuakeHazardDamage["kind"] | null) => void;
   onInventoryChanged: () => void;
   onRespawn: (scene: QuakeScene, origin: [number, number, number]) => void;
@@ -160,6 +183,7 @@ export interface QuakePlayerControllerOptions {
   syncViewmodel: () => void;
   syncWorldVisibility: (force?: boolean) => void;
   transitionSerial: () => number;
+  quakecRandom?: (label: QuakePlayerDeathRandomLabel) => number;
 }
 
 export interface QuakePlayerController {
@@ -168,7 +192,7 @@ export interface QuakePlayerController {
   clearLevelState: () => void;
   currentGroundEntity: () => number | null;
   currentOrigin: () => [number, number, number];
-  damage: (amount: number) => boolean;
+  damage: (amount: number, context?: QuakePlayerDamageContext) => boolean;
   debugMovement: () => QuakePlayerMovementDebug;
   eyeHeight: () => number;
   handleMoveKey: (code: string, pressed: boolean) => boolean;
@@ -193,6 +217,33 @@ export interface QuakePlayerController {
 
 export interface QuakePlayerDamageFeedback {
   amount: number;
+}
+
+export interface QuakePlayerDamageContext {
+  inflictorOrigin?: Vec3 | null;
+}
+
+export interface QuakePlayerDeathRandomDraw {
+  label: QuakePlayerDeathRandomLabel;
+  value: number;
+}
+
+export interface QuakePlayerDeathDetails {
+  animationRandom: number | null;
+  deathEyeHeight: number;
+  gibbed: boolean;
+  health: number;
+  randomDraws: QuakePlayerDeathRandomDraw[];
+  soundPath: string | null;
+  soundRandom: number | null;
+  tossRandom: number | null;
+  tossStarted: boolean;
+  tossVelocity: Vec3;
+  velocityBeforeDeath: Vec3;
+}
+
+export interface QuakePlayerDeathResult {
+  soundPlayed?: boolean;
 }
 
 export interface QuakeInventoryPowerupProgressSnapshot {
@@ -257,6 +308,10 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   let pushFrame: number | null = null;
   let pushTime = 0;
   let pushVelocity: Vec3 = [0, 0, 0];
+  let deathTossFrame: number | null = null;
+  let deathTossTime = 0;
+  let deathTossStartedAt = 0;
+  let deathTossVelocity: Vec3 = [0, 0, 0];
   let moveFrame: number | null = null;
   let moveTime = 0;
   let moveVelocity: Vec3 = [0, 0, 0];
@@ -385,6 +440,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     moveVelocity = [0, 0, 0];
     stopFalling();
     stopPush();
+    stopDeathToss();
     moveTime = 0;
     nextDamageAt = performance.now() + QUAKE_DAMAGE_INTERVAL_MS;
     currentEyeHeight = Math.max(0.1, quakeFiniteProgressNumber(snapshot.eyeHeight, standingEyeHeight));
@@ -451,6 +507,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     stopMoveFrame();
     stopFalling();
     stopPush();
+    stopDeathToss();
     inventory = createInitialInventory();
     standingEyeHeight = 1.72;
     currentEyeHeight = standingEyeHeight;
@@ -469,6 +526,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     dead = false;
     clearMoveInput();
     stopMoveFrame();
+    stopDeathToss();
     moveVelocity = [0, 0, 0];
     const collisionWorld = options.getCollisionWorld();
     standingEyeHeight = spawn.eyeHeight;
@@ -501,6 +559,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     moveVelocity = [0, 0, 0];
     stopFalling();
     stopPush();
+    stopDeathToss();
 
     const collisionWorld = options.getCollisionWorld();
     const hullOrigin = options.pointToPoly(destination.origin);
@@ -525,6 +584,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     moveVelocity = [0, 0, 0];
     stopFalling();
     stopPush();
+    stopDeathToss();
     setOrigin(origin, origin[2] - currentEyeHeight);
   };
 
@@ -532,6 +592,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     moveVelocity = [0, 0, 0];
     stopFalling();
     stopPush();
+    stopDeathToss();
     setOrigin(origin, origin[2] - currentEyeHeight, true, true, "smooth-step");
     if (hasMoveInput()) scheduleMoveFrame();
   };
@@ -586,11 +647,12 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     velocity: [...moveVelocity] as Vec3,
   });
 
-  const applyDamage = (amount: number): boolean => {
+  const applyDamage = (amount: number, context: QuakePlayerDamageContext = {}): boolean => {
     if (amount <= 0 || dead || !options.canTakeDamage()) return false;
     const invulnerable = options.isInvulnerable?.() === true;
     // QuakeC T_Damage computes armor save before invulnerability blocks health damage.
     const damage = applyQuakeDamageToInventory(inventory, amount, { applyHealth: !invulnerable });
+    applyDamageMomentum(damage.rawDamage, context);
     if (invulnerable) {
       markQuakeTrace("player-damage-blocked", {
         amount: damage.rawDamage,
@@ -619,19 +681,103 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     return true;
   };
 
+  const applyDamageMomentum = (amount: number, context: QuakePlayerDamageContext): void => {
+    const impulse = quakePlayerDamageMomentumImpulse(playerQuakeEntityOrigin(), context.inflictorOrigin ?? null, amount);
+    if (!impulse) return;
+    if (fallingFrame !== null) stopFalling();
+    moveVelocity[0] += impulse[0];
+    moveVelocity[1] += impulse[1];
+    moveVelocity[2] += impulse[2];
+    if (impulse[2] > 0) currentGrounded = false;
+    markQuakeTrace("player-damage-momentum", {
+      amount,
+      inflictorX: context.inflictorOrigin?.[0] ?? null,
+      inflictorY: context.inflictorOrigin?.[1] ?? null,
+      inflictorZ: context.inflictorOrigin?.[2] ?? null,
+      vx: impulse[0],
+      vy: impulse[1],
+      vz: impulse[2],
+    });
+    if (pushFrame === null) scheduleMoveFrame();
+  };
+
+  const playerQuakeEntityOrigin = (): Vec3 => [
+    lastValidOrigin[0],
+    lastValidOrigin[1],
+    lastValidOrigin[2] - currentEyeHeight - QUAKE_PLAYER_MINS_Z,
+  ];
+
+  const createDeathDetails = (
+    health: number,
+    velocityBeforeDeath: Vec3,
+  ): QuakePlayerDeathDetails => {
+    const randomDraws: QuakePlayerDeathRandomDraw[] = [];
+    const nextDeathRandom = (label: QuakePlayerDeathRandomLabel): number => {
+      const value = quakeNormalizedRandom(options.quakecRandom?.(label) ?? Math.random());
+      randomDraws.push({ label, value });
+      return value;
+    };
+    const tossRandom = quakePlayerDeathNeedsTossRandom(velocityBeforeDeath)
+      ? nextDeathRandom("PlayerDie.velocity_z")
+      : null;
+    const tossVelocity = quakePlayerDeathTossVelocity(velocityBeforeDeath, tossRandom);
+    const gibbed = health < -40;
+    const soundRandom = nextDeathRandom(gibbed ? "GibPlayer.sound" : "DeathSound");
+    const soundPath = gibbed
+      ? quakePlayerGibSoundPathFromRandom(soundRandom)
+      : quakePlayerDeathSoundPathFromRandom(soundRandom);
+    const animationRandom = gibbed ? null : nextDeathRandom("PlayerDie.animation");
+    return {
+      animationRandom,
+      deathEyeHeight: QUAKE_PLAYER_DEATH_EYE_HEIGHT,
+      gibbed,
+      health,
+      randomDraws,
+      soundPath,
+      soundRandom,
+      tossRandom,
+      tossStarted: false,
+      tossVelocity,
+      velocityBeforeDeath: [...velocityBeforeDeath] as Vec3,
+    };
+  };
+
+  const applyDeathEyeHeight = (deathEyeHeight: number): void => {
+    const origin = options.controls.getOrigin();
+    const footZ = origin[2] - currentEyeHeight;
+    currentEyeHeight = Math.max(0.1, deathEyeHeight);
+    setOrigin([origin[0], origin[1], footZ + currentEyeHeight], footZ, false, currentGrounded, "move");
+  };
+
   const enterDeath = (): void => {
     if (dead) return;
     dead = true;
+    const velocityBeforeDeath = [...moveVelocity] as Vec3;
+    const deathDetails = createDeathDetails(inventory.health, velocityBeforeDeath);
     clearHazardTimer();
     clearMoveInput();
     stopMoveFrame();
-    moveVelocity = [0, 0, 0];
     stopFalling();
     stopPush();
+    moveVelocity = [0, 0, 0];
     options.onHazardState(null);
     options.controls.update({ lookEnabled: false, moveEnabled: false, jumpEnabled: false, gravity: 0 });
-    markQuakeTrace("player-death", { health: inventory.health });
-    options.onDeath();
+    applyDeathEyeHeight(deathDetails.deathEyeHeight);
+    deathDetails.tossStarted = startDeathToss(deathDetails.tossVelocity);
+    const deathResult = options.onDeath(deathDetails) ?? {};
+    markQuakeTrace("player-death", {
+      animationRandom: deathDetails.animationRandom,
+      deathEyeHeight: deathDetails.deathEyeHeight,
+      gibbed: deathDetails.gibbed,
+      health: deathDetails.health,
+      soundPath: deathDetails.soundPath,
+      soundPlayed: deathResult.soundPlayed === true,
+      soundRandom: deathDetails.soundRandom,
+      tossRandom: deathDetails.tossRandom,
+      tossStarted: deathDetails.tossStarted,
+      tossVelocityZ: deathDetails.tossVelocity[2],
+      velocityBeforeDeathZ: deathDetails.velocityBeforeDeath[2],
+    });
   };
 
   const respawn = (): void => {
@@ -646,6 +792,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     nextDamageAt = performance.now() + QUAKE_DAMAGE_INTERVAL_MS;
     stopFalling();
     stopPush();
+    stopDeathToss();
     resetInventory();
     options.onHazardState(null);
     options.onRespawn(scene, lastValidOrigin);
@@ -1012,6 +1159,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     moveVelocity = [0, 0, 0];
     stopFalling();
     stopPush();
+    stopDeathToss();
     options.controls.update({ moveEnabled: false, jumpEnabled: false, crouchEnabled: false, gravity: 0 });
     options.controls.unlock();
   };
@@ -1051,6 +1199,84 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     syncingCollision = false;
     if (hasMoveMotion()) scheduleMoveFrame();
   }
+
+  function startDeathToss(velocity: Vec3): boolean {
+    if (!options.getCollisionWorld()) return false;
+    const speed = Math.hypot(velocity[0], velocity[1], velocity[2]);
+    if (!Number.isFinite(speed) || speed <= COLLISION_EPSILON) return false;
+    deathTossVelocity = [...velocity] as Vec3;
+    deathTossTime = 0;
+    deathTossStartedAt = performance.now();
+    currentGrounded = false;
+    if (deathTossFrame === null) deathTossFrame = window.requestAnimationFrame(tickDeathToss);
+    markQuakeTrace("player-death-toss-start", {
+      vx: deathTossVelocity[0],
+      vy: deathTossVelocity[1],
+      vz: deathTossVelocity[2],
+    });
+    return true;
+  }
+
+  function stopDeathToss(): void {
+    if (deathTossFrame !== null) {
+      window.cancelAnimationFrame(deathTossFrame);
+      deathTossFrame = null;
+    }
+    deathTossTime = 0;
+    deathTossStartedAt = 0;
+    deathTossVelocity = [0, 0, 0];
+  }
+
+  const tickDeathToss = (_frameNow: number): void => {
+    const collisionWorld = options.getCollisionWorld();
+    if (deathTossFrame === null || !dead || !collisionWorld) {
+      stopDeathToss();
+      return;
+    }
+    if (gameplayPaused()) {
+      deathTossTime = 0;
+      deathTossFrame = window.requestAnimationFrame(tickDeathToss);
+      return;
+    }
+
+    const now = performance.now();
+    const dt = Math.min(DEATH_TOSS_DT_CLAMP, deathTossTime ? (now - deathTossTime) / 1000 : 0.0167);
+    deathTossTime = now;
+    deathTossVelocity[2] -= options.gravity * dt;
+
+    const origin = options.controls.getOrigin();
+    const target: [number, number, number] = [
+      origin[0] + deathTossVelocity[0] * dt,
+      origin[1] + deathTossVelocity[1] * dt,
+      origin[2] + deathTossVelocity[2] * dt,
+    ];
+    const resolved = collisionWorld.resolve(target, origin, currentEyeHeight, currentGroundZ, true);
+    const actualDelta = subtractVec3(resolved.origin, origin);
+    const intendedDelta = subtractVec3(target, origin);
+    if (resolved.grounded && deathTossVelocity[2] < 0) deathTossVelocity[2] = 0;
+    if (!resolved.grounded && deathTossVelocity[2] > 0 && actualDelta[2] < intendedDelta[2] * 0.25) {
+      deathTossVelocity[2] = 0;
+    }
+
+    setOrigin(resolved.origin, resolved.groundZ, false, resolved.grounded, "move");
+    lastGroundEntityIndex = resolved.touches?.find((touch) => touch.contact === "floor")?.entityIndex ?? null;
+    options.syncViewmodel();
+    options.syncWorldVisibility();
+    options.syncCrosshairTarget();
+
+    const elapsedMs = now - deathTossStartedAt;
+    const speed = Math.hypot(deathTossVelocity[0], deathTossVelocity[1], deathTossVelocity[2]);
+    if (elapsedMs >= DEATH_TOSS_MAX_MS || (resolved.grounded && speed <= DEATH_TOSS_STOP_SPEED)) {
+      markQuakeTrace("player-death-toss-stop", {
+        elapsedMs,
+        grounded: resolved.grounded,
+        speed,
+      });
+      stopDeathToss();
+      return;
+    }
+    deathTossFrame = window.requestAnimationFrame(tickDeathToss);
+  };
 
   const startFalling = (): void => {
     if (fallingFrame !== null || pushFrame !== null || !options.getCollisionWorld()) return;
@@ -1289,4 +1515,58 @@ function quakeHazardDamageIntervalMs(hazard: QuakeHazardDamage): number {
     return hazard.radsuitActive ? QUAKE_LAVA_RADSUIT_DAMAGE_INTERVAL_MS : QUAKE_LAVA_DAMAGE_INTERVAL_MS;
   }
   return QUAKE_DAMAGE_INTERVAL_MS;
+}
+
+export function quakePlayerDeathNeedsTossRandom(velocity: Vec3): boolean {
+  return velocity[2] < 10 * QUAKE_COLLISION_UNIT_SCALE;
+}
+
+export function quakePlayerDamageMomentumImpulse(
+  targetOrigin: Vec3,
+  inflictorOrigin: Vec3 | null | undefined,
+  damage: number,
+): Vec3 | null {
+  if (!inflictorOrigin || !Number.isFinite(damage) || damage <= 0) return null;
+  const dx = targetOrigin[0] - inflictorOrigin[0];
+  const dy = targetOrigin[1] - inflictorOrigin[1];
+  const dz = targetOrigin[2] - inflictorOrigin[2];
+  const length = Math.hypot(dx, dy, dz);
+  if (length <= COLLISION_EPSILON) return null;
+  const speed = damage * 8 * QUAKE_COLLISION_UNIT_SCALE;
+  return [
+    (dx / length) * speed,
+    (dy / length) * speed,
+    (dz / length) * speed,
+  ];
+}
+
+export function quakePlayerDeathTossVelocity(
+  velocity: Vec3,
+  randomValue: number | null,
+): Vec3 {
+  const out = [...velocity] as Vec3;
+  if (quakePlayerDeathNeedsTossRandom(out)) {
+    out[2] += quakeNormalizedRandom(randomValue) * 300 * QUAKE_COLLISION_UNIT_SCALE;
+  }
+  return out;
+}
+
+export function quakePlayerDeathSoundIndexFromRandom(randomValue: number): 1 | 2 | 3 | 4 | 5 {
+  const index = Math.round(quakeNormalizedRandom(randomValue) * 4 + 1);
+  return Math.max(1, Math.min(5, index)) as 1 | 2 | 3 | 4 | 5;
+}
+
+export function quakePlayerDeathSoundPathFromRandom(randomValue: number): string {
+  return QUAKE_PLAYER_DEATH_SOUND_PATHS[quakePlayerDeathSoundIndexFromRandom(randomValue) - 1];
+}
+
+export function quakePlayerGibSoundPathFromRandom(randomValue: number): string {
+  return quakeNormalizedRandom(randomValue) < 0.5
+    ? QUAKE_PLAYER_GIB_SOUND_PATHS[0]
+    : QUAKE_PLAYER_GIB_SOUND_PATHS[1];
+}
+
+function quakeNormalizedRandom(value: number | null | undefined): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(0.999999999, value));
 }

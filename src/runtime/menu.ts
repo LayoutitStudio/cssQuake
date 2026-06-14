@@ -1,3 +1,5 @@
+import { mountQuakeBitmapText } from "./bitmapText";
+
 interface QuakeMenuControls {
   update(partial: { moveEnabled?: boolean }): void;
   lock(): void;
@@ -37,6 +39,7 @@ export interface QuakeMenuControllerOptions {
   onSelectQuit?(): void;
   canLoadGame?(): boolean;
   canSaveGame?(): boolean;
+  isMultiplayerEnabled?(): boolean;
   isQuitEnabled?(): boolean;
   onMenuVisibilityChange?(visible: boolean): void;
   onMenuPauseChange?(paused: boolean): void;
@@ -47,14 +50,18 @@ export interface QuakeMenuControllerOptions {
   syncCrosshairTarget(): void;
 }
 
-type QuakeMainMenuAction = "single-player" | "multiplayer" | "level-select" | "options" | "debug" | "quit";
-type QuakeSinglePlayerAction = "new-game" | "load" | "save";
+type QuakeMainMenuAction = "single-player" | "multiplayer" | "options" | "debug" | "quit";
+type QuakeSinglePlayerAction = "new-game" | "level-select" | "load" | "save";
 
 const QUAKE_MAIN_MENU_ACTION_ATTRIBUTE = "data-quake-main-menu-action";
 const QUAKE_SINGLE_PLAYER_ACTION_ATTRIBUTE = "data-quake-single-player-action";
 const QUAKE_OPTION_CYCLE_EVENT = "quake-option-cycle";
 const QUAKE_MAIN_MENU_SELECTABLE_CLASS = "quake-main-menu-item-selectable";
 const QUAKE_MAIN_MENU_DISABLED_CLASS = "quake-main-menu-item-disabled";
+const QUAKE_MAIN_MENU_NOTE_CLASS = "quake-main-menu-note";
+const QUAKE_MAIN_MENU_COMING_SOON_CLASS = "quake-main-menu-note-coming-soon";
+const QUAKE_BITMAP_LABEL_CLASS = "quake-bm-label";
+const QUAKE_BITMAP_ALT_CLASS = "quake-bm-alt";
 
 export function createQuakeMenuController({
   enabled,
@@ -77,6 +84,7 @@ export function createQuakeMenuController({
   onSelectQuit,
   canLoadGame,
   canSaveGame,
+  isMultiplayerEnabled,
   isQuitEnabled,
   onMenuVisibilityChange,
   onMenuPauseChange,
@@ -261,6 +269,7 @@ export function createQuakeMenuController({
   }
 
   function showMultiplayerPanel(): void {
+    if (!isMultiplayerMenuEnabled()) return;
     if (!enabled || !multiplayerPanel) {
       startFromMainMenu();
       return;
@@ -297,6 +306,10 @@ export function createQuakeMenuController({
 
   function closeMenuPanel(): void {
     if (!isMenuPanelOpen()) return;
+    if (isLevelPanelOpen()) {
+      showSinglePlayerPanel();
+      return;
+    }
     showMainMenu();
   }
 
@@ -414,6 +427,7 @@ export function createQuakeMenuController({
     if (!button || button.disabled) return;
     const action = button.getAttribute(QUAKE_SINGLE_PLAYER_ACTION_ATTRIBUTE) as QuakeSinglePlayerAction | null;
     if (action === "new-game") selectNewGame();
+    if (action === "level-select") showLevelPanel();
     if (action === "load") selectLoadGame();
     if (action === "save") selectSaveGame();
   }
@@ -466,19 +480,61 @@ export function createQuakeMenuController({
     const quitItem = mainMenuArt?.querySelector<HTMLElement>(
       `[${QUAKE_MAIN_MENU_ACTION_ATTRIBUTE}="quit"]`,
     );
-    if (!quitItem) return;
-    const enabled = Boolean(isQuitEnabled?.());
-    quitItem.classList.toggle(QUAKE_MAIN_MENU_SELECTABLE_CLASS, enabled);
-    quitItem.classList.toggle(QUAKE_MAIN_MENU_DISABLED_CLASS, !enabled);
-    quitItem.setAttribute("aria-disabled", String(!enabled));
-    if (!enabled) quitItem.classList.remove("quake-main-menu-item-active");
+    if (quitItem) {
+      const quitEnabled = Boolean(isQuitEnabled?.());
+      syncMainMenuItemEnabled(quitItem, quitEnabled);
+    }
+
+    const multiplayerItem = mainMenuArt?.querySelector<HTMLElement>(
+      `[${QUAKE_MAIN_MENU_ACTION_ATTRIBUTE}="multiplayer"]`,
+    );
+    if (multiplayerItem) {
+      const multiplayerEnabled = isMultiplayerMenuEnabled();
+      syncMainMenuItemEnabled(multiplayerItem, multiplayerEnabled);
+      syncMultiplayerComingSoonNote(multiplayerItem, !multiplayerEnabled);
+    }
+  }
+
+  function isMultiplayerMenuEnabled(): boolean {
+    return isMultiplayerEnabled?.() ?? true;
+  }
+
+  function syncMainMenuItemEnabled(item: HTMLElement, itemEnabled: boolean): void {
+    item.classList.toggle(QUAKE_MAIN_MENU_SELECTABLE_CLASS, itemEnabled);
+    item.classList.toggle(QUAKE_MAIN_MENU_DISABLED_CLASS, !itemEnabled);
+    item.setAttribute("aria-disabled", String(!itemEnabled));
+    if (!itemEnabled) item.classList.remove("quake-main-menu-item-active");
+  }
+
+  function syncMultiplayerComingSoonNote(item: HTMLElement, visible: boolean): void {
+    let note = item.querySelector<HTMLElement>(`.${QUAKE_MAIN_MENU_COMING_SOON_CLASS}`);
+    if (!note && visible) {
+      note = document.createElement("span");
+      note.classList.add(
+        QUAKE_MAIN_MENU_NOTE_CLASS,
+        QUAKE_MAIN_MENU_COMING_SOON_CLASS,
+        QUAKE_BITMAP_LABEL_CLASS,
+        QUAKE_BITMAP_ALT_CLASS,
+      );
+      note.textContent = "coming soon!";
+      item.append(note);
+      mountQuakeBitmapText(note);
+    }
+    if (note) note.hidden = !visible;
   }
 
   function mainMenuItems(): HTMLElement[] {
     if (!mainMenuArt) return [];
     syncMainMenuItemAvailability();
     return Array.from(mainMenuArt.querySelectorAll<HTMLElement>(`.${QUAKE_MAIN_MENU_SELECTABLE_CLASS}`))
-      .filter((item) => !item.classList.contains(QUAKE_MAIN_MENU_DISABLED_CLASS));
+      .filter((item) =>
+        !item.classList.contains(QUAKE_MAIN_MENU_DISABLED_CLASS) &&
+        item.getAttribute(QUAKE_MAIN_MENU_ACTION_ATTRIBUTE) !== "level-select" &&
+        (
+          item.getAttribute(QUAKE_MAIN_MENU_ACTION_ATTRIBUTE) !== "multiplayer" ||
+          isMultiplayerMenuEnabled()
+        )
+      );
   }
 
   function updateMainMenuCursor(): void {
@@ -515,7 +571,6 @@ export function createQuakeMenuController({
     const action = item?.getAttribute(QUAKE_MAIN_MENU_ACTION_ATTRIBUTE) as QuakeMainMenuAction | null;
     if (action === "single-player") showSinglePlayerPanel();
     if (action === "multiplayer") showMultiplayerPanel();
-    if (action === "level-select") showLevelPanel();
     if (action === "options") showOptionsPanel();
     if (action === "debug") showDebugPanel();
     if (action === "quit" && isQuitEnabled?.()) onSelectQuit?.();

@@ -145,7 +145,9 @@ export function createQuakeTriggersController(options: QuakeTriggersControllerOp
   };
 
   const isRoomAuthoritativeTouchTrigger = (entity: QuakeEntity): boolean => {
-    return entity.classname === "trigger_once" || entity.classname === "trigger_multiple";
+    return entity.classname === "trigger_once" ||
+      entity.classname === "trigger_multiple" ||
+      entity.classname === "trigger_secret";
   };
 
   const activateCounterEntity = (entity: QuakeEntity): void => {

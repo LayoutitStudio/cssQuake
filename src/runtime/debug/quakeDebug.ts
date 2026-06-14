@@ -4,10 +4,15 @@ import type { QuakeEntity } from "../../types/quake";
 import { QUAKE_PLAYER_MINS_Z, STEP_HEIGHT } from "../constants";
 import type { QuakeDebugRecorder, QuakeDebugRecording } from "./recording";
 import type { QuakePlayerInventory, QuakeWeaponId } from "../hud";
+import type { QuakePlayerDamageContext } from "../player";
 import type { QuakeMoversDebugStats } from "../movers";
 import type { QuakePickupDebugStats } from "../pickups";
 import type { QuakeCanDamageResult } from "../shootables/damage";
-import type { QuakeShootableEnemyAcquisitionDebugResult, QuakeShootablesDebugStats } from "../shootables";
+import type {
+  QuakeEnemyProjectileDebugCapture,
+  QuakeShootableEnemyAcquisitionDebugResult,
+  QuakeShootablesDebugStats,
+} from "../shootables";
 import type { QuakeResolvedViewmodelTuning, QuakeViewmodelDebugSnapshot, QuakeViewmodelTuning } from "../viewmodel";
 import type {
   QuakeWeaponProjectileDebugCapture,
@@ -35,9 +40,10 @@ export interface QuakeDebugHooks {
   ): QuakeCanDamageResult | null;
   contentsAt(x: number, y: number, z: number): number | null;
   copyViewUrl(): Promise<string>;
-  damage(amount?: number): boolean;
+  damage(amount?: number, inflictorX?: number, inflictorY?: number, inflictorZ?: number): boolean;
   damageWeaponTarget(entityIndex: number, amount?: number): boolean;
   debugMountEntity(entityIndex: number): boolean;
+  setEnemyTickFilter(entityIndexes?: number[] | null): boolean;
   enemyAcquisition(
     entityIndex: number,
     playerX: number,
@@ -45,6 +51,9 @@ export interface QuakeDebugHooks {
     playerZ: number,
     monsterYaw?: number,
   ): QuakeShootableEnemyAcquisitionDebugResult | null;
+  enemyProjectileTraceCapture(): QuakeEnemyProjectileDebugCapture | null;
+  enemyProjectileTraceClear(): boolean;
+  enemyProjectileTraceEnabled(enabled: boolean): boolean;
   entityIndexes(classname?: string): number[];
   fire(): boolean;
   fireProjectileTrace(
@@ -73,6 +82,7 @@ export interface QuakeDebugHooks {
   ): QuakeWeaponProjectileImpactDebugResult | null;
   setUnmountedAi(enabled: boolean): boolean;
   setEntityOrigin(entityIndex: number, x: number, y: number, z: number): boolean;
+  setEntityYaw(entityIndex: number, yaw: number): boolean;
   setWeapon(weapon: QuakeWeaponId): boolean;
   setWeaponTuning(tuning: QuakeViewmodelTuning): QuakeResolvedViewmodelTuning;
   viewmodel(): QuakeViewmodelDebugSnapshot;
@@ -129,15 +139,19 @@ export interface QuakeDebugRuntime {
   currentMapName(): string;
   contentsAt(point: { x: number; y: number; z: number }): number | null;
   activateEntity(entityIndex: number, sourceEntityIndex?: number): boolean;
-  damagePlayer(amount: number): boolean;
+  damagePlayer(amount: number, context?: QuakePlayerDamageContext): boolean;
   damageWeaponTarget(entityIndex: number, amount: number): boolean;
   debugMountEntity(entityIndex: number): boolean;
+  setEnemyTickFilter(entityIndexes: readonly number[] | null): void;
   debugRecorder(): QuakeDebugRecorder | null;
   enemyAcquisition(
     entityIndex: number,
     playerSourceOrigin: { x: number; y: number; z: number },
     monsterYaw?: number,
   ): QuakeShootableEnemyAcquisitionDebugResult | null;
+  enemyProjectileTraceCapture(): QuakeEnemyProjectileDebugCapture;
+  enemyProjectileTraceClear(): void;
+  enemyProjectileTraceEnabled(enabled: boolean): void;
   entities(): ReadonlyMap<number, QuakeEntity>;
   fireWeapon(): void;
   fireWeaponDebug(options?: QuakeWeaponProjectileDebugFireOptions): boolean;
@@ -178,6 +192,7 @@ export interface QuakeDebugRuntime {
   projectileTraceEnabled(enabled: boolean): void;
   setCollisionBypassUntil(until: number): void;
   setShootableOrigin(entityIndex: number, origin: Vec3): boolean;
+  setShootableYaw(entityIndex: number, yaw: number): boolean;
   shootablesStats(): QuakeShootablesDebugStats;
   triggersStats(): Record<string, unknown>;
   syncCrosshairTarget(): void;
@@ -207,12 +222,17 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
       canDamageQuakeDebugTrace(runtime, inflictorX, inflictorY, inflictorZ, targetX, targetY, targetZ),
     contentsAt: (x, y, z) => contentsAtQuakeDebugPoint(runtime, x, y, z),
     copyViewUrl: () => runtime.copyViewUrl(),
-    damage: (amount) => damageQuakeDebugPlayer(runtime, amount),
+    damage: (amount, inflictorX, inflictorY, inflictorZ) =>
+      damageQuakeDebugPlayer(runtime, amount, inflictorX, inflictorY, inflictorZ),
     damageWeaponTarget: (entityIndex, amount) =>
       damageQuakeDebugWeaponTarget(runtime, entityIndex, amount),
     debugMountEntity: (entityIndex) => debugMountQuakeEntity(runtime, entityIndex),
+    setEnemyTickFilter: (entityIndexes) => setQuakeDebugEnemyTickFilter(runtime, entityIndexes),
     enemyAcquisition: (entityIndex, playerX, playerY, playerZ, monsterYaw) =>
       enemyAcquisitionQuakeDebugProbe(runtime, entityIndex, playerX, playerY, playerZ, monsterYaw),
+    enemyProjectileTraceCapture: () => enemyProjectileTraceQuakeDebugCapture(runtime),
+    enemyProjectileTraceClear: () => enemyProjectileTraceQuakeDebugClear(runtime),
+    enemyProjectileTraceEnabled: (enabled) => enemyProjectileTraceQuakeDebugEnabled(runtime, enabled),
     entityIndexes: (classname) => quakeDebugEntityIndexes(runtime, classname),
     fire: () => fireQuakeDebugWeapon(runtime),
     fireProjectileTrace: (directDamage, timeoutMs) =>
@@ -234,6 +254,7 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
     stopGameplayRecording: () => stopQuakeDebugGameplayRecording(runtime),
     setEntityOrigin: (entityIndex, x, y, z) =>
       setQuakeDebugEntityOrigin(runtime, entityIndex, x, y, z),
+    setEntityYaw: (entityIndex, yaw) => setQuakeDebugEntityYaw(runtime, entityIndex, yaw),
     setUnmountedAi: (enabled) => setQuakeDebugUnmountedAi(runtime, enabled),
     setWeapon: (weapon) => setQuakeDebugWeapon(runtime, weapon),
     setWeaponTuning: (tuning) => runtime.setWeaponTuning(tuning),
@@ -309,12 +330,23 @@ function contentsAtQuakeDebugPoint(
   return runtime.contentsAt({ x, y, z });
 }
 
-function damageQuakeDebugPlayer(runtime: QuakeDebugRuntime, amount = 10): boolean {
+function damageQuakeDebugPlayer(
+  runtime: QuakeDebugRuntime,
+  amount = 10,
+  inflictorX?: number,
+  inflictorY?: number,
+  inflictorZ?: number,
+): boolean {
   if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
   const previousHealth = runtime.inventory().health;
   const previousArmor = runtime.inventory().armor;
+  const context = Number.isFinite(inflictorX) &&
+    Number.isFinite(inflictorY) &&
+    Number.isFinite(inflictorZ)
+    ? { inflictorOrigin: runtime.pointToPoly({ x: inflictorX ?? 0, y: inflictorY ?? 0, z: inflictorZ ?? 0 }) }
+    : undefined;
   runtime.hideMainMenu();
-  return runtime.damagePlayer(amount) ||
+  return runtime.damagePlayer(amount, context) ||
     runtime.inventory().health < previousHealth ||
     runtime.inventory().armor < previousArmor;
 }
@@ -336,6 +368,23 @@ function debugMountQuakeEntity(runtime: QuakeDebugRuntime, entityIndex: number):
   return runtime.debugMountEntity(entityIndex);
 }
 
+function setQuakeDebugEnemyTickFilter(
+  runtime: QuakeDebugRuntime,
+  entityIndexes?: number[] | null,
+): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  if (entityIndexes == null) {
+    runtime.setEnemyTickFilter(null);
+    return true;
+  }
+  if (!Array.isArray(entityIndexes)) return false;
+  const filtered = entityIndexes
+    .map((entityIndex) => Math.round(Number(entityIndex)))
+    .filter((entityIndex) => Number.isInteger(entityIndex) && entityIndex > 0);
+  runtime.setEnemyTickFilter(filtered);
+  return true;
+}
+
 function enemyAcquisitionQuakeDebugProbe(
   runtime: QuakeDebugRuntime,
   entityIndex: number,
@@ -355,6 +404,25 @@ function enemyAcquisitionQuakeDebugProbe(
     { x: playerX, y: playerY, z: playerZ },
     monsterYaw,
   );
+}
+
+function enemyProjectileTraceQuakeDebugCapture(
+  runtime: QuakeDebugRuntime,
+): QuakeEnemyProjectileDebugCapture | null {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return null;
+  return runtime.enemyProjectileTraceCapture();
+}
+
+function enemyProjectileTraceQuakeDebugClear(runtime: QuakeDebugRuntime): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  runtime.enemyProjectileTraceClear();
+  return true;
+}
+
+function enemyProjectileTraceQuakeDebugEnabled(runtime: QuakeDebugRuntime, enabled: boolean): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  runtime.enemyProjectileTraceEnabled(Boolean(enabled));
+  return true;
 }
 
 function quakeDebugEntityIndexes(runtime: QuakeDebugRuntime, classname?: string): number[] {
@@ -470,6 +538,13 @@ function setQuakeDebugEntityOrigin(
   if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return false;
   runtime.hideMainMenu();
   return runtime.setShootableOrigin(entityIndex, runtime.pointToPoly({ x, y, z }));
+}
+
+function setQuakeDebugEntityYaw(runtime: QuakeDebugRuntime, entityIndex: number, yaw: number): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  if (!Number.isFinite(entityIndex) || !Number.isFinite(yaw)) return false;
+  runtime.hideMainMenu();
+  return runtime.setShootableYaw(Math.round(entityIndex), yaw);
 }
 
 function setQuakeDebugExpandedLogicalCombat(runtime: QuakeDebugRuntime, enabled: boolean): boolean {
@@ -722,6 +797,7 @@ interface QuakeProjectionMeshStats {
   clippedArea: number;
   maxLeafArea: number;
   p95LeafArea: number;
+  visibleLeafSamples: number;
   leavesOverBudget: number;
   overBudget: boolean;
   prewarmed: boolean;
@@ -758,6 +834,7 @@ function buildQuakeProjectionStats(meshes: HTMLElement[], kind: QuakeProjectionM
     meshCount: meshStats.length,
     leafCount: meshStats.reduce((total, mesh) => total + mesh.leafCount, 0),
     atlasLeafCount: meshStats.reduce((total, mesh) => total + mesh.atlasLeafCount, 0),
+    visibleLeafSamples: meshStats.reduce((total, mesh) => total + mesh.visibleLeafSamples, 0),
     clippedArea: Math.round(clippedArea),
     maxMeshClippedArea: Math.round(rankedMeshes[0]?.clippedArea ?? 0),
     maxLeafArea: Math.round(Math.max(0, ...meshStats.map((mesh) => mesh.maxLeafArea))),
@@ -804,6 +881,7 @@ function buildQuakeProjectionMeshStats(
     clippedArea: Math.round(clippedArea),
     maxLeafArea: Math.round(maxLeafArea),
     p95LeafArea: Math.round(percentileSorted(visibleLeafAreas, 0.95)),
+    visibleLeafSamples: visibleLeafAreas.length,
     leavesOverBudget,
     overBudget: clippedArea > meshAreaBudget || leavesOverBudget > 0,
     prewarmed: element.classList.contains("quake-shootable-prewarmed"),

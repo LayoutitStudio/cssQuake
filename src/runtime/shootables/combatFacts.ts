@@ -5,10 +5,13 @@ import {
   type QuakeMonsterFrameState,
 } from "../../generated/quakeMonsterLogic";
 import { QUAKE_COLLISION_UNIT_SCALE } from "../constants";
+import { QUAKE_MONSTER_HUNT_TARGET_ATTACK_DELAY_MS } from "./enemyStateFactory";
 
 const QUAKE_MONSTER_QUAKEC_STATE_FRAME_MS = 100;
 const QUAKE_MONSTER_QUAKEC_AI_FRAME_RATE = 1000 / QUAKE_MONSTER_QUAKEC_STATE_FRAME_MS;
 const QUAKEC_SOLDIER_AI_RUN_SPEED = 108.75 * QUAKE_COLLISION_UNIT_SCALE;
+
+export { QUAKE_MONSTER_HUNT_TARGET_ATTACK_DELAY_MS };
 
 const quakeMonsterCombatPolicies = QUAKE_MONSTER_COMBAT_POLICIES as Readonly<Record<string, QuakeMonsterCombatPolicy>>;
 const quakeMonsterLogicByClassname = QUAKE_MONSTER_LOGIC as Readonly<Record<string, {
@@ -40,6 +43,7 @@ export interface QuakeMonsterCombatProfile {
   projectileTargetOffset?: QuakeMonsterProjectileOffset;
   projectileVerticalAimError?: number;
   projectileVerticalVelocity?: number;
+  projectileWorldTouch?: "bounce" | "explode" | "stop";
   range: number;
   wakeDelayJitterMs?: number;
   wakeDelayMs?: number;
@@ -63,6 +67,17 @@ const QUAKEC_WIZARD_ATTACK_POLICY = quakeMonsterCombatPolicies.monster_wizard?.a
 const QUAKEC_ZOMBIE_ATTACK_POLICY = quakeMonsterCombatPolicies.monster_zombie?.attack;
 const QUAKEC_BOSS_ATTACK_POLICY = quakeMonsterCombatPolicies.monster_boss?.attack;
 
+const QUAKEC_MONSTER_SIGHT_SOUNDS: Readonly<Record<string, string>> = {
+  monster_army: "soldier/sight1.wav",
+  monster_demon1: "demon/sight2.wav",
+  monster_dog: "dog/dsight.wav",
+  monster_knight: "knight/ksight.wav",
+  monster_ogre: "ogre/ogwake.wav",
+  monster_shambler: "shambler/ssight.wav",
+  monster_wizard: "wizard/wsight.wav",
+  monster_zombie: "zombie/z_idle.wav",
+};
+
 const QUAKEC_MONSTER_COMBAT_PROFILES: Record<string, QuakeMonsterCombatProfile> = {
   monster_army: {
     chaseSpeed: quakecMonsterRunSpeed("monster_army", QUAKEC_SOLDIER_AI_RUN_SPEED),
@@ -72,7 +87,7 @@ const QUAKEC_MONSTER_COMBAT_PROFILES: Record<string, QuakeMonsterCombatProfile> 
     damage: QUAKEC_SOLDIER_ATTACK_POLICY?.damage ?? 16,
     kind: "hitscan",
     range: (QUAKEC_SOLDIER_ATTACK_POLICY?.rangeUnits.mid ?? 1000) * QUAKE_COLLISION_UNIT_SCALE,
-    wakeDelayMs: 0,
+    wakeDelayMs: QUAKE_MONSTER_HUNT_TARGET_ATTACK_DELAY_MS,
     windupMs: 4 * QUAKE_MONSTER_QUAKEC_STATE_FRAME_MS,
   },
   monster_dog: {
@@ -94,7 +109,7 @@ const QUAKEC_MONSTER_COMBAT_PROFILES: Record<string, QuakeMonsterCombatProfile> 
     damage: QUAKEC_DEMON_ATTACK_POLICY?.damage ?? 50,
     kind: "touch",
     range: 200 * QUAKE_COLLISION_UNIT_SCALE,
-    wakeDelayMs: 0,
+    wakeDelayMs: QUAKE_MONSTER_HUNT_TARGET_ATTACK_DELAY_MS,
     windupMs: 0,
   },
   monster_knight: {
@@ -105,7 +120,7 @@ const QUAKEC_MONSTER_COMBAT_PROFILES: Record<string, QuakeMonsterCombatProfile> 
     damage: QUAKEC_KNIGHT_ATTACK_POLICY?.damage ?? 9,
     kind: "touch",
     range: (QUAKEC_KNIGHT_ATTACK_POLICY?.rangeUnits.melee ?? 120) * QUAKE_COLLISION_UNIT_SCALE,
-    wakeDelayMs: 0,
+    wakeDelayMs: QUAKE_MONSTER_HUNT_TARGET_ATTACK_DELAY_MS,
     windupMs: 0,
   },
   monster_ogre: {
@@ -116,7 +131,7 @@ const QUAKEC_MONSTER_COMBAT_PROFILES: Record<string, QuakeMonsterCombatProfile> 
     damage: QUAKEC_OGRE_ATTACK_POLICY?.damage ?? 40,
     kind: "projectile",
     range: (QUAKEC_OGRE_ATTACK_POLICY?.rangeUnits.mid ?? 1000) * QUAKE_COLLISION_UNIT_SCALE,
-    wakeDelayMs: 0,
+    wakeDelayMs: QUAKE_MONSTER_HUNT_TARGET_ATTACK_DELAY_MS,
     windupMs: 0,
   },
   monster_shambler: {
@@ -127,7 +142,7 @@ const QUAKEC_MONSTER_COMBAT_PROFILES: Record<string, QuakeMonsterCombatProfile> 
     damage: QUAKEC_SHAMBLER_ATTACK_POLICY?.damage ?? 120,
     kind: "hitscan",
     range: 600 * QUAKE_COLLISION_UNIT_SCALE,
-    wakeDelayMs: 0,
+    wakeDelayMs: QUAKE_MONSTER_HUNT_TARGET_ATTACK_DELAY_MS,
     windupMs: 0,
   },
   monster_wizard: {
@@ -138,7 +153,7 @@ const QUAKEC_MONSTER_COMBAT_PROFILES: Record<string, QuakeMonsterCombatProfile> 
     damage: QUAKEC_WIZARD_ATTACK_POLICY?.damage ?? 9,
     kind: "projectile",
     range: (QUAKEC_WIZARD_ATTACK_POLICY?.rangeUnits.mid ?? 1000) * QUAKE_COLLISION_UNIT_SCALE,
-    wakeDelayMs: 0,
+    wakeDelayMs: QUAKE_MONSTER_HUNT_TARGET_ATTACK_DELAY_MS,
     windupMs: 0,
   },
   monster_zombie: {
@@ -149,7 +164,7 @@ const QUAKEC_MONSTER_COMBAT_PROFILES: Record<string, QuakeMonsterCombatProfile> 
     damage: QUAKEC_ZOMBIE_ATTACK_POLICY?.damage ?? 10,
     kind: "projectile",
     range: (QUAKEC_ZOMBIE_ATTACK_POLICY?.rangeUnits.mid ?? 1000) * QUAKE_COLLISION_UNIT_SCALE,
-    wakeDelayMs: 0,
+    wakeDelayMs: QUAKE_MONSTER_HUNT_TARGET_ATTACK_DELAY_MS,
     windupMs: 0,
   },
   monster_boss: {
@@ -165,6 +180,10 @@ const QUAKEC_MONSTER_COMBAT_PROFILES: Record<string, QuakeMonsterCombatProfile> 
 
 export function quakeMonsterCombatProfile(classname: string): QuakeMonsterCombatProfile | undefined {
   return QUAKEC_MONSTER_COMBAT_PROFILES[classname];
+}
+
+export function quakeMonsterSightSoundPath(classname: string): string | null {
+  return QUAKEC_MONSTER_SIGHT_SOUNDS[classname] ?? null;
 }
 
 export function quakeMonsterRunSpeedUnitsPerSecond(classname: string): number | null {

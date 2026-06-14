@@ -14,6 +14,7 @@ import {
 } from "../../generated/quakeMonsterLogic";
 import { COLLISION_EPSILON, QUAKE_COLLISION_UNIT_SCALE, QUAKE_PLAYER_MINS_Z } from "../constants";
 import { normalizeVec3, subtractVec3 } from "../math";
+import type { QuakePlayerDamageContext } from "../player";
 import type { QuakeMonsterStateStep } from "../quakeMonsterStateRunner";
 import {
   aabbDistanceSq,
@@ -24,6 +25,7 @@ import {
   type QuakeBounds,
 } from "./bounds";
 import {
+  QUAKE_MONSTER_HUNT_TARGET_ATTACK_DELAY_MS,
   quakeMonsterCombatProfile,
   type QuakeMonsterCombatProfile,
   type QuakeMonsterProjectileOffset,
@@ -40,11 +42,11 @@ import type {
   QuakeEnemyAttackTarget,
   QuakeEnemyState,
   QuakeMonsterAnimationMode,
+  QuakeShootableDamageContext,
   QuakeShootableState,
 } from "./state";
 
 const QUAKE_MONSTER_QUAKEC_STATE_FRAME_MS = 100;
-const QUAKE_MONSTER_ATTACK_DELAY_MS = 600;
 const QUAKE_PAUSED_TIMER_POLL_MS = 100;
 const QUAKE_SHOOTABLE_COLLISION_EPSILON = 0.5 * QUAKE_COLLISION_UNIT_SCALE;
 
@@ -56,6 +58,7 @@ interface QuakeEnemyCombatSoundOptions {
 
 export interface QuakeEnemyCombatContext {
   hasLineOfSight(start: Vec3, end: Vec3): boolean;
+  markTrace?(kind: string, shootable: QuakeShootableState, details?: QuakeEnemyCombatTraceDetails): void;
   nextRandom(enemy: QuakeEnemyState): number;
   playerDamageBounds(origin: [number, number, number] | Vec3): QuakeBounds;
   randomRange(enemy: QuakeEnemyState, min: number, max: number): number;
@@ -63,7 +66,7 @@ export interface QuakeEnemyCombatContext {
 }
 
 export interface QuakeEnemyCombatRuntimeOptions extends QuakeEnemyCombatContext {
-  damagePlayer(amount: number): boolean;
+  damagePlayer(amount: number, context?: QuakePlayerDamageContext): boolean;
   getPlayerOrigin(): [number, number, number];
   isGameplayPaused?: () => boolean;
   markTrace(kind: string, shootable: QuakeShootableState, details?: QuakeEnemyCombatTraceDetails): void;
@@ -122,6 +125,7 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
     clear,
     finishAttack,
     hasLineOfSight: options.hasLineOfSight,
+    markTrace: options.markTrace,
     nextRandom: options.nextRandom,
     playerDamageBounds: options.playerDamageBounds,
     playQuakecSound,
@@ -145,9 +149,14 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
     mode: QuakeMonsterAnimationMode,
     now: number,
   ): void {
-    for (const soundPath of step.sounds) {
+    const soundPaths = new Set([
+      ...step.sounds,
+      ...quakecFrameCallSounds(step, mode),
+    ]);
+    for (const soundPath of soundPaths) {
       playQuakecSound(soundPath, shootable, mode, now);
     }
+    runConditionalFrameSounds(shootable, step, mode, now);
   }
 
   function playQuakecSound(
@@ -166,6 +175,29 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
     return played;
   }
 
+  function runConditionalFrameSounds(
+    shootable: QuakeShootableState,
+    step: QuakeMonsterStateStep,
+    mode: QuakeMonsterAnimationMode,
+    now: number,
+  ): void {
+    const enemy = shootable.enemy;
+    if (!enemy) return;
+    for (const sound of step.conditionalSounds ?? []) {
+      const roll = options.nextRandom(enemy);
+      const shouldPlay = roll < sound.chance;
+      const played = shouldPlay ? playQuakecSound(sound.soundPath, shootable, mode, now) : false;
+      options.markTrace("enemy-quakec-conditional-sound", shootable, {
+        chance: sound.chance,
+        played,
+        roll,
+        sound: sound.soundPath,
+        state: step.stateName,
+        time: now,
+      });
+    }
+  }
+
   function runFrameEvents(
     shootable: QuakeShootableState,
     step: QuakeMonsterStateStep,
@@ -181,6 +213,16 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
       enemy.quakecFiredEvents.add(eventKey);
       runFrameEvent(shootable, step, event, now, context);
     });
+    const attackFinishedCooldownMs = quakecFrameAttackFinishedCooldownMs(step, mode);
+    if (attackFinishedCooldownMs !== null) {
+      enemy.nextAttackAt = now + attackFinishedCooldownMs;
+      options.markTrace("enemy-quakec-attack-finished", shootable, {
+        cooldownMs: attackFinishedCooldownMs,
+        source: "frame-call",
+        state: step.stateName,
+        time: now,
+      });
+    }
   }
 
   function runFrameEvent(
@@ -271,7 +313,7 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
       time: now,
       type: event.type,
     });
-    if (damage > 0) damageQuakeEnemyCombatTarget(target, damage, shootable);
+    if (damage > 0) damageQuakeEnemyCombatTarget(options, target, damage, shootable);
   }
 
   function runLightningDamageEvent(
@@ -288,10 +330,11 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
       event.originOffsetUnits,
     );
     const combatTarget = quakeEnemyCombatTarget(options, context);
+    const combatTargetOrigin = quakecCombatTargetEntityOrigin(combatTarget);
     const target = quakecOffsetPoint(
-      combatTarget.origin,
+      combatTargetOrigin,
       shootable.origin,
-      combatTarget.origin,
+      combatTargetOrigin,
       event.targetOffsetUnits,
     );
     const range = quakecScaleUnits(event.rangeUnits);
@@ -309,7 +352,7 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
       time: now,
       type: event.type,
     });
-    if (trace.hit) damageQuakeEnemyCombatTarget(combatTarget, event.damage, shootable);
+    if (trace.hit) damageQuakeEnemyCombatTarget(options, combatTarget, event.damage, shootable);
   }
 
   function runMeleeDamageEvent(
@@ -345,7 +388,7 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
       time: now,
       type: event.type,
     });
-    if (hit) damageQuakeEnemyCombatTarget(target, damage, shootable);
+    if (hit) damageQuakeEnemyCombatTarget(options, target, damage, shootable);
   }
 
   function runProjectileEvent(
@@ -479,7 +522,7 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
       time: now,
       type: active.event.type,
     });
-    damageQuakeEnemyCombatTarget(combatTarget, damage, shootable);
+    damageQuakeEnemyCombatTarget(options, combatTarget, damage, shootable);
     enemy.quakecActiveTouchDamage = null;
     finishAttack(shootable, profile, now);
   }
@@ -495,7 +538,7 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
     enemy.attackVisual = "cooldown";
     enemy.burstShotsRemaining = 0;
     enemy.quakecActiveTouchDamage = null;
-    if (!quakecAttackCooldownStartsOnSelection(shootable)) {
+    if (!quakecAttackCooldownStartsOnSelection(shootable) && enemy.nextAttackAt <= now) {
       enemy.nextAttackAt = now + quakeEnemyCooldownMs(options, profile, enemy);
     }
     enemy.quakecAnimationChain = null;
@@ -507,6 +550,25 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
   }
 }
 
+function quakecFrameCallSounds(
+  step: QuakeMonsterStateStep,
+  mode: QuakeMonsterAnimationMode,
+): readonly string[] {
+  if (mode !== "attack") return [];
+  if (step.calls.includes("Wiz_StartFast")) return ["wizard/wattack.wav"];
+  return [];
+}
+
+function quakecFrameAttackFinishedCooldownMs(
+  step: QuakeMonsterStateStep,
+  mode: QuakeMonsterAnimationMode,
+): number | null {
+  if (mode !== "attack") return null;
+  if (!step.calls.includes("SUB_AttackFinished")) return null;
+  if (step.classname === "monster_wizard" && step.stateName === "wiz_fast10") return 2000;
+  return null;
+}
+
 export function selectQuakeEnemyAttackChain(
   context: QuakeEnemyCombatContext,
   shootable: QuakeShootableState,
@@ -514,29 +576,80 @@ export function selectQuakeEnemyAttackChain(
   distance: number,
   playerOrigin: [number, number, number],
   now: number,
+  target?: QuakeEnemyAttackTarget,
 ): string | null | undefined {
   const attackPolicy = quakeEnemyAttackPolicy(shootable);
   if (!attackPolicy?.usesFrameEvents) return undefined;
-  const branchChain = selectQuakecAttackBranch(context, shootable, enemy, attackPolicy, distance, playerOrigin);
+  const branch = selectQuakecAttackBranch(context, shootable, enemy, attackPolicy, distance, playerOrigin, target);
   if (attackPolicy.branches?.length) {
-    if (branchChain) return branchChain;
+    if (branch) {
+      const cooldownMs = startQuakecAttackSelectionCooldown(context, shootable, enemy, attackPolicy, branch, now);
+      markQuakecAttackTrace(context, "enemy-quakec-attack-select", shootable, {
+        branchKind: branch.kind,
+        chain: branch.chain,
+        cooldownMs,
+        distanceUnits: distance / QUAKE_COLLISION_UNIT_SCALE,
+        nextAttackInMs: Math.max(0, enemy.nextAttackAt - now),
+      });
+      return branch.chain;
+    }
     enemy.nextAttackAt = now + QUAKE_MONSTER_QUAKEC_STATE_FRAME_MS;
+    markQuakecAttackTrace(context, "enemy-quakec-attack-reject", shootable, {
+      distanceUnits: distance / QUAKE_COLLISION_UNIT_SCALE,
+      nextAttackInMs: enemy.nextAttackAt - now,
+      reason: "no-branch",
+    });
     return null;
   }
   const chance = quakecAttackPolicyChance(attackPolicy, distance);
-  if (chance <= 0 || (chance < 1 && context.nextRandom(enemy) >= chance)) {
+  const chanceRoll = chance > 0 && chance < 1 ? context.nextRandom(enemy) : null;
+  if (chance <= 0 || (chanceRoll !== null && chanceRoll >= chance)) {
     enemy.nextAttackAt = now + QUAKE_MONSTER_QUAKEC_STATE_FRAME_MS;
+    markQuakecAttackTrace(context, "enemy-quakec-attack-reject", shootable, {
+      chance,
+      distanceUnits: distance / QUAKE_COLLISION_UNIT_SCALE,
+      nextAttackInMs: enemy.nextAttackAt - now,
+      reason: "chance",
+      roll: chanceRoll,
+    });
     return null;
   }
+  const chain = selectQuakecAttackChainChoice(context, attackPolicy, enemy);
   if (quakecAttackCooldownStartsOnSelection(shootable)) {
-    enemy.nextAttackAt = now + quakecAttackPolicyCooldownMs(context, attackPolicy, enemy);
+    const cooldown = quakecAttackPolicyCooldownRoll(context, attackPolicy, enemy);
+    enemy.nextAttackAt = now + cooldown.cooldownMs;
+    markQuakecAttackTrace(context, "enemy-quakec-attack-cooldown", shootable, {
+      baseMs: cooldown.baseMs,
+      chain,
+      cooldownMs: cooldown.cooldownMs,
+      randomAddMs: cooldown.randomAddMs,
+      randomMs: cooldown.randomMs,
+      source: "selection",
+    });
     consumeQuakecAttackSideEffectRandomChecks(context, attackPolicy, enemy);
   }
-  return attackPolicy.chain;
+  markQuakecAttackTrace(context, "enemy-quakec-attack-select", shootable, {
+    chain,
+    chance,
+    distanceUnits: distance / QUAKE_COLLISION_UNIT_SCALE,
+    nextAttackInMs: Math.max(0, enemy.nextAttackAt - now),
+    roll: chanceRoll,
+  });
+  return chain;
 }
 
 export function quakeShootableUsesQuakecAttackEvents(shootable: QuakeShootableState): boolean {
   return Boolean(quakeEnemyAttackPolicy(shootable)?.usesFrameEvents);
+}
+
+export function quakeShootableAttackUsesCanDamage(shootable: QuakeShootableState): boolean {
+  return Boolean(quakeEnemyAttackPolicy(shootable)?.branches?.some((branch) => branch.requiresCanDamage));
+}
+
+export function quakeShootableAttackHasBranchSightCheck(shootable: QuakeShootableState): boolean {
+  return Boolean(quakeEnemyAttackPolicy(shootable)?.branches?.some((branch) =>
+    branch.requiresCanDamage || branch.requiresClearShot
+  ));
 }
 
 export function quakeShootableAttackChain(shootable: QuakeShootableState): string | undefined {
@@ -544,7 +657,9 @@ export function quakeShootableAttackChain(shootable: QuakeShootableState): strin
 }
 
 export function quakecAttackCooldownStartsOnSelection(shootable: QuakeShootableState): boolean {
-  return shootable.entity.classname === "monster_army";
+  const attackPolicy = quakeEnemyAttackPolicy(shootable);
+  if (!attackPolicy || attackPolicy.branches?.length) return false;
+  return quakecAttackCooldownPolicyHasDelay(attackPolicy);
 }
 
 export function quakeEnemyWakeDelayMs(
@@ -552,7 +667,7 @@ export function quakeEnemyWakeDelayMs(
   profile: QuakeMonsterCombatProfile,
   enemy: QuakeEnemyState,
 ): number {
-  return Math.max(0, (profile.wakeDelayMs ?? QUAKE_MONSTER_ATTACK_DELAY_MS) +
+  return Math.max(0, (profile.wakeDelayMs ?? QUAKE_MONSTER_HUNT_TARGET_ATTACK_DELAY_MS) +
     context.randomRange(enemy, 0, profile.wakeDelayJitterMs ?? 0));
 }
 
@@ -647,14 +762,21 @@ function quakecCanDamageTarget(
   start: Vec3,
   target: QuakeEnemyAttackTarget,
 ): boolean {
-  const targetOrigin = target.kind === "player"
-    ? [target.origin[0], target.origin[1], target.bounds.min[2] - QUAKE_PLAYER_MINS_Z] as Vec3
-    : target.origin;
+  const targetOrigin = quakecCombatTargetEntityOrigin(target);
   return quakecCanDamageAnyTracePointClear(
     start,
     quakecCanDamageTracePointsForRuntimeOrigin(targetOrigin),
     context.hasLineOfSight,
   );
+}
+
+function quakecCombatTargetEntityOrigin(target: QuakeEnemyAttackTarget): Vec3 {
+  if (target.kind !== "player") return target.origin;
+  return [
+    target.origin[0],
+    target.origin[1],
+    target.bounds.min[2] - QUAKE_PLAYER_MINS_Z,
+  ];
 }
 
 function quakecBoundsCenter(bounds: QuakeBounds): Vec3 {
@@ -685,7 +807,8 @@ function quakeEnemyCombatTarget(
   return {
     bounds: options.playerDamageBounds(context.playerOrigin),
     classname: "player",
-    damage: (amount) => options.damagePlayer(amount),
+    damage: (amount, damageContext) =>
+      options.damagePlayer(amount, quakePlayerDamageContextFromShootableDamage(damageContext)),
     id: "player",
     kind: "player",
     origin: context.playerOrigin,
@@ -693,26 +816,35 @@ function quakeEnemyCombatTarget(
 }
 
 function damageQuakeEnemyCombatTarget(
+  options: QuakeEnemyCombatRuntimeOptions,
   target: QuakeEnemyAttackTarget,
   amount: number,
   attacker: QuakeShootableState,
 ): boolean {
+  const inflictorOrigin = quakecBoundsCenter(options.shootableBoundsForDamage(attacker));
   return target.damage?.(amount, {
     attacker: {
       classname: attacker.entity.classname,
       entityIndex: attacker.entity.index,
       id: attacker.entity.index,
       kind: "shootable",
-      origin: attacker.origin,
+      origin: inflictorOrigin,
     },
     inflictor: {
       classname: attacker.entity.classname,
       entityIndex: attacker.entity.index,
       id: attacker.entity.index,
       kind: "shootable",
-      origin: attacker.origin,
+      origin: inflictorOrigin,
     },
   }) ?? false;
+}
+
+function quakePlayerDamageContextFromShootableDamage(
+  context?: QuakeShootableDamageContext,
+): QuakePlayerDamageContext | undefined {
+  const inflictorOrigin = context?.inflictor?.origin ?? context?.attacker?.origin ?? null;
+  return inflictorOrigin ? { inflictorOrigin } : undefined;
 }
 
 function quakecOffsetPoint(
@@ -765,13 +897,43 @@ function selectQuakecAttackBranch(
   policy: QuakeMonsterAttackPolicy,
   distance: number,
   playerOrigin: [number, number, number],
-): string | null {
+  target: QuakeEnemyAttackTarget | undefined,
+): QuakeMonsterAttackBranchPolicy | null {
   for (const branch of policy.branches ?? []) {
-    if (!quakecAttackBranchRangeMatches(branch, distance)) continue;
-    if (!quakecAttackBranchSightMatches(context, shootable, branch, playerOrigin)) continue;
+    if (!quakecAttackBranchRangeMatches(branch, distance)) {
+      markQuakecAttackTrace(context, "enemy-quakec-attack-branch-reject", shootable, {
+        branchKind: branch.kind,
+        chain: branch.chain,
+        distanceUnits: distance / QUAKE_COLLISION_UNIT_SCALE,
+        reason: "range",
+      });
+      continue;
+    }
+    if (!quakecAttackBranchSightMatches(context, shootable, branch, playerOrigin, target)) {
+      markQuakecAttackTrace(context, "enemy-quakec-attack-branch-reject", shootable, {
+        branchKind: branch.kind,
+        chain: branch.chain,
+        distanceUnits: distance / QUAKE_COLLISION_UNIT_SCALE,
+        requiresCanDamage: branch.requiresCanDamage === true,
+        requiresClearShot: branch.requiresClearShot === true,
+        reason: "sight",
+      });
+      continue;
+    }
     const chance = quakecAttackBranchChance(branch, policy, distance);
-    if (chance <= 0 || (chance < 1 && context.nextRandom(enemy) >= chance)) continue;
-    return branch.chain;
+    const roll = chance > 0 && chance < 1 ? context.nextRandom(enemy) : null;
+    if (chance <= 0 || (roll !== null && roll >= chance)) {
+      markQuakecAttackTrace(context, "enemy-quakec-attack-branch-reject", shootable, {
+        branchKind: branch.kind,
+        chain: branch.chain,
+        chance,
+        distanceUnits: distance / QUAKE_COLLISION_UNIT_SCALE,
+        reason: "chance",
+        roll,
+      });
+      continue;
+    }
+    return branch;
   }
   return null;
 }
@@ -791,12 +953,25 @@ function quakecAttackBranchSightMatches(
   shootable: QuakeShootableState,
   branch: QuakeMonsterAttackBranchPolicy,
   playerOrigin: [number, number, number],
+  target: QuakeEnemyAttackTarget | undefined,
 ): boolean {
   if (branch.requiresVerticalOverlap && !quakecAttackBranchVerticalMatches(context, shootable, playerOrigin)) {
     return false;
   }
   if (!branch.requiresCanDamage && !branch.requiresClearShot) return true;
-  return context.hasLineOfSight(context.shootableEyeOrigin(shootable), playerOrigin);
+  const start = context.shootableEyeOrigin(shootable);
+  if (branch.requiresCanDamage) {
+    const canDamage = target
+      ? quakecCanDamageTarget(context, start, target)
+      : quakecCanDamageAnyTracePointClear(
+        start,
+        quakecCanDamageTracePointsForRuntimeOrigin(playerOrigin),
+        context.hasLineOfSight,
+      );
+    if (!canDamage) return false;
+  }
+  if (branch.requiresClearShot && !context.hasLineOfSight(start, playerOrigin)) return false;
+  return true;
 }
 
 function quakecAttackBranchVerticalMatches(
@@ -832,6 +1007,20 @@ function quakecAttackBranchChance(
   return 1;
 }
 
+function selectQuakecAttackChainChoice(
+  context: QuakeEnemyCombatContext,
+  policy: QuakeMonsterAttackPolicy,
+  enemy: QuakeEnemyState,
+): string {
+  const choices = policy.chainChoices ?? [];
+  if (choices.length <= 0) return policy.chain;
+  const roll = context.nextRandom(enemy);
+  return choices.find((choice) =>
+    (typeof choice.randomLessThan === "number" && roll < choice.randomLessThan) ||
+    choice.otherwise === true
+  )?.chain ?? choices[choices.length - 1]?.chain ?? policy.chain;
+}
+
 function quakeEnemyAttackPolicy(shootable: QuakeShootableState): QuakeMonsterAttackPolicy | undefined {
   if (!shootable.enemy?.quakecRunner) return undefined;
   if (!quakeMonsterCombatProfile(shootable.entity.classname)) return undefined;
@@ -845,14 +1034,57 @@ function quakecAttackPolicyChance(policy: QuakeMonsterAttackPolicy, distance: nu
   return policy.rangeChances.far;
 }
 
-function quakecAttackPolicyCooldownMs(
+function quakecAttackPolicyCooldownRoll(
   context: QuakeEnemyCombatContext,
   policy: QuakeMonsterAttackPolicy,
   enemy: QuakeEnemyState,
-): number {
-  const cooldownMs = Math.max(0, policy.cooldownMs);
+): { baseMs: number; cooldownMs: number; randomAddMs: number; randomMs: number } {
+  const baseMs = Math.max(0, policy.cooldownMs);
   const randomAddMs = Math.max(0, policy.cooldownRandomAddMs ?? 0);
-  return cooldownMs + (randomAddMs > 0 ? context.randomRange(enemy, 0, randomAddMs) : 0);
+  const randomMs = randomAddMs > 0 ? context.randomRange(enemy, 0, randomAddMs) : 0;
+  return { baseMs, cooldownMs: baseMs + randomMs, randomAddMs, randomMs };
+}
+
+function quakecAttackBranchCooldownRoll(
+  context: QuakeEnemyCombatContext,
+  policy: QuakeMonsterAttackPolicy,
+  branch: QuakeMonsterAttackBranchPolicy,
+  enemy: QuakeEnemyState,
+): { baseMs: number; cooldownMs: number; randomAddMs: number; randomMs: number } {
+  const baseMs = Math.max(0, branch.cooldownMs ?? policy.cooldownMs);
+  const randomAddMs = Math.max(0, branch.cooldownRandomAddMs ?? policy.cooldownRandomAddMs ?? 0);
+  const randomMs = randomAddMs > 0 ? context.randomRange(enemy, 0, randomAddMs) : 0;
+  return { baseMs, cooldownMs: baseMs + randomMs, randomAddMs, randomMs };
+}
+
+function startQuakecAttackSelectionCooldown(
+  context: QuakeEnemyCombatContext,
+  shootable: QuakeShootableState,
+  enemy: QuakeEnemyState,
+  policy: QuakeMonsterAttackPolicy,
+  branch: QuakeMonsterAttackBranchPolicy,
+  now: number,
+): number | null {
+  if (branch.kind !== "missile" || !quakecAttackCooldownPolicyHasDelay(branch)) return null;
+  const cooldown = quakecAttackBranchCooldownRoll(context, policy, branch, enemy);
+  const cooldownMs = cooldown.cooldownMs;
+  enemy.nextAttackAt = now + cooldownMs;
+  markQuakecAttackTrace(context, "enemy-quakec-attack-cooldown", shootable, {
+    baseMs: cooldown.baseMs,
+    branchKind: branch.kind,
+    chain: branch.chain,
+    cooldownMs,
+    randomAddMs: cooldown.randomAddMs,
+    randomMs: cooldown.randomMs,
+    source: "selection",
+  });
+  return cooldownMs;
+}
+
+function quakecAttackCooldownPolicyHasDelay(
+  policy: { cooldownMs?: number; cooldownRandomAddMs?: number },
+): boolean {
+  return Math.max(0, policy.cooldownMs) > 0 || Math.max(0, policy.cooldownRandomAddMs ?? 0) > 0;
 }
 
 function consumeQuakecAttackSideEffectRandomChecks(
@@ -866,6 +1098,15 @@ function consumeQuakecAttackSideEffectRandomChecks(
       // effect yet, but the live RNG draw is part of the rule flow.
     }
   }
+}
+
+function markQuakecAttackTrace(
+  context: QuakeEnemyCombatContext,
+  kind: string,
+  shootable: QuakeShootableState,
+  details: QuakeEnemyCombatTraceDetails,
+): void {
+  context.markTrace?.(kind, shootable, details);
 }
 
 function quakecScaleUnits(value: number): number {

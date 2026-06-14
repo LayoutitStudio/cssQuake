@@ -492,8 +492,16 @@
         opacity: 0.46;
       }
 
+      #quake-main-menu-list > .quake-main-menu-item-disabled {
+        pointer-events: auto;
+      }
+
       body:not(.quake-main-menu-pending) .quake-main-menu-item-selectable {
         pointer-events: auto;
+      }
+
+      .quake-main-menu-item[data-quake-main-menu-action="level-select"] {
+        display: none;
       }
 
       .quake-main-menu-label {
@@ -504,6 +512,32 @@
         overflow: visible;
         pointer-events: none;
         filter: none;
+      }
+
+      .quake-main-menu-note {
+        position: absolute;
+        top: 50%;
+        left: calc(100% + 1.25cqw);
+        display: none;
+        width: calc(31 * var(--quake-main-menu-px));
+        transform: translateY(-50%);
+        pointer-events: none;
+      }
+
+      .quake-main-menu-note .quake-bitmap-text {
+        --quake-bitmap-glyph-size: calc(5 * var(--quake-main-menu-px));
+        --quake-bitmap-sheet-size: calc(80 * var(--quake-main-menu-px));
+        --quake-bitmap-space-size: calc(1 * var(--quake-main-menu-px));
+        align-content: center;
+        gap: calc(1 * var(--quake-main-menu-px)) var(--quake-bitmap-space-size);
+      }
+
+      #quake-main-menu-list > .quake-main-menu-item-disabled[data-quake-main-menu-action="multiplayer"] .quake-main-menu-note-coming-soon:not([hidden]) {
+        display: block;
+      }
+
+      body.quake-main-menu-pending #quake-main-menu-list .quake-main-menu-note {
+        display: none;
       }
 
       .quake-main-menu-label-single-player {
@@ -522,8 +556,8 @@
       }
 
       .quake-main-menu-label-debug {
-        --quake-main-menu-label-width: 100;
-        --quake-main-menu-label-height: 20;
+        --quake-main-menu-label-width: 90;
+        --quake-main-menu-label-height: 18;
       }
 
       .quake-main-menu-label-quit {
@@ -1869,6 +1903,7 @@
             </header>
             <div id="quake-single-player-list" class="quake-single-player-list" aria-label="Single player actions">
               <button class="quake-single-player-button quake-single-player-button-new-game" type="button" data-quake-single-player-action="new-game" aria-label="New Game"></button>
+              <button class="quake-single-player-button quake-single-player-button-level-select" type="button" data-quake-single-player-action="level-select" aria-label="Select Level"></button>
               <button class="quake-single-player-button quake-single-player-button-load" type="button" data-quake-single-player-action="load" aria-label="Load" disabled></button>
               <button class="quake-single-player-button quake-single-player-button-save" type="button" data-quake-single-player-action="save" aria-label="Save" disabled></button>
             </div>
@@ -2048,6 +2083,20 @@
                   <input id="quake-debug-enable-animations" type="checkbox" checked />
                   <span class="quake-option-checkbox" aria-hidden="true"></span>
                   <span class="quake-option-text quake-bm-label">Enable animations</span>
+                  <span class="quake-option-value quake-option-value-off quake-bm-label quake-bm-alt">off</span>
+                  <span class="quake-option-value quake-option-value-on quake-bm-label quake-bm-alt">on</span>
+                </label>
+                <label class="quake-option-toggle" tabindex="0">
+                  <input id="quake-debug-freeze-enemies" type="checkbox" />
+                  <span class="quake-option-checkbox" aria-hidden="true"></span>
+                  <span class="quake-option-text quake-bm-label">Freeze enemies</span>
+                  <span class="quake-option-value quake-option-value-off quake-bm-label quake-bm-alt">off</span>
+                  <span class="quake-option-value quake-option-value-on quake-bm-label quake-bm-alt">on</span>
+                </label>
+                <label class="quake-option-toggle" tabindex="0">
+                  <input id="quake-debug-disable-attacks" type="checkbox" />
+                  <span class="quake-option-checkbox" aria-hidden="true"></span>
+                  <span class="quake-option-text quake-bm-label">Disable attacks</span>
                   <span class="quake-option-value quake-option-value-off quake-bm-label quake-bm-alt">off</span>
                   <span class="quake-option-value quake-option-value-on quake-bm-label quake-bm-alt">on</span>
                 </label>

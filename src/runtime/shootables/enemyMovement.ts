@@ -149,8 +149,31 @@ export function createQuakeEnemyMovementRuntime(
         options.nextRandom,
       )
       : [quakeMoveGoalCandidate(directYaw, "direct")];
-    for (const candidate of candidates) {
-      const attempt = tryMoveChasingEnemy(shootable, candidate, step, usesQuakecMovementBudget, movementEpsilon);
+    const collisionStep = usesQuakecMovementBudget && sourceMovementBudget !== null
+      ? Math.max(step, sourceMovementBudget)
+      : step;
+    if (usesQuakecMovementBudget) {
+      options.markTrace("enemy-move-candidates", shootable, {
+        candidateCount: candidates.length,
+        directYaw,
+        idealYaw: shootable.enemy?.quakecIdealYaw ?? null,
+        movementCall: moveOptions.movementCall,
+        skipSourceIdeal: candidates[0]?.type === "source-ideal" ? 0 : 1,
+        yaws: candidates.map((candidate) => `${candidate.yaw}:${candidate.type}`).join(","),
+      });
+    }
+    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+      const candidate = candidates[candidateIndex];
+      const attempt = tryMoveChasingEnemy(
+        shootable,
+        candidate,
+        candidateIndex,
+        candidates.length,
+        step,
+        collisionStep,
+        usesQuakecMovementBudget,
+        movementEpsilon,
+      );
       if (!attempt.handled) continue;
       if (!attempt.moved && sourceMovementBudget !== null) clearQuakecMovementBudget(shootable.enemy);
       return attempt.moved;
@@ -169,7 +192,10 @@ export function createQuakeEnemyMovementRuntime(
   function tryMoveChasingEnemy(
     shootable: QuakeShootableState,
     candidate: QuakeMoveGoalCandidate,
+    candidateIndex: number,
+    candidateCount: number,
     step: number,
+    collisionStep: number,
     usesQuakecMovementBudget: boolean,
     movementEpsilon: number,
   ): QuakeMoveGoalAttempt {
@@ -178,6 +204,13 @@ export function createQuakeEnemyMovementRuntime(
       shootable.origin[1] + candidate.dy * step,
       shootable.origin[2],
     ];
+    const horizontalTraceOrigin: Vec3 = collisionStep === step
+      ? horizontalNextOrigin
+      : [
+        shootable.origin[0] + candidate.dx * collisionStep,
+        shootable.origin[1] + candidate.dy * collisionStep,
+        shootable.origin[2],
+      ];
     const nextOrigin = groundedQuakeMonsterOrigin({
       bounds: shootable.collisionBounds,
       entity: shootable.entity,
@@ -185,14 +218,49 @@ export function createQuakeEnemyMovementRuntime(
       mode: "move",
       origin: horizontalNextOrigin,
     });
+    const traceOrigin = collisionStep === step
+      ? nextOrigin
+      : groundedQuakeMonsterOrigin({
+        bounds: shootable.collisionBounds,
+        entity: shootable.entity,
+        floorAt: options.floorAt,
+        mode: "move",
+        origin: horizontalTraceOrigin,
+      });
     if (distanceSq3(nextOrigin, shootable.origin) <= movementEpsilon * movementEpsilon) {
-      return { handled: false, moved: false };
+      return { handled: true, moved: false };
+    }
+    if (!quakeMonsterHullDestinationClear(shootable, traceOrigin)) {
+      options.markTrace("enemy-move-hull-blocked", shootable, {
+        candidateCount,
+        candidateIndex,
+        moveType: candidate.type,
+        yaw: candidate.yaw,
+        x: traceOrigin[0],
+        y: traceOrigin[1],
+        z: traceOrigin[2],
+      });
+      return { handled: true, moved: false };
     }
     const from = options.shootableEyeOrigin(shootable);
-    const to: Vec3 = [nextOrigin[0], nextOrigin[1], from[2]];
-    if (!options.hasLineOfSight(from, to)) return { handled: false, moved: false };
+    const to: Vec3 = [traceOrigin[0], traceOrigin[1], from[2]];
+    if (!options.hasLineOfSight(from, to)) {
+      options.markTrace("enemy-move-los-blocked", shootable, {
+        candidateCount,
+        candidateIndex,
+        moveType: candidate.type,
+        yaw: candidate.yaw,
+      });
+      return { handled: false, moved: false };
+    }
     const bottomSupported = !usesQuakecMovementBudget || quakeMonsterMoveBottomSupported(shootable, nextOrigin);
     if (usesQuakecMovementBudget && !bottomSupported && !shootable.enemy?.quakecPartialGround) {
+      options.markTrace("enemy-move-bottom-blocked", shootable, {
+        candidateCount,
+        candidateIndex,
+        moveType: candidate.type,
+        yaw: candidate.yaw,
+      });
       return { handled: false, moved: false };
     }
     let facingIdeal = true;
@@ -204,6 +272,9 @@ export function createQuakeEnemyMovementRuntime(
     }
     if (!facingIdeal) {
       options.markTrace("enemy-move-yaw-gated", shootable, {
+        candidateCount,
+        candidateIndex,
+        moveType: candidate.type,
         targetYaw: candidate.yaw,
         yaw: shootable.yaw,
       });
@@ -218,6 +289,8 @@ export function createQuakeEnemyMovementRuntime(
       }
     }
     options.markTrace("enemy-move", shootable, {
+      candidateCount,
+      candidateIndex,
       partialGround: usesQuakecMovementBudget && !bottomSupported,
       sourceStep: usesQuakecMovementBudget,
       step,
@@ -229,6 +302,30 @@ export function createQuakeEnemyMovementRuntime(
       yaw: candidate.yaw,
     });
     return { handled: true, moved: true };
+  }
+
+  function quakeMonsterHullDestinationClear(shootable: QuakeShootableState, origin: Vec3): boolean {
+    const contentsAt = options.contentsAt;
+    if (!contentsAt) return true;
+    const bounds = shootable.collisionBounds;
+    const minX = origin[0] + bounds.min[0];
+    const minY = origin[1] + bounds.min[1];
+    const minZ = origin[2] + bounds.min[2];
+    const maxX = origin[0] + bounds.max[0];
+    const maxY = origin[1] + bounds.max[1];
+    const maxZ = origin[2] + bounds.max[2];
+    const midX = (minX + maxX) * 0.5;
+    const midY = (minY + maxY) * 0.5;
+    const midZ = (minZ + maxZ) * 0.5;
+    return !(
+      contentsAt([midX, midY, midZ]) === options.contentsSolid ||
+      contentsAt([minX, minY, midZ]) === options.contentsSolid ||
+      contentsAt([minX, maxY, midZ]) === options.contentsSolid ||
+      contentsAt([maxX, minY, midZ]) === options.contentsSolid ||
+      contentsAt([maxX, maxY, midZ]) === options.contentsSolid ||
+      contentsAt([midX, midY, minZ + QUAKE_COLLISION_UNIT_SCALE]) === options.contentsSolid ||
+      contentsAt([midX, midY, maxZ - QUAKE_COLLISION_UNIT_SCALE]) === options.contentsSolid
+    );
   }
 
   function quakeMonsterMoveBottomSupported(shootable: QuakeShootableState, origin: Vec3): boolean {
@@ -350,6 +447,13 @@ export function quakeEnemyMoveGoalCandidates(
   const turnaround = quakeAngleMod(olddir - 180);
   const out: QuakeMoveGoalCandidate[] = [];
 
+  // SV_MoveToGoal first gives the current ideal_yaw a chance, then falls
+  // through to SV_NewChaseDir when rand()&3 asks it to or the step fails.
+  const skipSourceIdeal = enemy ? Math.floor(nextEnemyRandom(enemy) * 4) === 1 : false;
+  if (!skipSourceIdeal) {
+    out.push(quakeMoveGoalCandidate(idealYaw, "source-ideal"));
+  }
+
   const deltaX = targetOrigin[0] - origin[0];
   const deltaY = targetOrigin[1] - origin[1];
   const xDir = deltaX > 10 * QUAKE_COLLISION_UNIT_SCALE
@@ -438,12 +542,17 @@ export function quakeMonsterYawSpeed(entity: QuakeEntity): number {
 }
 
 export function quakeYawToOrigin(origin: Vec3, targetOrigin: Vec3): number {
-  return quakeYawFromDirection(targetOrigin[0] - origin[0], targetOrigin[1] - origin[1]);
+  return quakecVectoyaw(targetOrigin[0] - origin[0], targetOrigin[1] - origin[1]);
 }
 
 export function quakeYawFromDirection(dx: number, dy: number): number {
   if (Math.abs(dx) <= Number.EPSILON && Math.abs(dy) <= Number.EPSILON) return 0;
   return quakeAngleMod((Math.atan2(dy, dx) * 180) / Math.PI);
+}
+
+export function quakecVectoyaw(dx: number, dy: number): number {
+  if (Math.abs(dx) <= Number.EPSILON && Math.abs(dy) <= Number.EPSILON) return 0;
+  return quakeAngleMod(Math.trunc((Math.atan2(dy, dx) * 180) / Math.PI));
 }
 
 export function quakecMovementBudget(

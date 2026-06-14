@@ -93,6 +93,13 @@ export interface QuakeShootableDebugCullingEntry {
   movetargetTarget: string | null;
   movetargetTargetname: string | null;
   monsterJumpTouchedTriggerEntityIndex: number | null;
+  moveGoalDecisions: QuakeShootableDebugMoveGoalDecision[];
+}
+
+export interface QuakeShootableDebugMoveGoalDecision {
+  atMs: number;
+  details: Record<string, boolean | number | string | null>;
+  kind: string;
 }
 
 export interface QuakeShootablesDebugCullingSnapshot {

@@ -34,6 +34,9 @@ test("mounted enemy acquisition switch defaults on and stays independent from br
 
 test("combat budget exposes the initial fast-path caps", () => {
   assert.deepEqual(QUAKE_COMBAT_BUDGET_LIMITS, {
+    ambientPathCadenceHz: 5,
+    ambientPathTicksPerFrame: 1,
+    ambientPathTicksPerSecond: 30,
     attackChainChecksPerFrame: 8,
     combatInterestSet: 12,
     domReads: 0,
@@ -42,6 +45,37 @@ test("combat budget exposes the initial fast-path caps", () => {
     unmountedAiActiveSet: 4,
     unmountedAiCadenceHz: 5,
   });
+});
+
+test("ambient path scheduler is frame-capped and per-entity cadenced", () => {
+  const budget = createQuakeCombatBudgetRuntime();
+
+  assert.deepEqual(budget.tryStartAmbientPathTick(1, 1000), { accepted: true, reason: "accepted" });
+  assert.deepEqual(budget.tryStartAmbientPathTick(2, 1000), { accepted: false, reason: "frame-cap" });
+  budget.beginFrame(1100);
+  assert.deepEqual(budget.tryStartAmbientPathTick(1, 1100), { accepted: false, reason: "cadence" });
+  assert.deepEqual(budget.tryStartAmbientPathTick(2, 1100), { accepted: true, reason: "accepted" });
+  budget.beginFrame(1200);
+  assert.deepEqual(budget.tryStartAmbientPathTick(1, 1200), { accepted: true, reason: "accepted" });
+
+  const stats = budget.debugStats();
+  assert.equal(stats.counters.ambientPathTicksTotal, 3);
+  assert.equal(stats.counters.ambientPathTickDeferralsTotal, 2);
+  assert.equal(stats.maxFrame.ambientPathTicks, QUAKE_COMBAT_BUDGET_LIMITS.ambientPathTicksPerFrame);
+});
+
+test("ambient path scheduler enforces a global per-second cap", () => {
+  const budget = createQuakeCombatBudgetRuntime();
+
+  for (let entityIndex = 1; entityIndex <= QUAKE_COMBAT_BUDGET_LIMITS.ambientPathTicksPerSecond; entityIndex += 1) {
+    budget.beginFrame(1000 + entityIndex);
+    assert.deepEqual(budget.tryStartAmbientPathTick(entityIndex, 1000 + entityIndex), {
+      accepted: true,
+      reason: "accepted",
+    });
+  }
+  budget.beginFrame(1100);
+  assert.deepEqual(budget.tryStartAmbientPathTick(999, 1100), { accepted: false, reason: "second-cap" });
 });
 
 test("logical weapon target indexes include mounted-visible or combat-interested live targets only", () => {

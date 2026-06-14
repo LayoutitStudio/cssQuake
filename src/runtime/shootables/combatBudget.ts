@@ -1,4 +1,7 @@
 export interface QuakeCombatBudgetLimits {
+  ambientPathCadenceHz: number;
+  ambientPathTicksPerFrame: number;
+  ambientPathTicksPerSecond: number;
   combatInterestSet: number;
   unmountedAiActiveSet: number;
   unmountedAiCadenceHz: number;
@@ -9,6 +12,8 @@ export interface QuakeCombatBudgetLimits {
 }
 
 export interface QuakeCombatBudgetCounters {
+  ambientPathTickDeferralsTotal: number;
+  ambientPathTicksTotal: number;
   combatInterestAddsTotal: number;
   combatInterestEvictionsTotal: number;
   enemyLoopFramesTotal: number;
@@ -29,12 +34,14 @@ export interface QuakeCombatBudgetCounters {
 }
 
 export interface QuakeCombatBudgetFrameStats {
+  ambientPathTicks: number;
   attackChainChecks: number;
   lineOfSightChecks: number;
   startedAtMs: number;
 }
 
 export interface QuakeCombatBudgetSecondStats {
+  ambientPathTicks: number;
   attackChainChecks: number;
   lineOfSightChecks: number;
   startedAtMs: number;
@@ -77,6 +84,7 @@ export interface QuakeCombatBudgetRuntime {
   setExpandedLogicalCombatEnabled(enabled: boolean): void;
   setMountedEnemyAcquisitionEnabled(enabled: boolean): void;
   setUnmountedAiEnabled(enabled: boolean): void;
+  tryStartAmbientPathTick(entityIndex: number, now?: number): QuakeAmbientPathTickResult;
   tryRecordLineOfSightCheck(now?: number): boolean;
   tryStartUnmountedAiTick(entityIndex: number, now?: number): QuakeUnmountedAiTickResult;
 }
@@ -89,6 +97,11 @@ export interface QuakeCombatInterestResult {
 export interface QuakeUnmountedAiTickResult {
   accepted: boolean;
   reason: "accepted" | "disabled" | "not-interested" | "cadence" | "capacity";
+}
+
+export interface QuakeAmbientPathTickResult {
+  accepted: boolean;
+  reason: "accepted" | "cadence" | "frame-cap" | "second-cap";
 }
 
 interface QuakeCombatInterestEntry {
@@ -122,6 +135,9 @@ export function quakeCombatLogicalWeaponTargetIndexes(
 }
 
 export const QUAKE_COMBAT_BUDGET_LIMITS: Readonly<QuakeCombatBudgetLimits> = Object.freeze({
+  ambientPathCadenceHz: 5,
+  ambientPathTicksPerFrame: 1,
+  ambientPathTicksPerSecond: 30,
   attackChainChecksPerFrame: 8,
   combatInterestSet: 12,
   domReads: 0,
@@ -135,12 +151,13 @@ export function createQuakeCombatBudgetRuntime(): QuakeCombatBudgetRuntime {
   let counters = createCounters();
   let currentFrame = createFrameStats(0);
   let currentSecond = createSecondStats(0);
-  let maxFrame = { attackChainChecks: 0, lineOfSightChecks: 0 };
-  let maxPerSecond = { attackChainChecks: 0, lineOfSightChecks: 0 };
+  let maxFrame = { ambientPathTicks: 0, attackChainChecks: 0, lineOfSightChecks: 0 };
+  let maxPerSecond = { ambientPathTicks: 0, attackChainChecks: 0, lineOfSightChecks: 0 };
   let expandedLogicalCombatEnabled = false;
   let mountedEnemyAcquisitionEnabled = true;
   let unmountedAiEnabled = false;
   let interestSequence = 0;
+  const ambientPathLastTickAt = new Map<number, number>();
   const combatInterest = new Map<number, QuakeCombatInterestEntry>();
   const unmountedAiActive = new Set<number>();
   const unmountedAiLastTickAt = new Map<number, number>();
@@ -149,12 +166,13 @@ export function createQuakeCombatBudgetRuntime(): QuakeCombatBudgetRuntime {
     counters = createCounters();
     currentFrame = createFrameStats(0);
     currentSecond = createSecondStats(0);
-    maxFrame = { attackChainChecks: 0, lineOfSightChecks: 0 };
-    maxPerSecond = { attackChainChecks: 0, lineOfSightChecks: 0 };
+    maxFrame = { ambientPathTicks: 0, attackChainChecks: 0, lineOfSightChecks: 0 };
+    maxPerSecond = { ambientPathTicks: 0, attackChainChecks: 0, lineOfSightChecks: 0 };
     expandedLogicalCombatEnabled = false;
     mountedEnemyAcquisitionEnabled = true;
     unmountedAiEnabled = false;
     interestSequence = 0;
+    ambientPathLastTickAt.clear();
     combatInterest.clear();
     unmountedAiActive.clear();
     unmountedAiLastTickAt.clear();
@@ -257,6 +275,7 @@ export function createQuakeCombatBudgetRuntime(): QuakeCombatBudgetRuntime {
     counters.disableSwitchActivationsTotal++;
     if (!enabled) {
       unmountedAiEnabled = false;
+      ambientPathLastTickAt.clear();
       unmountedAiActive.clear();
       clearCombatInterest();
     }
@@ -290,6 +309,36 @@ export function createQuakeCombatBudgetRuntime(): QuakeCombatBudgetRuntime {
     unmountedAiActive.add(entityIndex);
     unmountedAiLastTickAt.set(entityIndex, now);
     counters.unmountedAiTicksTotal++;
+    return { accepted: true, reason: "accepted" };
+  }
+
+  function tryStartAmbientPathTick(entityIndex: number, now = combatBudgetNowMs()): QuakeAmbientPathTickResult {
+    rollSecondWindow(now);
+    if (currentFrame.ambientPathTicks >= QUAKE_COMBAT_BUDGET_LIMITS.ambientPathTicksPerFrame) {
+      counters.ambientPathTickDeferralsTotal++;
+      return { accepted: false, reason: "frame-cap" };
+    }
+    if (currentSecond.ambientPathTicks >= QUAKE_COMBAT_BUDGET_LIMITS.ambientPathTicksPerSecond) {
+      counters.ambientPathTickDeferralsTotal++;
+      return { accepted: false, reason: "second-cap" };
+    }
+    const minIntervalMs = 1000 / QUAKE_COMBAT_BUDGET_LIMITS.ambientPathCadenceHz;
+    const lastTickAt = ambientPathLastTickAt.get(entityIndex) ?? -Infinity;
+    if (now - lastTickAt < minIntervalMs) {
+      counters.ambientPathTickDeferralsTotal++;
+      return { accepted: false, reason: "cadence" };
+    }
+
+    ambientPathLastTickAt.set(entityIndex, now);
+    counters.ambientPathTicksTotal++;
+    currentFrame.ambientPathTicks++;
+    currentSecond.ambientPathTicks++;
+    if (currentFrame.ambientPathTicks > maxFrame.ambientPathTicks) {
+      maxFrame.ambientPathTicks = currentFrame.ambientPathTicks;
+    }
+    if (currentSecond.ambientPathTicks > maxPerSecond.ambientPathTicks) {
+      maxPerSecond.ambientPathTicks = currentSecond.ambientPathTicks;
+    }
     return { accepted: true, reason: "accepted" };
   }
 
@@ -392,6 +441,7 @@ export function createQuakeCombatBudgetRuntime(): QuakeCombatBudgetRuntime {
     setExpandedLogicalCombatEnabled,
     setMountedEnemyAcquisitionEnabled,
     setUnmountedAiEnabled,
+    tryStartAmbientPathTick,
     tryRecordLineOfSightCheck,
     tryStartUnmountedAiTick,
   };
@@ -399,6 +449,8 @@ export function createQuakeCombatBudgetRuntime(): QuakeCombatBudgetRuntime {
 
 function createCounters(): QuakeCombatBudgetCounters {
   return {
+    ambientPathTickDeferralsTotal: 0,
+    ambientPathTicksTotal: 0,
     attackChainChecksTotal: 0,
     capDeferralsTotal: 0,
     combatInterestAddsTotal: 0,
@@ -420,11 +472,11 @@ function createCounters(): QuakeCombatBudgetCounters {
 }
 
 function createFrameStats(startedAtMs: number): QuakeCombatBudgetFrameStats {
-  return { attackChainChecks: 0, lineOfSightChecks: 0, startedAtMs };
+  return { ambientPathTicks: 0, attackChainChecks: 0, lineOfSightChecks: 0, startedAtMs };
 }
 
 function createSecondStats(startedAtMs: number): QuakeCombatBudgetSecondStats {
-  return { attackChainChecks: 0, lineOfSightChecks: 0, startedAtMs };
+  return { ambientPathTicks: 0, attackChainChecks: 0, lineOfSightChecks: 0, startedAtMs };
 }
 
 function combatBudgetNowMs(): number {
