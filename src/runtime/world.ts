@@ -14,7 +14,9 @@ import type {
 } from "../types/quake";
 import {
   createQuakeWorldVisibilityChurnStats,
+  recordQuakeWorldResidencyTransition,
   recordQuakeWorldVisibilitySync,
+  type QuakeWorldResidencyTransitionStats,
   type QuakeWorldSemanticResidencyStats,
   type QuakeWorldVisibilityChurnStats,
 } from "./debug/churnStats";
@@ -91,6 +93,37 @@ interface QuakeSemanticResidencyPlan {
   farLeaves: QuakeFaceLeaf[];
 }
 
+interface QuakeResidencyQueueApplyResult {
+  addedLeaves: number;
+  appliedLeaves: number;
+  mutationJsMs: number;
+}
+
+interface QuakeResidencyTransitionRecordDetails {
+  addCount?: number;
+  deferCount?: number;
+  farAddCount?: number;
+  force: boolean;
+  frontierAddCount?: number;
+  immediateAddCount?: number;
+  mountedLeafCountAfter: number;
+  mountedLeafCountBefore: number;
+  mutationJsMs?: number;
+  nextLeafIndex: number | null;
+  nextVisibleFaceKey: string | null;
+  planningMs?: number;
+  prevLeafIndex: number | null;
+  prevVisibleFaceKey: string | null;
+  reason: string;
+  removeCount?: number;
+  residencyQueueFarSize?: number;
+  residencyQueueFrontierSize?: number;
+  residencyQueueImmediateSize?: number;
+  scannedFaceLeafCount?: number;
+  startedAt: number;
+  visibleFaceCount?: number | null;
+}
+
 export interface QuakeWorldControllerOptions {
   applyMoverLeafTransform: (leaf: QuakeFaceLeaf) => void;
   getOrigin: () => [number, number, number];
@@ -152,6 +185,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
   let modelLeaves = new Map<number, QuakeFaceLeaf[]>();
   let quakeLeaves: QuakeFaceLeaf[] = [];
   let visibleFaceKey = "";
+  let visibleLeafIndex: number | null = null;
   const preloadedButtonImages = new Set<HTMLImageElement>();
   let presentationResyncTasks = new Set<QuakePresentationResyncTask>();
   let visibilityChurn = createQuakeWorldVisibilityChurnStats();
@@ -176,6 +210,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     modelLeaves = new Map();
     quakeLeaves = [];
     visibleFaceKey = "";
+    visibleLeafIndex = null;
     preloadedButtonImages.clear();
     visibilityChurn = createQuakeWorldVisibilityChurnStats();
     semanticResidencyDesiredLeaves = new Set();
@@ -261,12 +296,17 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     }
     const origin = options.getOrigin();
     options.syncPickupsVisibility(origin);
+    const nextLeafIndexValue = currentVisibility?.leafIndexAt(origin);
+    const nextLeafIndex = Number.isInteger(nextLeafIndexValue) ? nextLeafIndexValue : null;
+    const prevLeafIndex = visibleLeafIndex;
+    const prevVisibleFaceKey = visibleFaceKey || null;
     const visibleFaceGroup = currentVisibility?.visibleFaceGroupAt(origin) ?? null;
     const visibleFaces = visibleFaceGroup?.faces ?? null;
     if (!visibleFaces) {
       let addedLeaves = 0;
       let removedLeaves = 0;
       if (visibleFaceKey === "all") {
+        visibleLeafIndex = nextLeafIndex;
         recordQuakeWorldVisibilitySync(visibilityChurn, "same-key", startedAt, { force });
         if (force) {
           markQuakeTrace("world-visibility", {
@@ -287,6 +327,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
           if (change < 0) removedLeaves++;
         }
         visibleFaceKey = "all";
+        visibleLeafIndex = nextLeafIndex;
       }
       recordQuakeWorldVisibilitySync(visibilityChurn, "no-pvs", startedAt, { force, addedLeaves, removedLeaves });
       if (force || addedLeaves > 0 || removedLeaves > 0) {
@@ -304,18 +345,47 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     const nextKey = visibleFaceGroup?.key ?? faceSetKey(visibleFaces);
     const semanticResidencyOptions = getQuakeSemanticResidencyOptions();
     if (semanticResidencyOptions.enabled &&
-      syncSemanticResidencyVisibility(visibleFaces, nextKey, origin, force, startedAt, semanticResidencyOptions)) {
+      syncSemanticResidencyVisibility(
+        visibleFaces,
+        nextKey,
+        origin,
+        force,
+        startedAt,
+        semanticResidencyOptions,
+        {
+          nextLeafIndex,
+          prevLeafIndex,
+          prevVisibleFaceKey,
+        },
+      )) {
       return;
     }
     if (nextKey === visibleFaceKey) {
+      const leafChanged = nextLeafIndex !== visibleLeafIndex;
+      visibleLeafIndex = nextLeafIndex;
       recordQuakeWorldVisibilitySync(visibilityChurn, "same-key", startedAt, {
         force,
         pvsFaceCount: visibleFaces.size,
       });
-      if (force) {
-        markQuakeTrace("world-visibility", {
-          reason: "force-same-key",
+      if (leafChanged || force) {
+        recordResidencyTransition({
           force,
+          mountedLeafCountBefore: countMountedQuakeLeaves(),
+          mountedLeafCountAfter: countMountedQuakeLeaves(),
+          nextLeafIndex,
+          nextVisibleFaceKey: nextKey,
+          prevLeafIndex,
+          prevVisibleFaceKey,
+          reason: force ? "force-same-key" : "same-key-leaf-transition",
+          startedAt,
+          visibleFaceCount: visibleFaces.size,
+        });
+        markQuakeTrace("world-visibility", {
+          reason: force ? "force-same-key" : "same-key-leaf-transition",
+          force,
+          leafChanged,
+          prevLeafIndex,
+          nextLeafIndex,
           pvsFaces: visibleFaces.size,
           addedLeaves: 0,
           removedLeaves: 0,
@@ -323,30 +393,63 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       }
       return;
     }
+    const mountedLeafCountBefore = countMountedQuakeLeaves();
+    const planningStartedAt = performance.now();
+    const leafMountRequests: Array<[QuakeFaceLeaf, boolean]> = [];
+    let scannedFaceLeafCount = 0;
+    for (const [faceIndex, leaves] of faceLeaves) {
+      const visible = visibleFaces.has(faceIndex);
+      scannedFaceLeafCount += leaves.length;
+      for (const leaf of leaves) leafMountRequests.push([leaf, visible]);
+    }
+    const planningMs = performance.now() - planningStartedAt;
     visibleFaceKey = nextKey;
+    visibleLeafIndex = nextLeafIndex;
     const now = performance.now();
     let addedLeaves = 0;
     let removedLeaves = 0;
-    for (const [faceIndex, leaves] of faceLeaves) {
-      const visible = visibleFaces.has(faceIndex);
-      for (const leaf of leaves) {
-        const change = setQuakeLeafMounted(leaf, visible, now);
-        if (change > 0) addedLeaves++;
-        if (change < 0) removedLeaves++;
-      }
+    const mutationStartedAt = performance.now();
+    for (const [leaf, visible] of leafMountRequests) {
+      const change = setQuakeLeafMounted(leaf, visible, now);
+      if (change > 0) addedLeaves++;
+      if (change < 0) removedLeaves++;
     }
+    const mutationJsMs = performance.now() - mutationStartedAt;
+    const mountedLeafCountAfter = countMountedQuakeLeaves();
     recordQuakeWorldVisibilitySync(visibilityChurn, force ? "force" : "leaf-change", startedAt, {
       force,
       pvsFaceCount: visibleFaces.size,
       addedLeaves,
       removedLeaves,
     });
+    recordResidencyTransition({
+      addCount: addedLeaves,
+      force,
+      mountedLeafCountAfter,
+      mountedLeafCountBefore,
+      mutationJsMs,
+      nextLeafIndex,
+      nextVisibleFaceKey: nextKey,
+      planningMs,
+      prevLeafIndex,
+      prevVisibleFaceKey,
+      reason: force ? "force" : "leaf-change",
+      scannedFaceLeafCount,
+      startedAt,
+      visibleFaceCount: visibleFaces.size,
+      removeCount: removedLeaves,
+    });
     markQuakeTrace("world-visibility", {
       reason: force ? "force" : "leaf-change",
       force,
+      prevLeafIndex,
+      nextLeafIndex,
       pvsFaces: visibleFaces.size,
       addedLeaves,
       removedLeaves,
+      planningMs,
+      mutationJsMs,
+      scannedFaceLeafCount,
     });
   };
 
@@ -357,6 +460,11 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     force: boolean,
     startedAt: number,
     residencyOptions: QuakeSemanticResidencyOptions,
+    transitionContext: {
+      nextLeafIndex: number | null;
+      prevLeafIndex: number | null;
+      prevVisibleFaceKey: string | null;
+    },
   ): boolean => {
     const metadata = semanticResidencyMetadataForCurrentVisibility();
     if (!metadata) {
@@ -374,28 +482,53 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     }
 
     if (nextKey === visibleFaceKey) {
+      const leafChanged = transitionContext.nextLeafIndex !== visibleLeafIndex;
+      visibleLeafIndex = transitionContext.nextLeafIndex;
       const now = performance.now();
-      const queuedAddedLeaves = force
+      const mountedLeafCountBefore = countMountedQuakeLeaves();
+      const queueResult = force
         ? applySemanticResidencyQueue(now, residencyOptions.budget)
-        : 0;
+        : emptyResidencyQueueApplyResult();
+      const mountedLeafCountAfter = countMountedQuakeLeaves();
       if (semanticResidencyQueue.length > 0) scheduleSemanticResidencyQueue(residencyOptions);
       updateSemanticResidencyStats(residencyOptions, {
         metadataAvailable: true,
-        queuedAddedLeaves,
+        queuedAddedLeaves: queueResult.addedLeaves,
         syncAddedLeaves: 0,
         removedLeaves: 0,
       });
       recordQuakeWorldVisibilitySync(visibilityChurn, "same-key", startedAt, {
         force,
         pvsFaceCount: visibleFaces.size,
-        addedLeaves: queuedAddedLeaves,
+        addedLeaves: queueResult.addedLeaves,
       });
-      if (force || queuedAddedLeaves > 0 || semanticResidencyQueue.length > 0) {
+      if (leafChanged || force || queueResult.addedLeaves > 0 || semanticResidencyQueue.length > 0) {
+        recordResidencyTransition({
+          addCount: queueResult.addedLeaves,
+          deferCount: semanticResidencyQueue.length,
+          force,
+          mountedLeafCountBefore,
+          mountedLeafCountAfter,
+          mutationJsMs: queueResult.mutationJsMs,
+          nextLeafIndex: transitionContext.nextLeafIndex,
+          nextVisibleFaceKey: nextKey,
+          prevLeafIndex: transitionContext.prevLeafIndex,
+          prevVisibleFaceKey: transitionContext.prevVisibleFaceKey,
+          reason: force ? "semantic-residency-force-same-key" : "semantic-residency-same-key",
+          residencyQueueFarSize: semanticResidencyQueue.length,
+          startedAt,
+          visibleFaceCount: visibleFaces.size,
+        });
         markQuakeTrace("world-visibility", {
           reason: "semantic-residency-same-key",
           force,
+          leafChanged,
+          prevLeafIndex: transitionContext.prevLeafIndex,
+          nextLeafIndex: transitionContext.nextLeafIndex,
           pvsFaces: visibleFaces.size,
-          queuedAddedLeaves,
+          queuedAddedLeaves: queueResult.addedLeaves,
+          queueAppliedLeaves: queueResult.appliedLeaves,
+          mutationJsMs: queueResult.mutationJsMs,
           pendingLeaves: semanticResidencyQueue.length,
           desiredMinusMounted: semanticResidencyStats.desiredMinusMounted,
           mountedMinusDesired: semanticResidencyStats.mountedMinusDesired,
@@ -404,30 +537,44 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       return true;
     }
 
-    visibleFaceKey = nextKey;
+    const mountedLeafCountBefore = countMountedQuakeLeaves();
+    const planningStartedAt = performance.now();
     semanticResidencyGeneration++;
     cancelSemanticResidencyQueue();
     const plan = buildSemanticResidencyPlan(visibleFaces, origin, metadata, residencyOptions);
     semanticResidencyDesiredLeaves = plan.desiredLeaves;
+    const removeLeaves: QuakeFaceLeaf[] = [];
+    for (const leaf of quakeLeaves) {
+      if (!leaf.mounted || plan.desiredLeaves.has(leaf)) continue;
+      removeLeaves.push(leaf);
+    }
+    const immediateLeaves = [...plan.immediateLeaves];
+    const frontierLeaves = [...plan.frontierLeaves];
+    semanticResidencyQueue = plan.farLeaves.filter((leaf) => !leaf.mounted);
+    semanticResidencyMaxQueuePending = Math.max(semanticResidencyMaxQueuePending, semanticResidencyQueue.length);
+    const planningMs = performance.now() - planningStartedAt;
 
     const now = performance.now();
     let removedLeaves = 0;
     let syncAddedLeaves = 0;
-    for (const leaf of quakeLeaves) {
-      if (!leaf.mounted || plan.desiredLeaves.has(leaf)) continue;
+    const immediateAddRequests = countUnmountedLeaves(immediateLeaves);
+    const frontierAddRequests = countUnmountedLeaves(frontierLeaves);
+    const mutationStartedAt = performance.now();
+    for (const leaf of removeLeaves) {
       if (setQuakeLeafMounted(leaf, false, now) < 0) removedLeaves++;
     }
-    for (const leaf of plan.immediateLeaves) {
+    for (const leaf of immediateLeaves) {
       if (setQuakeLeafMounted(leaf, true, now) > 0) syncAddedLeaves++;
     }
-    for (const leaf of plan.frontierLeaves) {
+    for (const leaf of frontierLeaves) {
       if (setQuakeLeafMounted(leaf, true, now) > 0) syncAddedLeaves++;
     }
 
-    semanticResidencyQueue = plan.farLeaves.filter((leaf) => !leaf.mounted);
-    semanticResidencyMaxQueuePending = Math.max(semanticResidencyMaxQueuePending, semanticResidencyQueue.length);
-    const queuedAddedLeaves = applySemanticResidencyQueue(now, residencyOptions.budget);
+    const queueResult = applySemanticResidencyQueue(now, residencyOptions.budget);
+    const mutationJsMs = performance.now() - mutationStartedAt;
     if (semanticResidencyQueue.length > 0) scheduleSemanticResidencyQueue(residencyOptions);
+    visibleFaceKey = nextKey;
+    visibleLeafIndex = transitionContext.nextLeafIndex;
 
     updateSemanticResidencyStats(residencyOptions, {
       metadataAvailable: true,
@@ -436,28 +583,55 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       frontierLeaves: plan.frontierLeaves.size,
       farLeaves: plan.farLeaves.length,
       syncAddedLeaves,
-      queuedAddedLeaves,
+      queuedAddedLeaves: queueResult.addedLeaves,
       removedLeaves,
     });
     recordQuakeWorldVisibilitySync(visibilityChurn, force ? "force" : "leaf-change", startedAt, {
       force,
       pvsFaceCount: visibleFaces.size,
-      addedLeaves: syncAddedLeaves + queuedAddedLeaves,
+      addedLeaves: syncAddedLeaves + queueResult.addedLeaves,
       removedLeaves,
+    });
+    const mountedLeafCountAfter = countMountedQuakeLeaves();
+    recordResidencyTransition({
+      addCount: syncAddedLeaves + queueResult.addedLeaves,
+      deferCount: semanticResidencyQueue.length,
+      farAddCount: queueResult.addedLeaves,
+      force,
+      frontierAddCount: frontierAddRequests,
+      immediateAddCount: immediateAddRequests,
+      mountedLeafCountAfter,
+      mountedLeafCountBefore,
+      mutationJsMs,
+      nextLeafIndex: transitionContext.nextLeafIndex,
+      nextVisibleFaceKey: nextKey,
+      planningMs,
+      prevLeafIndex: transitionContext.prevLeafIndex,
+      prevVisibleFaceKey: transitionContext.prevVisibleFaceKey,
+      reason: "semantic-residency",
+      removeCount: removedLeaves,
+      residencyQueueFarSize: semanticResidencyQueue.length,
+      scannedFaceLeafCount: faceLeavesEntryCount(),
+      startedAt,
+      visibleFaceCount: visibleFaces.size,
     });
     markQuakeTrace("world-visibility", {
       reason: "semantic-residency",
       force,
       pvsFaces: visibleFaces.size,
       currentLeafIndex: plan.currentLeafIndex,
+      prevLeafIndex: transitionContext.prevLeafIndex,
+      nextLeafIndex: transitionContext.nextLeafIndex,
       desiredLeaves: plan.desiredLeaves.size,
       immediateLeaves: plan.immediateLeaves.size,
       frontierLeaves: plan.frontierLeaves.size,
       farLeaves: plan.farLeaves.length,
       syncAddedLeaves,
-      queuedAddedLeaves,
+      queuedAddedLeaves: queueResult.addedLeaves,
       removedLeaves,
       pendingLeaves: semanticResidencyQueue.length,
+      planningMs,
+      mutationJsMs,
       desiredMinusMounted: semanticResidencyStats.desiredMinusMounted,
       mountedMinusDesired: semanticResidencyStats.mountedMinusDesired,
     });
@@ -570,17 +744,19 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     semanticResidencyQueueFrame = window.requestAnimationFrame(() => {
       semanticResidencyQueueFrame = null;
       if (generation !== semanticResidencyGeneration) return;
-      const addedLeaves = applySemanticResidencyQueue(performance.now(), residencyOptions.budget);
+      const queueResult = applySemanticResidencyQueue(performance.now(), residencyOptions.budget);
       updateSemanticResidencyStats(residencyOptions, {
         metadataAvailable: true,
-        queuedAddedLeaves: addedLeaves,
+        queuedAddedLeaves: queueResult.addedLeaves,
         syncAddedLeaves: 0,
         removedLeaves: 0,
       });
-      if (addedLeaves > 0 || semanticResidencyQueue.length > 0) {
+      if (queueResult.addedLeaves > 0 || semanticResidencyQueue.length > 0) {
         markQuakeTrace("world-visibility", {
           reason: "semantic-residency-queue",
-          queuedAddedLeaves: addedLeaves,
+          queuedAddedLeaves: queueResult.addedLeaves,
+          queueAppliedLeaves: queueResult.appliedLeaves,
+          mutationJsMs: queueResult.mutationJsMs,
           pendingLeaves: semanticResidencyQueue.length,
           desiredMinusMounted: semanticResidencyStats.desiredMinusMounted,
           mountedMinusDesired: semanticResidencyStats.mountedMinusDesired,
@@ -590,16 +766,118 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     });
   };
 
-  const applySemanticResidencyQueue = (now: number, budget: number): number => {
+  const applySemanticResidencyQueue = (now: number, budget: number): QuakeResidencyQueueApplyResult => {
     let addedLeaves = 0;
     let applied = 0;
+    const mutationStartedAt = performance.now();
     while (applied < budget && semanticResidencyQueue.length > 0) {
       const leaf = semanticResidencyQueue.shift();
       if (!leaf || !semanticResidencyDesiredLeaves.has(leaf) || leaf.mounted) continue;
       applied++;
       if (setQuakeLeafMounted(leaf, true, now) > 0) addedLeaves++;
     }
-    return addedLeaves;
+    return {
+      addedLeaves,
+      appliedLeaves: applied,
+      mutationJsMs: performance.now() - mutationStartedAt,
+    };
+  };
+
+  const emptyResidencyQueueApplyResult = (): QuakeResidencyQueueApplyResult => ({
+    addedLeaves: 0,
+    appliedLeaves: 0,
+    mutationJsMs: 0,
+  });
+
+  const countMountedQuakeLeaves = (): number => {
+    let mountedLeaves = 0;
+    for (const leaf of quakeLeaves) {
+      if (leaf.mounted && leaf.element.isConnected) mountedLeaves++;
+    }
+    return mountedLeaves;
+  };
+
+  const countUnmountedLeaves = (leaves: Iterable<QuakeFaceLeaf>): number => {
+    let count = 0;
+    for (const leaf of leaves) {
+      if (!leaf.mounted) count++;
+    }
+    return count;
+  };
+
+  const faceLeavesEntryCount = (): number => {
+    let count = 0;
+    for (const leaves of faceLeaves.values()) count += leaves.length;
+    return count;
+  };
+
+  const recordResidencyTransition = (details: QuakeResidencyTransitionRecordDetails): void => {
+    const prevVisibleFaceGroupKey = quakeVisibleFaceKeyToken(details.prevVisibleFaceKey);
+    const nextVisibleFaceGroupKey = quakeVisibleFaceKeyToken(details.nextVisibleFaceKey);
+    const transitionKey = quakeResidencyTransitionKey(
+      details.prevLeafIndex,
+      details.nextLeafIndex,
+      prevVisibleFaceGroupKey,
+      nextVisibleFaceGroupKey,
+    );
+    const planningMs = details.planningMs ?? 0;
+    const mutationJsMs = details.mutationJsMs ?? 0;
+    const addCount = details.addCount ?? 0;
+    const removeCount = details.removeCount ?? 0;
+    const deferCount = details.deferCount ?? 0;
+    const immediateAddCount = details.immediateAddCount ?? 0;
+    const frontierAddCount = details.frontierAddCount ?? 0;
+    const farAddCount = details.farAddCount ?? 0;
+    const mountedLeafPeak = Math.max(details.mountedLeafCountBefore, details.mountedLeafCountAfter);
+    const transition: QuakeWorldResidencyTransitionStats = {
+      prevLeafIndex: details.prevLeafIndex,
+      nextLeafIndex: details.nextLeafIndex,
+      prevVisibleFaceGroupKey,
+      nextVisibleFaceGroupKey,
+      transitionKey,
+      transitionCacheHit: false,
+      transitionCacheSize: 0,
+      planningMs,
+      mutationJsMs,
+      totalMs: performance.now() - details.startedAt,
+      scannedFaceLeafCount: details.scannedFaceLeafCount ?? 0,
+      visibleFaceCount: details.visibleFaceCount ?? null,
+      addCount,
+      removeCount,
+      deferCount,
+      immediateAddCount,
+      frontierAddCount,
+      farAddCount,
+      mountedLeafCountBefore: details.mountedLeafCountBefore,
+      mountedLeafCountAfter: details.mountedLeafCountAfter,
+      mountedLeafPeak,
+      residencyQueueImmediateSize: details.residencyQueueImmediateSize ?? immediateAddCount,
+      residencyQueueFrontierSize: details.residencyQueueFrontierSize ?? frontierAddCount,
+      residencyQueueFarSize: details.residencyQueueFarSize ?? deferCount,
+    };
+    recordQuakeWorldResidencyTransition(visibilityChurn, transition);
+    markQuakeTrace("world-residency-transition", {
+      reason: details.reason,
+      force: details.force,
+      prevLeafIndex: details.prevLeafIndex,
+      nextLeafIndex: details.nextLeafIndex,
+      transitionKey,
+      cacheHit: false,
+      planningMs,
+      mutationJsMs,
+      totalMs: transition.totalMs,
+      scannedFaceLeafCount: transition.scannedFaceLeafCount,
+      visibleFaceCount: transition.visibleFaceCount,
+      addCount,
+      removeCount,
+      deferCount,
+      immediateAddCount,
+      frontierAddCount,
+      farAddCount,
+      mountedLeafCountBefore: transition.mountedLeafCountBefore,
+      mountedLeafCountAfter: transition.mountedLeafCountAfter,
+      mountedLeafPeak,
+    });
   };
 
   const cancelSemanticResidencyQueue = (): void => {
@@ -1395,4 +1673,33 @@ function lightstyleKeyframes(frameCount: number): string {
 
 function faceSetKey(faces: Set<number>): string {
   return [...faces].sort((a, b) => a - b).join(",");
+}
+
+function quakeVisibleFaceKeyToken(key: string | null): string | null {
+  if (!key) return null;
+  if (key.length <= 80) return key;
+  return `${key.length}:${quakeStringHash(key)}`;
+}
+
+function quakeResidencyTransitionKey(
+  prevLeafIndex: number | null,
+  nextLeafIndex: number | null,
+  prevVisibleFaceGroupKey: string | null,
+  nextVisibleFaceGroupKey: string | null,
+): string {
+  return [
+    prevLeafIndex ?? "none",
+    nextLeafIndex ?? "none",
+    prevVisibleFaceGroupKey ?? "none",
+    nextVisibleFaceGroupKey ?? "none",
+  ].join("|");
+}
+
+function quakeStringHash(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }

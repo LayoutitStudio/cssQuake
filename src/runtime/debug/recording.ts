@@ -847,6 +847,7 @@ function recordingStateSummary(sample: QuakeDebugRecordingSample): Record<string
 function frameHitchContext(sample: QuakeDebugRecordingSample): Record<string, unknown> {
   const state = recordingStateSummary(sample);
   const memory = asRecord(asRecord(sample.snapshot.performance).memory);
+  const worldTransition = asRecord(sample.snapshot.world.visibilityChurn.lastTransition);
   return {
     mapName: state.mapName,
     leafIndex: state.leafIndex,
@@ -862,6 +863,16 @@ function frameHitchContext(sample: QuakeDebugRecordingSample): Record<string, un
     worldLastSyncMs: roundNumber(sample.snapshot.world.visibilityChurn.lastSyncMs),
     shootablesLastSyncMs: roundNumber(sample.snapshot.shootables.visibilityChurn.lastSyncMs),
     worldLastChangedLeaves: sample.snapshot.world.visibilityChurn.lastChangedLeaves,
+    worldTransitionKey: stringValue(worldTransition.transitionKey),
+    worldTransitionPlanningMs: numberValue(worldTransition.planningMs),
+    worldTransitionMutationJsMs: numberValue(worldTransition.mutationJsMs),
+    worldTransitionTotalMs: numberValue(worldTransition.totalMs),
+    worldTransitionScannedFaceLeafCount: numberValue(worldTransition.scannedFaceLeafCount),
+    worldTransitionAddCount: numberValue(worldTransition.addCount),
+    worldTransitionRemoveCount: numberValue(worldTransition.removeCount),
+    worldTransitionDeferCount: numberValue(worldTransition.deferCount),
+    worldTransitionMountedBefore: numberValue(worldTransition.mountedLeafCountBefore),
+    worldTransitionMountedAfter: numberValue(worldTransition.mountedLeafCountAfter),
     shootablesLastMountedAdded: sample.snapshot.shootables.visibilityChurn.lastMountedShootablesAdded,
     shootablesLastMountedRemoved: sample.snapshot.shootables.visibilityChurn.lastMountedShootablesRemoved,
     heapUsedMB: bytesToMegabytes(memory.usedJSHeapSize),
