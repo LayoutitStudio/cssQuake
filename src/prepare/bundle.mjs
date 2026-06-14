@@ -1941,6 +1941,9 @@ async function serializeMeshWithAssets(mesh, options = {}) {
     runQuakeRenderBundleStep("serialize-hoist-backgrounds", () =>
       hoistRenderBundleBackgroundImages(serializableMesh)
     );
+    runQuakeRenderBundleStep("serialize-normalize-inline-atlas-leaf-boxes", () =>
+      normalizeRenderBundleInlineAtlasLeafBoxes(serializableMesh)
+    );
   }
   const { meshCss, leafFrameStyles } = runQuakeRenderBundleStep("serialize-extract-styles", () =>
     options.extractLeafStyles
@@ -2759,6 +2762,17 @@ async function normalizeRenderBundleAtlasLeafImagePixelBox(leaf) {
   leaf.style.background = `${backgroundImage} ${roundCssPx(backgroundPosition[0] * scaleX)}px ` +
     `${roundCssPx(backgroundPosition[1] * scaleY)}px / ${roundCssPx(atlas.width)}px ` +
     `${roundCssPx(atlas.height)}px no-repeat`;
+}
+
+function normalizeRenderBundleInlineAtlasLeafBoxes(mesh) {
+  for (const leaf of mesh.querySelectorAll("s[style]")) {
+    const style = renderBundleLeafStyleWithExplicitAtlasSize(leaf, leaf.getAttribute("style") ?? "");
+    if (style) {
+      leaf.setAttribute("style", style);
+    } else {
+      leaf.removeAttribute("style");
+    }
+  }
 }
 
 function renderBundleLeafCssSize(leaf, propertyName, style) {
