@@ -24,16 +24,55 @@ export interface QuakeWorldSemanticResidencyStats {
   totalRemovedLeaves: number;
 }
 
+export interface QuakeWorldResidencyTransitionStats {
+  prevLeafIndex: number | null;
+  nextLeafIndex: number | null;
+  prevVisibleFaceGroupKey: string | null;
+  nextVisibleFaceGroupKey: string | null;
+  transitionKey: string;
+  transitionCacheHit: boolean;
+  transitionCacheSize: number;
+  planningMs: number;
+  mutationJsMs: number;
+  totalMs: number;
+  scannedFaceLeafCount: number;
+  visibleFaceCount: number | null;
+  addCount: number;
+  removeCount: number;
+  deferCount: number;
+  immediateAddCount: number;
+  frontierAddCount: number;
+  farAddCount: number;
+  mountedLeafCountBefore: number;
+  mountedLeafCountAfter: number;
+  mountedLeafPeak: number;
+  residencyQueueImmediateSize: number;
+  residencyQueueFrontierSize: number;
+  residencyQueueFarSize: number;
+}
+
 export interface QuakeWorldVisibilityChurnStats {
   syncCount: number;
+  transitionCount: number;
   changedSyncCount: number;
   skippedSyncCount: number;
   forceSyncCount: number;
   noHandleSyncCount: number;
   noPvsSyncCount: number;
   totalSyncMs: number;
+  totalTransitionPlanningMs: number;
+  totalTransitionMutationJsMs: number;
+  totalTransitionMs: number;
   maxSyncMs: number;
+  maxTransitionTotalMs: number;
   lastSyncMs: number;
+  lastTransitionPlanningMs: number;
+  lastTransitionMutationJsMs: number;
+  lastTransitionTotalMs: number;
+  lastTransitionScannedFaceLeafCount: number;
+  lastTransitionAddCount: number;
+  lastTransitionRemoveCount: number;
+  lastTransitionDeferCount: number;
   lastReason: QuakeWorldVisibilitySyncReason | null;
   lastPvsFaceCount: number | null;
   lastAddedLeaves: number;
@@ -42,20 +81,33 @@ export interface QuakeWorldVisibilityChurnStats {
   totalAddedLeaves: number;
   totalRemovedLeaves: number;
   totalChangedLeaves: number;
+  lastTransition?: QuakeWorldResidencyTransitionStats;
   semanticResidency?: QuakeWorldSemanticResidencyStats;
 }
 
 export function createQuakeWorldVisibilityChurnStats(): QuakeWorldVisibilityChurnStats {
   return {
     syncCount: 0,
+    transitionCount: 0,
     changedSyncCount: 0,
     skippedSyncCount: 0,
     forceSyncCount: 0,
     noHandleSyncCount: 0,
     noPvsSyncCount: 0,
     totalSyncMs: 0,
+    totalTransitionPlanningMs: 0,
+    totalTransitionMutationJsMs: 0,
+    totalTransitionMs: 0,
     maxSyncMs: 0,
+    maxTransitionTotalMs: 0,
     lastSyncMs: 0,
+    lastTransitionPlanningMs: 0,
+    lastTransitionMutationJsMs: 0,
+    lastTransitionTotalMs: 0,
+    lastTransitionScannedFaceLeafCount: 0,
+    lastTransitionAddCount: 0,
+    lastTransitionRemoveCount: 0,
+    lastTransitionDeferCount: 0,
     lastReason: null,
     lastPvsFaceCount: null,
     lastAddedLeaves: 0,
@@ -102,6 +154,25 @@ export function recordQuakeWorldVisibilitySync(
   stats.totalAddedLeaves += addedLeaves;
   stats.totalRemovedLeaves += removedLeaves;
   stats.totalChangedLeaves += changedLeaves;
+}
+
+export function recordQuakeWorldResidencyTransition(
+  stats: QuakeWorldVisibilityChurnStats,
+  transition: QuakeWorldResidencyTransitionStats,
+): void {
+  stats.transitionCount++;
+  stats.totalTransitionPlanningMs += transition.planningMs;
+  stats.totalTransitionMutationJsMs += transition.mutationJsMs;
+  stats.totalTransitionMs += transition.totalMs;
+  stats.maxTransitionTotalMs = Math.max(stats.maxTransitionTotalMs, transition.totalMs);
+  stats.lastTransitionPlanningMs = transition.planningMs;
+  stats.lastTransitionMutationJsMs = transition.mutationJsMs;
+  stats.lastTransitionTotalMs = transition.totalMs;
+  stats.lastTransitionScannedFaceLeafCount = transition.scannedFaceLeafCount;
+  stats.lastTransitionAddCount = transition.addCount;
+  stats.lastTransitionRemoveCount = transition.removeCount;
+  stats.lastTransitionDeferCount = transition.deferCount;
+  stats.lastTransition = { ...transition };
 }
 
 type QuakeShootablesVisibilitySyncReason = "force" | "same-selection" | "selection-change";

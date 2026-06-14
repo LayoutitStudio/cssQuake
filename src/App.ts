@@ -66,6 +66,7 @@ import {
   createQuakeCameraFeedbackFlow,
   quakeCameraForwardDirection as forwardDirection,
   type QuakeCameraFeedbackFlow,
+  type QuakeRenderCameraOriginPolicy,
 } from "./runtime/app/cameraFeedbackFlow";
 import {
   createQuakeCameraViewFlow,
@@ -171,6 +172,7 @@ import {
 import {
   createQuakeShootablesController,
   type QuakeShootablesDebugStats,
+  type QuakeShootablesPlayerClearanceOptions,
 } from "./runtime/shootables";
 import type { QuakeRenderBundleFrameSetMotionMaterialOptions } from "./runtime/renderBundleMesh";
 import { createCssQuakeSaveSession } from "./runtime/app/saveSession";
@@ -371,6 +373,234 @@ function quakeDebugMonsterMotionMaterialPolicy(
   return policy;
 }
 
+function quakeDebugMonsterPlayerClearancePolicy(
+  params: URLSearchParams,
+): QuakeShootablesPlayerClearanceOptions | null {
+  if (!import.meta.env.DEV) return null;
+  const mode = params.get("debugMonsterClearance")?.trim().toLowerCase();
+  if (!mode || mode === "0" || mode === "false" || mode === "off") return null;
+  const classnames = quakeDebugMonsterPlayerClearanceClassnames(params, mode);
+  if (!classnames.length) return null;
+  const extraUnits = quakeUrlNumberParam(params, "debugMonsterClearanceUnits", 0, 256) ?? 64;
+  return {
+    enemyClassnames: classnames,
+    extraRadius: extraUnits * QUAKE_COLLISION_UNIT_SCALE,
+    useBossAwakeBounds: mode !== "model" && mode !== "boss-model",
+  };
+}
+
+function quakeDebugMonsterPlayerClearanceClassnames(params: URLSearchParams, mode: string): string[] {
+  const explicit = params.get("debugMonsterClearanceClassnames") ??
+    params.get("debugMonsterClearanceClasses") ??
+    "";
+  const explicitClassnames = explicit
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => /^monster_[a-z0-9_]+$/i.test(value));
+  if (explicitClassnames.length) return [...new Set(explicitClassnames)];
+  if (mode === "boss" || mode.startsWith("boss-")) return ["monster_boss"];
+  if (mode === "large" || mode === "hull2") return ["monster_ogre", "monster_demon1", "monster_shambler"];
+  const aliases: Record<string, string> = {
+    demon: "monster_demon1",
+    dog: "monster_dog",
+    knight: "monster_knight",
+    ogre: "monster_ogre",
+    shambler: "monster_shambler",
+    soldier: "monster_army",
+    wizard: "monster_wizard",
+    zombie: "monster_zombie",
+  };
+  if (aliases[mode]) return [aliases[mode]];
+  return /^monster_[a-z0-9_]+$/i.test(mode) ? [mode] : [];
+}
+
+function quakeDebugMonsterCameraStandoffPolicy(
+  params: URLSearchParams,
+): QuakeRenderCameraOriginPolicy | null {
+  if (!import.meta.env.DEV) return null;
+  const mode = params.get("debugMonsterCameraStandoff")?.trim().toLowerCase();
+  if (!mode || mode === "0" || mode === "false" || mode === "off") return null;
+  const classnames = quakeDebugMonsterClassnamesForMode(
+    params,
+    mode,
+    "debugMonsterCameraStandoffClassnames",
+    "debugMonsterCameraStandoffClasses",
+  );
+  if (!classnames.length) return null;
+  const extraUnits = quakeUrlNumberParam(params, "debugMonsterCameraStandoffUnits", 0, 256) ?? 64;
+  window.__cssQuakeDebugDomMetadata = true;
+  return (origin, rotX, rotY) => quakeDebugMonsterCameraStandoffOrigin(
+    origin,
+    rotX,
+    rotY,
+    classnames,
+    extraUnits,
+  );
+}
+
+function quakeDebugMonsterClassnamesForMode(
+  params: URLSearchParams,
+  mode: string,
+  explicitClassnamesKey: string,
+  explicitClassesKey: string,
+): string[] {
+  const explicit = params.get(explicitClassnamesKey) ?? params.get(explicitClassesKey) ?? "";
+  const explicitClassnames = explicit
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => /^monster_[a-z0-9_]+$/i.test(value));
+  if (explicitClassnames.length) return [...new Set(explicitClassnames)];
+  if (mode === "boss" || mode.startsWith("boss-")) return ["monster_boss"];
+  if (mode === "large" || mode === "hull2") return ["monster_ogre", "monster_demon1", "monster_shambler"];
+  const aliases: Record<string, string> = {
+    demon: "monster_demon1",
+    dog: "monster_dog",
+    knight: "monster_knight",
+    ogre: "monster_ogre",
+    shambler: "monster_shambler",
+    soldier: "monster_army",
+    wizard: "monster_wizard",
+    zombie: "monster_zombie",
+  };
+  if (aliases[mode]) return [aliases[mode]];
+  return /^monster_[a-z0-9_]+$/i.test(mode) ? [mode] : [];
+}
+
+function quakeDebugMonsterCameraStandoffOrigin(
+  origin: Vec3,
+  rotX: number,
+  rotY: number,
+  classnames: readonly string[],
+  extraUnits: number,
+): Vec3 {
+  const candidate = quakeDebugMonsterCameraStandoffCandidate(origin, rotX, rotY, classnames, extraUnits);
+  if (!candidate) return origin;
+  if (!quakeDebugMonsterCameraStandoffCandidateValid(origin, candidate.origin)) {
+    markQuakeTrace("camera-standoff-blocked", {
+      class: candidate.classname,
+      distance: candidate.distance,
+      entity: candidate.entityIndex,
+      target: candidate.targetDistance,
+    });
+    return origin;
+  }
+  markQuakeTrace("camera-standoff-apply", {
+    class: candidate.classname,
+    distance: candidate.distance,
+    dx: candidate.origin[0] - origin[0],
+    dy: candidate.origin[1] - origin[1],
+    entity: candidate.entityIndex,
+    target: candidate.targetDistance,
+  });
+  return candidate.origin;
+}
+
+function quakeDebugMonsterCameraStandoffCandidate(
+  origin: Vec3,
+  rotX: number,
+  rotY: number,
+  classnames: readonly string[],
+  extraUnits: number,
+): {
+  classname: string;
+  distance: number;
+  entityIndex: number | null;
+  origin: Vec3;
+  targetDistance: number;
+} | null {
+  let best: {
+    classname: string;
+    distance: number;
+    entityIndex: number | null;
+    origin: Vec3;
+    pressure: number;
+    targetDistance: number;
+  } | null = null;
+  const classSet = new Set(classnames);
+  for (const element of document.querySelectorAll<HTMLElement>(".polycss-mesh.shootable.enemy")) {
+    if (
+      element.classList.contains("quake-shootable-prewarmed") ||
+      element.classList.contains("quake-frame-hidden")
+    ) {
+      continue;
+    }
+    const classname = element.dataset.classname ?? "";
+    if (!classSet.has(classname)) continue;
+    const enemyOrigin = quakeDebugMonsterCameraStandoffMeshOrigin(element);
+    if (!enemyOrigin) continue;
+    const targetDistance = quakeDebugMonsterCameraStandoffDistance(classname, extraUnits);
+    const dx = origin[0] - enemyOrigin[0];
+    const dy = origin[1] - enemyOrigin[1];
+    const distance = Math.hypot(dx, dy);
+    const pressure = targetDistance - distance;
+    if (pressure <= 0.001) continue;
+    const away = distance > 0.0001
+      ? [dx / distance, dy / distance]
+      : quakeDebugMonsterCameraStandoffFallbackAway(rotX, rotY);
+    const candidate: Vec3 = [
+      enemyOrigin[0] + away[0] * targetDistance,
+      enemyOrigin[1] + away[1] * targetDistance,
+      origin[2],
+    ];
+    if (!best || pressure > best.pressure) {
+      best = {
+        classname,
+        distance,
+        entityIndex: quakeDebugMonsterCameraStandoffEntityIndex(element),
+        origin: candidate,
+        pressure,
+        targetDistance,
+      };
+    }
+  }
+  return best;
+}
+
+function quakeDebugMonsterCameraStandoffMeshOrigin(element: HTMLElement): Vec3 | null {
+  const x = Number(element.dataset.originX);
+  const y = Number(element.dataset.originY);
+  const z = Number(element.dataset.originZ);
+  return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) ? [x, y, z] : null;
+}
+
+function quakeDebugMonsterCameraStandoffEntityIndex(element: HTMLElement): number | null {
+  const entityIndex = Number(element.dataset.entityIndex);
+  return Number.isFinite(entityIndex) ? entityIndex : null;
+}
+
+function quakeDebugMonsterCameraStandoffDistance(classname: string, extraUnits: number): number {
+  return (quakeDebugMonsterCameraStandoffBaseUnits(classname) + extraUnits) * QUAKE_COLLISION_UNIT_SCALE;
+}
+
+function quakeDebugMonsterCameraStandoffBaseUnits(classname: string): number {
+  if (classname === "monster_boss") return 144;
+  if (
+    classname === "monster_ogre" ||
+    classname === "monster_demon1" ||
+    classname === "monster_shambler" ||
+    classname === "monster_dog"
+  ) {
+    return 48;
+  }
+  return 32;
+}
+
+function quakeDebugMonsterCameraStandoffFallbackAway(rotX: number, rotY: number): [number, number] {
+  const forward = forwardDirection(rotX, rotY);
+  const length = Math.hypot(forward[0], forward[1]);
+  return length > 0.0001 ? [-forward[0] / length, -forward[1] / length] : [1, 0];
+}
+
+function quakeDebugMonsterCameraStandoffCandidateValid(origin: Vec3, candidate: Vec3): boolean {
+  if (!currentCollisionWorld) return false;
+  if (currentCollisionWorld.contentsAt?.(candidate) === QUAKE_CONTENTS_SOLID) return false;
+  const trace = currentCollisionWorld.traceUse?.(origin, candidate);
+  if (trace && trace.fraction < 0.999) return false;
+  const originLeaf = world.leafIndexAt(origin);
+  const candidateLeaf = world.leafIndexAt(candidate);
+  return originLeaf === null || candidateLeaf === null || originLeaf === candidateLeaf;
+}
+
 function createQuakeMultiplayerLocalClientId(): string {
   const override = new URLSearchParams(window.location.search).get("clientId")?.trim();
   if (override) return `client-${override.replace(/[^a-z0-9_-]/gi, "").slice(0, 32) || "debug"}`;
@@ -457,6 +687,7 @@ if (versionLabel) versionLabel.textContent = cssQuakeVersionLabel;
 
 const QUAKE_JUMP_VELOCITY = 270 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_GRAVITY = 800 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_CONTENTS_SOLID = -2;
 const QUAKE_MOBILE_MOVE_SPEED = 5.4 * QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_DEBUG_FLY_SPEED = 10.8 * QUAKE_RENDER_SUPERSAMPLE;
 const QUAKE_DEBUG_FLY_FAST_MULTIPLIER = 3;
@@ -467,6 +698,8 @@ const QUAKE_MONSTER_RUNTIME_ENABLED = true;
 const QUAKE_MONSTER_MOUNT_VIEW_DOT_MIN = -0.1;
 const quakeStartupUrlParams = new URLSearchParams(window.location.search);
 const quakeDebugMonsterMotionMaterial = quakeDebugMonsterMotionMaterialPolicy(quakeStartupUrlParams);
+const quakeDebugMonsterPlayerClearance = quakeDebugMonsterPlayerClearancePolicy(quakeStartupUrlParams);
+const quakeDebugMonsterCameraStandoff = quakeDebugMonsterCameraStandoffPolicy(quakeStartupUrlParams);
 const quakeAssetCatalog = createQuakeAssetCatalogFlow({
   levelList,
   mountBitmapText: mountQuakeBitmapText,
@@ -1329,6 +1562,7 @@ quakeCameraFeedback = createQuakeCameraFeedbackFlow({
   hasCurrentScene: () => currentResult !== null,
   isDisposed: () => quakeAppDisposed,
   queueCrosshairTargetSync: queueQuakeCrosshairTargetSync,
+  renderOriginPolicy: quakeDebugMonsterCameraStandoff,
   scene,
   viewmodel: {
     playFireAnimation: (animation) => viewmodel.playFireAnimation(animation),
@@ -1413,6 +1647,7 @@ const shootables = createQuakeShootablesController({
   enemyAttacksEnabled: () => !quakeAttacksDisabled,
   enemyMotionMaterial: quakeDebugMonsterMotionMaterial,
   enemyRandomSalt: createQuakeRuntimeRandomSalt,
+  playerClearance: quakeDebugMonsterPlayerClearance,
   dropBackpack: (drop) => {
     const origin = drop.sourceEntity.origin ?? { x: 0, y: 0, z: 0 };
     const entity: QuakeEntity = {
@@ -3826,6 +4061,7 @@ function installQuakeAppDebugHooks(): void {
     loadMap: loadQuakeMap,
     mapExists: quakeAssetCatalog.mapExists,
     pointToPoly: quakeCameraView.pointToPoly,
+    renderOrigin: quakeCameraView.currentRenderOrigin,
     setCollisionBypassUntil: (until) => {
       quakeDebugCollisionBypassUntil = until;
     },

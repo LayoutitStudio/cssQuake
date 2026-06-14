@@ -106,6 +106,7 @@ export interface QuakeDebugHooks {
     options?: QuakeDebugPoseOptions,
   ): boolean;
   stats(): Record<string, unknown>;
+  syncCollision(): boolean;
   syncMultiplayerPose(): boolean;
   touchEntity(entityIndex: number): boolean;
   viewUrl(): string;
@@ -181,6 +182,7 @@ export interface QuakeDebugRuntime {
   playerEyeHeight(): number;
   playerMoveDebug(): Record<string, unknown>;
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
+  renderOrigin(): Vec3;
   projectileImpact(
     weapon: QuakeWeaponId,
     entityIndex: number,
@@ -197,6 +199,7 @@ export interface QuakeDebugRuntime {
   triggersStats(): Record<string, unknown>;
   syncCrosshairTarget(): void;
   syncGameplay(origin: [number, number, number]): void;
+  syncPlayerCollision(): void;
   syncMultiplayerPose(): boolean;
   syncPickupsVisibility(origin: [number, number, number]): void;
   syncSceneCameraAt(origin: [number, number, number], rotX: number, rotY: number): void;
@@ -265,6 +268,7 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
     setViewpos: (x, y, z, pitch, yaw, rollOrOptions, options) =>
       setQuakeDebugViewpos(runtime, x, y, z, pitch, yaw, rollOrOptions, options),
     stats: () => buildQuakeDebugStats(runtime),
+    syncCollision: () => syncQuakeDebugCollision(runtime),
     syncMultiplayerPose: () => syncQuakeDebugMultiplayerPose(runtime),
     touchEntity: (entityIndex) => touchQuakeDebugEntity(runtime, entityIndex),
     viewUrl: () => runtime.viewUrl(),
@@ -292,6 +296,14 @@ function syncQuakeDebugMultiplayerPose(runtime: QuakeDebugRuntime): boolean {
   if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
   runtime.hideMainMenu();
   return runtime.syncMultiplayerPose();
+}
+
+function syncQuakeDebugCollision(runtime: QuakeDebugRuntime): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  runtime.setCollisionBypassUntil(0);
+  runtime.hideMainMenu();
+  runtime.syncPlayerCollision();
+  return true;
 }
 
 function setQuakeDebugMultiplayerInputPaused(runtime: QuakeDebugRuntime, paused: boolean): boolean {
@@ -615,16 +627,23 @@ function setQuakeDebugPose(
   runtime.setCollisionBypassUntil(collisionBypassMs > 0 ? performance.now() + collisionBypassMs : 0);
   runtime.hideMainMenu();
   if (!originChanged && !rotationChanged) {
-    if (options.gameplay) runtime.syncGameplay(nextOrigin);
-    else if (options.stableViewmodel) runtime.syncViewmodel({ stable: true });
+    if (options.gameplay) {
+      runtime.syncGameplay(nextOrigin);
+      runtime.syncSceneCameraAt(nextOrigin, rotX, rotY);
+      runtime.syncViewmodel({ stable: options.stableViewmodel });
+      runtime.syncCrosshairTarget();
+    } else if (options.stableViewmodel) runtime.syncViewmodel({ stable: true });
     return true;
   }
   if (originChanged) runtime.controls.setOrigin(nextOrigin);
-  runtime.syncSceneCameraAt(nextOrigin, rotX, rotY);
   if (options.gameplay) {
     runtime.syncGameplay(nextOrigin);
+    runtime.syncSceneCameraAt(nextOrigin, rotX, rotY);
+    runtime.syncViewmodel({ stable: options.stableViewmodel });
+    runtime.syncCrosshairTarget();
     return true;
   }
+  runtime.syncSceneCameraAt(nextOrigin, rotX, rotY);
   runtime.syncShootablesVisibility(nextOrigin, originChanged);
   if (originChanged) {
     runtime.syncPickupsVisibility(nextOrigin);
@@ -738,6 +757,7 @@ function buildQuakeDebugStats(runtime: QuakeDebugRuntime): Record<string, unknow
     loading: runtime.isLoading(),
     mapName: runtime.currentMapName(),
     origin: runtime.controls.getOrigin(),
+    renderOrigin: runtime.renderOrigin(),
     cameraRotX: cameraRotation.rotX,
     cameraRotY: cameraRotation.rotY,
     cameraForward,
