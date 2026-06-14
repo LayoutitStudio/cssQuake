@@ -1938,15 +1938,18 @@ async function serializeMeshWithAssets(mesh, options = {}) {
   const serializableMesh = runQuakeRenderBundleStep("serialize-clone", () =>
     options.mutateOriginal ? mesh : mesh.cloneNode(true)
   );
-  const preserveAtlasLeafSizingMetadata = Boolean(options.layoutOnly || !options.skipBackgroundAssetExtraction);
+  const normalizeInlineAtlasLeafBoxes = shouldNormalizeRenderBundleInlineAtlasLeafBoxes(options);
   const leafMetadata = runQuakeRenderBundleStep("serialize-metadata", () =>
     extractRenderBundleLeafMetadata(serializableMesh)
   );
   runQuakeRenderBundleStep("serialize-strip-metadata", () =>
     stripRenderBundleMeshMetadata(serializableMesh, {
       preserveLeafPolyIndex: Boolean(options.extractLeafStyles),
-      preservePolycssTextureMetadata: Boolean(options.extractLeafStyles || preserveAtlasLeafSizingMetadata),
-      preservePolycssStyleMetadata: preserveAtlasLeafSizingMetadata,
+      preservePolycssTextureMetadata: shouldPreserveRenderBundlePolycssTextureMetadata(
+        options,
+        normalizeInlineAtlasLeafBoxes,
+      ),
+      preservePolycssStyleMetadata: normalizeInlineAtlasLeafBoxes,
     })
   );
   const assetByBlobUrl = new Map();
@@ -1982,7 +1985,7 @@ async function serializeMeshWithAssets(mesh, options = {}) {
       hoistRenderBundleBackgroundImages(serializableMesh)
     );
   }
-  if (!options.skipBackgroundAssetExtraction || options.layoutOnly) {
+  if (normalizeInlineAtlasLeafBoxes) {
     runQuakeRenderBundleStep("serialize-normalize-inline-atlas-leaf-boxes", () =>
       normalizeRenderBundleInlineAtlasLeafBoxes(serializableMesh)
     );
@@ -2038,6 +2041,14 @@ async function serializeMeshWithAssets(mesh, options = {}) {
     leafMetadata,
     leafFrameStyles,
   };
+}
+
+function shouldNormalizeRenderBundleInlineAtlasLeafBoxes(options) {
+  return Boolean(options.layoutOnly || !options.skipBackgroundAssetExtraction);
+}
+
+function shouldPreserveRenderBundlePolycssTextureMetadata(options, normalizeInlineAtlasLeafBoxes) {
+  return Boolean(options.extractLeafStyles || normalizeInlineAtlasLeafBoxes);
 }
 
 function extractRenderBundleFrameStyles(mesh, options = {}) {
