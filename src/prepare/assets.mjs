@@ -146,7 +146,7 @@ const quakeTriangleAtlasBasis = process.env.QUAKE_TRIANGLE_ATLAS_BASIS === "1";
 const quakeDeterministicWorldAtlas = process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS !== "0";
 const quakeDeferDeterministicWorldAtlasWrites = process.env.QUAKE_DEFER_DETERMINISTIC_WORLD_ATLAS_WRITES !== "0";
 const quakeDeterministicWorldAtlasImagePolicy =
-  process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS_IMAGE_POLICY?.trim().toLowerCase() ?? "smart";
+  process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS_IMAGE_POLICY?.trim().toLowerCase() ?? "atlas";
 const quakeAliasRebakeMerge = process.env.QUAKE_ALIAS_REBAKE_MERGE === "1";
 const quakeAliasRebakeMergeAffineEpsilon = Number.parseFloat(
   process.env.QUAKE_ALIAS_REBAKE_MERGE_AFFINE_EPSILON ?? "",
