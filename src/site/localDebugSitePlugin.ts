@@ -8,15 +8,8 @@ import type { Plugin } from "vite";
 const REPO_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const LOCAL_DEBUG_DIR = path.join(REPO_DIR, "debug");
 const DEFAULT_CSSQUAKE_URL = "http://localhost:5173/";
-const DEFAULT_CAPTURE_SCRIPT = path.join(
-  process.env.HOME ?? "/Users/ekrof",
-  ".codex",
-  "cssquake-tools",
-  "vkquake-shot.mjs",
-);
-const DEFAULT_CAPTURE_OUTDIR = path.join(process.env.HOME ?? "/Users/ekrof", "Desktop", "cssquake-captures");
-const CAPTURE_SCRIPT = process.env.CSSQUAKE_CAPTURE_SCRIPT || DEFAULT_CAPTURE_SCRIPT;
-const CAPTURE_OUTDIR = process.env.CSSQUAKE_CAPTURE_OUTDIR || DEFAULT_CAPTURE_OUTDIR;
+const CAPTURE_SCRIPT = process.env.CSSQUAKE_CAPTURE_SCRIPT ?? "";
+const CAPTURE_OUTDIR = process.env.CSSQUAKE_CAPTURE_OUTDIR || path.join(LOCAL_DEBUG_DIR, "captures");
 const CAPTURE_WEAPONS = new Set([
   "axe",
   "shotgun",
@@ -128,6 +121,9 @@ function parseCapturePoseInput(value: unknown): CapturePoseInput {
 }
 
 function captureArgs(input: Record<string, unknown>): string[] {
+  if (!CAPTURE_SCRIPT) {
+    throw new Error("Set CSSQUAKE_CAPTURE_SCRIPT to enable local vkQuake captures.");
+  }
   const useSpawn = input.spawn === true;
   const parsedPose = useSpawn ? null : parseCapturePoseInput(input.pose);
   const args = [
