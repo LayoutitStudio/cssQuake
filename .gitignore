@@ -1,5 +1,4 @@
 node_modules/
-pnpm-lock.yaml
 .agents/
 .local/
 .DS_Store
@@ -12,7 +11,7 @@ bench/
 /debug/
 .partykit/
 notes/
-scripts/
-test/
+scripts/*
+!scripts/testContracts.mjs
 netlify.toml
 chrome-trace*.json

@@ -30,8 +30,12 @@ function polyCssVersion(): string {
   }
 }
 
+function localDebugSiteEnabled(): boolean {
+  return process.env.CSSQUAKE_LOCAL_DEBUG_SITE === "1";
+}
+
 export default defineConfig({
-  plugins: [localDebugSitePlugin()],
+  plugins: localDebugSiteEnabled() ? [localDebugSitePlugin()] : [],
   define: {
     __CSSQUAKE_VERSION__: JSON.stringify(cssQuakeVersion()),
     __POLYCSS_VERSION__: JSON.stringify(polyCssVersion()),

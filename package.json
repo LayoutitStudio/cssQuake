@@ -17,13 +17,7 @@
     "build": "vite build",
     "build:full": "pnpm prepare:quake && vite build",
     "preview": "vite preview",
-    "test": "node scripts/testContracts.mjs",
-    "test:assets": "node scripts/testAssetIntegrity.mjs",
-    "test:browser": "node scripts/testBrowser.mjs --full",
-    "test:multiplayer": "node scripts/smokeMultiplayerLoopback.mjs",
-    "test:multiplayer:party": "node scripts/smokeMultiplayerParty.mjs",
-    "test:perf": "node scripts/testPerf.mjs",
-    "test:all": "pnpm build && pnpm test && pnpm test:assets && pnpm test:multiplayer && pnpm test:multiplayer:party && node scripts/testBrowser.mjs"
+    "test": "node scripts/testContracts.mjs"
   },
   "dependencies": {
     "@layoutit/polycss": "^0.2.6",
