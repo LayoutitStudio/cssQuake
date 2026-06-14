@@ -28,6 +28,7 @@ export interface QuakeAppDebugApiOptions {
   loadMap(mapName: string): Promise<void>;
   mapExists(mapName: string): boolean;
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
+  renderOrigin(): Vec3;
   setCollisionBypassUntil(until: number): void;
   setMultiplayerInputPaused(paused: boolean): boolean;
   syncHud(): void;
@@ -54,6 +55,7 @@ function createQuakeAppDebugRuntime({
   loadMap,
   mapExists,
   pointToPoly,
+  renderOrigin,
   setCollisionBypassUntil,
   setMultiplayerInputPaused,
   syncHud,
@@ -127,6 +129,7 @@ function createQuakeAppDebugRuntime({
     playerEyeHeight: () => runtime.controllers.player().eyeHeight(),
     playerMoveDebug: () => runtime.controllers.player().debugMovement(),
     pointToPoly,
+    renderOrigin,
     projectileImpact: (weapon, entityIndex, origin, directDamage) =>
       runtime.controllers.weapons.debugProjectileImpact(weapon, entityIndex, origin, directDamage),
     projectileTraceCapture: () => runtime.controllers.weapons.debugProjectileCapture(),
@@ -141,6 +144,7 @@ function createQuakeAppDebugRuntime({
     syncCrosshairTarget,
     syncGameplay,
     syncMultiplayerPose,
+    syncPlayerCollision: () => runtime.controllers.player().syncCollision(),
     syncPickupsVisibility: (origin) => runtime.controllers.pickups().syncVisibility(origin),
     syncSceneCameraAt,
     syncShootablesVisibility: (origin, force) => runtime.controllers.shootables.syncVisibility(origin, force),

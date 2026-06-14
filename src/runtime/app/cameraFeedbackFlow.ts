@@ -19,6 +19,8 @@ const QUAKE_DAMAGE_VIEW_PITCH_MAX_DEG = 2;
 
 export type QuakeCameraOriginSyncMode = "move" | "reset" | "smooth-step";
 
+export type QuakeRenderCameraOriginPolicy = (origin: Vec3, rotX: number, rotY: number) => Vec3;
+
 interface QuakeCameraFeedbackScene {
   camera: {
     perspectiveStyle: string;
@@ -51,6 +53,7 @@ export interface QuakeCameraFeedbackFlowOptions {
   hasCurrentScene(): boolean;
   isDisposed(): boolean;
   queueCrosshairTargetSync(): void;
+  renderOriginPolicy?: QuakeRenderCameraOriginPolicy | null;
   scene: QuakeCameraFeedbackScene;
   viewmodel: QuakeCameraFeedbackViewmodel;
 }
@@ -70,6 +73,7 @@ export function createQuakeCameraFeedbackFlow(
   options: QuakeCameraFeedbackFlowOptions,
 ): QuakeCameraFeedbackFlow {
   let cameraRenderOrigin: Vec3 = [0, 0, 1.72];
+  let cameraAppliedRenderOrigin: Vec3 = [0, 0, 1.72];
   let cameraStepSmoothFrame = 0;
   let cameraStepSmoothAt = 0;
   let weaponViewPunchFrame = 0;
@@ -78,7 +82,7 @@ export function createQuakeCameraFeedbackFlow(
   let weaponViewPunchBaseRotX: number | null = null;
 
   function currentRenderOrigin(): Vec3 {
-    return cameraRenderOrigin;
+    return cameraAppliedRenderOrigin;
   }
 
   function syncOrigin(origin: Vec3, mode: QuakeCameraOriginSyncMode): void {
@@ -166,18 +170,21 @@ export function createQuakeCameraFeedbackFlow(
     cancelStepSmoothingFrame();
     cameraStepSmoothAt = 0;
     cameraRenderOrigin = [origin[0], origin[1], origin[2]];
+    cameraAppliedRenderOrigin = [origin[0], origin[1], origin[2]];
   }
 
   function applyAt(origin: Vec3, rotX: number, rotY: number): void {
+    const renderOrigin = options.renderOriginPolicy?.(origin, rotX, rotY) ?? origin;
+    cameraAppliedRenderOrigin = [renderOrigin[0], renderOrigin[1], renderOrigin[2]];
     const forward = quakeCameraForwardDirection(rotX, rotY);
     const distance = lookOffset();
     options.scene.camera.update({
       rotX,
       rotY,
       target: [
-        origin[0] + forward[0] * distance,
-        origin[1] + forward[1] * distance,
-        origin[2] + forward[2] * distance,
+        renderOrigin[0] + forward[0] * distance,
+        renderOrigin[1] + forward[1] * distance,
+        renderOrigin[2] + forward[2] * distance,
       ],
     });
     options.scene.applyCamera();

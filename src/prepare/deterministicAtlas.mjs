@@ -31,8 +31,31 @@ const BSP_LUMP_MODELS = 14;
 const BSP_LUMP_COUNT = 15;
 const BSP_HEADER_SIZE = 4 + BSP_LUMP_COUNT * 8;
 const QUAKE_PLAYER_MINS_Z = -24;
-const QUAKE_DETERMINISTIC_ATLAS_PAGE_SIZE = 4096;
 const QUAKE_DETERMINISTIC_ATLAS_PAGE_PADDING = 1;
+const QUAKE_DETERMINISTIC_ATLAS_PAGE_SIZE = normalizeDeterministicAtlasPageSize(
+  process.env.QUAKE_DETERMINISTIC_ATLAS_PAGE_SIZE,
+);
+const QUAKE_DETERMINISTIC_ATLAS_PAGE_FORMAT = normalizeDeterministicAtlasPageFormat(
+  process.env.QUAKE_DETERMINISTIC_ATLAS_PAGE_FORMAT ?? process.env.QUAKE_DETERMINISTIC_ATLAS_IMAGE_FORMAT,
+);
+const QUAKE_DETERMINISTIC_ATLAS_AVIF_QUALITY = normalizeDeterministicAtlasEncoderInt(
+  process.env.QUAKE_DETERMINISTIC_ATLAS_AVIF_QUALITY ?? process.env.QUAKE_RENDER_BUNDLE_AVIF_QUALITY,
+  92,
+  1,
+  100,
+);
+const QUAKE_DETERMINISTIC_ATLAS_AVIF_EFFORT = normalizeDeterministicAtlasEncoderInt(
+  process.env.QUAKE_DETERMINISTIC_ATLAS_AVIF_EFFORT ?? process.env.QUAKE_RENDER_BUNDLE_AVIF_EFFORT,
+  4,
+  0,
+  9,
+);
+const QUAKE_DETERMINISTIC_ATLAS_WEBP_QUALITY = normalizeDeterministicAtlasEncoderInt(
+  process.env.QUAKE_DETERMINISTIC_ATLAS_WEBP_QUALITY,
+  90,
+  1,
+  100,
+);
 // Quake renders sky through a separate projected tile path, not direct BSP texture scale.
 // Keep the coarser sky UV scale, but sample from the full prepared sky texture.
 const QUAKE_DETERMINISTIC_SKY_UV_SCALE = 0.25;
@@ -90,6 +113,24 @@ function normalizeDeterministicAtlasLightSampling(value) {
   );
 }
 
+function normalizeDeterministicAtlasPageSize(value) {
+  const parsed = Number.parseInt(String(value ?? "").trim(), 10);
+  if (!Number.isFinite(parsed)) return 2048;
+  return Math.max(512, Math.min(8192, parsed));
+}
+
+function normalizeDeterministicAtlasPageFormat(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "png" || normalized === "webp") return normalized;
+  return "avif";
+}
+
+function normalizeDeterministicAtlasEncoderInt(value, fallback, min, max) {
+  const parsed = Number.parseInt(String(value ?? "").trim(), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
 function createDeterministicAtlasTiming(name) {
   return QUAKE_DETERMINISTIC_ATLAS_TIMING
     ? {
@@ -142,17 +183,17 @@ function deterministicAtlasTimingCount(timing, label) {
 function logDeterministicAtlasTiming(timing, stats) {
   if (!timing) return;
   addDeterministicAtlasTimingDuration(timing, "total", performance.now() - timing.startedAt);
-  const pngEncodeMs =
-    deterministicAtlasTimingDuration(timing, "png.encode.atlasPage") +
-    deterministicAtlasTimingDuration(timing, "png.encode.leafImage") +
-    deterministicAtlasTimingDuration(timing, "png.encode.runtimeTexture");
-  const pngEncodeWriteMs =
-    deterministicAtlasTimingDuration(timing, "png.encodeWrite.leafImage") +
-    deterministicAtlasTimingDuration(timing, "png.encodeWrite.runtimeTexture");
-  const pngWriteMs =
-    deterministicAtlasTimingDuration(timing, "png.write.atlasPage") +
-    deterministicAtlasTimingDuration(timing, "png.write.leafImage") +
-    deterministicAtlasTimingDuration(timing, "png.write.runtimeTexture");
+  const imageEncodeMs =
+    deterministicAtlasTimingDuration(timing, "image.encode.atlasPage") +
+    deterministicAtlasTimingDuration(timing, "image.encode.leafImage") +
+    deterministicAtlasTimingDuration(timing, "image.encode.runtimeTexture");
+  const imageEncodeWriteMs =
+    deterministicAtlasTimingDuration(timing, "image.encodeWrite.leafImage") +
+    deterministicAtlasTimingDuration(timing, "image.encodeWrite.runtimeTexture");
+  const imageWriteMs =
+    deterministicAtlasTimingDuration(timing, "image.write.atlasPage") +
+    deterministicAtlasTimingDuration(timing, "image.write.leafImage") +
+    deterministicAtlasTimingDuration(timing, "image.write.runtimeTexture");
   console.log(
     `Deterministic atlas timing for ${timing.name}: ` +
     `total=${formatDeterministicAtlasTimingMs(deterministicAtlasTimingDuration(timing, "total"))}, ` +
@@ -160,10 +201,10 @@ function logDeterministicAtlasTiming(timing, stats) {
     `nativePack=${formatDeterministicAtlasTimingMs(deterministicAtlasTimingDuration(timing, "native.batch.pack"))}, ` +
     `nativeCall=${formatDeterministicAtlasTimingMs(deterministicAtlasTimingDuration(timing, "native.batch.call"))}, ` +
     `policyPack=${formatDeterministicAtlasTimingMs(deterministicAtlasTimingDuration(timing, "policy.pack"))}, ` +
-    `pageCompose=${formatDeterministicAtlasTimingMs(deterministicAtlasTimingDuration(timing, "png.compose.atlasPage"))}, ` +
-    `pngEncode=${formatDeterministicAtlasTimingMs(pngEncodeMs)}, ` +
-    `pngEncodeWrite=${formatDeterministicAtlasTimingMs(pngEncodeWriteMs)}, ` +
-    `pngWrite=${formatDeterministicAtlasTimingMs(pngWriteMs)}, ` +
+    `pageCompose=${formatDeterministicAtlasTimingMs(deterministicAtlasTimingDuration(timing, "image.compose.atlasPage"))}, ` +
+    `imageEncode=${formatDeterministicAtlasTimingMs(imageEncodeMs)}, ` +
+    `imageEncodeWrite=${formatDeterministicAtlasTimingMs(imageEncodeWriteMs)}, ` +
+    `imageWrite=${formatDeterministicAtlasTimingMs(imageWriteMs)}, ` +
     `rewrite=${formatDeterministicAtlasTimingMs(deterministicAtlasTimingDuration(timing, "mesh.rewrite"))}, ` +
     `compact=${formatDeterministicAtlasTimingMs(deterministicAtlasTimingDuration(timing, "mesh.compactAssets"))}, ` +
     `oldAssetScan=${formatDeterministicAtlasTimingMs(deterministicAtlasTimingDuration(timing, "oldAssetScan"))}, ` +
@@ -297,7 +338,7 @@ export async function replaceQuakeRenderBundleWorldAtlas({
     const filename = deterministicAtlasPageFilename(index);
     const outputPath = path.join(outputDir, filename);
     const image = await renderDeterministicAtlasPage(page, timing);
-    await withDeterministicAtlasTiming(timing, "png.write.atlasPage", () => writeFile(outputPath, image));
+    await withDeterministicAtlasTiming(timing, "image.write.atlasPage", () => writeFile(outputPath, image));
     pageBytes += image.byteLength;
     pageAssetUrls.push(`${publicPath}/${filename}`);
   }
@@ -363,6 +404,8 @@ export async function replaceQuakeRenderBundleWorldAtlas({
     leafImageBytes,
     runtimeTextureImageBytes,
     pageCount: pages.length,
+    pageSize: QUAKE_DETERMINISTIC_ATLAS_PAGE_SIZE,
+    pageFormat: QUAKE_DETERMINISTIC_ATLAS_PAGE_FORMAT,
     atlasTileCount: atlasTiles.length,
     leafImageCount: leafImageTiles.length,
     runtimeTextureImageCount,
@@ -2247,7 +2290,7 @@ function packDeterministicAtlasTiles(tiles) {
 }
 
 async function renderDeterministicAtlasPage(page, timing = null) {
-  const pageRgba = withDeterministicAtlasTimingSync(timing, "png.compose.atlasPage", () => {
+  const pageRgba = withDeterministicAtlasTimingSync(timing, "image.compose.atlasPage", () => {
     const rgba = Buffer.alloc(page.width * page.height * 4);
     for (const tile of page.tiles) {
       const sourceStride = tile.width * 4;
@@ -2260,10 +2303,31 @@ async function renderDeterministicAtlasPage(page, timing = null) {
     }
     return rgba;
   });
-  return withDeterministicAtlasTiming(timing, "png.encode.atlasPage", () =>
-    sharp(pageRgba, { raw: { width: page.width, height: page.height, channels: 4 } })
-      .png()
-      .toBuffer());
+  return renderDeterministicAtlasPageImage(page.width, page.height, pageRgba, timing);
+}
+
+function renderDeterministicAtlasPageImage(width, height, rgba, timing = null) {
+  return withDeterministicAtlasTiming(timing, "image.encode.atlasPage", () =>
+    encodeDeterministicAtlasPageImage(
+      sharp(rgba, { raw: { width, height, channels: 4 } }),
+    ).toBuffer());
+}
+
+function encodeDeterministicAtlasPageImage(image) {
+  if (QUAKE_DETERMINISTIC_ATLAS_PAGE_FORMAT === "avif") {
+    return image.avif({
+      quality: QUAKE_DETERMINISTIC_ATLAS_AVIF_QUALITY,
+      effort: QUAKE_DETERMINISTIC_ATLAS_AVIF_EFFORT,
+      chromaSubsampling: "4:4:4",
+    });
+  }
+  if (QUAKE_DETERMINISTIC_ATLAS_PAGE_FORMAT === "webp") {
+    return image.webp({
+      quality: QUAKE_DETERMINISTIC_ATLAS_WEBP_QUALITY,
+      smartSubsample: true,
+    });
+  }
+  return image.png();
 }
 
 function writeDeterministicLeafImage(tile, outputPath, timing = null) {
@@ -2278,14 +2342,14 @@ function writeDeterministicLeafImage(tile, outputPath, timing = null) {
 }
 
 function renderDeterministicRgbaImage(width, height, rgba, timing = null, label = "png.encode.leafImage") {
-  return withDeterministicAtlasTiming(timing, label, () =>
+  return withDeterministicAtlasTiming(timing, normalizeDeterministicAtlasTimingLabel(label), () =>
     sharp(rgba, { raw: { width, height, channels: 4 } })
       .png()
       .toBuffer());
 }
 
 async function writeDeterministicRgbaImage(width, height, rgba, outputPath, timing = null, label = "png.encodeWrite.leafImage") {
-  const info = await withDeterministicAtlasTiming(timing, label, () =>
+  const info = await withDeterministicAtlasTiming(timing, normalizeDeterministicAtlasTimingLabel(label), () =>
     sharp(rgba, { raw: { width, height, channels: 4 } })
       .png()
       .toFile(outputPath));
@@ -2294,8 +2358,12 @@ async function writeDeterministicRgbaImage(width, height, rgba, outputPath, timi
   return file.size;
 }
 
+function normalizeDeterministicAtlasTimingLabel(label) {
+  return String(label).replace(/^png\./, "image.");
+}
+
 function deterministicAtlasPageFilename(index) {
-  return `a${index}.png`;
+  return `a${index}.${QUAKE_DETERMINISTIC_ATLAS_PAGE_FORMAT}`;
 }
 
 function deterministicLeafImageFilename(leafIndex, kind = "") {

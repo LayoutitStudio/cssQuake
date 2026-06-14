@@ -319,10 +319,17 @@ export interface QuakeShootablesControllerOptions {
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
   shouldSpawn(entity: QuakeEntity): boolean;
   pixelate(handle: PolyMeshHandle): void;
+  playerClearance?: QuakeShootablesPlayerClearanceOptions | null;
   schedulePresentationResync(handle: PolyMeshHandle): void;
   visibleLeavesAt(origin: [number, number, number]): Set<number> | null;
   fireTarget(targetname: string, sourceEntityIndex?: number): void;
   playSound?(soundPath: string, options?: QuakeShootableSoundOptions): boolean;
+}
+
+export interface QuakeShootablesPlayerClearanceOptions {
+  enemyClassnames?: readonly string[];
+  extraRadius: number;
+  useBossAwakeBounds?: boolean;
 }
 
 export interface QuakePlayerQuakecRandomDetails {
@@ -477,6 +484,7 @@ export function createQuakeShootablesController({
   pointToPoly,
   shouldSpawn,
   pixelate,
+  playerClearance = null,
   schedulePresentationResync,
   visibleLeavesAt,
   fireTarget,
@@ -3766,7 +3774,13 @@ export function createQuakeShootablesController({
     handle: PolyMeshHandle | null,
     reason: string,
   ): boolean {
-    if (!enemyMotionMaterial || !shootable.enemy || shootable.dead || !shootable.visible || handle !== shootable.handle) {
+    if (
+      !enemyMotionMaterial ||
+      !shootable.enemy ||
+      shootable.dead ||
+      !shootable.visible ||
+      handle !== shootable.handle
+    ) {
       return false;
     }
     return markQuakeRenderBundleFrameSetHandleMotionMaterial(handle, reason);
@@ -3830,14 +3844,15 @@ export function createQuakeShootablesController({
     eyeHeight: number,
     shootable: QuakeShootableState,
   ): boolean {
-    const bounds = shootableCollisionWorldBounds(shootable);
+    const envelope = shootablePlayerCollisionEnvelope(shootable);
+    const bounds = envelope.bounds;
     const playerMinZ = origin[2] - eyeHeight;
     const playerMaxZ = playerMinZ + PLAYER_HEIGHT;
     if (playerMaxZ <= bounds.min[2] || playerMinZ >= bounds.max[2]) return false;
-    return origin[0] >= bounds.min[0] - PLAYER_RADIUS &&
-      origin[0] <= bounds.max[0] + PLAYER_RADIUS &&
-      origin[1] >= bounds.min[1] - PLAYER_RADIUS &&
-      origin[1] <= bounds.max[1] + PLAYER_RADIUS;
+    return origin[0] >= bounds.min[0] - envelope.playerRadius &&
+      origin[0] <= bounds.max[0] + envelope.playerRadius &&
+      origin[1] >= bounds.min[1] - envelope.playerRadius &&
+      origin[1] <= bounds.max[1] + envelope.playerRadius;
   }
 
   function pushPlayerOutOfShootable(
@@ -3846,11 +3861,12 @@ export function createQuakeShootablesController({
     shootable: QuakeShootableState,
     validateOrigin?: QuakeShootableCollisionOriginValidator,
   ): [number, number, number] {
-    const bounds = shootableCollisionWorldBounds(shootable);
-    const minX = bounds.min[0] - PLAYER_RADIUS - QUAKE_SHOOTABLE_COLLISION_EPSILON;
-    const maxX = bounds.max[0] + PLAYER_RADIUS + QUAKE_SHOOTABLE_COLLISION_EPSILON;
-    const minY = bounds.min[1] - PLAYER_RADIUS - QUAKE_SHOOTABLE_COLLISION_EPSILON;
-    const maxY = bounds.max[1] + PLAYER_RADIUS + QUAKE_SHOOTABLE_COLLISION_EPSILON;
+    const envelope = shootablePlayerCollisionEnvelope(shootable);
+    const bounds = envelope.bounds;
+    const minX = bounds.min[0] - envelope.playerRadius - QUAKE_SHOOTABLE_COLLISION_EPSILON;
+    const maxX = bounds.max[0] + envelope.playerRadius + QUAKE_SHOOTABLE_COLLISION_EPSILON;
+    const minY = bounds.min[1] - envelope.playerRadius - QUAKE_SHOOTABLE_COLLISION_EPSILON;
+    const maxY = bounds.max[1] + envelope.playerRadius + QUAKE_SHOOTABLE_COLLISION_EPSILON;
     const candidates: [number, number, number][] = [];
     const addCandidate = (candidate: [number, number, number]): void => {
       if (candidates.some((existing) => distanceSq3(existing, candidate) <= COLLISION_EPSILON)) return;
@@ -3871,7 +3887,80 @@ export function createQuakeShootablesController({
     distances.sort((a, b) => a.value - b.value);
     for (const distance of distances) addCandidate(distance.origin);
     if (!validateOrigin) return candidates[0] ?? origin;
-    return candidates.find(validateOrigin) ?? candidates[0] ?? origin;
+    const validated = candidates.find(validateOrigin);
+    if (validated) {
+      if (envelope.debugActive) {
+        markShootableTrace("player-clearance-push", shootable, {
+          candidateCount: candidates.length,
+          extraRadius: envelope.extraRadius,
+          playerRadius: envelope.playerRadius,
+          sourceBossBounds: envelope.sourceBossBounds,
+          x: validated[0],
+          y: validated[1],
+          z: validated[2],
+        });
+      }
+      return validated;
+    }
+    if (envelope.debugActive) {
+      markShootableTrace("player-clearance-blocked", shootable, {
+        candidateCount: candidates.length,
+        extraRadius: envelope.extraRadius,
+        playerRadius: envelope.playerRadius,
+        sourceBossBounds: envelope.sourceBossBounds,
+        x: origin[0],
+        y: origin[1],
+        z: origin[2],
+      });
+    }
+    return envelope.debugActive ? origin : candidates[0] ?? origin;
+  }
+
+  function shootablePlayerCollisionEnvelope(shootable: QuakeShootableState): {
+    bounds: QuakeBounds;
+    debugActive: boolean;
+    extraRadius: number;
+    playerRadius: number;
+    sourceBossBounds: boolean;
+  } {
+    const clearanceActive = playerClearanceMatchesEntity(shootable.entity);
+    const extraRadius = clearanceActive ? Math.max(0, playerClearance?.extraRadius ?? 0) : 0;
+    const sourceBossBounds = clearanceActive &&
+      playerClearance?.useBossAwakeBounds !== false &&
+      quakeBossScriptedLifecycle(shootable.entity.classname) !== null;
+    const bounds = sourceBossBounds
+      ? shootableBossAwakeCollisionWorldBounds(shootable) ?? shootableCollisionWorldBounds(shootable)
+      : shootableCollisionWorldBounds(shootable);
+    return {
+      bounds,
+      debugActive: clearanceActive,
+      extraRadius,
+      playerRadius: PLAYER_RADIUS + extraRadius,
+      sourceBossBounds,
+    };
+  }
+
+  function playerClearanceMatchesEntity(entity: QuakeEntity): boolean {
+    if (!playerClearance) return false;
+    const classnames = playerClearance.enemyClassnames;
+    return !classnames?.length || classnames.includes(entity.classname);
+  }
+
+  function shootableBossAwakeCollisionWorldBounds(shootable: QuakeShootableState): QuakeBounds | null {
+    const bounds = quakeBossScriptedLifecycle(shootable.entity.classname)?.awake.bounds;
+    if (!bounds) return null;
+    return {
+      min: [
+        shootable.origin[0] + bounds.min[0] * QUAKE_COLLISION_UNIT_SCALE,
+        shootable.origin[1] + bounds.min[1] * QUAKE_COLLISION_UNIT_SCALE,
+        shootable.origin[2] + bounds.min[2] * QUAKE_COLLISION_UNIT_SCALE,
+      ],
+      max: [
+        shootable.origin[0] + bounds.max[0] * QUAKE_COLLISION_UNIT_SCALE,
+        shootable.origin[1] + bounds.max[1] * QUAKE_COLLISION_UNIT_SCALE,
+        shootable.origin[2] + bounds.max[2] * QUAKE_COLLISION_UNIT_SCALE,
+      ],
+    };
   }
 
   function shootableBounds(shootable: QuakeShootableState): { min: Vec3; max: Vec3 } {
