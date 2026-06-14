@@ -243,9 +243,12 @@ const QUAKE_ALIAS_REBAKE_MERGE_AFFINE_EPSILON = Number.isFinite(quakeAliasRebake
 const QUAKE_ALIAS_SKIN_PADDING_RADIUS = 4;
 const QUAKE_ALIAS_SKIN_FILLER_INDEX = 208;
 const QUAKE_KNIGHT_MODEL_PATH = "progs/knight.mdl";
+const QUAKE_BACKPACK_MODEL_PATH = "progs/backpack.mdl";
+const QUAKE_LAVABALL_MODEL_PATH = "progs/lavaball.mdl";
 const QUAKE_KNIGHT_SWORD_TRIANGLE_INDICES = new Set([
   11, 48, 64, 88, 91, 104, 105, 107, 110, 112, 114, 118, 134, 151, 164, 193, 197, 199, 201, 204,
 ]);
+const QUAKE_BACKPACK_STRAP_NO_MERGE_TRIANGLE_INDICES = new Set([89, 108]);
 const QUAKE_KNIGHT_SWORD_SUBDIVISION_LEVELS = 2;
 const QUAKE_KNIGHT_STAND_SWORD_FORWARD_OFFSET = 8;
 const QUAKE_DEBUG_OUTLINE_WIDTH = 0.5;
@@ -1077,6 +1080,7 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
       ...(styleUrl ? { styleUrl } : {}),
       ...(styleClassName ? { styleClassName } : {}),
       assetUrls,
+      assetUrlsComplete: true,
       ...(includeLeafFrameStyles && leafFrameStylesByClass.length ? { leafFrameStylesByClass } : {}),
       leafMetadata: result.leafMetadata,
       polygonCount: result.polygonCount,
@@ -3857,6 +3861,7 @@ function compactQuakeAnimationFrameRenderBundles(model) {
       textureQuality: renderBundle.textureQuality,
       meshHtml: quakeRenderBundleRootOnlyHtml(renderBundle),
       assetUrls: [...renderBundle.assetUrls],
+      ...(renderBundle.assetUrlsComplete ? { assetUrlsComplete: true } : {}),
       leafMetadata: [],
       polygonCount: 0,
       leafCount: 0,
@@ -4860,6 +4865,8 @@ function quakeAliasSameUv(a, b) {
 }
 
 function quakeAliasTwoSidedTriangleIndices(model, source = "") {
+  if (source === QUAKE_LAVABALL_MODEL_PATH) return quakeAliasAllTriangleIndices(model);
+
   const edgeTriangleIndices = new Map();
   for (let triangleIndex = 0; triangleIndex < model.triangles.length; triangleIndex++) {
     const indices = model.triangles[triangleIndex].indices;
@@ -4898,7 +4905,13 @@ function quakeAliasSwordTriangleIndices(source = "") {
 }
 
 function quakeAliasNoMergeTriangleIndices(model, source = "") {
+  if (source === QUAKE_BACKPACK_MODEL_PATH) return QUAKE_BACKPACK_STRAP_NO_MERGE_TRIANGLE_INDICES;
+  if (source === QUAKE_LAVABALL_MODEL_PATH) return quakeAliasAllTriangleIndices(model);
   if (source !== QUAKE_KNIGHT_MODEL_PATH) return undefined;
+  return quakeAliasAllTriangleIndices(model);
+}
+
+function quakeAliasAllTriangleIndices(model) {
   return new Set(model.triangles.map((_triangle, triangleIndex) => triangleIndex));
 }
 

@@ -1906,6 +1906,7 @@ async function serializeMeshWithAssets(mesh, options = {}) {
   runQuakeRenderBundleStep("serialize-strip-metadata", () =>
     stripRenderBundleMeshMetadata(serializableMesh, {
       preserveLeafPolyIndex: Boolean(options.extractLeafStyles),
+      preservePolycssTextureMetadata: Boolean(options.extractLeafStyles),
     })
   );
   const assetByBlobUrl = new Map();
@@ -1946,6 +1947,11 @@ async function serializeMeshWithAssets(mesh, options = {}) {
       ? extractRenderBundleLeafStyles(serializableMesh, options.styleClassName)
       : { meshCss: "", leafFrameStyles: [] }
   );
+  if (options.extractLeafStyles) {
+    runQuakeRenderBundleStep("serialize-strip-extracted-style-metadata", () =>
+      stripRenderBundleMeshMetadata(serializableMesh)
+    );
+  }
 
   const assets = [];
   await runQuakeRenderBundleStepAsync("serialize-assets", async () => {
@@ -2774,9 +2780,10 @@ function scaleRenderBundleLeafStyleToBox(leaf, style, width, height) {
   const transform = declarations.find((part) => part.name === "transform");
   const matrix = parseMatrix3d(transform?.value);
   if (!matrix) return style;
+  const textureBox = renderBundleLeafTextureBox(leaf, declarations);
   const computedStyle = leaf.ownerDocument.defaultView?.getComputedStyle(leaf);
-  const sourceWidth = renderBundleLeafCssSize(leaf, "width", computedStyle);
-  const sourceHeight = renderBundleLeafCssSize(leaf, "height", computedStyle);
+  const sourceWidth = textureBox?.width ?? renderBundleLeafCssSize(leaf, "width", computedStyle);
+  const sourceHeight = textureBox?.height ?? renderBundleLeafCssSize(leaf, "height", computedStyle);
   if (sourceWidth <= 0 || sourceHeight <= 0 || width <= 0 || height <= 0) return style;
   transform.value = scaleRenderBundleLeafMatrix(matrix, sourceWidth, sourceHeight, width, height);
   return declarations.map((part) => `${part.name}:${part.value}`).join(";");
@@ -2796,11 +2803,17 @@ function renderBundleLeafStyleWithExplicitAtlasSize(leaf, style, options = {}) {
   const declarations = renderBundleStyleDeclarations(style);
   const hasWidth = declarations.some((part) => part.name === "width");
   const hasHeight = declarations.some((part) => part.name === "height");
+  const textureBox = renderBundleLeafTextureBox(leaf, declarations);
   const baseWidth = renderBundleLeafFrameStyleSize(options.baseFrameStyle, "width");
   const baseHeight = renderBundleLeafFrameStyleSize(options.baseFrameStyle, "height");
   if (baseWidth && baseHeight) {
     style = scaleRenderBundleLeafStyleToBox(leaf, style, baseWidth, baseHeight);
+    style = stripRenderBundleOutputStyleMetadata(style);
     return renderBundleLeafStyleWithBox(style, baseWidth, baseHeight);
+  }
+  style = stripRenderBundleOutputStyleMetadata(style);
+  if (textureBox) {
+    return renderBundleLeafStyleWithBox(style, textureBox.width, textureBox.height);
   }
   if (hasWidth && hasHeight) return style;
   const textureWidth = renderBundleLeafTextureBoxSize(leaf, declarations, "width");
@@ -2810,6 +2823,14 @@ function renderBundleLeafStyleWithExplicitAtlasSize(leaf, style, options = {}) {
     ...(!hasWidth && textureWidth ? [`width:${textureWidth}`] : []),
     ...(!hasHeight && textureHeight ? [`height:${textureHeight}`] : []),
   ].filter(Boolean).join(";");
+}
+
+function renderBundleLeafTextureBox(leaf, declarations) {
+  const width = cssPixelValue(renderBundleLeafTextureBoxSize(leaf, declarations, "width"));
+  const height = cssPixelValue(renderBundleLeafTextureBoxSize(leaf, declarations, "height"));
+  return width !== null && height !== null && width > 0 && height > 0
+    ? { width, height }
+    : null;
 }
 
 function renderBundleLeafTextureBoxSize(leaf, declarations, axis) {
@@ -2957,6 +2978,11 @@ function stripRenderBundleMeshMetadata(mesh, options = {}) {
     leaf.removeAttribute("data-lit");
     leaf.removeAttribute("data-ls");
     leaf.removeAttribute("data-tex");
+    if (!options.preservePolycssTextureMetadata) {
+      for (const attr of [...leaf.attributes]) {
+        if (attr.name.startsWith("data-polycss-")) leaf.removeAttribute(attr.name);
+      }
+    }
   }
   for (const element of mesh.querySelectorAll("[style]")) {
     const style = element.getAttribute("style") ?? "";
@@ -2984,6 +3010,17 @@ function stripRenderBundleStyleMetadata(style) {
       !/^--polycss-atlas-size\s*:/i.test(part) &&
       !/^background-repeat\s*:\s*no-repeat$/i.test(part)
     )
+    .join(";");
+}
+
+function stripRenderBundleOutputStyleMetadata(style) {
+  return renderBundleStyleDeclarations(style)
+    .filter((part) =>
+      part.name !== "background-repeat" &&
+      !part.name.startsWith("--pn") &&
+      !part.name.startsWith("--polycss-atlas-")
+    )
+    .map((part) => `${part.name}:${part.value}`)
     .join(";");
 }
 

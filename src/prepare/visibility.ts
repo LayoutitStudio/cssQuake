@@ -6,6 +6,7 @@ import type {
   QuakeLeaf,
   QuakeNode,
   QuakePlane,
+  QuakePreparedVisibilityMetadata,
   QuakeVertex,
   QuakeVisibility,
   QuakeVisibilityCandidate,
@@ -65,10 +66,12 @@ export function buildVisibility(
   candidates: QuakeVisibilityCandidate[],
   brushModels: QuakeBrushModel[],
   pivot: QuakeVertex,
+  metadata?: QuakePreparedVisibilityMetadata,
 ): QuakeVisibility | undefined {
   if (!planes.length || !nodes.length || !leaves.length) return undefined;
   const sourceFaces = sourceFaceSetFor(candidates);
   const renderFacesBySource = renderFaceMapFor(candidates);
+  const sourceFacesByRender = sourceFaceMapFor(candidates);
   const faceForPolygon = candidates.map((candidate) => candidate.faceIndex);
   const worldFaceByLeaf = buildWorldFaceByLeaf(leaves, markSurfaces, sourceFaces);
   const brushVisibility = buildBrushVisibility(brushModels, sourceFaces, planes, nodes);
@@ -114,7 +117,19 @@ export function buildVisibility(
     return visibleFaceGroupsByLeaf[leafIndex] ?? allFacesGroup;
   }
 
-  return { faceForPolygon, leafIndexAt, visibleLeavesAt, visibleFacesAt, visibleFaceGroupAt };
+  function sourceFaceIndicesForRenderFace(faceIndex: number): readonly number[] {
+    return sourceFacesByRender.get(faceIndex) ?? [];
+  }
+
+  return {
+    faceForPolygon,
+    ...(metadata ? { metadata } : {}),
+    leafIndexAt,
+    sourceFaceIndicesForRenderFace,
+    visibleLeavesAt,
+    visibleFacesAt,
+    visibleFaceGroupAt,
+  };
 }
 
 function sourceFaceSetFor(candidates: QuakeVisibilityCandidate[]): Set<number> {
@@ -135,6 +150,19 @@ function renderFaceMapFor(candidates: QuakeVisibilityCandidate[]): Map<number, n
       } else {
         faces.set(sourceFaceIndex, [candidate.faceIndex]);
       }
+    }
+  }
+  return faces;
+}
+
+function sourceFaceMapFor(candidates: QuakeVisibilityCandidate[]): Map<number, number[]> {
+  const faces = new Map<number, number[]>();
+  for (const candidate of candidates) {
+    const sourceFaceIndices = faces.get(candidate.faceIndex);
+    if (sourceFaceIndices) {
+      for (const sourceFaceIndex of candidate.sourceFaceIndices) sourceFaceIndices.push(sourceFaceIndex);
+    } else {
+      faces.set(candidate.faceIndex, [...candidate.sourceFaceIndices]);
     }
   }
   return faces;

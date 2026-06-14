@@ -13,6 +13,7 @@ import { buildEntityManifest, cloneEntityManifest } from "./entities";
 import {
   buildQuakeGameLogicFacts,
   cloneQuakeGameLogicFacts,
+  type QuakeGameLogicEntityFact,
   type QuakeGameLogicFacts,
   type QuakeGameLogicProgramFactsInput,
 } from "./gameLogicFacts";
@@ -462,13 +463,77 @@ export interface QuakeClipNode {
 export interface QuakeLeaf {
   contents: number;
   visOffset: number;
+  mins: QuakeVertex;
+  maxs: QuakeVertex;
   firstMarkSurface: number;
   markSurfaceCount: number;
 }
 
+export interface QuakeVisibilityBounds {
+  mins: QuakeVertex;
+  maxs: QuakeVertex;
+  center: QuakeVertex;
+}
+
+export interface QuakeVisibilitySourceFaceMetadata {
+  faceIndex: number;
+  modelIndex: number;
+  entityIndex?: number;
+  texture: string;
+  planeIndex: number;
+  plane: QuakePlane;
+  side: number;
+  pointCount: number;
+  area: number;
+  leafIndexes: number[];
+  bounds: QuakeVisibilityBounds;
+}
+
+export interface QuakeVisibilityLeafMetadata {
+  leafIndex: number;
+  contents: number;
+  bounds: QuakeVisibilityBounds;
+  faceIndexes: number[];
+  visibleLeafIndexes: number[] | null;
+  visibleFaceIndexes: number[] | null;
+  adjacentLeafIndexes: number[];
+}
+
+export interface QuakeVisibilityDoorBlockerMetadata {
+  entityIndex: number;
+  modelIndex: number;
+  classname: string;
+  kind: "func_door" | "func_door_secret";
+  linkedEntityIndexes: number[];
+  closedBounds: QuakeVisibilityBounds;
+  origin?: QuakeVertex;
+  openBounds?: QuakeVisibilityBounds;
+  triggerBounds?: QuakeVisibilityBounds;
+  moveDirection?: QuakeVertex;
+  travelOffset?: QuakeVertex;
+  startsOpen?: boolean;
+  faceIndexes: number[];
+  leafIndexes: number[];
+  nearbyLeafIndexes: number[];
+  blockedLeafPairCandidates: Array<[number, number]>;
+}
+
+export interface QuakePreparedVisibilityMetadata {
+  version: 1;
+  source: "prepared-bsp";
+  pvsSource: "bsp-visdata";
+  leafAdjacencySource: "bounds-touch";
+  doorLeafCutSource: "bounds-touch-door-intersection";
+  leaves: QuakeVisibilityLeafMetadata[];
+  sourceFaces: QuakeVisibilitySourceFaceMetadata[];
+  doorBlockers: QuakeVisibilityDoorBlockerMetadata[];
+}
+
 export interface QuakeVisibility {
   faceForPolygon: number[];
+  metadata?: QuakePreparedVisibilityMetadata;
   leafIndexAt(point: Vec3): number;
+  sourceFaceIndicesForRenderFace(faceIndex: number): readonly number[];
   visibleLeavesAt(point: Vec3): Set<number> | null;
   visibleFacesAt(point: Vec3): Set<number> | null;
   visibleFaceGroupAt(point: Vec3): QuakeVisibleFaceGroup;
@@ -494,6 +559,7 @@ export interface QuakePreparedRenderBundle {
   styleUrl?: string;
   styleClassName?: string;
   assetUrls: string[];
+  assetUrlsComplete: true;
   debugOutlineSourceAssetUrls?: string[];
   debugOutlineAssetUrls?: string[];
   debugOutlineBackgrounds?: QuakeRenderBundleDebugOutlineBackground[];
@@ -536,6 +602,7 @@ export interface QuakePreparedVisibility {
   candidates: QuakeVisibilityCandidate[];
   brushModels: QuakeBrushModel[];
   pivot: QuakeVertex;
+  metadata?: QuakePreparedVisibilityMetadata;
 }
 
 export interface QuakeCollisionHull {
@@ -737,6 +804,10 @@ const QUAKE_MAP_SPAWN_OVERRIDES = new Map<string, QuakeSpawn>([
 const QUAKE_GROUND_GRID_CELL_SIZE = 0.5;
 const QUAKE_GROUND_GRID_Z_SCALE = 1 / 256;
 const QUAKE_GROUND_GRID_NULL_SAMPLE = -32768;
+const QUAKE_CONTENTS_SOLID = -2;
+const QUAKE_VISIBILITY_LEAF_ADJACENCY_EPSILON = 1;
+const QUAKE_VISIBILITY_DOOR_LEAF_EXPANSION = 1;
+const QUAKE_VISIBILITY_DOOR_NEARBY_LEAF_EXPANSION = 16;
 const QUAKE_GROUND_GRID_MAX_CELLS = 180000;
 const QUAKE_GROUND_WALKABLE_NORMAL_Z = 0.52;
 const QUAKE_LIGHT_SAMPLE_SIZE = 16;
@@ -909,6 +980,7 @@ export function createQuakeSceneFromPreparedScene(prepared: QuakePreparedScene):
           prepared.visibility.candidates,
           prepared.visibility.brushModels,
           prepared.visibility.pivot,
+          prepared.visibility.metadata,
         )
       : undefined,
     collision: prepared.collision,
@@ -1362,7 +1434,19 @@ async function createQuakePreparedSceneFromBsp(
     })
   );
   const preparedVisibility = timer.sync("prepare-scene.prepared-visibility", () =>
-    buildPreparedVisibility(planes, nodes, leaves, markSurfaces, visData, renderCandidates, brushModels, pivot)
+    buildPreparedVisibility(
+      planes,
+      nodes,
+      leaves,
+      markSurfaces,
+      visData,
+      renderCandidates,
+      buildCandidates,
+      brushModels,
+      preparedModels,
+      gameLogic,
+      pivot,
+    )
   );
   return {
     version: QUAKE_PREPARED_SCENE_VERSION,
@@ -1472,7 +1556,10 @@ function buildPreparedVisibility(
   markSurfaces: number[],
   visData: Uint8Array,
   candidates: QuakeVisibilityCandidate[],
+  sourceCandidates: QuakeFaceBuildCandidate[],
   brushModels: QuakeBrushModel[],
+  models: QuakePreparedModel[],
+  gameLogic: QuakeGameLogicFacts,
   pivot: QuakeVertex,
 ): QuakePreparedVisibility | undefined {
   if (!planes.length || !nodes.length || !leaves.length) return undefined;
@@ -1488,7 +1575,536 @@ function buildPreparedVisibility(
     })),
     brushModels,
     pivot,
+    metadata: buildPreparedVisibilityMetadata(
+      planes,
+      nodes,
+      leaves,
+      markSurfaces,
+      sourceCandidates,
+      models,
+      gameLogic,
+      visData,
+    ),
   };
+}
+
+interface QuakeVisibilityLeafFaceMaps {
+  faceIndexesByLeaf: number[][];
+  leafIndexesByFace: Map<number, number[]>;
+}
+
+function buildPreparedVisibilityMetadata(
+  planes: QuakePlane[],
+  nodes: QuakeNode[],
+  leaves: QuakeLeaf[],
+  markSurfaces: number[],
+  sourceCandidates: QuakeFaceBuildCandidate[],
+  models: QuakePreparedModel[],
+  gameLogic: QuakeGameLogicFacts,
+  visData: Uint8Array,
+): QuakePreparedVisibilityMetadata {
+  const sourceFaceIndexes = new Set(sourceCandidates.map((candidate) => candidate.faceIndex));
+  const leafFaceMaps = buildVisibilityLeafFaceMaps(leaves, markSurfaces, sourceFaceIndexes);
+  const leafAdjacency = buildVisibilityLeafAdjacency(leaves);
+  const visibleLeafIndexesByLeaf = buildVisibilityVisibleLeafIndexesByLeaf(leaves, visData);
+  const visibleFaceIndexesByLeaf = buildVisibilityVisibleFaceIndexesByLeaf(
+    leafFaceMaps.faceIndexesByLeaf,
+    visibleLeafIndexesByLeaf,
+  );
+  return {
+    version: 1,
+    source: "prepared-bsp",
+    pvsSource: "bsp-visdata",
+    leafAdjacencySource: "bounds-touch",
+    doorLeafCutSource: "bounds-touch-door-intersection",
+    leaves: buildVisibilityLeafMetadata(
+      leaves,
+      leafFaceMaps.faceIndexesByLeaf,
+      visibleLeafIndexesByLeaf,
+      visibleFaceIndexesByLeaf,
+      leafAdjacency,
+    ),
+    sourceFaces: buildVisibilitySourceFaceMetadata(
+      planes,
+      nodes,
+      leaves,
+      sourceCandidates,
+      leafFaceMaps.leafIndexesByFace,
+    ),
+    doorBlockers: buildVisibilityDoorBlockerMetadata(planes, nodes, leaves, leafAdjacency, models, gameLogic),
+  };
+}
+
+function buildVisibilityLeafFaceMaps(
+  leaves: QuakeLeaf[],
+  markSurfaces: number[],
+  sourceFaceIndexes: Set<number>,
+): QuakeVisibilityLeafFaceMaps {
+  const faceSetsByLeaf = leaves.map(() => new Set<number>());
+  const leafSetsByFace = new Map<number, Set<number>>();
+  for (let leafIndex = 0; leafIndex < leaves.length; leafIndex++) {
+    const leaf = leaves[leafIndex];
+    if (!leaf) continue;
+    const end = leaf.firstMarkSurface + leaf.markSurfaceCount;
+    for (let i = leaf.firstMarkSurface; i < end; i++) {
+      const faceIndex = markSurfaces[i];
+      if (faceIndex === undefined || !sourceFaceIndexes.has(faceIndex)) continue;
+      faceSetsByLeaf[leafIndex]?.add(faceIndex);
+      const leafSet = leafSetsByFace.get(faceIndex);
+      if (leafSet) {
+        leafSet.add(leafIndex);
+      } else {
+        leafSetsByFace.set(faceIndex, new Set([leafIndex]));
+      }
+    }
+  }
+  return {
+    faceIndexesByLeaf: faceSetsByLeaf.map((set) => [...set].sort((a, b) => a - b)),
+    leafIndexesByFace: new Map(
+      [...leafSetsByFace].map(([faceIndex, set]) => [faceIndex, [...set].sort((a, b) => a - b)]),
+    ),
+  };
+}
+
+function buildVisibilityLeafMetadata(
+  leaves: QuakeLeaf[],
+  faceIndexesByLeaf: number[][],
+  visibleLeafIndexesByLeaf: Array<number[] | null>,
+  visibleFaceIndexesByLeaf: Array<number[] | null>,
+  adjacentLeafIndexesByLeaf: number[][],
+): QuakeVisibilityLeafMetadata[] {
+  return leaves.map((leaf, leafIndex) => ({
+    leafIndex,
+    contents: leaf.contents,
+    bounds: quakeVisibilityBoundsFromMinMax(leaf.mins, leaf.maxs),
+    faceIndexes: faceIndexesByLeaf[leafIndex] ?? [],
+    visibleLeafIndexes: visibleLeafIndexesByLeaf[leafIndex] ?? null,
+    visibleFaceIndexes: visibleFaceIndexesByLeaf[leafIndex] ?? null,
+    adjacentLeafIndexes: adjacentLeafIndexesByLeaf[leafIndex] ?? [],
+  }));
+}
+
+function buildVisibilityVisibleLeafIndexesByLeaf(
+  leaves: QuakeLeaf[],
+  visData: Uint8Array,
+): Array<number[] | null> {
+  return leaves.map((leaf, leafIndex) => {
+    if (!leaf || leaf.visOffset < 0 || !visData.length) return null;
+    const visible = quakeVisibilityDecompressVisibleLeaves(visData, leaf.visOffset, leaves.length);
+    const indexes = [leafIndex];
+    for (let i = 0; i < visible.length; i++) {
+      if (visible[i]) indexes.push(i);
+    }
+    return [...new Set(indexes)].sort((a, b) => a - b);
+  });
+}
+
+function buildVisibilityVisibleFaceIndexesByLeaf(
+  faceIndexesByLeaf: number[][],
+  visibleLeafIndexesByLeaf: Array<number[] | null>,
+): Array<number[] | null> {
+  return visibleLeafIndexesByLeaf.map((visibleLeafIndexes) => {
+    if (!visibleLeafIndexes) return null;
+    const faces = new Set<number>();
+    for (const leafIndex of visibleLeafIndexes) {
+      for (const faceIndex of faceIndexesByLeaf[leafIndex] ?? []) faces.add(faceIndex);
+    }
+    return [...faces].sort((a, b) => a - b);
+  });
+}
+
+function buildVisibilitySourceFaceMetadata(
+  planes: QuakePlane[],
+  nodes: QuakeNode[],
+  leaves: QuakeLeaf[],
+  sourceCandidates: QuakeFaceBuildCandidate[],
+  leafIndexesByFace: Map<number, number[]>,
+): QuakeVisibilitySourceFaceMetadata[] {
+  return sourceCandidates
+    .map((candidate) => {
+      const bounds = quakeVisibilityBoundsFromVertices(candidate.points);
+      const plane = quakeVisibilityClonePlane(planes[candidate.face.plane]);
+      const leafIndexes = leafIndexesByFace.get(candidate.faceIndex) ??
+        quakeVisibilityLeafIndexesForPoint(bounds.center, planes, nodes, leaves);
+      return {
+        faceIndex: candidate.faceIndex,
+        modelIndex: candidate.modelIndex,
+        ...(candidate.entityIndex !== undefined ? { entityIndex: candidate.entityIndex } : {}),
+        texture: candidate.texture.name,
+        planeIndex: candidate.face.plane,
+        plane,
+        side: candidate.face.side,
+        pointCount: candidate.points.length,
+        area: quakeVisibilityFaceArea(candidate.points),
+        leafIndexes,
+        bounds,
+      };
+    })
+    .sort((a, b) => a.faceIndex - b.faceIndex);
+}
+
+function buildVisibilityLeafAdjacency(leaves: QuakeLeaf[]): number[][] {
+  const adjacency = leaves.map(() => new Set<number>());
+  const bounds = leaves.map((leaf) => quakeVisibilityBoundsFromMinMax(leaf.mins, leaf.maxs));
+  for (let a = 0; a < leaves.length; a++) {
+    if (leaves[a]?.contents === QUAKE_CONTENTS_SOLID) continue;
+    for (let b = a + 1; b < leaves.length; b++) {
+      if (leaves[b]?.contents === QUAKE_CONTENTS_SOLID) continue;
+      if (!quakeVisibilityBoundsTouch(bounds[a], bounds[b], QUAKE_VISIBILITY_LEAF_ADJACENCY_EPSILON)) continue;
+      adjacency[a]?.add(b);
+      adjacency[b]?.add(a);
+    }
+  }
+  return adjacency.map((set) => [...set].sort((a, b) => a - b));
+}
+
+function buildVisibilityDoorBlockerMetadata(
+  planes: QuakePlane[],
+  nodes: QuakeNode[],
+  leaves: QuakeLeaf[],
+  leafAdjacency: number[][],
+  models: QuakePreparedModel[],
+  gameLogic: QuakeGameLogicFacts,
+): QuakeVisibilityDoorBlockerMetadata[] {
+  const leafBounds = leaves.map((leaf) => quakeVisibilityBoundsFromMinMax(leaf.mins, leaf.maxs));
+  const out: QuakeVisibilityDoorBlockerMetadata[] = [];
+  for (const entity of gameLogic.entities) {
+    const resolvedMover = entity.resolvedMover;
+    if (resolvedMover?.kind !== "func_door" && resolvedMover?.kind !== "func_door_secret") continue;
+    if (entity.modelIndex === undefined) continue;
+    const model = models[entity.modelIndex];
+    const baseBounds = quakeVisibilityEntityBrushBounds(entity, model);
+    if (!baseBounds) continue;
+
+    const closedBounds = resolvedMover.kind === "func_door"
+      ? quakeVisibilityOffsetBounds(
+          baseBounds,
+          resolvedMover.startsOpen ? resolvedMover.travelOffset : { x: 0, y: 0, z: 0 },
+        )
+      : baseBounds;
+    const openBounds = resolvedMover.kind === "func_door"
+      ? quakeVisibilityOffsetBounds(
+          baseBounds,
+          resolvedMover.startsOpen ? { x: 0, y: 0, z: 0 } : resolvedMover.travelOffset,
+        )
+      : undefined;
+    const triggerBounds = resolvedMover.kind === "func_door" && resolvedMover.trigger
+      ? quakeVisibilityBoundsFromMinMax(resolvedMover.trigger.mins, resolvedMover.trigger.maxs)
+      : undefined;
+    const nearbyBounds = [openBounds, triggerBounds]
+      .filter((bounds): bounds is QuakeVisibilityBounds => Boolean(bounds))
+      .reduce((acc, bounds) => quakeVisibilityUnionBounds(acc, bounds), closedBounds);
+
+    const leafIndexes = quakeVisibilityLeafIndexesForBounds(
+      leaves,
+      leafBounds,
+      closedBounds,
+      QUAKE_VISIBILITY_DOOR_LEAF_EXPANSION,
+    );
+    const nearbyLeafIndexes = quakeVisibilityLeafIndexesForBounds(
+      leaves,
+      leafBounds,
+      nearbyBounds,
+      QUAKE_VISIBILITY_DOOR_NEARBY_LEAF_EXPANSION,
+    );
+    const centerLeafIndexes = quakeVisibilityLeafIndexesForPoint(closedBounds.center, planes, nodes, leaves);
+    for (const leafIndex of centerLeafIndexes) {
+      addSortedUniqueNumber(leafIndexes, leafIndex);
+      addSortedUniqueNumber(nearbyLeafIndexes, leafIndex);
+    }
+    const blockedLeafPairCandidates = quakeVisibilityDoorBlockedLeafPairCandidates(
+      leafBounds,
+      leafAdjacency,
+      closedBounds,
+      nearbyLeafIndexes,
+    );
+
+    out.push({
+      entityIndex: entity.entityIndex,
+      modelIndex: entity.modelIndex,
+      classname: entity.classname,
+      kind: resolvedMover.kind,
+      linkedEntityIndexes: resolvedMover.kind === "func_door"
+        ? [...(resolvedMover.linkedDoorGroup?.linkedEntityIndexes ?? [entity.entityIndex])]
+        : [entity.entityIndex],
+      closedBounds,
+      ...(entity.origin ? { origin: { ...entity.origin } } : {}),
+      ...(openBounds ? { openBounds } : {}),
+      ...(triggerBounds ? { triggerBounds } : {}),
+      ...(resolvedMover.kind === "func_door" ? {
+        moveDirection: { ...resolvedMover.moveDirection },
+        travelOffset: { ...resolvedMover.travelOffset },
+        startsOpen: resolvedMover.startsOpen,
+      } : {}),
+      faceIndexes: model ? quakeModelFaceIndexes(model) : [],
+      leafIndexes,
+      nearbyLeafIndexes,
+      blockedLeafPairCandidates,
+    });
+  }
+  return out.sort((a, b) => a.entityIndex - b.entityIndex);
+}
+
+function quakeVisibilityEntityBrushBounds(
+  entity: QuakeGameLogicEntityFact,
+  model: QuakePreparedModel | undefined,
+): QuakeVisibilityBounds | null {
+  if (entity.brushModel) {
+    return quakeVisibilityOffsetBounds(
+      quakeVisibilityBoundsFromMinMax(entity.brushModel.mins, entity.brushModel.maxs),
+      entity.origin ?? { x: 0, y: 0, z: 0 },
+    );
+  }
+  if (!model) return null;
+  return quakeVisibilityOffsetBounds(
+    quakeVisibilityBoundsFromMinMax(model.mins, model.maxs),
+    entity.origin ?? { x: 0, y: 0, z: 0 },
+  );
+}
+
+function quakeVisibilityLeafIndexesForPoint(
+  point: QuakeVertex,
+  planes: QuakePlane[],
+  nodes: QuakeNode[],
+  leaves: QuakeLeaf[],
+): number[] {
+  const leafIndex = quakeVisibilityLeafForPoint(point, planes, nodes);
+  return leaves[leafIndex] ? [leafIndex] : [];
+}
+
+function quakeVisibilityLeafIndexesForBounds(
+  leaves: QuakeLeaf[],
+  leafBounds: QuakeVisibilityBounds[],
+  bounds: QuakeVisibilityBounds,
+  expansion: number,
+): number[] {
+  const queryBounds = quakeVisibilityInflateBounds(bounds, expansion);
+  const indexes: number[] = [];
+  for (let leafIndex = 0; leafIndex < leaves.length; leafIndex++) {
+    if (leaves[leafIndex]?.contents === QUAKE_CONTENTS_SOLID) continue;
+    const leafBound = leafBounds[leafIndex];
+    if (leafBound && quakeVisibilityBoundsOverlap(queryBounds, leafBound)) indexes.push(leafIndex);
+  }
+  return indexes;
+}
+
+function quakeVisibilityLeafForPoint(point: QuakeVertex, planes: QuakePlane[], nodes: QuakeNode[]): number {
+  let index = 0;
+  for (let guard = 0; guard < nodes.length; guard++) {
+    const node = nodes[index];
+    if (!node) return 0;
+    const plane = planes[node.plane];
+    if (!plane) return 0;
+    const dist = point.x * plane.normal.x + point.y * plane.normal.y + point.z * plane.normal.z - plane.dist;
+    const child = node.children[dist >= 0 ? 0 : 1];
+    if (child < 0) return -child - 1;
+    index = child;
+  }
+  return 0;
+}
+
+function quakeVisibilityDoorBlockedLeafPairCandidates(
+  leafBounds: QuakeVisibilityBounds[],
+  leafAdjacency: number[][],
+  closedBounds: QuakeVisibilityBounds,
+  nearbyLeafIndexes: number[],
+): Array<[number, number]> {
+  const nearby = new Set(nearbyLeafIndexes);
+  const queryBounds = quakeVisibilityInflateBounds(closedBounds, QUAKE_VISIBILITY_DOOR_NEARBY_LEAF_EXPANSION);
+  const pairs: Array<[number, number]> = [];
+  for (const a of nearbyLeafIndexes) {
+    const aBounds = leafBounds[a];
+    if (!aBounds || !quakeVisibilityBoundsOverlap(queryBounds, aBounds)) continue;
+    for (const b of leafAdjacency[a] ?? []) {
+      if (b <= a || !nearby.has(b)) continue;
+      const bBounds = leafBounds[b];
+      if (!bBounds || !quakeVisibilityBoundsOverlap(queryBounds, bBounds)) continue;
+      const pairBounds = quakeVisibilityUnionBounds(aBounds, bBounds);
+      if (!quakeVisibilityBoundsOverlap(queryBounds, pairBounds)) continue;
+      pairs.push([a, b]);
+    }
+  }
+  return pairs;
+}
+
+function quakeVisibilityDecompressVisibleLeaves(
+  visData: Uint8Array,
+  offset: number,
+  leafCount: number,
+): boolean[] {
+  const visible = Array.from({ length: leafCount }, () => false);
+  let leaf = 1;
+  let cursor = offset;
+  while (leaf < leafCount && cursor < visData.length) {
+    const value = visData[cursor++] ?? 0;
+    if (value !== 0) {
+      for (let bit = 0; bit < 8 && leaf < leafCount; bit++, leaf++) {
+        visible[leaf] = (value & (1 << bit)) !== 0;
+      }
+      continue;
+    }
+    const skip = visData[cursor++] ?? 0;
+    leaf += skip * 8;
+  }
+  return visible;
+}
+
+function quakeVisibilityBoundsFromVertices(vertices: QuakeVertex[]): QuakeVisibilityBounds {
+  const bounds = vertexBounds(vertices);
+  return quakeVisibilityBoundsFromMinMax(bounds.min, bounds.max);
+}
+
+function quakeVisibilityClonePlane(plane: QuakePlane | undefined): QuakePlane {
+  return {
+    normal: {
+      x: plane?.normal.x ?? 0,
+      y: plane?.normal.y ?? 0,
+      z: plane?.normal.z ?? 1,
+    },
+    dist: plane?.dist ?? 0,
+  };
+}
+
+function quakeVisibilityFaceArea(vertices: QuakeVertex[]): number {
+  const origin = vertices[0];
+  if (!origin || vertices.length < 3) return 0;
+  let area = 0;
+  for (let i = 1; i < vertices.length - 1; i++) {
+    const a = vertices[i];
+    const b = vertices[i + 1];
+    if (!a || !b) continue;
+    area += quakeVisibilityTriangleArea(origin, a, b);
+  }
+  return area;
+}
+
+function quakeVisibilityTriangleArea(a: QuakeVertex, b: QuakeVertex, c: QuakeVertex): number {
+  const ab = {
+    x: b.x - a.x,
+    y: b.y - a.y,
+    z: b.z - a.z,
+  };
+  const ac = {
+    x: c.x - a.x,
+    y: c.y - a.y,
+    z: c.z - a.z,
+  };
+  const cross = {
+    x: ab.y * ac.z - ab.z * ac.y,
+    y: ab.z * ac.x - ab.x * ac.z,
+    z: ab.x * ac.y - ab.y * ac.x,
+  };
+  return Math.sqrt(cross.x * cross.x + cross.y * cross.y + cross.z * cross.z) * 0.5;
+}
+
+function quakeVisibilityBoundsFromMinMax(mins: QuakeVertex, maxs: QuakeVertex): QuakeVisibilityBounds {
+  const normalizedMins = {
+    x: Math.min(mins.x, maxs.x),
+    y: Math.min(mins.y, maxs.y),
+    z: Math.min(mins.z, maxs.z),
+  };
+  const normalizedMaxs = {
+    x: Math.max(mins.x, maxs.x),
+    y: Math.max(mins.y, maxs.y),
+    z: Math.max(mins.z, maxs.z),
+  };
+  return {
+    mins: normalizedMins,
+    maxs: normalizedMaxs,
+    center: {
+      x: (normalizedMins.x + normalizedMaxs.x) * 0.5,
+      y: (normalizedMins.y + normalizedMaxs.y) * 0.5,
+      z: (normalizedMins.z + normalizedMaxs.z) * 0.5,
+    },
+  };
+}
+
+function quakeVisibilityOffsetBounds(bounds: QuakeVisibilityBounds, offset: QuakeVertex): QuakeVisibilityBounds {
+  return quakeVisibilityBoundsFromMinMax(
+    {
+      x: bounds.mins.x + offset.x,
+      y: bounds.mins.y + offset.y,
+      z: bounds.mins.z + offset.z,
+    },
+    {
+      x: bounds.maxs.x + offset.x,
+      y: bounds.maxs.y + offset.y,
+      z: bounds.maxs.z + offset.z,
+    },
+  );
+}
+
+function quakeVisibilityInflateBounds(bounds: QuakeVisibilityBounds, amount: number): QuakeVisibilityBounds {
+  return quakeVisibilityBoundsFromMinMax(
+    {
+      x: bounds.mins.x - amount,
+      y: bounds.mins.y - amount,
+      z: bounds.mins.z - amount,
+    },
+    {
+      x: bounds.maxs.x + amount,
+      y: bounds.maxs.y + amount,
+      z: bounds.maxs.z + amount,
+    },
+  );
+}
+
+function quakeVisibilityUnionBounds(
+  a: QuakeVisibilityBounds,
+  b: QuakeVisibilityBounds,
+): QuakeVisibilityBounds {
+  return quakeVisibilityBoundsFromMinMax(
+    {
+      x: Math.min(a.mins.x, b.mins.x),
+      y: Math.min(a.mins.y, b.mins.y),
+      z: Math.min(a.mins.z, b.mins.z),
+    },
+    {
+      x: Math.max(a.maxs.x, b.maxs.x),
+      y: Math.max(a.maxs.y, b.maxs.y),
+      z: Math.max(a.maxs.z, b.maxs.z),
+    },
+  );
+}
+
+function quakeVisibilityBoundsOverlap(a: QuakeVisibilityBounds, b: QuakeVisibilityBounds): boolean {
+  return a.mins.x <= b.maxs.x && a.maxs.x >= b.mins.x &&
+    a.mins.y <= b.maxs.y && a.maxs.y >= b.mins.y &&
+    a.mins.z <= b.maxs.z && a.maxs.z >= b.mins.z;
+}
+
+function quakeVisibilityBoundsTouch(
+  a: QuakeVisibilityBounds,
+  b: QuakeVisibilityBounds,
+  epsilon: number,
+): boolean {
+  const touchX = intervalsTouch(a.mins.x, a.maxs.x, b.mins.x, b.maxs.x, epsilon);
+  const touchY = intervalsTouch(a.mins.y, a.maxs.y, b.mins.y, b.maxs.y, epsilon);
+  const touchZ = intervalsTouch(a.mins.z, a.maxs.z, b.mins.z, b.maxs.z, epsilon);
+  const overlapX = intervalsOverlap(a.mins.x, a.maxs.x, b.mins.x, b.maxs.x, epsilon);
+  const overlapY = intervalsOverlap(a.mins.y, a.maxs.y, b.mins.y, b.maxs.y, epsilon);
+  const overlapZ = intervalsOverlap(a.mins.z, a.maxs.z, b.mins.z, b.maxs.z, epsilon);
+  return (touchX && overlapY && overlapZ) ||
+    (touchY && overlapX && overlapZ) ||
+    (touchZ && overlapX && overlapY);
+}
+
+function intervalsOverlap(aMin: number, aMax: number, bMin: number, bMax: number, epsilon: number): boolean {
+  return aMin <= bMax + epsilon && aMax + epsilon >= bMin;
+}
+
+function intervalsTouch(aMin: number, aMax: number, bMin: number, bMax: number, epsilon: number): boolean {
+  return Math.abs(aMax - bMin) <= epsilon || Math.abs(bMax - aMin) <= epsilon;
+}
+
+function quakeModelFaceIndexes(model: QuakePreparedModel): number[] {
+  return Array.from({ length: model.faceCount }, (_item, index) => model.firstFace + index);
+}
+
+function addSortedUniqueNumber(values: number[], value: number): void {
+  if (values.includes(value)) return;
+  values.push(value);
+  values.sort((a, b) => a - b);
 }
 
 function buildPreparedModels(models: QuakeModel[]): QuakePreparedModel[] {
@@ -2041,6 +2657,16 @@ function parseLeaves(view: DataView): QuakeLeaf[] {
     leaves.push({
       contents: view.getInt32(offset, true),
       visOffset: view.getInt32(offset + 4, true),
+      mins: {
+        x: view.getInt16(offset + 8, true),
+        y: view.getInt16(offset + 10, true),
+        z: view.getInt16(offset + 12, true),
+      },
+      maxs: {
+        x: view.getInt16(offset + 14, true),
+        y: view.getInt16(offset + 16, true),
+        z: view.getInt16(offset + 18, true),
+      },
       firstMarkSurface: view.getUint16(offset + 20, true),
       markSurfaceCount: view.getUint16(offset + 22, true),
     });

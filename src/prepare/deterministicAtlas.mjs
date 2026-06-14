@@ -350,6 +350,7 @@ export async function replaceQuakeRenderBundleWorldAtlas({
   renderBundle.leafCount = renderBundle.leafMetadata.length;
   await withDeterministicAtlasTiming(timing, "mesh.compactAssets", () =>
     compactRenderBundleBackgroundAssets(renderBundle, outputDir, publicPath));
+  completeDeterministicRenderBundleAssetUrls(renderBundle, leafImageTiles, tiles);
 
   const oldBytes = await withDeterministicAtlasTiming(timing, "oldAssetScan", () =>
     referencedAssetBytes(originalAssetUrls, outputDir, publicPath));
@@ -377,6 +378,67 @@ export async function replaceQuakeRenderBundleWorldAtlas({
   };
   logDeterministicAtlasTiming(timing, stats);
   return stats;
+}
+
+function completeDeterministicRenderBundleAssetUrls(renderBundle, leafImageTiles, tiles) {
+  const urls = new Set(renderBundle.assetUrls ?? []);
+  for (const tile of leafImageTiles) {
+    if (tile.leafImageUrl) urls.add(tile.leafImageUrl);
+  }
+  for (const tile of tiles) {
+    for (const url of Object.values(tile.runtimeTextureUrls ?? {})) {
+      if (url) urls.add(url);
+    }
+  }
+  collectDeterministicRenderBundleLiteralAssetUrls(urls, renderBundle.meshHtml ?? "");
+  if (renderBundle.meshCss) {
+    collectDeterministicRenderBundleLiteralAssetUrls(urls, renderBundle.meshCss);
+  }
+  for (const frameStyle of renderBundle.leafFrameStyles ?? []) {
+    for (const value of frameStyle) {
+      if (typeof value === "string") collectDeterministicRenderBundleLiteralAssetUrls(urls, value);
+    }
+  }
+  renderBundle.assetUrls = [...urls];
+  renderBundle.assetUrlsComplete = true;
+}
+
+function collectDeterministicRenderBundleLiteralAssetUrls(urls, text) {
+  if (!text) return;
+  if (text.includes("url(")) {
+    const pattern = /url\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^)]*?))\s*\)/g;
+    for (const match of text.matchAll(pattern)) {
+      addDeterministicRenderBundleLiteralAssetUrl(urls, match[1] ?? match[2] ?? match[3] ?? "");
+    }
+  }
+  const runtimeTexturePattern = /\sdata-(?:base|pressed|sprite)="([^"]*)"/g;
+  for (const match of text.matchAll(runtimeTexturePattern)) {
+    addDeterministicRenderBundleLiteralAssetUrl(urls, match[1] ?? "");
+  }
+}
+
+function addDeterministicRenderBundleLiteralAssetUrl(urls, value) {
+  let url = String(value ?? "")
+    .trim()
+    .replace(/&quot;|&#34;/g, "\"")
+    .replace(/&apos;|&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/\\(["'()\\\s])/g, "$1");
+  while (
+    (url.startsWith("\"") && url.endsWith("\"")) ||
+    (url.startsWith("'") && url.endsWith("'"))
+  ) {
+    url = url.slice(1, -1).trim();
+  }
+  if (
+    !url ||
+    url === "none" ||
+    url.startsWith("var(") ||
+    /^(?:about|blob|data|javascript):/i.test(url)
+  ) {
+    return;
+  }
+  urls.add(url);
 }
 
 function parseQuakeBspFromPak(pakBuffer, mapPath) {
