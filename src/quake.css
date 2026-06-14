@@ -341,18 +341,10 @@ body.quake-menu-open .quake-css-logo {
   height: 40px;
   filter: drop-shadow(0 1px 0 #000000);
 }
-.quake-id-software-logo {
-  display: block;
-  width: 40px;
-  height: 40px;
-  filter: invert(1) drop-shadow(0 1px 0 #000000);
-}
-.quake-css-logo:hover,
-.quake-id-software-link:hover {
+.quake-css-logo:hover {
   opacity: 0.8;
 }
-.quake-css-logo:focus-visible,
-.quake-id-software-link:focus-visible {
+.quake-css-logo:focus-visible {
   outline: 2px solid #f0ad5c;
   outline-offset: 3px;
 }
