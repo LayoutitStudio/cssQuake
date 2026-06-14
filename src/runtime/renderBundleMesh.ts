@@ -23,6 +23,10 @@ export interface QuakeRenderBundlePreloadProgress {
   startTask(status?: string): () => void;
 }
 
+export interface QuakeRenderBundlePreloadOptions {
+  preloadImages?: boolean;
+}
+
 export interface QuakeRenderBundleFrameSetMountOptions {
   changedLeafTransitions?: boolean;
   motionMaterial?: QuakeRenderBundleFrameSetMotionMaterialOptions | null;
@@ -709,6 +713,7 @@ function ensureQuakeRenderBundleStyles(
 export async function preloadQuakeRenderBundleAssets(
   renderBundle: QuakePreparedRenderBundle,
   progress?: QuakeRenderBundlePreloadProgress,
+  options: QuakeRenderBundlePreloadOptions = {},
 ): Promise<void> {
   const leafFrameStylesUrl = renderBundle.leafFrameStylesUrl;
   const setupTasks: Promise<unknown>[] = [];
@@ -727,6 +732,7 @@ export async function preloadQuakeRenderBundleAssets(
     setupTasks.push(preloadQuakeRenderBundleStyle(renderBundle).finally(() => complete?.()));
   }
   await Promise.all(setupTasks);
+  if (options.preloadImages === false) return;
   const urls = quakeRenderBundlePreloadAssetUrls(renderBundle);
   if (!urls.length) return;
   const hasUncachedAsset = urls.some((url) => !renderBundleAssetPreloads.has(url));
