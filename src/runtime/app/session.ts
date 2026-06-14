@@ -199,8 +199,12 @@ export async function fetchQuakeScene(
     throw new Error(`Prepared Quake map ${mapName.toUpperCase()} is missing its render bundle.`);
   }
   const renderBundlePreloads = [
-    ...(prepared.renderBundle ? [preloadQuakeRenderBundleAssets(prepared.renderBundle, worldProgress)] : []),
-    ...(prepared.lightstyleRenderBundle ? [preloadQuakeRenderBundleAssets(prepared.lightstyleRenderBundle, worldProgress)] : []),
+    ...(prepared.renderBundle
+      ? [preloadQuakeRenderBundleAssets(prepared.renderBundle, worldProgress, { preloadImages: false })]
+      : []),
+    ...(prepared.lightstyleRenderBundle
+      ? [preloadQuakeRenderBundleAssets(prepared.lightstyleRenderBundle, worldProgress, { preloadImages: false })]
+      : []),
   ];
   completeSceneTask?.();
   await Promise.all(renderBundlePreloads);
