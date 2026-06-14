@@ -125,6 +125,7 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
       skipBackgroundAssetExtraction: layoutOnly,
       skipAssetPayloads: skipAssetPayloads || layoutOnly,
       styleClassName,
+      layoutOnly,
       mutateOriginal: true,
     }));
     const leafCount = handle.element.querySelectorAll("b,i,s,u").length;
@@ -1597,8 +1598,10 @@ async function tightenQuakeAtlasLeaf(leaf, boundsByKey, useExistingBounds) {
   const size = cssPixelPair(leaf.style.backgroundSize) ?? cssPixelPair(style().backgroundSize);
   const matrix = parseMatrix3d(leaf.style.transform || style().transform);
   if (!position || !size || !matrix || atlasSize <= 0 || size[0] <= 0 || size[1] <= 0) return;
+  const backgroundImage = renderBundleAtlasLeafBackgroundImage(leaf, style());
+  if (!backgroundImage) return;
   if (!bounds && !useExistingBounds) {
-    const imageUrl = cssUrlValue(leaf.style.backgroundImage || style().backgroundImage);
+    const imageUrl = cssUrlValue(backgroundImage);
     if (!imageUrl) return;
     const atlas = await loadQuakeAtlasImageData(imageUrl);
     if (!atlas) return;
@@ -1612,7 +1615,7 @@ async function tightenQuakeAtlasLeaf(leaf, boundsByKey, useExistingBounds) {
   leaf.style.transform = formatMatrix3d(nextMatrix);
   leaf.style.width = `${roundCssPx(bounds.width)}px`;
   leaf.style.height = `${roundCssPx(bounds.height)}px`;
-  leaf.style.background = `${leaf.style.backgroundImage || style().backgroundImage} ` +
+  leaf.style.background = `${backgroundImage} ` +
     `${roundCssPx(position[0] - bounds.x)}px ` +
     `${roundCssPx(position[1] - bounds.y)}px / ${roundCssPx(size[0])}px ${roundCssPx(size[1])}px no-repeat`;
 }
@@ -1703,7 +1706,7 @@ function snapQuakeAtlasLeafBackgroundToIntegerPx(leaf) {
     computedStyle ??= win.getComputedStyle(leaf);
     return computedStyle;
   };
-  const backgroundImage = leaf.style.backgroundImage || style().backgroundImage;
+  const backgroundImage = renderBundleAtlasLeafBackgroundImage(leaf, style());
   if (!backgroundImage || backgroundImage === "none") return false;
   const position = cssPixelPair(
     leaf.style.backgroundPosition,
@@ -1848,9 +1851,44 @@ function atlasLeafAlphaBounds(atlas, atlasSize, position, backgroundSize) {
   return { x, y, width: right - x, height: bottom - y };
 }
 
+function renderBundleAtlasLeafBackgroundImage(leaf, computedStyle = null) {
+  return renderBundleBackgroundImageValue(
+    leaf.style.backgroundImage,
+    leaf.style.background,
+    computedStyle?.backgroundImage,
+    computedStyle?.background,
+  );
+}
+
+function renderBundleBackgroundImageValue(...values) {
+  for (const value of values) {
+    const url = cssUrlValue(value);
+    if (url) return cssUrlToken(url);
+  }
+  return "";
+}
+
 function cssUrlValue(value) {
-  const match = /^url\((?:"([^"]+)"|'([^']+)'|([^)]*))\)$/.exec(value.trim());
-  return match ? (match[1] ?? match[2] ?? match[3] ?? "").trim() : "";
+  const text = String(value ?? "").trim();
+  if (!text || text === "none") return "";
+  const match = /url\(\s*(?:"([^"]+)"|'([^']+)'|([^)]*?))\s*\)/.exec(text);
+  return match ? cleanCssUrlValue(match[1] ?? match[2] ?? match[3] ?? "") : "";
+}
+
+function cleanCssUrlValue(value) {
+  const text = String(value ?? "").trim();
+  if (!text.includes("--polycss-atlas-")) return text;
+  const parts = text.split(";").map((part) => part.trim()).filter(Boolean);
+  for (let index = parts.length - 1; index >= 0; index--) {
+    const part = parts[index];
+    if (!part.startsWith("--polycss-atlas-") && !/^[a-z-]+\s*:/.test(part)) return part;
+  }
+  return "";
+}
+
+function cssUrlToken(value) {
+  const url = String(value ?? "").trim();
+  return url ? `url("${url.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}")` : "";
 }
 
 function cssPixelPair(value, fallbackX = "", fallbackY = "") {
@@ -1900,13 +1938,15 @@ async function serializeMeshWithAssets(mesh, options = {}) {
   const serializableMesh = runQuakeRenderBundleStep("serialize-clone", () =>
     options.mutateOriginal ? mesh : mesh.cloneNode(true)
   );
+  const preserveAtlasLeafSizingMetadata = Boolean(options.layoutOnly || !options.skipBackgroundAssetExtraction);
   const leafMetadata = runQuakeRenderBundleStep("serialize-metadata", () =>
     extractRenderBundleLeafMetadata(serializableMesh)
   );
   runQuakeRenderBundleStep("serialize-strip-metadata", () =>
     stripRenderBundleMeshMetadata(serializableMesh, {
       preserveLeafPolyIndex: Boolean(options.extractLeafStyles),
-      preservePolycssTextureMetadata: Boolean(options.extractLeafStyles),
+      preservePolycssTextureMetadata: Boolean(options.extractLeafStyles || preserveAtlasLeafSizingMetadata),
+      preservePolycssStyleMetadata: preserveAtlasLeafSizingMetadata,
     })
   );
   const assetByBlobUrl = new Map();
@@ -1941,8 +1981,15 @@ async function serializeMeshWithAssets(mesh, options = {}) {
     runQuakeRenderBundleStep("serialize-hoist-backgrounds", () =>
       hoistRenderBundleBackgroundImages(serializableMesh)
     );
+  }
+  if (!options.skipBackgroundAssetExtraction || options.layoutOnly) {
     runQuakeRenderBundleStep("serialize-normalize-inline-atlas-leaf-boxes", () =>
       normalizeRenderBundleInlineAtlasLeafBoxes(serializableMesh)
+    );
+    runQuakeRenderBundleStep("serialize-strip-atlas-leaf-metadata", () =>
+      stripRenderBundleMeshMetadata(serializableMesh, {
+        preserveLeafPolyIndex: Boolean(options.extractLeafStyles),
+      })
     );
   }
   const { meshCss, leafFrameStyles } = runQuakeRenderBundleStep("serialize-extract-styles", () =>
@@ -2076,7 +2123,7 @@ function extractRenderBundleFrameStylesFromInheritedBase(mesh, baseLeafFrameStyl
     if (!baseLeafFrameStylesByClass.has(leafClass)) return null;
     const rawFrameStyle = (
       rawStyle.includes("--pn") ||
-      rawStyle.includes("--polycss-atlas-size") ||
+      rawStyle.includes("--polycss-atlas-") ||
       rawStyle.includes("background-repeat")
     )
       ? stripRenderBundleStyleMetadata(rawStyle)
@@ -2352,7 +2399,9 @@ function applyKnownQuakeAtlasLeafBounds(leaf, bounds) {
   leaf.style.transform = formatMatrix3d(nextMatrix);
   leaf.style.width = `${roundCssPx(bounds.width)}px`;
   leaf.style.height = `${roundCssPx(bounds.height)}px`;
-  leaf.style.background = `${leaf.style.backgroundImage || style().backgroundImage} ` +
+  const backgroundImage = renderBundleAtlasLeafBackgroundImage(leaf, style());
+  if (!backgroundImage) return;
+  leaf.style.background = `${backgroundImage} ` +
     `${roundCssPx(position[0] - bounds.x)}px ` +
     `${roundCssPx(position[1] - bounds.y)}px / ${roundCssPx(size[0])}px ${roundCssPx(size[1])}px no-repeat`;
 }
@@ -2368,7 +2417,7 @@ function directTightenedAtlasLeafFrameStyle(leaf, bounds, baseFrameStyle, option
   );
   const size = cssPixelPair(leaf.style.backgroundSize);
   const matrix = parseMatrix3d(leaf.style.transform);
-  const backgroundImage = leaf.style.backgroundImage;
+  const backgroundImage = renderBundleAtlasLeafBackgroundImage(leaf);
   if (
     !position ||
     !size ||
@@ -2478,7 +2527,7 @@ function formatRenderBundleStyleDeclarations(declarations) {
 function renderBundleStyleNeedsMetadataStrip(style) {
   return (
     style.includes("--pn") ||
-    style.includes("--polycss-atlas-size") ||
+    style.includes("--polycss-atlas-") ||
     style.includes("background-repeat")
   );
 }
@@ -2527,7 +2576,7 @@ function extractRenderBundleFrameStylesFromStableBaseOrder(mesh, baseLeafFrameSt
     if (polyIndex !== baseEntry.polyIndex) return null;
     const rawFrameStyle = (
       rawStyle.includes("--pn") ||
-      rawStyle.includes("--polycss-atlas-size") ||
+      rawStyle.includes("--polycss-atlas-") ||
       rawStyle.includes("background-repeat")
     )
       ? stripRenderBundleStyleMetadata(rawStyle)
@@ -2573,7 +2622,7 @@ function renderBundleHoistedStylesByElement(mesh) {
     const rawStyle = element.getAttribute("style") ?? "";
     const style = (
       rawStyle.includes("--pn") ||
-      rawStyle.includes("--polycss-atlas-size") ||
+      rawStyle.includes("--polycss-atlas-") ||
       rawStyle.includes("background-repeat")
     )
       ? stripRenderBundleStyleMetadata(rawStyle)
@@ -2681,7 +2730,11 @@ function compactRenderBundleLeafFrameStyle(style) {
   const transform = declarations.find((part) => part.name === "transform");
   const background = declarations.find((part) => part.name === "background");
   const extras = declarations
-    .filter((part) => part.name !== "transform" && part.name !== "background")
+    .filter((part) =>
+      part.name !== "transform" &&
+      part.name !== "background" &&
+      !part.name.startsWith("--polycss-atlas-")
+    )
     .map((part) => `${part.name}:${part.value}`)
     .join(";");
   const matrix = transform?.value?.match(/^matrix3d\((.*)\)$/)?.[1] ?? transform?.value ?? "";
@@ -2698,7 +2751,12 @@ function compactRenderBundleInheritedLeafFrameStyle(style) {
   const declarations = renderBundleStyleDeclarations(style);
   const transform = declarations.find((part) => part.name === "transform");
   const extras = declarations
-    .filter((part) => part.name !== "transform" && part.name !== "background" && !part.name.startsWith("background-"))
+    .filter((part) =>
+      part.name !== "transform" &&
+      part.name !== "background" &&
+      !part.name.startsWith("background-") &&
+      !part.name.startsWith("--polycss-atlas-")
+    )
     .map((part) => `${part.name}:${part.value}`)
     .join(";");
   const matrix = transform?.value?.match(/^matrix3d\((.*)\)$/)?.[1] ?? transform?.value ?? "";
@@ -2717,7 +2775,7 @@ async function normalizeRenderBundleAtlasLeafImagePixelBox(leaf) {
     computedStyle ??= win.getComputedStyle(leaf);
     return computedStyle;
   };
-  const backgroundImage = leaf.style.backgroundImage || style().backgroundImage;
+  const backgroundImage = renderBundleAtlasLeafBackgroundImage(leaf, style());
   if (!backgroundImage || backgroundImage === "none") return;
   const imageUrl = cssUrlValue(backgroundImage);
   if (!imageUrl) return;
@@ -2998,18 +3056,20 @@ function stripRenderBundleMeshMetadata(mesh, options = {}) {
       }
     }
   }
-  for (const element of mesh.querySelectorAll("[style]")) {
-    const style = element.getAttribute("style") ?? "";
-    if (
-      !style.includes("--pn") &&
-      !style.includes("--polycss-atlas-size") &&
-      !style.includes("background-repeat")
-    ) continue;
-    const nextStyle = stripRenderBundleStyleMetadata(style);
-    if (nextStyle) {
-      element.setAttribute("style", nextStyle);
-    } else {
-      element.removeAttribute("style");
+  if (!options.preservePolycssStyleMetadata) {
+    for (const element of mesh.querySelectorAll("[style]")) {
+      const style = element.getAttribute("style") ?? "";
+      if (
+        !style.includes("--pn") &&
+        !style.includes("--polycss-atlas-") &&
+        !style.includes("background-repeat")
+      ) continue;
+      const nextStyle = stripRenderBundleStyleMetadata(style);
+      if (nextStyle) {
+        element.setAttribute("style", nextStyle);
+      } else {
+        element.removeAttribute("style");
+      }
     }
   }
 }
@@ -3021,7 +3081,7 @@ function stripRenderBundleStyleMetadata(style) {
     .filter((part) =>
       part &&
       !/^--pn[xyz]\s*:/.test(part) &&
-      !/^--polycss-atlas-size\s*:/i.test(part) &&
+      !/^--polycss-atlas-[\w-]+\s*:/i.test(part) &&
       !/^background-repeat\s*:\s*no-repeat$/i.test(part)
     )
     .join(";");
