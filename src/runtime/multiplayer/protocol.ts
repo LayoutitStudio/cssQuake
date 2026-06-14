@@ -416,6 +416,8 @@ export interface QuakeMultiplayerRemoteInterpolationState {
   renderRotX: number;
   renderRotY: number;
   alive: boolean;
+  lastPainAt?: number;
+  deathAt?: number;
   previous?: QuakeMultiplayerRemoteInterpolationSample;
   next?: QuakeMultiplayerRemoteInterpolationSample;
   stale: boolean;

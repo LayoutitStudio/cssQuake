@@ -128,9 +128,7 @@ body.quake-menu-open #quake-hud {
   border: 1px solid rgba(214, 181, 92, 0.8);
   background: rgba(9, 7, 5, 0.78);
   color: #f4df9a;
-  font: 700 12px/1.35 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   letter-spacing: 0;
-  text-shadow: 1px 1px 0 #000000;
   pointer-events: none;
 }
 .quake-multiplayer-scoreboard[hidden] {
@@ -144,19 +142,30 @@ body.quake-menu-open #quake-hud {
   max-width: 180px;
   padding: 2px 5px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+.quake-multiplayer-scoreboard .quake-bitmap-text {
+  --quake-bitmap-glyph-size: 12px;
+  --quake-bitmap-sheet-size: 192px;
+  --quake-bitmap-space-size: 8px;
+  flex-wrap: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  gap: 0 var(--quake-bitmap-space-size);
+  filter: drop-shadow(1px 1px 0 #000000);
 }
 .quake-multiplayer-scoreboard td:first-child {
   border-left: 3px solid var(--quake-multiplayer-player-color, transparent);
 }
 .quake-multiplayer-scoreboard-number {
   width: 40px;
-  color: #ffffff;
-  text-align: right;
 }
-.quake-multiplayer-scoreboard-local td:first-child {
-  color: #f08a43;
+.quake-multiplayer-scoreboard-number .quake-bitmap-text {
+  width: 100%;
+  justify-content: flex-end;
+}
+.quake-multiplayer-scoreboard-local td:first-child .quake-bitmap-text {
+  filter: brightness(1.18) saturate(1.2) drop-shadow(1px 1px 0 #000000);
 }
 #quake-damage-overlay {
   position: absolute;
@@ -774,6 +783,9 @@ body.quake-main-menu-pending #quake-main-menu {
 .quake-main-menu-item-selectable {
   pointer-events: auto;
 }
+.quake-main-menu-item[data-quake-main-menu-action="level-select"] {
+  display: none;
+}
 .quake-main-menu-label {
   display: block;
   width: calc(var(--quake-main-menu-label-width) * var(--quake-main-menu-px));
@@ -782,12 +794,32 @@ body.quake-main-menu-pending #quake-main-menu {
   overflow: visible;
   pointer-events: none;
 }
+.quake-main-menu-note {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 1.25cqw);
+  display: none;
+  width: calc(31 * var(--quake-main-menu-px));
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.quake-main-menu-note .quake-bitmap-text {
+  --quake-bitmap-glyph-size: calc(5 * var(--quake-main-menu-px));
+  --quake-bitmap-sheet-size: calc(80 * var(--quake-main-menu-px));
+  --quake-bitmap-space-size: calc(1 * var(--quake-main-menu-px));
+  align-content: center;
+  gap: calc(1 * var(--quake-main-menu-px)) var(--quake-bitmap-space-size);
+}
+#quake-main-menu-list > .quake-main-menu-item-disabled[data-quake-main-menu-action="multiplayer"] .quake-main-menu-note-coming-soon:not([hidden]) {
+  display: block;
+}
 .quake-main-menu-item-active .quake-main-menu-label {
   filter: brightness(1.32);
 }
 #quake-main-menu-list > .quake-main-menu-item-disabled {
   opacity: 0.46;
   cursor: default;
+  pointer-events: auto;
 }
 #quake-main-menu-list > .quake-main-menu-item-disabled .quake-main-menu-label {
   filter: none;
@@ -801,6 +833,9 @@ body.quake-main-menu-pending #quake-main-menu-list > .quake-main-menu-item-selec
 }
 body.quake-main-menu-pending #quake-main-menu-list .quake-main-menu-label {
   filter: none;
+}
+body.quake-main-menu-pending #quake-main-menu-list .quake-main-menu-note {
+  display: none;
 }
 body.quake-main-menu-pending #quake-main-menu-list .quake-main-menu-item-cursor {
   display: none;
@@ -830,8 +865,8 @@ body:not(.quake-main-menu-pending) #quake-main-menu-list .quake-main-menu-label 
   --quake-main-menu-label-height: 20;
 }
 .quake-main-menu-label-debug {
-  --quake-main-menu-label-width: 100;
-  --quake-main-menu-label-height: 20;
+  --quake-main-menu-label-width: 90;
+  --quake-main-menu-label-height: 18;
 }
 .quake-main-menu-label-quit {
   --quake-main-menu-label-width: 70;
@@ -1216,6 +1251,11 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 .quake-single-player-button-save {
   background-position-y: calc(-40 * var(--quake-menu-px));
 }
+.quake-single-player-button-level-select {
+  width: calc(211 * var(--quake-menu-px));
+  background-image: url("/q/menu-title-level-select.png");
+  background-size: calc(211 * var(--quake-menu-px)) calc(20 * var(--quake-menu-px));
+}
 .quake-single-player-button::before {
   content: "";
   position: absolute;
@@ -1264,6 +1304,10 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   margin: 0;
 }
 .quake-multiplayer-field {
+  --quake-multiplayer-row-brightness: 0.94;
+  --quake-multiplayer-control-bg: rgba(0, 0, 0, 0.62);
+  --quake-multiplayer-control-border: rgba(216, 137, 63, 0.62);
+  position: relative;
   display: grid;
   grid-template-columns: calc(88 * var(--quake-menu-px)) minmax(0, 1fr);
   align-items: center;
@@ -1272,17 +1316,55 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   min-width: 0;
   color: rgba(246, 241, 223, 0.84);
 }
-.quake-multiplayer-field > span {
+.quake-multiplayer-field::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: calc(-12 * var(--quake-menu-px));
+  width: var(--quake-menu-row-text-size);
+  height: var(--quake-menu-row-text-size);
+  background-image: url("/q/conchars.png");
+  background-position: calc(-12 * var(--quake-menu-row-text-size)) 0;
+  background-size: calc(16 * var(--quake-menu-row-text-size)) calc(16 * var(--quake-menu-row-text-size));
+  image-rendering: pixelated;
+  opacity: 0;
+  transform: translateY(-50%);
+  animation: quake-menu-option-cursor-frame 500ms steps(1, end) infinite;
+  pointer-events: none;
+}
+.quake-multiplayer-field:hover,
+.quake-multiplayer-field:focus-within {
+  --quake-multiplayer-row-brightness: 1.28;
+  --quake-multiplayer-control-bg: rgba(28, 13, 5, 0.82);
+  --quake-multiplayer-control-border: #f0ad5c;
+  color: #f6f1df;
+}
+.quake-multiplayer-field:hover::before,
+.quake-multiplayer-field:focus-within::before {
+  opacity: 1;
+}
+.quake-multiplayer-form:has(.quake-multiplayer-field:hover) .quake-multiplayer-field:focus-within:not(:hover)::before {
+  opacity: 0;
+}
+.quake-multiplayer-field-label {
   display: block;
   min-width: 0;
   min-height: var(--quake-menu-row-text-size);
 }
-.quake-multiplayer-field > span .quake-bitmap-text,
+.quake-multiplayer-field-label .quake-bitmap-text,
 .quake-multiplayer-status .quake-bitmap-text {
   --quake-bitmap-glyph-size: var(--quake-menu-row-text-size);
   --quake-bitmap-sheet-size: calc(16 * var(--quake-menu-row-text-size));
   --quake-bitmap-space-size: var(--quake-menu-row-text-size);
   gap: 0 var(--quake-bitmap-space-size);
+}
+.quake-multiplayer-field-label .quake-bitmap-text {
+  filter: brightness(var(--quake-multiplayer-row-brightness));
+}
+.quake-multiplayer-control-shell {
+  position: relative;
+  display: block;
+  min-width: 0;
 }
 .quake-multiplayer-field input,
 .quake-multiplayer-field select {
@@ -1290,32 +1372,64 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   min-width: 0;
   height: calc(12 * var(--quake-menu-px));
   padding: 0 calc(2 * var(--quake-menu-px));
-  border: calc(1 * var(--quake-menu-px)) solid rgba(216, 137, 63, 0.62);
+  border: calc(1 * var(--quake-menu-px)) solid var(--quake-multiplayer-control-border);
   border-radius: 0;
-  background: rgba(0, 0, 0, 0.62);
+  background: var(--quake-multiplayer-control-bg);
   color: #f6f1df;
   font: 400 calc(6 * var(--quake-menu-px))/1 ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
   letter-spacing: 0;
   outline: none;
 }
+.quake-multiplayer-control-shell input,
+.quake-multiplayer-control-shell select {
+  color: transparent;
+  caret-color: #f6f1df;
+}
+.quake-multiplayer-control-shell select option {
+  color: #f6f1df;
+  background: #050403;
+}
+.quake-multiplayer-control-glyph {
+  position: absolute;
+  top: 50%;
+  left: calc(3 * var(--quake-menu-px));
+  right: calc(2 * var(--quake-menu-px));
+  display: flex;
+  min-width: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.quake-multiplayer-control-glyph .quake-bitmap-text {
+  --quake-bitmap-glyph-size: calc(6 * var(--quake-menu-px));
+  --quake-bitmap-sheet-size: calc(96 * var(--quake-menu-px));
+  --quake-bitmap-space-size: calc(5 * var(--quake-menu-px));
+  flex-wrap: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  gap: 0 var(--quake-bitmap-space-size);
+  filter: brightness(var(--quake-multiplayer-row-brightness));
+}
 .quake-multiplayer-field input:focus,
 .quake-multiplayer-field select:focus {
-  border-color: #f0ad5c;
+  border-color: #ffd089;
+  box-shadow: 0 0 0 calc(1 * var(--quake-menu-px)) rgba(240, 173, 92, 0.2);
 }
 .quake-multiplayer-color-field input {
   width: calc(20 * var(--quake-menu-px));
   padding: 0;
+  cursor: pointer;
 }
 .quake-multiplayer-actions {
   grid-column: 1 / -1;
-  --quake-menu-row-text-size: calc(7 * var(--quake-menu-px));
+  --quake-menu-row-text-size: calc(8 * var(--quake-menu-px));
   display: grid;
-  grid-template-columns: repeat(3, max-content);
-  gap: calc(8 * var(--quake-menu-px));
+  grid-template-columns: max-content;
+  gap: 0;
   align-items: center;
-  margin-top: calc(2 * var(--quake-menu-px));
+  margin-top: calc(3 * var(--quake-menu-px));
 }
 .quake-multiplayer-actions button {
+  --quake-multiplayer-action-brightness: 0.94;
   position: relative;
   min-height: var(--quake-menu-row-text-size);
   padding: 0;
@@ -1325,16 +1439,47 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   font: inherit;
   cursor: pointer;
 }
+.quake-multiplayer-actions button::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: calc(-12 * var(--quake-menu-px));
+  width: var(--quake-menu-row-text-size);
+  height: var(--quake-menu-row-text-size);
+  background-image: url("/q/conchars.png");
+  background-position: calc(-12 * var(--quake-menu-row-text-size)) 0;
+  background-size: calc(16 * var(--quake-menu-row-text-size)) calc(16 * var(--quake-menu-row-text-size));
+  image-rendering: pixelated;
+  opacity: 0;
+  animation: quake-menu-option-cursor-frame 500ms steps(1, end) infinite;
+  pointer-events: none;
+}
 .quake-multiplayer-actions button:hover,
 .quake-multiplayer-actions button:focus-visible {
+  --quake-multiplayer-action-brightness: 1.34;
   color: #f0ad5c;
   outline: none;
+}
+.quake-multiplayer-actions button:active {
+  --quake-multiplayer-action-brightness: 1.14;
+  opacity: 0.86;
+}
+.quake-multiplayer-actions button:hover::before,
+.quake-multiplayer-actions button:focus-visible::before {
+  opacity: 1;
+}
+.quake-multiplayer-actions:has(button:hover) button:focus-visible:not(:hover)::before {
+  opacity: 0;
 }
 .quake-multiplayer-actions button .quake-bitmap-text {
   --quake-bitmap-glyph-size: var(--quake-menu-row-text-size);
   --quake-bitmap-sheet-size: calc(16 * var(--quake-menu-row-text-size));
   --quake-bitmap-space-size: var(--quake-menu-row-text-size);
   gap: 0 var(--quake-bitmap-space-size);
+  filter: brightness(var(--quake-multiplayer-action-brightness));
+}
+#quake-multiplayer-panel-actions {
+  bottom: 4cqw;
 }
 .quake-multiplayer-status {
   grid-column: 1 / -1;
@@ -2094,7 +2239,7 @@ body.quake-ui-unlocked #quake-viewmodel-layer {
   background: rgba(74, 30, 14, 0.56);
   border-color: rgba(232, 154, 72, 0.86);
 }
-@media (any-pointer: coarse), (max-width: 960px) and (orientation: landscape) {
+@media (any-pointer: coarse) and (orientation: landscape), (max-width: 960px) and (orientation: landscape) {
   body:not(.quake-loading):not(.quake-menu-open):not(.quake-dead):not(.quake-level-complete) #quake-mobile-controls {
     display: block;
   }

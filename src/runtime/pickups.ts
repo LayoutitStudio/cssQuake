@@ -199,6 +199,15 @@ export interface QuakePickupProgressSnapshot {
   pickedEntityIndexes: number[];
 }
 
+export interface QuakePickupDebugStats {
+  activeEntityIndexes: number[];
+  hiddenEntityIndexes: number[];
+  pickedEntityIndexes: number[];
+  runtimeEntityIndexes: number[];
+  visibleEntityIndexes: number[];
+  total: number;
+}
+
 export interface QuakeAuthoritativePickupOptions {
   applyEffect?: boolean;
   feedback?: QuakeRuntimePickupFeedback;
@@ -210,6 +219,7 @@ export interface QuakePickupController {
   applyAuthoritativePickup: (entityIndex: number, options?: QuakeAuthoritativePickupOptions) => boolean;
   applyAuthoritativeRespawn: (entityIndex: number) => boolean;
   clear: () => void;
+  debugStats: () => QuakePickupDebugStats;
   restoreProgress: (snapshot: QuakePickupProgressSnapshot) => void;
   snapshotProgress: () => QuakePickupProgressSnapshot;
   spawn: (
@@ -298,6 +308,38 @@ export function createQuakePickupController(options: QuakePickupControllerOption
       .filter((pickup) => pickup.picked && !pickup.runtime)
       .map((pickup) => pickup.entity.index),
   });
+
+  const debugStats = (): QuakePickupDebugStats => {
+    const sortedIndexes = (values: number[]): number[] => values.sort((a, b) => a - b);
+    return {
+      activeEntityIndexes: sortedIndexes(
+        pickups
+          .filter((pickup) => !pickup.picked)
+          .map((pickup) => pickup.entity.index),
+      ),
+      hiddenEntityIndexes: sortedIndexes(
+        pickups
+          .filter((pickup) => pickup.picked || !pickup.visible || !pickup.handle)
+          .map((pickup) => pickup.entity.index),
+      ),
+      pickedEntityIndexes: sortedIndexes(
+        pickups
+          .filter((pickup) => pickup.picked)
+          .map((pickup) => pickup.entity.index),
+      ),
+      runtimeEntityIndexes: sortedIndexes(
+        pickups
+          .filter((pickup) => pickup.runtime)
+          .map((pickup) => pickup.entity.index),
+      ),
+      visibleEntityIndexes: sortedIndexes(
+        pickups
+          .filter((pickup) => pickup.visible && !pickup.picked && Boolean(pickup.handle))
+          .map((pickup) => pickup.entity.index),
+      ),
+      total: pickups.length,
+    };
+  };
 
   const restoreProgress = (snapshot: QuakePickupProgressSnapshot): void => {
     stopAnimationLoop();
@@ -672,6 +714,7 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     applyAuthoritativePickup,
     applyAuthoritativeRespawn,
     clear,
+    debugStats,
     restoreProgress,
     snapshotProgress,
     spawn,

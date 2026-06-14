@@ -1,5 +1,5 @@
 import type { QuakeScene } from "../../types/quake";
-import type { QuakePlayerController } from "../player";
+import type { QuakePlayerController, QuakePlayerDeathDetails, QuakePlayerDeathResult } from "../player";
 import type { QuakeMapLoadOptions } from "./session";
 
 const QUAKE_DEATH_UNLOCK_MENU_SUPPRESS_MS = 1000;
@@ -41,6 +41,7 @@ export interface QuakePlayerLifecycleFlowOptions {
   jumpVelocity: number;
   loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<void>;
   player(): Pick<QuakePlayerController, "respawn">;
+  playDeathSound?: (soundPath: string) => boolean;
   pointerTrace(kind: string, details: Record<string, unknown>): void;
   removeBodyClasses(...classNames: string[]): void;
   setGameplayStarted(started: boolean): void;
@@ -80,7 +81,7 @@ export interface QuakePlayerLifecycleFlow {
   resumeGameplayAfterMapLoad(): void;
   shouldOpenMainMenuOnControlsEnd(): boolean;
   shouldResumeMainMenuOnEscape(): boolean;
-  showPlayerDeath(): void;
+  showPlayerDeath(details?: QuakePlayerDeathDetails): QuakePlayerDeathResult | void;
   startNewGame(): Promise<void>;
   suppressMainMenuOnResumeControlsEnd(): void;
 }
@@ -199,8 +200,17 @@ export function createQuakePlayerLifecycleFlow(
     return allow;
   }
 
-  function showPlayerDeath(): void {
+  function showPlayerDeath(details?: QuakePlayerDeathDetails): QuakePlayerDeathResult | void {
     if (playerDead) return;
+    const soundPath = details?.soundPath ?? null;
+    const soundPlayed = soundPath ? options.playDeathSound?.(soundPath) === true : false;
+    if (soundPath) {
+      options.trace("player-death-sound", {
+        gibbed: details?.gibbed === true,
+        played: soundPlayed,
+        soundPath,
+      });
+    }
     setPlayerDead(true);
     options.clearMegahealthRot();
     options.clearPowerups();
@@ -222,6 +232,7 @@ export function createQuakePlayerLifecycleFlow(
     suppressMainMenuOnNextControlsEnd();
     suppressControlsEndTraceOnDeathUnlock();
     options.controls.unlock();
+    return { soundPlayed };
   }
 
   function clearPlayerDeath(): void {

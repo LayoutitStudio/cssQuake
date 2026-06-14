@@ -67,12 +67,39 @@ export interface QuakeShootableDebugCullingEntry {
   animationFrame: number | null;
   animationMode: string | null;
   quakecChain: string | null;
+  quakecIdealYaw: number | null;
+  quakecMovementCall: string | null;
+  quakecMovementHandledStep: boolean | null;
+  quakecMovementStateName: string | null;
+  quakecMovementUnitsRemaining: number | null;
+  quakecPartialGround: boolean | null;
+  quakecStateCalls: string[];
+  quakecStateChain: string | null;
+  quakecStateChainCycleEnd: boolean | null;
+  quakecStateFrame: string | null;
+  quakecStateFrameIndex: number | null;
+  quakecStateName: string | null;
+  quakecStateNext: string | null;
   attackVisual: string | null;
   awake: boolean | null;
   currentTarget: string | null;
   oldTarget: string | null;
   pendingAttack: boolean;
+  pendingAttackFireInMs: number | null;
+  pendingAttackQuakecChain: string | null;
+  pendingAttackTarget: [number, number, number] | null;
   movetargetEntityIndex: number | null;
+  movetargetOrigin: [number, number, number] | null;
+  movetargetTarget: string | null;
+  movetargetTargetname: string | null;
+  monsterJumpTouchedTriggerEntityIndex: number | null;
+  moveGoalDecisions: QuakeShootableDebugMoveGoalDecision[];
+}
+
+export interface QuakeShootableDebugMoveGoalDecision {
+  atMs: number;
+  details: Record<string, boolean | number | string | null>;
+  kind: string;
 }
 
 export interface QuakeShootablesDebugCullingSnapshot {

@@ -66,6 +66,7 @@ export interface QuakeEnemyState {
   quakecPainChain: string | null;
   quakecPainFinishedUntil: number;
   quakecRunner: QuakeMonsterStateRunner | null;
+  debugMoveGoalDecisions?: QuakeMoveGoalDecisionDebugEntry[];
   attackVisual: "cooldown" | "windup" | null;
   awake: boolean;
   burstShotsRemaining: number;
@@ -84,6 +85,12 @@ export interface QuakeEnemyState {
   zombieSolidAt: number;
 }
 
+export interface QuakeMoveGoalDecisionDebugEntry {
+  atMs: number;
+  details: Record<string, boolean | number | string | null>;
+  kind: string;
+}
+
 export interface QuakeMonsterPathCorner {
   entity: QuakeEntity;
   origin: Vec3;
@@ -100,7 +107,7 @@ export interface QuakeMonsterJumpTrigger {
 export interface QuakeMoveGoalCandidate {
   dx: number;
   dy: number;
-  type: "direct" | "ideal" | "sweep" | "turnaround";
+  type: "direct" | "ideal" | "source-ideal" | "sweep" | "turnaround";
   yaw: number;
 }
 
@@ -184,6 +191,7 @@ export interface QuakeMonsterAnimationRange {
 
 export interface QuakeEnemyProjectile {
   damage: number;
+  debugId: number;
   expiresAt: number;
   handle?: PolyMeshHandle | null;
   origin: Vec3;

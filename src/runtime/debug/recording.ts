@@ -4,6 +4,11 @@ import type {
   QuakeShootablesDebugStats,
 } from "../shootables";
 import type { QuakeWorldDebugStats } from "../world";
+import {
+  registerQuakeTraceMarkSink,
+  type QuakeTraceMarkDetails,
+  type QuakeTraceMarkEntry,
+} from "./traceMarks";
 
 const QUAKE_DEBUG_RECORDING_SAMPLE_MS = 125;
 const QUAKE_DEBUG_RECORDING_MAX_SAMPLES = 6000;
@@ -42,6 +47,7 @@ export interface QuakeDebugRecordingSnapshot {
   triggers: Record<string, unknown>;
   targets: Record<string, unknown>;
   hazards: Record<string, unknown>;
+  multiplayer: Record<string, unknown> | null;
   viewmodel: Record<string, unknown>;
   input: Record<string, unknown>;
   gameplay: Record<string, unknown>;
@@ -85,20 +91,44 @@ export interface QuakeDebugRecordingCullingEvent {
 }
 
 export interface QuakeDebugRecordingCullingEventState {
+  attackVisual: string | null;
   animationFrame: number | null;
   animationMode: string | null;
+  awake: boolean | null;
   blockReasons: string[];
   budgetBlocked: boolean;
   canMount: boolean;
+  currentTarget: string | null;
   desiredMounted: boolean;
   desiredPrewarmed: boolean;
   distance: number;
+  enemy: boolean;
   health: number;
   inPvs: boolean | null;
   leafIndex: number | null;
   mounted: boolean;
   mountCandidate: boolean;
+  movetargetEntityIndex: number | null;
+  movetargetTarget: string | null;
+  movetargetTargetname: string | null;
+  oldTarget: string | null;
+  pendingAttack: boolean;
+  pendingAttackFireInMs: number | null;
+  pendingAttackQuakecChain: string | null;
   prewarmed: boolean;
+  quakecChain: string | null;
+  quakecIdealYaw: number | null;
+  quakecMovementCall: string | null;
+  quakecMovementHandledStep: boolean | null;
+  quakecMovementStateName: string | null;
+  quakecMovementUnitsRemaining: number | null;
+  quakecPartialGround: boolean | null;
+  quakecStateChain: string | null;
+  quakecStateChainCycleEnd: boolean | null;
+  quakecStateFrame: string | null;
+  quakecStateFrameIndex: number | null;
+  quakecStateName: string | null;
+  quakecStateNext: string | null;
   strictMountCandidate: boolean;
   visible: boolean;
   visibilityGrace: boolean;
@@ -122,9 +152,18 @@ export interface QuakeDebugRecordingFrameHitchEvent {
   context: Record<string, unknown>;
 }
 
+export interface QuakeDebugRecordingTraceMarkEvent {
+  type: "trace-mark";
+  elapsedMs: number;
+  sequence: number;
+  kind: string;
+  details: Record<string, boolean | number | string | null>;
+}
+
 export type QuakeDebugRecordingEvent =
   | QuakeDebugRecordingCullingEvent
   | QuakeDebugRecordingFrameHitchEvent
+  | QuakeDebugRecordingTraceMarkEvent
   | QuakeDebugRecordingStateEvent;
 
 export interface QuakeDebugRecording {
@@ -138,6 +177,7 @@ export interface QuakeDebugRecording {
     pageUrl: string;
     userAgent: string;
     mapName: string;
+    entityManifest?: unknown;
   };
   stoppedAt?: string;
   durationMs?: number;
@@ -152,14 +192,24 @@ export interface QuakeDebugRecorderOptions {
   button: HTMLButtonElement | null;
   statusElement: HTMLElement | null;
   currentMapName: () => string;
+  entityManifest?: () => unknown;
   snapshot: () => QuakeDebugRecordingSnapshot;
 }
 
 export interface QuakeDebugRecorder {
   dispose(): void;
   isRecording(): boolean;
-  start(): boolean;
-  stop(reason?: "stop" | "limit" | "dispose"): QuakeDebugRecording | null;
+  lastRecording(): QuakeDebugRecording | null;
+  start(options?: QuakeDebugRecorderStartOptions): boolean;
+  stop(reason?: "stop" | "limit" | "dispose", options?: QuakeDebugRecorderStopOptions): QuakeDebugRecording | null;
+}
+
+export interface QuakeDebugRecorderStartOptions {
+  downloadOnStop?: boolean;
+}
+
+export interface QuakeDebugRecorderStopOptions {
+  download?: boolean;
 }
 
 interface QuakeDebugRecordingWindow extends Window {
@@ -174,14 +224,22 @@ export function createQuakeDebugRecorder(options: QuakeDebugRecorderOptions): Qu
   let sampleFrameWindowStartedAt = 0;
   let sampleFrameTimes: number[] = [];
   let startedAt = 0;
+  let downloadOnStop = true;
+  let lastRecording: QuakeDebugRecording | null = null;
+  let unregisterTraceMarkSink: (() => void) | null = null;
 
   function isRecording(): boolean {
     return recording !== null;
   }
 
-  function start(): boolean {
+  function lastFinishedRecording(): QuakeDebugRecording | null {
+    return lastRecording;
+  }
+
+  function start(startOptions: QuakeDebugRecorderStartOptions = {}): boolean {
     if (recording) return false;
     startedAt = performance.now();
+    downloadOnStop = startOptions.downloadOnStop !== false;
     recording = {
       schemaVersion: 2,
       metadata: {
@@ -193,10 +251,16 @@ export function createQuakeDebugRecorder(options: QuakeDebugRecorderOptions): Qu
         pageUrl: window.location.href,
         userAgent: navigator.userAgent,
         mapName: options.currentMapName(),
+        entityManifest: options.entityManifest?.() ?? null,
       },
       samples: [],
       events: [],
     };
+    unregisterTraceMarkSink?.();
+    unregisterTraceMarkSink = registerQuakeTraceMarkSink((entry) => {
+      if (!recording || !isCombatTraceMark(entry.kind)) return;
+      appendRecordingEvents(recording, [traceMarkRecordingEvent(entry, performance.now() - startedAt)]);
+    });
     startFrameSampler();
     updatePresentation();
     captureSample("start");
@@ -211,7 +275,10 @@ export function createQuakeDebugRecorder(options: QuakeDebugRecorderOptions): Qu
     return true;
   }
 
-  function stop(reason: "stop" | "limit" | "dispose" = "stop"): QuakeDebugRecording | null {
+  function stop(
+    reason: "stop" | "limit" | "dispose" = "stop",
+    stopOptions: QuakeDebugRecorderStopOptions = {},
+  ): QuakeDebugRecording | null {
     if (!recording) return null;
     if (timer !== null) {
       window.clearInterval(timer);
@@ -219,15 +286,20 @@ export function createQuakeDebugRecorder(options: QuakeDebugRecorderOptions): Qu
     }
     if (reason !== "dispose") captureSample(reason === "limit" ? "limit" : "stop");
     stopFrameSampler();
+    unregisterTraceMarkSink?.();
+    unregisterTraceMarkSink = null;
     const finished = recording;
     finished.stoppedAt = new Date().toISOString();
     finished.durationMs = Math.max(0, performance.now() - startedAt);
     finished.stopReason = reason;
     finished.summary = buildRecordingSummary(finished);
     (window as QuakeDebugRecordingWindow).__cssQuakeLastRecording = finished;
+    lastRecording = finished;
     recording = null;
     updatePresentation(finished);
-    if (reason !== "dispose") downloadRecording(finished);
+    const shouldDownload = stopOptions.download ?? downloadOnStop;
+    downloadOnStop = true;
+    if (reason !== "dispose" && shouldDownload) downloadRecording(finished);
     return finished;
   }
 
@@ -318,6 +390,8 @@ export function createQuakeDebugRecorder(options: QuakeDebugRecorderOptions): Qu
 
   function dispose(): void {
     stop("dispose");
+    unregisterTraceMarkSink?.();
+    unregisterTraceMarkSink = null;
     options.button?.removeEventListener("click", handleClick);
   }
 
@@ -367,6 +441,7 @@ export function createQuakeDebugRecorder(options: QuakeDebugRecorderOptions): Qu
   return {
     dispose,
     isRecording,
+    lastRecording: lastFinishedRecording,
     start,
     stop,
   };
@@ -379,6 +454,55 @@ function appendRecordingEvents(
   const remaining = QUAKE_DEBUG_RECORDING_MAX_EVENTS - recording.events.length;
   if (remaining <= 0 || events.length === 0) return;
   recording.events.push(...events.slice(0, remaining));
+}
+
+function isCombatTraceMark(kind: string): boolean {
+  return kind === "enemy-attack" ||
+    kind === "enemy-attack-windup" ||
+    kind.startsWith("enemy-damage-") ||
+    kind.startsWith("enemy-projectile-") ||
+    kind.startsWith("enemy-quakec-") ||
+    kind.startsWith("boss-") ||
+    kind === "player-damage" ||
+    kind === "player-damage-blocked" ||
+    kind === "player-damage-momentum" ||
+    kind === "player-death" ||
+    kind.startsWith("player-death-") ||
+    kind.startsWith("player-quakec-") ||
+    kind === "shootable-damage" ||
+    kind === "shootable-destroy" ||
+    kind === "shootable-radius-damage" ||
+    kind === "shootable-radius-player-damage";
+}
+
+function traceMarkRecordingEvent(
+  entry: QuakeTraceMarkEntry,
+  elapsedMs: number,
+): QuakeDebugRecordingTraceMarkEvent {
+  return {
+    type: "trace-mark",
+    elapsedMs: Math.max(0, elapsedMs),
+    sequence: recordingTraceMarkSequence(elapsedMs),
+    kind: entry.kind,
+    details: recordingTraceMarkDetails(entry.details),
+  };
+}
+
+function recordingTraceMarkSequence(elapsedMs: number): number {
+  return Math.max(0, Math.floor(elapsedMs));
+}
+
+function recordingTraceMarkDetails(details: QuakeTraceMarkDetails): Record<string, boolean | number | string | null> {
+  const out: Record<string, boolean | number | string | null> = {};
+  for (const [key, value] of Object.entries(details)) {
+    if (value === undefined) continue;
+    if (value === null || typeof value === "boolean" || typeof value === "string") {
+      out[key] = value;
+      continue;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) out[key] = value;
+  }
+  return out;
 }
 
 function buildPerformanceEvents(sample: QuakeDebugRecordingSample): QuakeDebugRecordingFrameHitchEvent[] {
@@ -443,18 +567,42 @@ function changedCullingFields(
 ): string[] {
   if (!previous) return ["created"];
   const fields: Array<keyof QuakeDebugRecordingCullingEventState> = [
+    "attackVisual",
     "animationFrame",
     "animationMode",
+    "awake",
     "budgetBlocked",
     "canMount",
+    "currentTarget",
     "desiredMounted",
     "desiredPrewarmed",
+    "enemy",
     "health",
     "inPvs",
     "leafIndex",
     "mounted",
     "mountCandidate",
+    "movetargetEntityIndex",
+    "movetargetTarget",
+    "movetargetTargetname",
+    "oldTarget",
+    "pendingAttack",
+    "pendingAttackFireInMs",
+    "pendingAttackQuakecChain",
     "prewarmed",
+    "quakecChain",
+    "quakecIdealYaw",
+    "quakecMovementCall",
+    "quakecMovementHandledStep",
+    "quakecMovementStateName",
+    "quakecMovementUnitsRemaining",
+    "quakecPartialGround",
+    "quakecStateChain",
+    "quakecStateChainCycleEnd",
+    "quakecStateFrame",
+    "quakecStateFrameIndex",
+    "quakecStateName",
+    "quakecStateNext",
     "strictMountCandidate",
     "visible",
     "visibilityGrace",
@@ -468,20 +616,44 @@ function changedCullingFields(
 
 function cullingEventState(entry: QuakeShootableDebugCullingEntry): QuakeDebugRecordingCullingEventState {
   return {
+    attackVisual: entry.attackVisual,
     animationFrame: entry.animationFrame,
     animationMode: entry.animationMode,
+    awake: entry.awake,
     blockReasons: entry.blockReasons,
     budgetBlocked: entry.budgetBlocked,
     canMount: entry.canMount,
+    currentTarget: entry.currentTarget,
     desiredMounted: entry.desiredMounted,
     desiredPrewarmed: entry.desiredPrewarmed,
     distance: entry.distance,
+    enemy: entry.enemy,
     health: entry.health,
     inPvs: entry.inPvs,
     leafIndex: entry.leafIndex,
     mounted: entry.mounted,
     mountCandidate: entry.mountCandidate,
+    movetargetEntityIndex: entry.movetargetEntityIndex,
+    movetargetTarget: entry.movetargetTarget,
+    movetargetTargetname: entry.movetargetTargetname,
+    oldTarget: entry.oldTarget,
+    pendingAttack: entry.pendingAttack,
+    pendingAttackFireInMs: entry.pendingAttackFireInMs,
+    pendingAttackQuakecChain: entry.pendingAttackQuakecChain,
     prewarmed: entry.prewarmed,
+    quakecChain: entry.quakecChain,
+    quakecIdealYaw: entry.quakecIdealYaw,
+    quakecMovementCall: entry.quakecMovementCall,
+    quakecMovementHandledStep: entry.quakecMovementHandledStep,
+    quakecMovementStateName: entry.quakecMovementStateName,
+    quakecMovementUnitsRemaining: entry.quakecMovementUnitsRemaining,
+    quakecPartialGround: entry.quakecPartialGround,
+    quakecStateChain: entry.quakecStateChain,
+    quakecStateChainCycleEnd: entry.quakecStateChainCycleEnd,
+    quakecStateFrame: entry.quakecStateFrame,
+    quakecStateFrameIndex: entry.quakecStateFrameIndex,
+    quakecStateName: entry.quakecStateName,
+    quakecStateNext: entry.quakecStateNext,
     strictMountCandidate: entry.strictMountCandidate,
     visible: entry.visible,
     visibilityGrace: entry.visibilityGrace,

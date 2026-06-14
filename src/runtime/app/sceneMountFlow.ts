@@ -4,9 +4,10 @@ import type { QuakeEntity, QuakeScene } from "../../types/quake";
 import { buildQuakeClipCollisionWorld, type QuakeCollisionWorld, type QuakeTouchedTrigger } from "../collision";
 import { COLLISION_EPSILON, QUAKE_COLLISION_UNIT_SCALE, STEP_HEIGHT } from "../constants";
 import {
-  quakeContentsDamage,
+  quakeContentsDamageForWaterLevel,
   quakeRadsuitProtectedContentsDamage,
   quakeTriggerHurtDamage,
+  quakePlayerWaterLevel,
   type QuakeHazardDamage,
 } from "../hazards";
 import { dotVec3 } from "../math";
@@ -253,8 +254,12 @@ export function createQuakeSceneMountFlow(options: QuakeSceneMountFlowOptions): 
     }
     hazard = strongerHazard(hazard, options.pointHazards.hazardAt(origin));
     const contents = currentCollisionWorld?.contentsAt?.(playerContentsPoint(origin));
-    const contentsHazard = quakeContentsDamage(contents);
-    const radsuitActive = contentsHazard?.kind === "slime" && options.powerupActive("radsuit_finished");
+    const waterLevel = quakePlayerWaterLevel(currentCollisionWorld?.contentsAt, origin, options.player.eyeHeight());
+    const contentsHazard = quakeContentsDamageForWaterLevel(contents, waterLevel);
+    const radsuitActive = (
+      contentsHazard?.kind === "slime" ||
+      contentsHazard?.kind === "lava"
+    ) && options.powerupActive("radsuit_finished");
     const protectedContentsHazard = quakeRadsuitProtectedContentsDamage(contentsHazard, radsuitActive);
     if (contentsHazard && !protectedContentsHazard) {
       options.trace("hazard-blocked", { kind: contentsHazard.kind, reason: "radsuit" });

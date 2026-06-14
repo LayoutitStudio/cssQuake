@@ -3,6 +3,7 @@ import type { QuakeEnemyProjectile, QuakeEnemyState } from "./state";
 export interface QuakeEnemyLoopOptions {
   dtClampSeconds: number;
   enemies(): Iterable<QuakeEnemyState>;
+  enemiesFrozen?: () => boolean;
   getPlayerOrigin(): [number, number, number];
   hasLiveEnemies(now: number): boolean;
   hasProjectiles(): boolean;
@@ -23,6 +24,7 @@ export interface QuakeEnemyLoop {
 export function createQuakeEnemyLoop({
   dtClampSeconds,
   enemies,
+  enemiesFrozen,
   getPlayerOrigin,
   hasLiveEnemies,
   hasProjectiles,
@@ -36,6 +38,7 @@ export function createQuakeEnemyLoop({
   let frame: number | null = null;
   let lastTickTime = 0;
   let pausedAt = 0;
+  let enemiesFrozenAt = 0;
 
   const start = (): void => {
     if (frame !== null) return;
@@ -48,6 +51,7 @@ export function createQuakeEnemyLoop({
     window.cancelAnimationFrame(frame);
     frame = null;
     lastTickTime = 0;
+    enemiesFrozenAt = 0;
   };
 
   const resetPause = (): void => {
@@ -63,7 +67,9 @@ export function createQuakeEnemyLoop({
       return;
     }
     if (pausedAt) {
-      shiftEnemyRuntimeDeadlines(enemies(), projectiles(), now - pausedAt);
+      const pausedDurationMs = now - pausedAt;
+      shiftEnemyRuntimeDeadlines(enemies(), projectiles(), pausedDurationMs);
+      if (enemiesFrozenAt) enemiesFrozenAt += pausedDurationMs;
       pausedAt = 0;
       lastTickTime = now;
     }
@@ -80,8 +86,15 @@ export function createQuakeEnemyLoop({
     const dt = Math.min(dtClampSeconds, lastTickTime ? (now - lastTickTime) / 1000 : tickMs / 1000);
     lastTickTime = now;
     const playerOrigin = getPlayerOrigin();
+    const frozen = enemiesFrozen?.() === true;
+    if (frozen) {
+      enemiesFrozenAt ||= now;
+    } else if (enemiesFrozenAt) {
+      shiftEnemyRuntimeDeadlines(enemies(), [], now - enemiesFrozenAt);
+      enemiesFrozenAt = 0;
+    }
     updateProjectiles(playerOrigin, dt, now);
-    updateEnemies(playerOrigin, dt, now);
+    if (!frozen) updateEnemies(playerOrigin, dt, now);
     frame = window.requestAnimationFrame(tick);
   };
 

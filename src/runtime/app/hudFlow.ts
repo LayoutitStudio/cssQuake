@@ -6,6 +6,7 @@ import {
 import type { QuakePlayerDamageFeedback } from "../player";
 
 const DEFAULT_QUAKE_HUD_DAMAGE_CUE_MS = 900;
+const DEFAULT_QUAKE_HUD_DAMAGE_FLASH_MS = 260;
 const DEFAULT_QUAKE_BONUS_FLASH_HOLD_MS = 80;
 
 type QuakeHudTraceDetails = Record<string, unknown>;
@@ -15,6 +16,7 @@ export interface QuakeHudFlowOptions {
   bonusOverlay: HTMLElement | null;
   classicHud: HTMLElement | null;
   damageCueMs?: number;
+  damageFlashMs?: number;
   damageOverlay: HTMLElement | null;
   hudElements: QuakeHudElements;
   inventory: () => QuakePlayerInventory;
@@ -29,6 +31,7 @@ export interface QuakeHudFlow {
   clearBonusOverlay: () => void;
   clearDeathDamageFeedback: () => void;
   dispose: () => void;
+  flashDamageFeedback: (feedback?: QuakePlayerDamageFeedback) => void;
   flashBonusOverlay: () => void;
   onDamageFlash: (active: boolean, feedback?: QuakePlayerDamageFeedback) => void;
   showDeathDamageFeedback: () => void;
@@ -37,9 +40,12 @@ export interface QuakeHudFlow {
 
 export function createQuakeHudFlow(options: QuakeHudFlowOptions): QuakeHudFlow {
   const damageCueMs = options.damageCueMs ?? DEFAULT_QUAKE_HUD_DAMAGE_CUE_MS;
+  const damageFlashMs = options.damageFlashMs ?? DEFAULT_QUAKE_HUD_DAMAGE_FLASH_MS;
   const bonusFlashHoldMs = options.bonusFlashHoldMs ?? DEFAULT_QUAKE_BONUS_FLASH_HOLD_MS;
   let damageTimer: number | null = null;
   let damageSerial = 0;
+  let damageFlashTimer: number | null = null;
+  let damageFlashSerial = 0;
   let damageCueActive = false;
   let bonusTimer: number | null = null;
   let bonusSerial = 0;
@@ -48,6 +54,13 @@ export function createQuakeHudFlow(options: QuakeHudFlowOptions): QuakeHudFlow {
     if (damageTimer === null) return;
     window.clearTimeout(damageTimer);
     damageTimer = null;
+  }
+
+  function clearDamageFlashTimer(): void {
+    damageFlashSerial += 1;
+    if (damageFlashTimer === null) return;
+    window.clearTimeout(damageFlashTimer);
+    damageFlashTimer = null;
   }
 
   function setDamageCue(active: boolean): void {
@@ -97,6 +110,17 @@ export function createQuakeHudFlow(options: QuakeHudFlowOptions): QuakeHudFlow {
     options.playPainSound();
   }
 
+  function flashDamageFeedback(feedback?: QuakePlayerDamageFeedback): void {
+    clearDamageFlashTimer();
+    const serial = ++damageFlashSerial;
+    onDamageFlash(true, feedback);
+    damageFlashTimer = window.setTimeout(() => {
+      if (serial !== damageFlashSerial) return;
+      damageFlashTimer = null;
+      onDamageFlash(false);
+    }, damageFlashMs);
+  }
+
   function flashBonusOverlay(): void {
     const overlay = options.bonusOverlay;
     if (!overlay) return;
@@ -129,6 +153,7 @@ export function createQuakeHudFlow(options: QuakeHudFlowOptions): QuakeHudFlow {
 
   function showDeathDamageFeedback(): void {
     clearDamageTimer();
+    clearDamageFlashTimer();
     damageSerial += 1;
     setDamageOverlay(true);
     setDamageCue(true);
@@ -136,6 +161,7 @@ export function createQuakeHudFlow(options: QuakeHudFlowOptions): QuakeHudFlow {
 
   function clearDeathDamageFeedback(): void {
     clearDamageTimer();
+    clearDamageFlashTimer();
     damageSerial += 1;
     setDamageCue(false);
     setDamageOverlay(false);
@@ -165,6 +191,7 @@ export function createQuakeHudFlow(options: QuakeHudFlowOptions): QuakeHudFlow {
     clearBonusOverlay,
     clearDeathDamageFeedback,
     dispose,
+    flashDamageFeedback,
     flashBonusOverlay,
     onDamageFlash,
     showDeathDamageFeedback,

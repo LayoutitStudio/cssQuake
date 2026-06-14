@@ -1,5 +1,29 @@
 export type QuakeWorldVisibilitySyncReason = "force" | "leaf-change" | "no-handle" | "no-pvs" | "same-key";
 
+export interface QuakeWorldSemanticResidencyStats {
+  enabled: boolean;
+  metadataAvailable: boolean;
+  budget: number;
+  frontierHops: number;
+  currentLeafIndex: number | null;
+  desiredLeaves: number;
+  mountedDesiredLeaves: number;
+  desiredMinusMounted: number;
+  mountedMinusDesired: number;
+  queuePending: number;
+  maxQueuePending: number;
+  converged: boolean;
+  lastImmediateLeaves: number;
+  lastFrontierLeaves: number;
+  lastFarLeaves: number;
+  lastSyncAddedLeaves: number;
+  lastQueuedAddedLeaves: number;
+  lastRemovedLeaves: number;
+  totalQueuedAddedLeaves: number;
+  totalSyncAddedLeaves: number;
+  totalRemovedLeaves: number;
+}
+
 export interface QuakeWorldVisibilityChurnStats {
   syncCount: number;
   changedSyncCount: number;
@@ -18,6 +42,7 @@ export interface QuakeWorldVisibilityChurnStats {
   totalAddedLeaves: number;
   totalRemovedLeaves: number;
   totalChangedLeaves: number;
+  semanticResidency?: QuakeWorldSemanticResidencyStats;
 }
 
 export function createQuakeWorldVisibilityChurnStats(): QuakeWorldVisibilityChurnStats {

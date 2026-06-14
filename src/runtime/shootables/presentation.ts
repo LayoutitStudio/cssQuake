@@ -18,7 +18,9 @@ const QUAKE_SHOOTABLE_DYING_CLASS = "quake-shootable-dying";
 const QUAKE_SHOOTABLE_CORPSE_CLASS = "quake-shootable-corpse";
 const QUAKE_SHOOTABLE_DEAD_CLASS = "quake-shootable-dead";
 const QUAKE_SHOOTABLE_HURT_CLASS = "quake-shootable-hurt";
+const QUAKE_SHOOTABLE_HURT_FLASH_MS = 120;
 const quakeShootableTransformSnapshots = new WeakMap<PolyMeshHandle, QuakeShootableTransformSnapshot>();
+const quakeShootableHurtFlashTimers = new WeakMap<HTMLElement, number>();
 
 export function forEachQuakeShootableHandle(
   shootable: QuakeShootableState,
@@ -79,12 +81,16 @@ export function syncQuakeShootableLifecycleClassesForShootable(
 export function flashQuakeShootable(shootable: QuakeShootableState): void {
   const element = shootable.handle?.element;
   if (!element) return;
+  const previousTimer = quakeShootableHurtFlashTimers.get(element);
+  if (previousTimer !== undefined) window.clearTimeout(previousTimer);
   element.classList.remove(QUAKE_SHOOTABLE_HURT_CLASS);
   void element.offsetWidth;
   element.classList.add(QUAKE_SHOOTABLE_HURT_CLASS);
-  window.setTimeout(() => {
+  const timer = window.setTimeout(() => {
+    quakeShootableHurtFlashTimers.delete(element);
     if (element.isConnected) element.classList.remove(QUAKE_SHOOTABLE_HURT_CLASS);
-  }, 120);
+  }, QUAKE_SHOOTABLE_HURT_FLASH_MS);
+  quakeShootableHurtFlashTimers.set(element, timer);
 }
 
 export function setQuakeShootableHandleTransformIfChanged(

@@ -39,6 +39,8 @@ export interface QuakeAppDomElements {
   debugEnabledOption: HTMLInputElement | null;
   debugShowFpsOption: HTMLInputElement | null;
   debugEnableAnimationsOption: HTMLInputElement | null;
+  debugFreezeEnemiesOption: HTMLInputElement | null;
+  debugDisableAttacksOption: HTMLInputElement | null;
   debugShowTexturesOption: HTMLInputElement | null;
   debugFlyModeOption: HTMLInputElement | null;
   debugShowOutlinesOption: HTMLInputElement | null;
@@ -104,6 +106,8 @@ export function queryQuakeAppDom(): QuakeAppDomElements {
     debugEnabledOption: quakeElement("quake-debug-enabled"),
     debugShowFpsOption: quakeElement("quake-debug-show-fps"),
     debugEnableAnimationsOption: quakeElement("quake-debug-enable-animations"),
+    debugFreezeEnemiesOption: quakeElement("quake-debug-freeze-enemies"),
+    debugDisableAttacksOption: quakeElement("quake-debug-disable-attacks"),
     debugShowTexturesOption: quakeElement("quake-debug-show-textures"),
     debugFlyModeOption: quakeElement("quake-debug-fly-mode"),
     debugShowOutlinesOption: quakeElement("quake-debug-show-outlines"),

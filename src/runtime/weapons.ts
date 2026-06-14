@@ -8,6 +8,7 @@ import {
 import type { QuakeEntity } from "../types/quake";
 import { quakeAliasModelRenderYaw } from "./aliasModelOrientation";
 import type { QuakeAmmoField, QuakeWeaponId } from "./hud";
+import type { QuakePlayerDamageContext } from "./player";
 import type { QuakeViewmodelFireAnimation } from "./viewmodel";
 import {
   COLLISION_EPSILON,
@@ -42,12 +43,16 @@ export interface QuakeWeaponShootableTarget {
 export interface QuakeWeaponsController {
   reset(): void;
   canFire(now?: number): boolean;
+  debugClearProjectileCapture(): void;
+  debugFireProjectile(options?: QuakeWeaponProjectileDebugFireOptions): boolean;
   debugProjectileImpact(
     weapon: QuakeWeaponId,
     entityIndex: number,
     origin: Vec3,
     directDamage?: number,
   ): QuakeWeaponProjectileImpactDebugResult | null;
+  debugProjectileCapture(): QuakeWeaponProjectileDebugCapture;
+  debugSetProjectileCaptureEnabled(enabled: boolean): void;
   fire(now?: number): boolean;
   viewTraceAtCrosshair(range: number): QuakeUseTrace | null;
   weaponTraceAtCrosshair(): QuakeUseTrace | null;
@@ -84,7 +89,7 @@ export interface QuakeWeaponsControllerOptions {
   playFireAnimation(animation?: QuakeViewmodelFireAnimation): void;
   damageShootable(entityIndex: number, amount: number): boolean;
   damageBrushEntity(entityIndex: number, amount: number): boolean;
-  damagePlayer(amount: number): boolean;
+  damagePlayer(amount: number, context?: QuakePlayerDamageContext): boolean;
   canDamageTargetOrigin?(start: Vec3, targetOrigin: Vec3): boolean;
   damageMultiplier?: () => number;
   random?: () => number;
@@ -117,6 +122,47 @@ export interface QuakeWeaponProjectileImpactDebugResult {
   splashRadius: number;
   splashRadiusQuakeUnits: number;
   splashRequiresCanDamage: boolean;
+  weapon: QuakeWeaponId;
+}
+
+export interface QuakeWeaponProjectileDebugFireOptions {
+  directDamage?: number;
+  now?: number;
+}
+
+export interface QuakeWeaponProjectileDebugCapture {
+  activeCount: number;
+  enabled: boolean;
+  events: QuakeWeaponProjectileDebugEvent[];
+}
+
+export interface QuakeWeaponProjectileDebugEvent {
+  seq: number;
+  at: number;
+  type: "fire" | "spawn" | "move" | "impact" | "expire" | "remove";
+  damage?: number;
+  direction?: Vec3;
+  expiresAt?: number;
+  impactResult?: "keep" | "remove";
+  modelPath?: string;
+  origin?: Vec3;
+  profileKind?: QuakeWeaponFireKind;
+  sourceFunction?: string;
+  speed?: number;
+  splashDamage?: number;
+  splashIgnoresDirectHit?: boolean;
+  splashRadiusQuakeUnits?: number;
+  target?: {
+    classname: string | null;
+    entityIndex: number | null;
+  };
+  trace?: {
+    classname: string | null;
+    end: Vec3;
+    entityIndex: number | null;
+    fraction: number;
+  };
+  velocity?: Vec3;
   weapon: QuakeWeaponId;
 }
 
@@ -207,6 +253,7 @@ interface QuakeLinearProjectileFireProfile extends QuakeWeaponFireProfileBase {
   forwardOffsetUnits: number;
   kind: "projectile";
   lifetimeMs: number;
+  monsterTouchHullExpansion?: number;
   modelPath: string;
   rightOffsetUnits: number;
   runtime: "supported";
@@ -214,6 +261,7 @@ interface QuakeLinearProjectileFireProfile extends QuakeWeaponFireProfileBase {
   alternatingRightOffset?: boolean;
   bounce?: boolean;
   directDamageRandom?: number;
+  explosionBackoff?: number;
   explodeOnExpire?: boolean;
   gravity?: number;
   halfDamageClassnames?: readonly string[];
@@ -279,6 +327,8 @@ const QUAKE_WEAPON_AIM_POINT_Z = 0.6;
 const QUAKE_PROJECTILE_BOUNCE_OVERBOUNCE = 1.5;
 const QUAKE_PROJECTILE_BOUNCE_STOP_EPSILON = 0.1 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_GRENADE_PROJECTILE_GRAVITY = 800 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_FLYMISSILE_MONSTER_TOUCH_HULL = 15 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_MISSILE_EXPLOSION_BACKOFF = 8 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_SHOTGUN_FIRE_PROFILE = quakeHitscanFireProfile("shotgun");
 const QUAKE_SUPER_SHOTGUN_FIRE_PROFILE = quakeHitscanFireProfile("supershotgun");
 const QUAKE_SUPER_SHOTGUN_ONE_SHELL_FIRE_PROFILE: QuakeHitscanPelletFireProfile = {
@@ -391,7 +441,11 @@ function quakeProjectileFireProfile(
     weapon,
     ...(alternatingRight?.length ? { alternatingRightOffset: true } : {}),
     ...(projectile.movetype === "MOVETYPE_BOUNCE" ? { bounce: true } : {}),
+    ...(projectile.movetype === "MOVETYPE_FLYMISSILE"
+      ? { monsterTouchHullExpansion: QUAKE_FLYMISSILE_MONSTER_TOUCH_HULL }
+      : {}),
     ...(directDamage?.randomAdd !== undefined ? { directDamageRandom: directDamage.randomAdd } : {}),
+    ...(projectile.touchFunction === "T_MissileTouch" ? { explosionBackoff: QUAKE_MISSILE_EXPLOSION_BACKOFF } : {}),
     ...(projectile.explodeFunction ? { explodeOnExpire: true } : {}),
     ...(directDamage?.halfDamageClassnames ? { halfDamageClassnames: directDamage.halfDamageClassnames } : {}),
     ...(radiusDamage?.damageUnits !== undefined ? { splashDamage: radiusDamage.damageUnits } : {}),
@@ -588,10 +642,12 @@ function quakeWeaponFireProfileAuditFact(weapon: QuakeWeaponId, profile: QuakeWe
           forwardOffsetUnits: profile.forwardOffsetUnits,
           gravity: profile.gravity,
           lifetimeMs: profile.lifetimeMs,
+          monsterTouchHullExpansion: profile.monsterTouchHullExpansion,
           modelPath: profile.modelPath,
           rightOffsetUnits: profile.rightOffsetUnits,
           sourceZOffsetUnits: profile.sourceZOffsetUnits,
           speed: profile.speed,
+          explosionBackoff: profile.explosionBackoff,
           splashDamage: profile.splashDamage,
           splashIgnoresDirectHit: profile.splashIgnoresDirectHit,
           splashRadius: profile.splashRadius,
@@ -649,21 +705,26 @@ export function createQuakeWeaponsController({
 }: QuakeWeaponsControllerOptions): QuakeWeaponsController {
   let nextFireAt = -Infinity;
   let nextNailRightSign = 1;
+  let debugNextProjectileDamage: number | null = null;
+  let projectileDebugCaptureEnabled = false;
+  let projectileDebugCaptureEvents: QuakeWeaponProjectileDebugEvent[] = [];
   const nextSoundAtByWeapon = new Map<QuakeWeaponId, number>();
   const nextCycleAnimationFrameByWeapon = new Map<QuakeWeaponId, number>();
   const projectiles = createQuakeProjectilesController<QuakeWeaponProjectile>({
     canSimulate: canUseGameplayInput,
     onExpire: handleProjectileExpire,
     onImpact: handleProjectileImpact,
-    onMove: syncProjectileVisual,
-    onRemove: removeProjectileVisual,
-    onSpawn: addProjectileVisual,
+    onMove: handleProjectileMove,
+    onRemove: handleProjectileRemove,
+    onSpawn: handleProjectileSpawn,
     trace: traceProjectilePath,
   });
 
   function reset(): void {
     nextFireAt = -Infinity;
     nextNailRightSign = 1;
+    debugNextProjectileDamage = null;
+    debugClearProjectileCapture();
     nextSoundAtByWeapon.clear();
     nextCycleAnimationFrameByWeapon.clear();
     projectiles.reset();
@@ -700,6 +761,33 @@ export function createQuakeWeaponsController({
     if (hit) onHit();
     syncCrosshairTarget();
     return true;
+  }
+
+  function debugClearProjectileCapture(): void {
+    projectileDebugCaptureEvents = [];
+  }
+
+  function debugFireProjectile(options: QuakeWeaponProjectileDebugFireOptions = {}): boolean {
+    const profile = activeWeaponFireProfile();
+    if (!profile || !quakeWeaponFireProfileIsRuntimeSupported(profile) || profile.kind !== "projectile") return false;
+    const directDamage = options.directDamage;
+    if (directDamage !== undefined && !Number.isFinite(directDamage)) return false;
+    debugNextProjectileDamage = directDamage === undefined ? null : Math.max(0, directDamage);
+    const fired = fire(options.now ?? performance.now());
+    if (!fired) debugNextProjectileDamage = null;
+    return fired;
+  }
+
+  function debugProjectileCapture(): QuakeWeaponProjectileDebugCapture {
+    return {
+      activeCount: projectiles.activeCount(),
+      enabled: projectileDebugCaptureEnabled,
+      events: projectileDebugCaptureEvents.map((event) => ({ ...event })),
+    };
+  }
+
+  function debugSetProjectileCaptureEnabled(enabled: boolean): void {
+    projectileDebugCaptureEnabled = Boolean(enabled);
   }
 
   function canAttemptWeaponAction(now: number): boolean {
@@ -863,14 +951,20 @@ export function createQuakeWeaponsController({
 
   function traceWeaponRay(ray: QuakeViewRay): QuakeUseTrace | null {
     const worldTrace = getCollisionWorld()?.traceUse?.(ray.origin, ray.end) ?? null;
-    return traceShootables(ray, worldTrace?.fraction ?? 1) ?? worldTrace;
+    return traceShootables(ray, worldTrace?.fraction ?? 1, 0) ?? worldTrace;
   }
 
-  function traceShootables(ray: QuakeViewRay, maxFraction: number): QuakeUseTrace | null {
+  function traceShootables(ray: QuakeViewRay, maxFraction: number, monsterTouchHullExpansion: number): QuakeUseTrace | null {
     let best: QuakeUseTrace | null = null;
     for (const shootable of getShootables()) {
       if (shootable.dead) continue;
-      const trace = rayTraceAabb(ray, shootable.bounds.min, shootable.bounds.max, maxFraction, shootable.entity);
+      const trace = rayTraceAabb(
+        ray,
+        expandedShootableTraceMin(shootable, monsterTouchHullExpansion),
+        expandedShootableTraceMax(shootable, monsterTouchHullExpansion),
+        maxFraction,
+        shootable.entity,
+      );
       if (!trace) continue;
       if (!best || trace.fraction < best.fraction) best = trace;
     }
@@ -1068,20 +1162,50 @@ export function createQuakeWeaponsController({
       rightOffsetUnits,
       sourceZOffsetUnits: profile.sourceZOffsetUnits,
     });
+    const damage = debugNextProjectileDamage ?? projectileDirectDamage(profile);
+    debugNextProjectileDamage = null;
+    const velocity = projectileVelocity(profile, aim.direction, up);
+    recordProjectileDebugEvent("fire", {
+      damage,
+      direction: aim.direction,
+      expiresAt: now + profile.lifetimeMs,
+      modelPath: profile.modelPath,
+      origin,
+      profileKind: profile.kind,
+      sourceFunction: profile.sourceFunction,
+      speed: profile.speed,
+      splashDamage: profile.splashDamage,
+      splashIgnoresDirectHit: profile.splashIgnoresDirectHit !== false,
+      splashRadiusQuakeUnits: profile.splashRadius === undefined
+        ? undefined
+        : profile.splashRadius / QUAKE_COLLISION_UNIT_SCALE,
+      velocity,
+      weapon: profile.weapon,
+    });
     projectiles.spawn({
-      damage: projectileDirectDamage(profile),
+      damage,
       direction: aim.direction,
       expiresAt: now + profile.lifetimeMs,
       gravity: profile.gravity,
       origin,
       profile,
       speed: profile.speed,
-      velocity: projectileVelocity(profile, aim.direction, up),
+      velocity,
     });
+  }
+
+  function handleProjectileSpawn(projectile: QuakeWeaponProjectile): void {
+    recordProjectileDebugEvent("spawn", projectileDebugEventPayload(projectile));
+    addProjectileVisual(projectile);
   }
 
   function addProjectileVisual(projectile: QuakeWeaponProjectile): void {
     projectile.visual = addProjectileMesh?.(projectile.profile.modelPath, projectile.profile.weapon) ?? null;
+    syncProjectileVisual(projectile);
+  }
+
+  function handleProjectileMove(projectile: QuakeWeaponProjectile): void {
+    recordProjectileDebugEvent("move", projectileDebugEventPayload(projectile));
     syncProjectileVisual(projectile);
   }
 
@@ -1098,6 +1222,11 @@ export function createQuakeWeaponsController({
       rotation: [0, 0, quakeProjectileRenderYaw((Math.atan2(velocity[1], velocity[0]) * 180) / Math.PI)],
       scale: visual.scale,
     });
+  }
+
+  function handleProjectileRemove(projectile: QuakeWeaponProjectile): void {
+    recordProjectileDebugEvent("remove", projectileDebugEventPayload(projectile));
+    removeProjectileVisual(projectile);
   }
 
   function removeProjectileVisual(projectile: QuakeWeaponProjectile): void {
@@ -1126,7 +1255,7 @@ export function createQuakeWeaponsController({
     ];
   }
 
-  function traceProjectilePath(_projectile: QuakeWeaponProjectile, start: Vec3, end: Vec3): QuakeProjectileTrace | null {
+  function traceProjectilePath(projectile: QuakeWeaponProjectile, start: Vec3, end: Vec3): QuakeProjectileTrace | null {
     const delta: Vec3 = [
       end[0] - start[0],
       end[1] - start[1],
@@ -1134,12 +1263,21 @@ export function createQuakeWeaponsController({
     ];
     const range = Math.hypot(delta[0], delta[1], delta[2]);
     if (range <= COLLISION_EPSILON) return null;
-    return traceWeaponRay(viewRayFromDirection(start, normalizeVec3(delta), range)) as QuakeProjectileTrace | null;
+    const ray = viewRayFromDirection(start, normalizeVec3(delta), range);
+    const worldTrace = getCollisionWorld()?.traceUse?.(ray.origin, ray.end) ?? null;
+    return (
+      traceShootables(ray, worldTrace?.fraction ?? 1, projectile.profile.monsterTouchHullExpansion ?? 0) ?? worldTrace
+    ) as QuakeProjectileTrace | null;
   }
 
   function handleProjectileImpact(projectile: QuakeWeaponProjectile, trace: QuakeProjectileTrace): "keep" | "remove" {
     if (projectile.profile.bounce && !traceIsShootable(trace)) {
       bounceWeaponProjectile(projectile, trace);
+      recordProjectileDebugEvent("impact", {
+        ...projectileDebugEventPayload(projectile),
+        impactResult: "keep",
+        trace: projectileDebugTrace(trace),
+      });
       return "keep";
     }
 
@@ -1156,12 +1294,72 @@ export function createQuakeWeaponsController({
       if (damageProjectileSplash(trace.end, projectile.profile, ignoredEntityIndex)) hit = true;
     }
     if (hit) onHit();
+    projectile.origin = projectileImpactPresentationOrigin(projectile, trace);
+    recordProjectileDebugEvent("impact", {
+      ...projectileDebugEventPayload(projectile),
+      impactResult: "remove",
+      target: directEntityIndex === undefined
+        ? undefined
+        : {
+            classname: getEntities().get(directEntityIndex)?.classname ?? trace.classname ?? null,
+            entityIndex: directEntityIndex,
+          },
+      trace: projectileDebugTrace(trace),
+    });
     return "remove";
   }
 
   function handleProjectileExpire(projectile: QuakeWeaponProjectile): void {
+    recordProjectileDebugEvent("expire", projectileDebugEventPayload(projectile));
     if (!projectile.profile.explodeOnExpire) return;
     if (damageProjectileSplash(projectile.origin, projectile.profile, undefined)) onHit();
+  }
+
+  function projectileDebugEventPayload(projectile: QuakeWeaponProjectile): Omit<QuakeWeaponProjectileDebugEvent, "at" | "seq" | "type"> {
+    const velocity = projectile.velocity ?? [
+      projectile.direction[0] * projectile.speed,
+      projectile.direction[1] * projectile.speed,
+      projectile.direction[2] * projectile.speed,
+    ];
+    return {
+      damage: projectile.damage,
+      direction: [...projectile.direction] as Vec3,
+      expiresAt: projectile.expiresAt,
+      modelPath: projectile.profile.modelPath,
+      origin: [...projectile.origin] as Vec3,
+      profileKind: projectile.profile.kind,
+      sourceFunction: projectile.profile.sourceFunction,
+      speed: projectile.speed,
+      splashDamage: projectile.profile.splashDamage,
+      splashIgnoresDirectHit: projectile.profile.splashIgnoresDirectHit !== false,
+      splashRadiusQuakeUnits: projectile.profile.splashRadius === undefined
+        ? undefined
+        : projectile.profile.splashRadius / QUAKE_COLLISION_UNIT_SCALE,
+      velocity: [...velocity] as Vec3,
+      weapon: projectile.profile.weapon,
+    };
+  }
+
+  function projectileDebugTrace(trace: QuakeProjectileTrace): QuakeWeaponProjectileDebugEvent["trace"] {
+    return {
+      classname: trace.classname ?? null,
+      end: [...trace.end] as Vec3,
+      entityIndex: trace.entityIndex ?? null,
+      fraction: trace.fraction,
+    };
+  }
+
+  function recordProjectileDebugEvent(
+    type: QuakeWeaponProjectileDebugEvent["type"],
+    payload: Omit<QuakeWeaponProjectileDebugEvent, "at" | "seq" | "type">,
+  ): void {
+    if (!projectileDebugCaptureEnabled) return;
+    projectileDebugCaptureEvents.push({
+      seq: projectileDebugCaptureEvents.length,
+      at: performance.now(),
+      type,
+      ...payload,
+    });
   }
 
   function bounceWeaponProjectile(projectile: QuakeWeaponProjectile, trace: QuakeProjectileTrace): void {
@@ -1234,7 +1432,7 @@ export function createQuakeWeaponsController({
     if (!radiusDamageCanDamage(origin, playerQuakeEntityOrigin(), profile.splashRequiresCanDamage === true)) return false;
     const damage = projectileSplashDamageAtDistance(profile, distance) * 0.5;
     if (damage <= 0) return false;
-    return damagePlayer(scaledWeaponDamage(damage));
+    return damagePlayer(scaledWeaponDamage(damage), { inflictorOrigin: origin });
   }
 
   function damagePlayerRadiusDamage(
@@ -1248,7 +1446,7 @@ export function createQuakeWeaponsController({
     if (!radiusDamageCanDamage(origin, playerQuakeEntityOrigin(), profile.requiresCanDamage)) return false;
     const damage = radiusDamageAtDistance(damageUnits, distance, profile.distanceScale) * profile.attackerSelfScale;
     if (damage <= 0) return false;
-    return damagePlayer(scaledWeaponDamage(damage));
+    return damagePlayer(scaledWeaponDamage(damage), { inflictorOrigin: origin });
   }
 
   function distanceToPlayerCenter(origin: Vec3): number {
@@ -1355,7 +1553,11 @@ export function createQuakeWeaponsController({
   return {
     reset,
     canFire,
+    debugClearProjectileCapture,
+    debugFireProjectile,
     debugProjectileImpact,
+    debugProjectileCapture,
+    debugSetProjectileCaptureEnabled,
     fire,
     viewTraceAtCrosshair,
     weaponTraceAtCrosshair,
@@ -1461,6 +1663,50 @@ function lightningDamageOffset(start: Vec3, end: Vec3, offsetUnits: number): Vec
   const x = -direction[1];
   const y = x;
   return [x * offset, y * offset, 0];
+}
+
+function expandedShootableTraceMin(
+  shootable: QuakeWeaponShootableTarget,
+  monsterTouchHullExpansion: number,
+): Vec3 {
+  if (monsterTouchHullExpansion <= 0 || !shootable.entity.classname.startsWith("monster_")) {
+    return shootable.bounds.min;
+  }
+  return [
+    shootable.bounds.min[0] - monsterTouchHullExpansion,
+    shootable.bounds.min[1] - monsterTouchHullExpansion,
+    shootable.bounds.min[2] - monsterTouchHullExpansion,
+  ];
+}
+
+function expandedShootableTraceMax(
+  shootable: QuakeWeaponShootableTarget,
+  monsterTouchHullExpansion: number,
+): Vec3 {
+  if (monsterTouchHullExpansion <= 0 || !shootable.entity.classname.startsWith("monster_")) {
+    return shootable.bounds.max;
+  }
+  return [
+    shootable.bounds.max[0] + monsterTouchHullExpansion,
+    shootable.bounds.max[1] + monsterTouchHullExpansion,
+    shootable.bounds.max[2] + monsterTouchHullExpansion,
+  ];
+}
+
+function projectileImpactPresentationOrigin(projectile: QuakeWeaponProjectile, trace: QuakeProjectileTrace): Vec3 {
+  const backoff = projectile.profile.explosionBackoff ?? 0;
+  if (backoff <= 0) return [...trace.end] as Vec3;
+  const velocity = projectile.velocity ?? [
+    projectile.direction[0] * projectile.speed,
+    projectile.direction[1] * projectile.speed,
+    projectile.direction[2] * projectile.speed,
+  ];
+  const direction = normalizeVec3(velocity);
+  return [
+    trace.end[0] - direction[0] * backoff,
+    trace.end[1] - direction[1] * backoff,
+    trace.end[2] - direction[2] * backoff,
+  ];
 }
 
 function viewRayFromDirection(origin: Vec3, direction: Vec3, range: number): QuakeViewRay {

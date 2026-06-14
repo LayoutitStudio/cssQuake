@@ -140,7 +140,6 @@ const quakePrepareWeaponOnly = quakePrepareOnly === "weapon";
 const quakePrepareManifestOnly = quakePrepareOnly === "manifest";
 const quakePrepareModelOnly = parseQuakePrepareModelOnly(process.env.QUAKE_PREPARE_MODEL_ONLY ?? "");
 const quakePrepareReferencedModelsOnly = process.env.QUAKE_PREPARE_REFERENCED_MODELS_ONLY !== "0";
-const quakeRenderBundleAdaptiveAtlasLeafSize = process.env.QUAKE_RENDER_BUNDLE_ADAPTIVE_ATLAS_LEAF_SIZE === "1";
 const quakePrepareMapOnlyAllowNewManifest = process.env.QUAKE_PREPARE_MAP_ONLY_ALLOW_NEW_MANIFEST === "1";
 const quakeDomTighteningTargets = parseQuakeDomTighteningTargets(process.env.QUAKE_DOM_TIGHTENING ?? "all");
 const quakeTriangleAtlasBasis = process.env.QUAKE_TRIANGLE_ATLAS_BASIS === "1";
@@ -244,9 +243,12 @@ const QUAKE_ALIAS_REBAKE_MERGE_AFFINE_EPSILON = Number.isFinite(quakeAliasRebake
 const QUAKE_ALIAS_SKIN_PADDING_RADIUS = 4;
 const QUAKE_ALIAS_SKIN_FILLER_INDEX = 208;
 const QUAKE_KNIGHT_MODEL_PATH = "progs/knight.mdl";
+const QUAKE_BACKPACK_MODEL_PATH = "progs/backpack.mdl";
+const QUAKE_LAVABALL_MODEL_PATH = "progs/lavaball.mdl";
 const QUAKE_KNIGHT_SWORD_TRIANGLE_INDICES = new Set([
   11, 48, 64, 88, 91, 104, 105, 107, 110, 112, 114, 118, 134, 151, 164, 193, 197, 199, 201, 204,
 ]);
+const QUAKE_BACKPACK_STRAP_NO_MERGE_TRIANGLE_INDICES = new Set([89, 108]);
 const QUAKE_KNIGHT_SWORD_SUBDIVISION_LEVELS = 2;
 const QUAKE_KNIGHT_STAND_SWORD_FORWARD_OFFSET = 8;
 const QUAKE_DEBUG_OUTLINE_WIDTH = 0.5;
@@ -1078,6 +1080,7 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
       ...(styleUrl ? { styleUrl } : {}),
       ...(styleClassName ? { styleClassName } : {}),
       assetUrls,
+      assetUrlsComplete: true,
       ...(includeLeafFrameStyles && leafFrameStylesByClass.length ? { leafFrameStylesByClass } : {}),
       leafMetadata: result.leafMetadata,
       polygonCount: result.polygonCount,
@@ -1127,14 +1130,12 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
       const name = bundleName ?? mapName;
       if (!name) throw new Error("Render bundle build requires a bundleName or mapName.");
       const styleClassName = extractLeafStyles ? quakeRenderBundleStyleClassName(name) : "";
-      const adaptiveAtlasLeafSize = quakeRenderBundleAdaptiveAtlasLeafSize && Boolean(mapName);
       const renderInput = {
         polygons,
         textureQuality,
         extractLeafStyles,
         styleClassName,
         tightenAtlasLeaves,
-        adaptiveAtlasLeafSize,
         optimizeAtlasLeafBasis,
         optimizeAtlasLeafHomography,
         optimizeAtlasTriangleBasis,
@@ -1157,8 +1158,7 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
         `${written.writtenAssetCount} atlas assets` +
         `${written.deferredAssetCount ? " deferred" : ""}` +
         `${renderBundleAtlasLeafBasisLog(result)}` +
-        `${renderBundleAtlasLeafHomographyLog(result)}` +
-        `${renderBundleAdaptiveAtlasLeafSizeLog(result)}`,
+        `${renderBundleAtlasLeafHomographyLog(result)}`,
       );
       return written.renderBundle;
     },
@@ -1190,7 +1190,6 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
         textureQuality,
         extractLeafStyles,
         tightenAtlasLeaves,
-        adaptiveAtlasLeafSize: false,
         fastFrameStyles: quakeRenderBundleFastFrameStyles,
         optimizeAtlasLeafBasis,
         optimizeAtlasLeafHomography,
@@ -1226,7 +1225,6 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
         `${renderBundleAtlasLeafBasisLog(firstFrame)} ` +
         `${renderBundleAtlasLeafHomographyLog(firstFrame)} ` +
         `${renderBundleTriangleAtlasBasisLog(firstFrame)} ` +
-        `${renderBundleAdaptiveAtlasLeafSizeLog(firstFrame)} ` +
         `(${reusedAssetCount} frame references reused)`,
       );
       return frameBundles;
@@ -1397,13 +1395,6 @@ function renderBundleTexturePayload(input) {
 function collectRenderBundleTextureUrl(urls, polygon) {
   const texture = polygon?.texture;
   if (typeof texture === "string" && texture.startsWith(`${quakePublicPath}/`)) urls.add(texture);
-}
-
-function renderBundleAdaptiveAtlasLeafSizeLog(result) {
-  const stats = result?.adaptiveAtlasLeafSizeStats;
-  if (!stats?.resizedLeaves) return "";
-  return `, adaptive ${stats.resizedLeaves}/${stats.totalLeaves} leaves ` +
-    `${stats.beforeArea}->${stats.afterArea} local px`;
 }
 
 function renderBundleAtlasLeafBasisLog(result) {
@@ -2444,11 +2435,20 @@ function quakeReferencedModelPathsForPreparedMaps(preparedMaps, programMetadata,
   for (const modelPath of quakeMultiplayerPlayerModelPathsFromCandidates(candidateByPath)) {
     referencedModelPaths.add(modelPath);
   }
+  for (const modelPath of quakePlayerWeaponProjectileModelPathsFromCandidates(candidateByPath, programMetadata)) {
+    referencedModelPaths.add(modelPath);
+  }
   return referencedModelPaths;
 }
 
 function quakeMultiplayerPlayerModelPathsFromCandidates(candidateByPath) {
   return QUAKE_MULTIPLAYER_PLAYER_ALIAS_MODEL_PATHS
+    .map((modelPath) => candidateByPath.get(modelPath.toLowerCase()))
+    .filter(Boolean);
+}
+
+function quakePlayerWeaponProjectileModelPathsFromCandidates(candidateByPath, programMetadata) {
+  return (programMetadata?.sourcePlayerProjectileModelPaths ?? [])
     .map((modelPath) => candidateByPath.get(modelPath.toLowerCase()))
     .filter(Boolean);
 }
@@ -3388,6 +3388,23 @@ function quakePlayerWeaponViewModelPaths(sourceProgramFacts) {
   return paths;
 }
 
+function quakePlayerWeaponProjectileModelPaths(sourceProgramFacts) {
+  const paths = [];
+  const seen = new Set();
+  const profiles = sourceProgramFacts?.playerWeapons?.profiles;
+  if (!profiles || typeof profiles !== "object") return paths;
+  const addPath = (value) => {
+    const modelPath = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (!/^progs\/.+\.mdl$/.test(modelPath) || seen.has(modelPath)) return;
+    seen.add(modelPath);
+    paths.push(modelPath);
+  };
+  for (const profile of Object.values(profiles)) {
+    addPath(profile?.projectile?.modelPath);
+  }
+  return paths;
+}
+
 function quakeWeaponModelOutputPath(modelPath) {
   const filename = path.basename(modelPath, path.extname(modelPath))
     .toLowerCase()
@@ -3844,6 +3861,7 @@ function compactQuakeAnimationFrameRenderBundles(model) {
       textureQuality: renderBundle.textureQuality,
       meshHtml: quakeRenderBundleRootOnlyHtml(renderBundle),
       assetUrls: [...renderBundle.assetUrls],
+      ...(renderBundle.assetUrlsComplete ? { assetUrlsComplete: true } : {}),
       leafMetadata: [],
       polygonCount: 0,
       leafCount: 0,
@@ -4056,6 +4074,9 @@ function buildQuakeProgramMetadata(assets, sourceProgramFacts = null) {
   const sourceRuntimeModelsByClassname = sourceProgramFacts
     ? buildQuakeProgramSourceRuntimeModelsByClassname(sourceProgramFacts)
     : null;
+  const sourcePlayerProjectileModelPaths = sourceProgramFacts
+    ? quakePlayerWeaponProjectileModelPaths(sourceProgramFacts)
+    : [];
   return {
     version: 1,
     crc: header.crc,
@@ -4063,6 +4084,7 @@ function buildQuakeProgramMetadata(assets, sourceProgramFacts = null) {
     modelsByClassname,
     soundsByClassname,
     ...(sourceRuntimeModelsByClassname ? { sourceRuntimeModelsByClassname } : {}),
+    ...(sourcePlayerProjectileModelPaths.length ? { sourcePlayerProjectileModelPaths } : {}),
     ...(sourceFactChecks ? { sourceFactChecks } : {}),
   };
 }
@@ -4843,6 +4865,8 @@ function quakeAliasSameUv(a, b) {
 }
 
 function quakeAliasTwoSidedTriangleIndices(model, source = "") {
+  if (source === QUAKE_LAVABALL_MODEL_PATH) return quakeAliasAllTriangleIndices(model);
+
   const edgeTriangleIndices = new Map();
   for (let triangleIndex = 0; triangleIndex < model.triangles.length; triangleIndex++) {
     const indices = model.triangles[triangleIndex].indices;
@@ -4881,7 +4905,13 @@ function quakeAliasSwordTriangleIndices(source = "") {
 }
 
 function quakeAliasNoMergeTriangleIndices(model, source = "") {
+  if (source === QUAKE_BACKPACK_MODEL_PATH) return QUAKE_BACKPACK_STRAP_NO_MERGE_TRIANGLE_INDICES;
+  if (source === QUAKE_LAVABALL_MODEL_PATH) return quakeAliasAllTriangleIndices(model);
   if (source !== QUAKE_KNIGHT_MODEL_PATH) return undefined;
+  return quakeAliasAllTriangleIndices(model);
+}
+
+function quakeAliasAllTriangleIndices(model) {
   return new Set(model.triangles.map((_triangle, triangleIndex) => triangleIndex));
 }
 

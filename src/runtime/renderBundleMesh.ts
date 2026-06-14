@@ -86,6 +86,8 @@ const QUAKE_MOTION_MATERIAL_CHUNK_INTERVAL_MS = 80;
 const QUAKE_MOTION_MATERIAL_CHUNK_COUNT = 12;
 const QUAKE_MOTION_MATERIAL_DEFER_FRAME_COUNT = 2;
 const QUAKE_MOTION_MATERIAL_TEXTURED_AREA_RATIO = 0.25;
+const QUAKE_RENDER_BUNDLE_TEXTURE_PRELOAD_STATUS = "Texture images";
+const QUAKE_RENDER_BUNDLE_TEXTURE_PRELOAD_CONCURRENCY = 48;
 
 type QuakeRenderBundleLeafFrameStylesFile = {
   version: 3;
@@ -709,12 +711,12 @@ export async function preloadQuakeRenderBundleAssets(
   progress?: QuakeRenderBundlePreloadProgress,
 ): Promise<void> {
   const leafFrameStylesUrl = renderBundle.leafFrameStylesUrl;
-  const tasks: Promise<void>[] = [];
+  const setupTasks: Promise<unknown>[] = [];
   if (leafFrameStylesUrl && !renderBundle.leafFrameStyles?.length) {
     const complete = renderBundleLeafFrameStylesLoadPromises.has(leafFrameStylesUrl)
       ? null
       : progress?.startTask();
-    tasks.push(loadQuakeRenderBundleLeafFrameStyles(renderBundle).finally(() => complete?.()));
+    setupTasks.push(loadQuakeRenderBundleLeafFrameStyles(renderBundle).finally(() => complete?.()));
   }
   quakeRenderBundleTemplate(renderBundle);
   const styleKey = quakeRenderBundleStyleKey(renderBundle);
@@ -722,13 +724,18 @@ export async function preloadQuakeRenderBundleAssets(
     const complete = renderBundle.styleUrl && !renderBundleStyleLoadPromises.has(styleKey)
       ? progress?.startTask()
       : null;
-    tasks.push(preloadQuakeRenderBundleStyle(renderBundle).finally(() => complete?.()));
+    setupTasks.push(preloadQuakeRenderBundleStyle(renderBundle).finally(() => complete?.()));
   }
-  for (const url of renderBundle.assetUrls) {
-    const complete = renderBundleAssetPreloads.has(url) ? null : progress?.startTask();
-    tasks.push(preloadQuakeRenderBundleAsset(url).finally(() => complete?.()));
+  await Promise.all(setupTasks);
+  const urls = quakeRenderBundlePreloadAssetUrls(renderBundle);
+  if (!urls.length) return;
+  const hasUncachedAsset = urls.some((url) => !renderBundleAssetPreloads.has(url));
+  const complete = hasUncachedAsset ? progress?.startTask(QUAKE_RENDER_BUNDLE_TEXTURE_PRELOAD_STATUS) : null;
+  try {
+    await preloadQuakeRenderBundleAssetUrls(urls);
+  } finally {
+    complete?.();
   }
-  await Promise.all(tasks);
 }
 
 export interface QuakeRenderBundleDebugOutlineOptions {
@@ -1201,6 +1208,17 @@ function quakeRenderBundleCssUrl(url: string): string {
   return `url("${url.replace(/["\\\n\r\f]/g, "\\$&")}")`;
 }
 
+export function quakeRenderBundlePreloadAssetUrls(renderBundle: QuakePreparedRenderBundle): string[] {
+  if (renderBundle.assetUrlsComplete !== true) {
+    throw new Error("Quake render bundle assetUrls must be complete before runtime preload.");
+  }
+  const urls = new Set<string>();
+  for (const url of renderBundle.assetUrls) {
+    if (url) urls.add(url);
+  }
+  return [...urls];
+}
+
 function preloadQuakeRenderBundleStyle(renderBundle: QuakePreparedRenderBundle): Promise<void> {
   const key = quakeRenderBundleStyleKey(renderBundle);
   if (!key) return Promise.resolve();
@@ -1608,6 +1626,20 @@ function quakeRenderBundleTemplate(renderBundle: QuakePreparedRenderBundle): HTM
   return template;
 }
 
+async function preloadQuakeRenderBundleAssetUrls(urls: readonly string[]): Promise<void> {
+  if (!urls.length) return;
+  let index = 0;
+  const workerCount = Math.min(QUAKE_RENDER_BUNDLE_TEXTURE_PRELOAD_CONCURRENCY, urls.length);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    for (;;) {
+      const url = urls[index];
+      index++;
+      if (!url) return;
+      await preloadQuakeRenderBundleAsset(url);
+    }
+  }));
+}
+
 function preloadQuakeRenderBundleAsset(url: string): Promise<void> {
   const existing = renderBundleAssetPreloads.get(url);
   if (existing) return existing.promise;
@@ -1668,6 +1700,7 @@ export function createQuakeRenderBundleMeshHandle(element: HTMLElement): PolyMes
     },
     dispose: removeElement,
     rebakeAtlas: () => undefined,
+    whenTexturesReady: () => Promise.resolve(),
     getPosition: () => transform.position,
     getRotation: () => transform.rotation,
     getScale: () => transform.scale,

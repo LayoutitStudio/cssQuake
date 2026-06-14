@@ -182,13 +182,77 @@ export interface QuakeClipNode {
 export interface QuakeLeaf {
   contents: number;
   visOffset: number;
+  mins: QuakeVertex;
+  maxs: QuakeVertex;
   firstMarkSurface: number;
   markSurfaceCount: number;
 }
 
+export interface QuakeVisibilityBounds {
+  mins: QuakeVertex;
+  maxs: QuakeVertex;
+  center: QuakeVertex;
+}
+
+export interface QuakeVisibilitySourceFaceMetadata {
+  faceIndex: number;
+  modelIndex: number;
+  entityIndex?: number;
+  texture: string;
+  planeIndex: number;
+  plane: QuakePlane;
+  side: number;
+  pointCount: number;
+  area: number;
+  leafIndexes: number[];
+  bounds: QuakeVisibilityBounds;
+}
+
+export interface QuakeVisibilityLeafMetadata {
+  leafIndex: number;
+  contents: number;
+  bounds: QuakeVisibilityBounds;
+  faceIndexes: number[];
+  visibleLeafIndexes: number[] | null;
+  visibleFaceIndexes: number[] | null;
+  adjacentLeafIndexes: number[];
+}
+
+export interface QuakeVisibilityDoorBlockerMetadata {
+  entityIndex: number;
+  modelIndex: number;
+  classname: string;
+  kind: "func_door" | "func_door_secret";
+  linkedEntityIndexes: number[];
+  closedBounds: QuakeVisibilityBounds;
+  origin?: QuakeVertex;
+  openBounds?: QuakeVisibilityBounds;
+  triggerBounds?: QuakeVisibilityBounds;
+  moveDirection?: QuakeVertex;
+  travelOffset?: QuakeVertex;
+  startsOpen?: boolean;
+  faceIndexes: number[];
+  leafIndexes: number[];
+  nearbyLeafIndexes: number[];
+  blockedLeafPairCandidates: Array<[number, number]>;
+}
+
+export interface QuakePreparedVisibilityMetadata {
+  version: 1;
+  source: "prepared-bsp";
+  pvsSource: "bsp-visdata";
+  leafAdjacencySource: "bounds-touch";
+  doorLeafCutSource: "bounds-touch-door-intersection";
+  leaves: QuakeVisibilityLeafMetadata[];
+  sourceFaces: QuakeVisibilitySourceFaceMetadata[];
+  doorBlockers: QuakeVisibilityDoorBlockerMetadata[];
+}
+
 export interface QuakeVisibility {
   faceForPolygon: number[];
+  metadata?: QuakePreparedVisibilityMetadata;
   leafIndexAt(point: Vec3): number;
+  sourceFaceIndicesForRenderFace(faceIndex: number): readonly number[];
   visibleLeavesAt(point: Vec3): Set<number> | null;
   visibleFacesAt(point: Vec3): Set<number> | null;
   visibleFaceGroupAt(point: Vec3): QuakeVisibleFaceGroup;
@@ -214,6 +278,7 @@ export interface QuakePreparedRenderBundle {
   styleUrl?: string;
   styleClassName?: string;
   assetUrls: string[];
+  assetUrlsComplete: true;
   debugOutlineSourceAssetUrls?: string[];
   debugOutlineAssetUrls?: string[];
   debugOutlineBackgrounds?: QuakeRenderBundleDebugOutlineBackground[];
@@ -256,6 +321,7 @@ export interface QuakePreparedVisibility {
   candidates: QuakeVisibilityCandidate[];
   brushModels: QuakeBrushModel[];
   pivot: QuakeVertex;
+  metadata?: QuakePreparedVisibilityMetadata;
 }
 
 export interface QuakeCollisionHull {

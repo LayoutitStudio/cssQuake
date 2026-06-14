@@ -227,9 +227,12 @@ const monsterTargets = [
     classname: "monster_zombie",
     label: "zombie",
     modelPath: "progs/zombie.mdl",
+    attackChainChoicesFunction: "zombie_missile",
     sourcePath: "qcc/v101qc/zombie.qc",
     spawnFunction: "monster_zombie",
     extraChains: [
+      ["attack_b", "zombie_attb1"],
+      ["attack_c", "zombie_attc1"],
       ["pain_light_a", "zombie_paina1"],
       ["pain_light_b", "zombie_painb1"],
       ["pain_light_c", "zombie_painc1"],
@@ -858,15 +861,17 @@ function parseStates(sourceText, frames) {
   const statePattern = /void\s*\(\s*\)\s+(\w+)\s*=\s*\[\s*\$(\w+)\s*,\s*(\w+)\s*\]\s*\{([\s\S]*?)\}\s*;/g;
   for (const match of sourceText.matchAll(statePattern)) {
     const [, name, frame, next, body] = match;
+    const conditionalSounds = extractConditionalSounds(body);
     states.set(name, {
       body: normalizeBody(body),
       calls: extractCalls(body),
+      conditionalSounds,
       frame,
       frameIndex: frames.get(frame) ?? null,
       movement: extractAiMovementCalls(body),
       name,
       next,
-      sounds: extractSounds(body),
+      sounds: extractUnconditionalSounds(body, conditionalSounds),
     });
   }
   return states;
@@ -2398,6 +2403,7 @@ function buildMonsterChains({ callbacks, eventSemantics, source, states, target 
 
 function buildCombatPolicy({ callbacks, chains, shared, source, target }) {
   const damage = maxFrameEventDamage(Object.values(chains).flatMap((chain) => chain.states));
+  const chainChoices = extractAttackChainChoices({ chains, source, target });
   const eventTypes = new Set(
     Object.values(chains)
       .flatMap((chain) => chain.states)
@@ -2430,6 +2436,7 @@ function buildCombatPolicy({ callbacks, chains, shared, source, target }) {
           near: 500,
         },
         ...(genericAttack?.requiresClearShot ? { requiresClearShot: true } : {}),
+        ...(chainChoices.length ? { chainChoices } : {}),
         usesFrameEvents: true,
       },
     };
@@ -2446,11 +2453,42 @@ function buildCombatPolicy({ callbacks, chains, shared, source, target }) {
       ...attack,
       chain: "attack",
       ...(branches.length > 0 ? { branches } : {}),
+      ...(chainChoices.length ? { chainChoices } : {}),
       ...(damage > 0 ? { damage } : {}),
       ...attackSideEffectRandomChecks(shared.fight, target.checkAttackFunction, source),
       usesFrameEvents: true,
     },
   };
+}
+
+function extractAttackChainChoices({ chains, source, target }) {
+  if (!target.attackChainChoicesFunction) return [];
+  const body = extractFunctionBody(source, target.attackChainChoicesFunction);
+  if (!body || !/\brandom\s*\(\s*\)/.test(body)) return [];
+  const randomVariable = /\b([A-Za-z_][A-Za-z0-9_]*)\s*=\s*random\s*\(\s*\)\s*;/.exec(body)?.[1];
+  if (!randomVariable) return [];
+  const startToChain = new Map();
+  for (const [chainName, chain] of Object.entries(chains)) {
+    if (!chain?.start || startToChain.has(chain.start)) continue;
+    startToChain.set(chain.start, chainName);
+  }
+  const choices = [];
+  const choiceRe = new RegExp(
+    `(?:if|else\\s+if)\\s*\\(\\s*${randomVariable}\\s*<\\s*([0-9.]+)\\s*\\)\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*\\)\\s*;|else\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*\\)\\s*;`,
+    "g",
+  );
+  for (const match of body.matchAll(choiceRe)) {
+    const startFunction = match[2] ?? match[3];
+    const chain = startToChain.get(startFunction);
+    if (!chain) continue;
+    if (match[1] !== undefined) {
+      const randomLessThan = Number(match[1]);
+      if (Number.isFinite(randomLessThan)) choices.push({ chain, randomLessThan });
+    } else {
+      choices.push({ chain, otherwise: true });
+    }
+  }
+  return choices.length > 1 ? choices : [];
 }
 
 function extractGenericCheckAttackPolicy(sourceText, hasMelee) {
@@ -2583,7 +2621,8 @@ function missileBranch({ body, chain, maxDistanceUnits }) {
     mid: chanceForRange(body, "MID"),
     near: chanceForRange(body, "NEAR"),
   };
-  const hasRangeChance = Object.values(rangeChances).some((chance) => chance > 0);
+  const appliesRangeChance = /\brandom\s*\(\s*\)\s*<\s*chance\b/.test(body);
+  const hasRangeChance = appliesRangeChance && Object.values(rangeChances).some((chance) => chance > 0);
   const tracedMaxDistanceUnits = maxDistanceUnits ??
     Number(/vlen\s*\(\s*spot1\s*-\s*spot2\s*\)\s*>\s*([0-9.]+)/.exec(body)?.[1] ?? 0);
   return {
@@ -2781,6 +2820,28 @@ function extractSounds(body) {
   const sounds = [];
   for (const match of body.matchAll(/"([^"]+\.wav)"/g)) {
     if (!sounds.includes(match[1])) sounds.push(match[1]);
+  }
+  return sounds;
+}
+
+function extractUnconditionalSounds(body, conditionalSounds) {
+  const conditional = new Set(conditionalSounds.map((sound) => sound.soundPath));
+  return extractSounds(body).filter((soundPath) => !conditional.has(soundPath));
+}
+
+function extractConditionalSounds(body) {
+  const sounds = [];
+  const source = stripQuakeLineComments(body);
+  const pattern = /if\s*\(\s*random\s*\(\s*\)\s*([<>])\s*([0-9.]+)\s*\)\s*(?:\{\s*)?sound\s*\([^,]+,\s*[^,]+,\s*"([^"]+\.wav)"/g;
+  for (const match of source.matchAll(pattern)) {
+    const [, operator, thresholdText, soundPath] = match;
+    const threshold = Number(thresholdText);
+    if (!Number.isFinite(threshold)) continue;
+    const chance = operator === "<" ? threshold : 1 - threshold;
+    sounds.push({
+      chance: Math.max(0, Math.min(1, chance)),
+      soundPath,
+    });
   }
   return sounds;
 }
@@ -3090,9 +3151,16 @@ export interface QuakeMonsterAttackBranchPolicy {
   requiresVerticalOverlap?: boolean;
 }
 
+export interface QuakeMonsterAttackChainChoice {
+  chain: string;
+  otherwise?: boolean;
+  randomLessThan?: number;
+}
+
 export interface QuakeMonsterAttackPolicy {
   branches?: readonly QuakeMonsterAttackBranchPolicy[];
   chain: string;
+  chainChoices?: readonly QuakeMonsterAttackChainChoice[];
   cooldownMs: number;
   cooldownRandomAddMs?: number;
   damage?: number;
@@ -3110,6 +3178,11 @@ export interface QuakeMonsterCombatPolicy {
 export interface QuakeMonsterAiMovementCall {
   call: string;
   distanceUnits?: number;
+}
+
+export interface QuakeMonsterConditionalFrameSound {
+  chance: number;
+  soundPath: string;
 }
 
 export type QuakeMonsterStartKind = "fly" | "swim" | "unknown" | "walk";
@@ -3279,6 +3352,7 @@ export type QuakeMonsterFrameEvent =
 
 export interface QuakeMonsterFrameState {
   calls: readonly string[];
+  conditionalSounds?: readonly QuakeMonsterConditionalFrameSound[];
   events?: readonly QuakeMonsterFrameEvent[];
   frame: string;
   frameIndex: number;
@@ -3768,6 +3842,7 @@ function generatedState(state, source, eventSemantics) {
   ];
   return {
     calls: state.calls,
+    ...(state.conditionalSounds?.length ? { conditionalSounds: state.conditionalSounds } : {}),
     ...(events.length > 0 ? { events } : {}),
     frame: state.frame,
     frameIndex: state.frameIndex,
