@@ -2467,7 +2467,7 @@ function appendRenderBundleBackgroundVars(html, pageAssetUrls, firstNewAssetInde
   const additions = pageAssetUrls.map((url, index) =>
     `--bg${firstNewAssetIndex + index}:url(&quot;${url}&quot;)`
   );
-  const nextStyle = [...additions, ...style.split(";").filter(Boolean)].join(";");
+  const nextStyle = [...additions, ...splitStyleDeclarations(style).filter(Boolean)].join(";");
   if (style) {
     return html.replace(`style="${style}"`, `style="${nextStyle}"`);
   }
@@ -2547,7 +2547,7 @@ function renderBundleAssetOutputPath(url, outputDir, publicPath) {
 }
 
 function replaceStyleDeclaration(style, name, value) {
-  const declarations = style.split(";").map((part) => part.trim()).filter(Boolean);
+  const declarations = splitStyleDeclarations(style).map((part) => part.trim()).filter(Boolean);
   let replaced = false;
   const next = declarations.map((part) => {
     const separator = part.indexOf(":");
@@ -2561,8 +2561,7 @@ function replaceStyleDeclaration(style, name, value) {
 
 function removeStyleDeclarations(style, names) {
   const nameSet = new Set(names);
-  return style
-    .split(";")
+  return splitStyleDeclarations(style)
     .map((part) => part.trim())
     .filter((part) => {
       const separator = part.indexOf(":");
@@ -2574,7 +2573,7 @@ function removeStyleDeclarations(style, names) {
 
 function orderStyleDeclarations(style, names) {
   const order = new Map(names.map((name, index) => [name, index]));
-  const declarations = style.split(";").map(compactStyleDeclaration).filter(Boolean);
+  const declarations = splitStyleDeclarations(style).map(compactStyleDeclaration).filter(Boolean);
   const ordered = [];
   const rest = [];
   for (const declaration of declarations) {
@@ -2597,6 +2596,37 @@ function compactStyleDeclaration(declaration) {
   const name = trimmed.slice(0, separator).trim();
   const value = trimmed.slice(separator + 1).trim();
   return `${name}:${value}`;
+}
+
+function splitStyleDeclarations(style) {
+  const declarations = [];
+  const text = String(style ?? "");
+  let start = 0;
+  let depth = 0;
+  let quote = "";
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (quote) {
+      if (char === "\\") {
+        index++;
+      } else if (char === quote) {
+        quote = "";
+      }
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      quote = char;
+    } else if (char === "(") {
+      depth++;
+    } else if (char === ")" && depth > 0) {
+      depth--;
+    } else if (char === ";" && depth === 0) {
+      declarations.push(text.slice(start, index));
+      start = index + 1;
+    }
+  }
+  declarations.push(text.slice(start));
+  return declarations;
 }
 
 function parseRenderBundleAtlasLeaves(html, metadata) {
@@ -2684,7 +2714,7 @@ function compensatedAtlasLeafMatrix(style, sizing) {
 }
 
 function styleDeclarationValue(style, name) {
-  for (const part of style.split(";")) {
+  for (const part of splitStyleDeclarations(style)) {
     const separator = part.indexOf(":");
     if (separator <= 0 || part.slice(0, separator).trim() !== name) continue;
     return part.slice(separator + 1).trim();
