@@ -12,6 +12,7 @@ bench/
 /debug/
 .partykit/
 notes/
-scripts/
+scripts/*
+!scripts/testContracts.mjs
 netlify.toml
 chrome-trace*.json
