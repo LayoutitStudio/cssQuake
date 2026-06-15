@@ -2757,13 +2757,16 @@ export function createQuakeShootablesController({
     const shouldWalk = enemyMovement.shouldAnimateChasingEnemy(shootable, movementTarget, profile, canSeePlayer);
     if (shouldWalk) updateEnemyAnimation(shootable, "walk", now);
     const moved = enemyMovement.moveChasingEnemy(shootable, movementTarget, profile, dt, now, canSeePlayer);
+    const handledMovementStep = enemy.quakecMovementHandledStep;
     if (moved) applyEnemyMonsterJumpTriggers(shootable);
-    if (!shouldWalk) updateEnemyAnimation(shootable, moved ? "walk" : "idle", now);
+    if (!shouldWalk || (shouldWalk && !moved && !handledMovementStep)) {
+      updateEnemyAnimation(shootable, moved ? "walk" : "idle", now);
+    }
     enemyEye = shootableEyeOrigin(shootable);
     if (attacksEnabled && !attackBeforeMove && shouldAttemptEnemyAttack(canSeePlayer, shootable, enemy, now)) {
       if (tryStartEnemyAttack(shootable, enemy, enemyEye, attackTargetOrigin, profile, now, attackTarget)) return;
     }
-    if (enemy.quakecMovementHandledStep || (enemy.quakecRunner && shouldWalk)) {
+    if (handledMovementStep || (enemy.quakecRunner && moved)) {
       syncShootableTransform(shootable);
     } else {
       enemyMovement.faceShootableAtOrigin(shootable, movementTarget);
@@ -3001,16 +3004,14 @@ export function createQuakeShootablesController({
       movementCall: "ai_walk",
       stopDistance: 0,
     });
+    const handledMovementStep = enemy.quakecMovementHandledStep;
     if (moved) applyEnemyMonsterJumpTriggers(shootable);
-    if (enemy.quakecMovementHandledStep || enemy.quakecRunner) {
+    if (handledMovementStep || (enemy.quakecRunner && moved)) {
       syncShootableTransform(shootable);
     } else {
       enemyMovement.faceShootableAtOrigin(shootable, target.origin);
     }
-    if (
-      moved ||
-      enemyMovement.shouldAnimateMovingEnemy(shootable, target.origin, QUAKE_MONSTER_PATH_TOUCH_RADIUS, COLLISION_EPSILON)
-    ) {
+    if (moved || handledMovementStep) {
       updateEnemyAnimation(shootable, "path", now);
     } else {
       updateEnemyAnimation(shootable, "idle", now);
