@@ -2497,6 +2497,7 @@ function directTightenedAtlasLeafExtraStyle(rawStyle) {
       part.name !== "background-position" &&
       part.name !== "background-size" &&
       part.name !== "background-repeat" &&
+      part.name !== "image-rendering" &&
       part.name !== "width" &&
       part.name !== "height"
     )
@@ -3102,6 +3103,7 @@ function stripRenderBundleOutputStyleMetadata(style) {
   return renderBundleStyleDeclarations(style)
     .filter((part) =>
       part.name !== "background-repeat" &&
+      part.name !== "image-rendering" &&
       !part.name.startsWith("--pn") &&
       !part.name.startsWith("--polycss-atlas-")
     )
