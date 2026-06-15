@@ -67,8 +67,8 @@ export interface QuakeDebugPanelFlow {
   syncControls: () => void;
   syncPanelVisibility: () => void;
   syncRenderOptions: () => void;
-  toggleMode: () => void;
-  toggleOutlineTextureMode: () => void;
+  toggleMode: () => boolean;
+  toggleOutlineTextureMode: () => boolean;
 }
 
 export function createQuakeDebugPanelFlow(options: QuakeDebugPanelFlowOptions): QuakeDebugPanelFlow {
@@ -114,8 +114,10 @@ export function createQuakeDebugPanelFlow(options: QuakeDebugPanelFlowOptions): 
     }
   }
 
-  function toggleMode(): void {
-    setMode(!mode);
+  function toggleMode(): boolean {
+    const enabled = !mode;
+    setMode(enabled);
+    return enabled;
   }
 
   function setShowFps(enabled: boolean): void {
@@ -138,6 +140,7 @@ export function createQuakeDebugPanelFlow(options: QuakeDebugPanelFlowOptions): 
 
   function setShowOutlines(enabled: boolean): void {
     showOutlines = enabled;
+    hideTextures = enabled;
     syncRenderOptions();
   }
 
@@ -153,8 +156,10 @@ export function createQuakeDebugPanelFlow(options: QuakeDebugPanelFlowOptions): 
     syncRenderOptions();
   }
 
-  function toggleOutlineTextureMode(): void {
-    setOutlineTextureMode(!(hideTextures && showOutlines));
+  function toggleOutlineTextureMode(): boolean {
+    const enabled = !(hideTextures && showOutlines);
+    setOutlineTextureMode(enabled);
+    return enabled;
   }
 
   function syncRenderOptions(): void {
@@ -162,7 +167,7 @@ export function createQuakeDebugPanelFlow(options: QuakeDebugPanelFlowOptions): 
     if (options.debugShowTexturesOption) options.debugShowTexturesOption.checked = !hideTextures;
     if (options.debugShowOutlinesOption) {
       options.debugShowOutlinesOption.checked = effectiveShowOutlines;
-      options.debugShowOutlinesOption.disabled = hideTextures;
+      options.debugShowOutlinesOption.disabled = false;
     }
     if (options.debugShowLabelsOption) options.debugShowLabelsOption.checked = showLabels;
     syncQuakeRenderBundleDebugOutlines(effectiveShowOutlines, { hideTextures });

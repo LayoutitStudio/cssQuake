@@ -262,7 +262,6 @@ const {
   levelList,
   aboutPanel,
   optionsPanel,
-  debugMenuPanel,
   disableSoundOption,
   disableEnemiesOption,
   disableDamageOption,
@@ -813,7 +812,7 @@ const quakeMultiplayerScoreboard = QUAKE_MULTIPLAYER_ENABLED && quakeHud
   ? mountQuakeMultiplayerScoreboard(quakeHud)
   : null;
 let quakeInvertMouse = invertMouseOption?.checked ?? false;
-let quakeAlwaysRun = alwaysRunOption?.checked ?? false;
+let quakeAlwaysRun = alwaysRunOption?.checked ?? true;
 let quakeShowGun = showGunOption?.checked ?? true;
 let quakeDynamicLighting = dynamicLightingOption?.checked ?? true;
 let quakeImpactParticles = impactParticlesOption?.checked ?? true;
@@ -1402,19 +1401,17 @@ const menu = createQuakeMenuController({
   levelPanel,
   aboutPanel,
   optionsPanel,
-  debugPanel: debugMenuPanel,
   onSelectNewGame: startQuakeNewGame,
   onShowMultiplayer: syncQuakeMultiplayerMenu,
   onLoadGame: () => quakeSaveSession.load(),
   onSaveGame: () => quakeSaveSession.save(),
   onSelectLevel: loadQuakeMap,
-  onSelectDebug: handleQuakeMenuDebugToggle,
   onSelectQuit: quitQuakeToMainMenu,
   canLoadGame: () => quakeSaveSession.canLoad(),
   canSaveGame: () => quakeSaveSession.canSave(),
   isMultiplayerEnabled: () => QUAKE_MULTIPLAYER_MENU_ENABLED,
   isQuitEnabled: () => quakeGameplayStarted,
-  onMenuVisibilityChange: setQuakeDebugShowMenuOption,
+  onMenuVisibilityChange: handleQuakeMenuVisibilityChange,
   onMenuPauseChange: setQuakeMenuPauseState,
   onResumeMainMenuFromEscape: suppressQuakeMainMenuOnResumeControlsEnd,
   shouldResumeMainMenuOnEscape: shouldResumeQuakeMainMenuOnEscape,
@@ -2018,6 +2015,7 @@ let currentProgramMetadata: QuakeProgramMetadata | null = null;
 let currentCollisionWorld: QuakeCollisionWorld | null = null;
 let currentResult: QuakeScene | null = null;
 let quakeGameplayStarted = false;
+let quakeClickToPlayCenterPrintVisible = false;
 let entityByIndex = new Map<number, QuakeEntity>();
 let quakeModelPivot = { x: 0, y: 0, z: 0 };
 let quakeTransitionSerial = 0;
@@ -2287,6 +2285,7 @@ function setQuakeGameplayStarted(started: boolean): void {
   quakeGameplayStarted = started;
   setQuakeBodyClass("quake-gameplay-started", started);
   quakeLoading.handleGameplayStarted(started);
+  syncQuakeInteractionPresentation();
 }
 
 function hidePersistedQuakeLoadingConsole(): void {
@@ -2410,6 +2409,15 @@ function toggleQuakeAudioMuted(): void {
   setQuakeAudioMuted(!audio.isMuted());
 }
 
+function showQuakeShortcutState(label: string, enabled: boolean): void {
+  quakeTextPresentation.centerPrint(`${label} ${enabled ? "ON" : "OFF"}`);
+}
+
+function toggleQuakeAudioMutedShortcut(): void {
+  toggleQuakeAudioMuted();
+  showQuakeShortcutState("Sound", !audio.isMuted());
+}
+
 function setQuakeEnemiesDisabled(disabled: boolean): void {
   quakeEnemiesDisabled = disabled;
   shootables.syncMonsterRuntime();
@@ -2489,24 +2497,44 @@ function setQuakeDebugShowMenuOption(visible: boolean): void {
   quakeDebugPanelFlow.setShowMenuOption(visible);
 }
 
-function toggleQuakeDebugMode(): void {
-  quakeDebugPanelFlow.toggleMode();
+function handleQuakeMenuVisibilityChange(visible: boolean): void {
+  setQuakeDebugShowMenuOption(visible);
+  if (visible && quakeGameplayStarted && document.pointerLockElement === host) {
+    document.exitPointerLock();
+  }
+  syncQuakeInteractionPresentation();
+}
+
+function toggleQuakeDebugModeShortcut(): void {
+  showQuakeShortcutState("Debug", quakeDebugPanelFlow.toggleMode());
+}
+
+function toggleQuakeOutlineTextureModeShortcut(): void {
+  showQuakeShortcutState("Outlines", quakeDebugPanelFlow.toggleOutlineTextureMode());
 }
 
 function syncQuakeInteractionPresentation(): void {
   const menuSurfaceOpen = menu.isMainMenuOpen() || menu.isMenuPanelOpen();
-  const debugPointerUnlocked = quakeDebugPanelFlow.isModeEnabled() && document.pointerLockElement !== host;
+  const pointerUnlocked = document.pointerLockElement !== host;
+  const gameplayPointerUnlocked = quakeGameplayStarted && pointerUnlocked;
+  const debugPointerUnlocked = quakeDebugPanelFlow.isModeEnabled() && pointerUnlocked;
   setQuakeBodyClass("quake-debug-active", quakeDebugPanelFlow.isModeEnabled());
   setQuakeBodyClass("quake-debug-pointer-unlocked", debugPointerUnlocked);
-  setQuakeBodyClass("quake-menu-unlocked", menuSurfaceOpen || debugPointerUnlocked);
+  setQuakeBodyClass("quake-menu-unlocked", menuSurfaceOpen || gameplayPointerUnlocked || debugPointerUnlocked);
+  syncQuakeClickToPlayCenterPrint(gameplayPointerUnlocked && !menuSurfaceOpen);
 }
 
-function handleQuakeMenuDebugToggle(): void {
-  toggleQuakeDebugMode();
-  quakeGameplayInput.clearMoveInput();
-  quakePointerGameplay.clearAttackInput();
-  quakeGameplayInput.clearCrouchInput();
-  menu.hideMainMenu();
+function syncQuakeClickToPlayCenterPrint(visible: boolean): void {
+  if (visible) {
+    if (!quakeClickToPlayCenterPrintVisible) {
+      quakeTextPresentation.setCenterPrint("CLICK TO PLAY");
+      quakeClickToPlayCenterPrintVisible = true;
+    }
+    return;
+  }
+  if (!quakeClickToPlayCenterPrintVisible) return;
+  quakeTextPresentation.clearCenterPrint();
+  quakeClickToPlayCenterPrintVisible = false;
 }
 
 function handleQuakeDebugDisableAttacksOptionChange(event: Event): void {
@@ -4494,9 +4522,9 @@ const quakeInput = createQuakeAppInputController({
   shouldPreventGameplayKeyDefault: quakeGameplayInput.shouldPreventGameplayKeyDefault,
   showMainMenu: () => menu.showMainMenu(),
   syncViewmodelTransform: () => viewmodel.syncTransform(),
-  toggleAudioMuted: toggleQuakeAudioMuted,
-  toggleDebugMode: toggleQuakeDebugMode,
-  toggleOutlineTextureMode: () => quakeDebugPanelFlow.toggleOutlineTextureMode(),
+  toggleAudioMuted: toggleQuakeAudioMutedShortcut,
+  toggleDebugMode: toggleQuakeDebugModeShortcut,
+  toggleOutlineTextureMode: toggleQuakeOutlineTextureModeShortcut,
 });
 
 const quakeAppRuntime = createQuakeAppRuntimeContext({
@@ -4563,7 +4591,6 @@ controls.addEventListener("end", quakeGameplayInput.clearCrouchInput);
 
 syncQuakeHud();
 syncQuakeOptionControls();
-if (debugMenuPanel) mountQuakeBitmapText(debugMenuPanel);
 if (multiplayerPanel) mountQuakeBitmapText(multiplayerPanel);
 if (debugPanel) mountQuakeBitmapText(debugPanel);
 installQuakeAppDebugHooks();

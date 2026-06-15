@@ -24,7 +24,6 @@ export interface QuakeAppDomElements {
   levelList: HTMLElement | null;
   aboutPanel: HTMLElement | null;
   optionsPanel: HTMLElement | null;
-  debugMenuPanel: HTMLElement | null;
   disableSoundOption: HTMLInputElement | null;
   disableEnemiesOption: HTMLInputElement | null;
   disableDamageOption: HTMLInputElement | null;
@@ -95,7 +94,6 @@ export function queryQuakeAppDom(): QuakeAppDomElements {
     levelList: quakeElement("quake-level-list"),
     aboutPanel: quakeElement("quake-about-panel"),
     optionsPanel: quakeElement("quake-options-panel"),
-    debugMenuPanel: quakeElement("quake-debug-menu-panel"),
     disableSoundOption: quakeElement("quake-option-disable-sound"),
     disableEnemiesOption: quakeElement("quake-option-disable-enemies"),
     disableDamageOption: quakeElement("quake-option-disable-damage"),
