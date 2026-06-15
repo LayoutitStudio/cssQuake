@@ -1,7 +1,7 @@
 import { markQuakeTrace } from "./debug/traceMarks";
 
 export const QUAKE_MOBILE_CONTROLS_QUERY =
-  "(any-pointer: coarse) and (orientation: landscape), (max-width: 960px) and (orientation: landscape)";
+  "(any-pointer: coarse), (max-width: 960px)";
 
 interface QuakeMobileControlsOptions {
   root: HTMLElement;

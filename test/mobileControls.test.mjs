@@ -6,8 +6,13 @@ import { Window } from "happy-dom";
 import { importTsModule } from "./importTsModule.mjs";
 
 const {
+  QUAKE_MOBILE_CONTROLS_QUERY,
   createQuakeMobileControls,
 } = await importTsModule("src/runtime/mobileControls.ts");
+
+test("mobile controls availability includes portrait mobile viewports", () => {
+  assert.equal(QUAKE_MOBILE_CONTROLS_QUERY, "(any-pointer: coarse), (max-width: 960px)");
+});
 
 test("mobile move stick handles pointer input and updates the visible nub", () => {
   const harness = createMobileControlsHarness();

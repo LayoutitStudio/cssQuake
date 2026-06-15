@@ -2435,7 +2435,7 @@ body.quake-menu-unlocked #quake-weapon {
   background: rgba(74, 30, 14, 0.56);
   border-color: rgba(232, 154, 72, 0.86);
 }
-@media (any-pointer: coarse) and (orientation: landscape), (max-width: 960px) and (orientation: landscape) {
+@media (any-pointer: coarse), (max-width: 960px) {
   body:not(.quake-loading):not(.quake-menu-open):not(.quake-dead):not(.quake-level-complete) #quake-mobile-controls {
     display: block;
   }
