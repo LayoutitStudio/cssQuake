@@ -302,6 +302,7 @@ export interface QuakeShootablesControllerOptions {
   contentsAt?(point: Vec3): number | null;
   dropBackpack?: (drop: QuakeMonsterBackpackDropRuntime) => boolean | void;
   onDestroyed?: (entity: QuakeEntity) => void;
+  onExplosion?(event: QuakeShootableExplosionEvent): void;
   enemyAnimationsEnabled?: () => boolean;
   enemiesFrozen?: () => boolean;
   enemyAttacksEnabled?: () => boolean;
@@ -327,6 +328,14 @@ export interface QuakeShootablesControllerOptions {
   prewarmLeavesAt?(origin: [number, number, number]): Set<number> | null;
   fireTarget(targetname: string, sourceEntityIndex?: number): void;
   playSound?(soundPath: string, options?: QuakeShootableSoundOptions): boolean;
+}
+
+export interface QuakeShootableExplosionEvent {
+  classname?: string;
+  entityIndex?: number;
+  flavor: "explobox" | "grenade" | "lava" | "rocket";
+  origin: Vec3;
+  radiusUnits?: number;
 }
 
 export interface QuakeShootablesPlayerClearanceOptions {
@@ -469,6 +478,7 @@ export function createQuakeShootablesController({
   contentsAt,
   dropBackpack,
   onDestroyed,
+  onExplosion,
   enemyAnimationsEnabled,
   enemiesFrozen,
   enemyAttacksEnabled,
@@ -600,6 +610,13 @@ export function createQuakeShootablesController({
     randomRange: quakecRandomRange,
     schedulePresentationResync,
     traceLine: sourceTraceLine ? traceProjectileLine : undefined,
+    onExplosion: (event) => {
+      onExplosion?.({
+        flavor: event.flavor,
+        origin: event.origin,
+        radiusUnits: event.radiusUnits,
+      });
+    },
   });
   const enemyMovement = createQuakeEnemyMovementRuntime({
     collisionEpsilon: QUAKE_SHOOTABLE_COLLISION_EPSILON,
@@ -1131,6 +1148,7 @@ export function createQuakeShootablesController({
     shootable.dead = true;
     destroyedEntityIndexes.add(entityIndex);
     onDestroyed?.(shootable.entity);
+    emitShootableDeathExplosion(shootable);
     applyShootableDeathRadiusDamage(shootable, context);
     clearEnemyAttackState(shootable);
     const deathAnimationMs = deathState.playDeathAnimation(shootable, performance.now());
@@ -1248,6 +1266,26 @@ export function createQuakeShootablesController({
       item.shootable.leafIndex = item.leafIndex;
       syncShootableTransform(item.shootable);
     }
+  }
+
+  function emitShootableDeathExplosion(shootable: QuakeShootableState): void {
+    const radiusDamage = quakeShootableDeathRadiusDamage(shootable.entity.classname);
+    if (!radiusDamage) return;
+    onExplosion?.({
+      classname: shootable.entity.classname,
+      entityIndex: shootable.entity.index,
+      flavor: "explobox",
+      origin: shootableFloorOrigin(shootable),
+      radiusUnits: radiusDamage.radiusUnits,
+    });
+  }
+
+  function shootableFloorOrigin(shootable: QuakeShootableState): Vec3 {
+    return [
+      shootable.origin[0],
+      shootable.origin[1],
+      shootable.origin[2] + shootable.bounds.min[2],
+    ];
   }
 
   function applyShootableDeathRadiusDamage(

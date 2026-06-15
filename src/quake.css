@@ -244,16 +244,34 @@ body.quake-menu-open #quake-hud {
 .quake-impact-particle-dust-a,
 .quake-impact-particle-dust-b,
 .quake-impact-particle-dust-c {
-  border-radius: 1px;
+  border-radius: 0;
 }
 .quake-impact-particle-dust-a {
-  background: #444444;
+  background: #c8c8c8;
 }
 .quake-impact-particle-dust-b {
-  background: #444444;
+  background: #808080;
 }
 .quake-impact-particle-dust-c {
-  background: #444444;
+  background: #202020;
+}
+.quake-impact-particle-explosion-a,
+.quake-impact-particle-explosion-b,
+.quake-impact-particle-explosion-c,
+.quake-impact-particle-explosion-d {
+  border-radius: 50%;
+}
+.quake-impact-particle-explosion-a {
+  background: #ffe06a;
+}
+.quake-impact-particle-explosion-b {
+  background: #f06416;
+}
+.quake-impact-particle-explosion-c {
+  background: #6b625a;
+}
+.quake-impact-particle-explosion-d {
+  background: #29231f;
 }
 body.quake-loading #quake-damage-overlay,
 body.quake-loading #quake-bonus-overlay,

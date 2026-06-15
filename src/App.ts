@@ -1784,6 +1784,13 @@ const shootables = createQuakeShootablesController({
   onDestroyed: (entity) => {
     if (entity.classname.startsWith("monster_")) quakeLevelStats.markMonsterKilled(entity.index);
   },
+  onExplosion: (event) => {
+    quakeImpactParticleFlow.spawnExplosion({
+      flavor: event.flavor,
+      origin: event.origin,
+      radiusUnits: event.radiusUnits,
+    });
+  },
   pointToPoly: quakeCameraView.pointToPoly,
   shouldSpawn: shouldSpawnQuakeShootableForCurrentMode,
   pixelate: world.pixelate,
@@ -1916,6 +1923,13 @@ const weapons = createQuakeWeaponsController({
       damage: event.damage,
       directionHint: event.direction,
       origin: event.origin,
+    });
+  },
+  onExplosionImpact: (event) => {
+    quakeImpactParticleFlow.spawnExplosion({
+      flavor: event.flavor,
+      origin: event.origin,
+      radiusUnits: event.radiusUnits,
     });
   },
   onHit: () => quakeWeaponPresentation.flashCrosshairHit(),
@@ -2545,13 +2559,15 @@ function createNoopQuakeImpactParticleFlow(): QuakeImpactParticleFlow {
     dispose: () => undefined,
     setEnabled: () => undefined,
     spawnBlood: () => undefined,
+    spawnExplosion: () => undefined,
     spawnWallImpact: () => undefined,
   };
 }
 
 function quakeWallImpactParticleCount(effect: QuakeWeaponWallImpactEffect): number {
-  if (effect === "spike") return 2;
-  return 3;
+  if (effect === "spike") return 4;
+  if (effect === "superspike") return 6;
+  return 5;
 }
 
 function setQuakeDebugShowMenuOption(visible: boolean): void {

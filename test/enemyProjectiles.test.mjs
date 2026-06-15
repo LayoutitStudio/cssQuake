@@ -13,6 +13,7 @@ function createRuntime({
   traceLine = true,
   traceNormal = [-1, 0, 0],
 } = {}) {
+  const explosions = [];
   const sounds = [];
   let traceCount = 0;
   const runtime = createQuakeEnemyProjectileRuntime({
@@ -31,6 +32,7 @@ function createRuntime({
     damagePlayer,
     hasLineOfSight: () => true,
     markTrace: () => undefined,
+    onExplosion: (event) => { explosions.push(event); },
     offsetPoint: (origin) => [...origin],
     pixelate: () => undefined,
     playerDamageBounds: (origin) => ({
@@ -56,7 +58,7 @@ function createRuntime({
     } : undefined,
   });
 
-  return { runtime, sounds };
+  return { explosions, runtime, sounds };
 }
 
 function spawnProjectile(runtime, profile) {
@@ -83,7 +85,7 @@ function spawnProjectile(runtime, profile) {
 }
 
 test("ogre grenades play source launch and bounce sounds", () => {
-  const { runtime, sounds } = createRuntime();
+  const { explosions, runtime, sounds } = createRuntime();
 
   spawnProjectile(runtime, {
     projectileClassname: "enemy_projectile_grenade",
@@ -95,10 +97,11 @@ test("ogre grenades play source launch and bounce sounds", () => {
     "weapons/grenade.wav",
     "weapons/bounce.wav",
   ]);
+  assert.deepEqual(explosions, []);
 });
 
 test("ogre grenades play source explosion sound on player splash hit", () => {
-  const { runtime, sounds } = createRuntime({ traceLine: false });
+  const { explosions, runtime, sounds } = createRuntime({ traceLine: false });
 
   spawnProjectile(runtime, {
     projectileClassname: "enemy_projectile_grenade",
@@ -111,10 +114,16 @@ test("ogre grenades play source explosion sound on player splash hit", () => {
     "weapons/grenade.wav",
     "weapons/r_exp3.wav",
   ]);
+  assert.equal(explosions.length, 1);
+  assert.equal(explosions[0].flavor, "grenade");
+  assert.deepEqual(explosions[0].origin, [0.4, 0, 0]);
+  assert.equal(explosions[0].projectile, "enemy_projectile_grenade");
+  assert.equal(explosions[0].radiusUnits > 0, true);
+  assert.equal(explosions[0].sourceEntityIndex, 1);
 });
 
 test("ogre grenades play source explosion sound on timeout", () => {
-  const { runtime, sounds } = createRuntime({ traceLine: false });
+  const { explosions, runtime, sounds } = createRuntime({ traceLine: false });
 
   spawnProjectile(runtime, {
     projectileClassname: "enemy_projectile_grenade",
@@ -129,6 +138,10 @@ test("ogre grenades play source explosion sound on timeout", () => {
     "weapons/grenade.wav",
     "weapons/r_exp3.wav",
   ]);
+  assert.equal(explosions.length, 1);
+  assert.equal(explosions[0].flavor, "grenade");
+  assert.deepEqual(explosions[0].origin, [0, 0, 0]);
+  assert.equal(explosions[0].projectile, "enemy_projectile_grenade");
 });
 
 test("zombie projectiles play source launch and miss sounds on world stop", () => {
