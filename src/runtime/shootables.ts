@@ -2201,9 +2201,17 @@ export function createQuakeShootablesController({
   ): boolean {
     if (!canPrewarmShootableHandle(shootable)) return false;
     if (!shootable.enemy) return true;
+    if (canKeepEngagedEnemyPrewarmed(shootable, playerOrigin)) return true;
     if (shootable.visible || shootable.dead || !visibleLeaf) return false;
     if (!isShootableInFrontOfCameraNearPlane(shootable, playerOrigin)) return false;
     return shootableHasPlayerViewTargetAtDot(shootable, playerOrigin, QUAKE_SHOOTABLE_ENEMY_PREWARM_VIEW_DOT_MIN);
+  }
+
+  function canKeepEngagedEnemyPrewarmed(shootable: QuakeShootableState, playerOrigin: Vec3): boolean {
+    const enemy = shootable.enemy;
+    if (!enemy || shootable.dead || shootable.health <= 0) return false;
+    if (!enemy.awake && !enemy.currentTarget && !enemy.pendingAttack) return false;
+    return distanceSq3(playerOrigin, shootable.origin) <= QUAKE_SHOOTABLE_PREWARM_DISTANCE_SQ;
   }
 
   function compareShootableVisibilityCandidates(
@@ -2436,8 +2444,22 @@ export function createQuakeShootablesController({
     now: number,
   ): void {
     combatBudget.beginEnemyFrame(now);
+    let movedEnemies = 0;
     for (const shootable of shootables.values()) {
+      const previousOrigin = shootable.enemy ? [...shootable.origin] as Vec3 : null;
+      const previousLeafIndex = shootable.leafIndex;
       updateEnemy(shootable, playerOrigin, dt, now);
+      if (!previousOrigin || !shootable.enemy) continue;
+      if (
+        previousLeafIndex !== shootable.leafIndex ||
+        distanceSq3(previousOrigin, shootable.origin) > QUAKE_SHOOTABLE_TRANSFORM_EPSILON * QUAKE_SHOOTABLE_TRANSFORM_EPSILON
+      ) {
+        movedEnemies++;
+      }
+    }
+    if (movedEnemies > 0) {
+      markQuakeTrace("shootables-enemy-motion-visibility-resync", { movedEnemies });
+      syncVisibility(playerOrigin);
     }
   }
 
