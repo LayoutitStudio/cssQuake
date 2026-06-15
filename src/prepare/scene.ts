@@ -326,6 +326,7 @@ export interface QuakeEntityManifestPoint {
   origin: QuakeVertex;
   spawnflags: number;
   angle?: number;
+  mangle?: QuakeVertex;
   targetname?: string;
 }
 
@@ -397,6 +398,7 @@ export interface QuakeEntityManifest {
   movers: QuakeEntityManifestMover[];
   teleporters: QuakeEntityManifestTeleporter[];
   exits: QuakeEntityManifestExit[];
+  intermissions?: QuakeEntityManifestPoint[];
   lights: QuakeEntityManifestLight[];
   counters: QuakeEntityManifestTrigger[];
   secrets: QuakeEntityManifestTrigger[];

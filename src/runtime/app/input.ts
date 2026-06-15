@@ -25,6 +25,7 @@ export interface QuakeAppInputControllerOptions {
   menuIsMainOpen(): boolean;
   menuIsPanelOpen(): boolean;
   parentKeyRelay(event: KeyboardEvent, pressed: boolean): void;
+  requestIntermissionAdvance(event: KeyboardEvent): boolean;
   shouldOpenMainMenuOnEscape(): boolean;
   shouldPreventGameplayKeyDefault(event: KeyboardEvent): boolean;
   showMainMenu(): void;
@@ -60,6 +61,14 @@ export function createQuakeAppInputController(options: QuakeAppInputControllerOp
       event.preventDefault();
       event.stopPropagation();
       options.toggleDebugMode();
+      return;
+    }
+    if (!event.repeat && options.requestIntermissionAdvance(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      options.clearMoveInput();
+      options.clearCrouchInput();
+      options.clearAttackInput();
       return;
     }
     if (options.handleMenuKeyDown(event)) {

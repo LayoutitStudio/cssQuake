@@ -53,6 +53,7 @@ export interface QuakePointerGameplayFlowOptions {
   pointerLockElement(): Element | null;
   queueCrosshairTargetSync(): void;
   renderSupersample: number;
+  requestIntermissionAdvance(): boolean;
   respawnPlayerFromDeath(): boolean;
   rotation(): { rotX: number; rotY: number };
   setAnalogMove(x: number, y: number): void;
@@ -156,6 +157,14 @@ export function createQuakePointerGameplayFlow(
         primary: event.isPrimary,
         reason: "button-or-non-primary",
       });
+      return;
+    }
+    if (options.requestIntermissionAdvance()) {
+      options.trace("host-pointerdown-intermission-advance", { pointerId: event.pointerId });
+      event.preventDefault();
+      event.stopPropagation();
+      clearAttackInput();
+      options.audioUnlock();
       return;
     }
     if (options.isPlayerDead()) {
@@ -303,6 +312,11 @@ export function createQuakePointerGameplayFlow(
 
   function handleMobileFirePointerDown(event: PointerEvent): boolean {
     options.audioUnlock();
+    if (options.requestIntermissionAdvance()) {
+      clearAttackInput();
+      markQuakeTrace("mobile-fire-intermission-advance", { pointerId: event.pointerId });
+      return false;
+    }
     if (options.isPlayerDead()) {
       clearAttackInput();
       options.respawnPlayerFromDeath();

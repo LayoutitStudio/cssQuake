@@ -26,7 +26,8 @@ import type { QuakeTriggersController } from "../triggers";
 import type { QuakeViewmodelController } from "../viewmodel";
 import type { QuakeWorldController } from "../world";
 
-const QUAKE_CHANGELEVEL_DELAY_MS = 850;
+const QUAKE_INTERMISSION_AUTO_ADVANCE_MS = 3000;
+const QUAKE_INTERMISSION_MIN_ADVANCE_MS = 1000;
 const QUAKE_SHAREWARE_REGISTERED = false;
 const QUAKE_TRAP_SPIKE_RANGE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_TRAP_SPIKE_RADIUS = 36 * QUAKE_COLLISION_UNIT_SCALE;
@@ -50,7 +51,9 @@ export interface QuakeEntityActivationFlowOptions {
   getOrigin(): [number, number, number];
   loadMap(mapName: string, options: { loadingStatus: string; resumeGameplay: boolean }): Promise<void>;
   mapExists(mapName: string): boolean;
+  intermission: QuakeEntityActivationIntermission;
   movers: Pick<QuakeMoversController, "activateEntity" | "forceDoorsDownAfter" | "get">;
+  onSecretActivated?(entity: QuakeEntity): void;
   pickups: Pick<QuakeEntityActivationPickups, "syncCollision">;
   player(): Pick<QuakePlayerController, "clearLevelState" | "currentOrigin" | "damage" | "eyeHeight" | "push" | "teleportTo">;
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
@@ -71,8 +74,14 @@ interface QuakeEntityActivationPickups {
   syncCollision(origin: [number, number, number], eyeHeight: number, stepHeight: number): void;
 }
 
+interface QuakeEntityActivationIntermission {
+  show(): void;
+  syncCamera(): void;
+}
+
 interface QuakeEntityActivationText {
   centerPrint(message: string): void;
+  clearCenterPrint(): void;
   hasUseTargetsMessageText(entity: QuakeEntity): boolean;
   setCenterPrint(message: string): void;
   showDirectCenterPrintMessageText(entity: QuakeEntity): boolean;
@@ -80,7 +89,7 @@ interface QuakeEntityActivationText {
 
 export interface QuakeEntityActivationFlow {
   activateEntity(entityIndex: number, sourceEntityIndex?: number): boolean;
-  activateSecretTrigger(entity: QuakeEntity): void;
+  activateSecretTrigger(entity: QuakeEntity): boolean;
   activateSolidTouch(touch: QuakeTouchedTrigger): void;
   activateSpecialTrigger(entity: QuakeEntity): boolean;
   activateTeleport(trigger: QuakeEntity): boolean;
@@ -90,6 +99,7 @@ export interface QuakeEntityActivationFlow {
   completeLevel(entity: QuakeEntity): void;
   fireTarget(targetname: string, sourceEntityIndex?: number): void;
   isLevelLoadPending(): boolean;
+  requestIntermissionAdvance(): boolean;
   triggerCounter(entity: QuakeEntity): void;
   triggerOneShot(entity: QuakeEntity, fallback: boolean): boolean;
   triggerWait(entity: QuakeEntity, fallback: number): number;
@@ -100,6 +110,9 @@ export function createQuakeEntityActivationFlow(
 ): QuakeEntityActivationFlow {
   let skill = 1;
   let levelLoadTimer: number | null = null;
+  let intermissionActive = false;
+  let intermissionAdvanceAt = Infinity;
+  let intermissionNextMap: string | null = null;
 
   function activateTeleport(trigger: QuakeEntity): boolean {
     const destination = quakeTriggerTeleportDestination(trigger, {
@@ -138,14 +151,24 @@ export function createQuakeEntityActivationFlow(
     options.audio.playEvent("levelExit", { volume: 0.58 });
     const nextMap = quakeTriggerChangelevelMap(entity, options.currentGameLogic());
     if (!nextMap) options.text.setCenterPrint("EXIT REACHED");
-    if (!nextMap || !options.mapExists(nextMap)) return;
+    if (!nextMap) return;
+    options.text.clearCenterPrint();
+    intermissionActive = true;
+    intermissionAdvanceAt = performance.now() + QUAKE_INTERMISSION_MIN_ADVANCE_MS;
+    syncIntermissionCamera();
+    options.intermission.show();
+    if (!options.mapExists(nextMap)) return;
+    intermissionNextMap = nextMap;
     levelLoadTimer = window.setTimeout(() => {
-      levelLoadTimer = null;
-      void options.loadMap(nextMap, { loadingStatus: "Loading", resumeGameplay: true }).catch((error) => {
-        console.error(error);
-        options.text.setCenterPrint(`COULD NOT LOAD ${nextMap.toUpperCase()}`);
-      });
-    }, QUAKE_CHANGELEVEL_DELAY_MS);
+      void advanceIntermission("auto");
+    }, QUAKE_INTERMISSION_AUTO_ADVANCE_MS);
+  }
+
+  function syncIntermissionCamera(): void {
+    options.intermission.syncCamera();
+    queueMicrotask(() => {
+      if (intermissionActive) options.intermission.syncCamera();
+    });
   }
 
   function activateSolidTouch(touch: QuakeTouchedTrigger): void {
@@ -314,11 +337,13 @@ export function createQuakeEntityActivationFlow(
     }
   }
 
-  function activateSecretTrigger(entity: QuakeEntity): void {
+  function activateSecretTrigger(entity: QuakeEntity): boolean {
     const activation = quakeTriggerSecretActivation(entity, options.currentGameLogic());
-    if (!activation) return;
+    if (!activation) return false;
     if (!options.text.hasUseTargetsMessageText(entity)) options.text.centerPrint(activation.message);
     options.audio.playSound(activation.sound, { volume: 0.58 });
+    options.onSecretActivated?.(entity);
+    return true;
   }
 
   function triggerOneShot(entity: QuakeEntity, fallback: boolean): boolean {
@@ -366,10 +391,41 @@ export function createQuakeEntityActivationFlow(
       window.clearTimeout(levelLoadTimer);
       levelLoadTimer = null;
     }
+    intermissionActive = false;
+    intermissionNextMap = null;
+    intermissionAdvanceAt = Infinity;
   }
 
   function isLevelLoadPending(): boolean {
-    return levelLoadTimer !== null;
+    return levelLoadTimer !== null || intermissionActive || intermissionNextMap !== null;
+  }
+
+  function requestIntermissionAdvance(): boolean {
+    if (!intermissionActive) return false;
+    if (!intermissionNextMap) return true;
+    if (performance.now() < intermissionAdvanceAt) return true;
+    void advanceIntermission("input");
+    return true;
+  }
+
+  async function advanceIntermission(reason: "auto" | "input"): Promise<boolean> {
+    const nextMap = intermissionNextMap;
+    if (!nextMap) return false;
+    if (reason === "input" && performance.now() < intermissionAdvanceAt) return true;
+    if (levelLoadTimer !== null) {
+      window.clearTimeout(levelLoadTimer);
+      levelLoadTimer = null;
+    }
+    intermissionNextMap = null;
+    intermissionAdvanceAt = Infinity;
+    intermissionActive = false;
+    try {
+      await options.loadMap(nextMap, { loadingStatus: "Loading", resumeGameplay: true });
+    } catch (error) {
+      console.error(error);
+      options.text.setCenterPrint(`COULD NOT LOAD ${nextMap.toUpperCase()}`);
+    }
+    return true;
   }
 
   function getEntity(entityIndex: number): QuakeEntity | undefined {
@@ -388,6 +444,7 @@ export function createQuakeEntityActivationFlow(
     completeLevel,
     fireTarget,
     isLevelLoadPending,
+    requestIntermissionAdvance,
     triggerCounter,
     triggerOneShot,
     triggerWait,

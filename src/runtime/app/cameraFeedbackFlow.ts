@@ -247,14 +247,14 @@ export function createQuakeCameraFeedbackFlow(
     if (baseRotX === null) {
       baseRotX = currentRotX - weaponViewPunchOffset;
     } else if (Math.abs(currentRotX - (baseRotX + weaponViewPunchOffset)) > QUAKE_WEAPON_VIEW_PUNCH_EXTERNAL_EPSILON_DEG) {
-      baseRotX = currentRotX;
+      baseRotX = currentRotX - weaponViewPunchOffset;
     }
 
     baseRotX = clampNumber(baseRotX, QUAKE_CAMERA_ROT_X_MIN, QUAKE_CAMERA_ROT_X_MAX);
     weaponViewPunchOffset = nextOffset;
     weaponViewPunchBaseRotX = nextOffset > 0 ? baseRotX : null;
     applyAt(
-      currentRenderOrigin(),
+      cameraRenderOrigin,
       clampNumber(baseRotX + nextOffset, QUAKE_CAMERA_ROT_X_MIN, QUAKE_CAMERA_ROT_X_MAX),
       rotY,
     );

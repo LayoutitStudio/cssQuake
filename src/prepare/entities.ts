@@ -43,6 +43,7 @@ export function buildEntityManifest(entities: QuakeEntity[]): QuakeEntityManifes
     movers: [],
     teleporters: [],
     exits: [],
+    intermissions: [],
     lights: [],
     counters: [],
     secrets: [],
@@ -92,6 +93,7 @@ export function buildEntityManifest(entities: QuakeEntity[]): QuakeEntityManifes
     if (category === "player-start" && point) manifest.starts.push(point);
     if (category === "pickup" && point) manifest.pickups.push(point);
     if (category === "monster" && point) manifest.monsters.push(point);
+    if (entity.classname.startsWith("info_intermission") && point) manifest.intermissions?.push(point);
     if (category === "light" && entity.origin) manifest.lights.push(quakeManifestLight(entity, spawnflags));
 
     if (entity.classname.startsWith("trigger_")) {
@@ -153,6 +155,7 @@ export function cloneEntityManifest(manifest: QuakeEntityManifest): QuakeEntityM
       ...(exit.modelIndex !== undefined ? { modelIndex: exit.modelIndex } : {}),
       ...(exit.map ? { map: exit.map } : {}),
     })),
+    intermissions: (manifest.intermissions ?? []).map(cloneEntityManifestPoint),
     lights: manifest.lights.map((light) => ({
       entityIndex: light.entityIndex,
       classname: light.classname,
@@ -305,12 +308,14 @@ function isQuakeDamageableBrushClassname(classname: string): boolean {
 
 function quakeManifestPoint(entity: QuakeEntity, spawnflags: number): QuakeEntityManifestPoint | null {
   if (!entity.origin) return null;
+  const mangle = quakeManifestVector(entity.properties.mangle);
   return {
     entityIndex: entity.index,
     classname: entity.classname,
     origin: { ...entity.origin },
     spawnflags,
     ...(entity.angle !== undefined ? { angle: entity.angle } : {}),
+    ...(mangle ? { mangle } : {}),
     ...(entity.properties.targetname ? { targetname: entity.properties.targetname } : {}),
   };
 }
@@ -388,6 +393,7 @@ function cloneEntityManifestPoint(point: QuakeEntityManifestPoint): QuakeEntityM
     origin: { ...point.origin },
     spawnflags: point.spawnflags,
     ...(point.angle !== undefined ? { angle: point.angle } : {}),
+    ...(point.mangle ? { mangle: { ...point.mangle } } : {}),
     ...(point.targetname ? { targetname: point.targetname } : {}),
   };
 }
