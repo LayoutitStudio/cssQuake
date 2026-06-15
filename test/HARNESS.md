@@ -28,11 +28,19 @@ Prepared-asset gates must not run shared asset prepare. If assets are missing, r
 
 Committed runners should print what they validate, prerequisites, whether they require prepared assets, artifact paths, and whether failures are likely product behavior, missing prepared assets, or local environment.
 
+## Contract Test Layout
+
+`pnpm test` discovers `test/**/*.test.mjs`. Keep standalone contract tests under broad domain folders: `test/gameplay/` for Quake/game rules and combat behavior, and `test/runtime/` for app/runtime presentation, input, preload, and scheduling behavior. Use a feature folder when related tests need shared builders or protocol fixtures.
+
+Multiplayer contract tests live under `test/multiplayer/`. Use `test/multiplayer/harness.mjs` for room keys, protocol envelopes, loopback sessions, authoritative player fixtures, input fixtures, correction defaults, and message lookup helpers. Do not duplicate those builders in individual multiplayer tests.
+
 ## Browser Coverage
 
 `pnpm test:browser` is selective, not exhaustive. It currently covers committed DOM monster visibility, combat budget caps, logical weapon targetability, player rocket fire/touch behavior, forced enemy projectile chains for ogre/wizard/zombie, ogre grenade bounce and timeout lifecycle, zombie projectile world-stop, map trigger/target/mover logic, liquid damage, and pickup gameplay fixtures.
 
-Browser gameplay fixtures are assembled in `test/browserFixtureDefinitions.mjs`; family implementations live beside it as `test/browserFixture*.mjs`. `test/runBrowserFixtures.mjs` is the only committed gameplay-fixture runner.
+Browser gameplay fixtures are assembled in `test/browser/browserFixtureDefinitions.mjs`; family implementations live beside it as `test/browser/browserFixture*.mjs`. `test/browser/runBrowserFixtures.mjs` is the only committed gameplay-fixture runner.
+
+Browser fixture files should use `test/browser/fixtureHarness.mjs` for fixture metadata, debug-page open/close lifecycle, page-error assertions, and small shared fixture utilities. Prepared asset readers for tests live in `test/assets/preparedAssets.mjs`; keep generated asset path knowledge there instead of duplicating `build/generated/public` paths in browser fixtures.
 
 Current fixture families:
 

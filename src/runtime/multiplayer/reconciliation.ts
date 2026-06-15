@@ -51,7 +51,8 @@ export function decideQuakeMultiplayerLocalCorrection(
     return { action: "none", reason: "already-handled", drift, inputSequence };
   }
   const hardSnapDistance = Math.max(0, options.hardSnapDistance);
-  const softCorrectionDistance = Math.max(0, options.softCorrectionDistance ?? hardSnapDistance);
+  const requestedSoftCorrectionDistance = Math.max(0, options.softCorrectionDistance ?? hardSnapDistance);
+  const softCorrectionDistance = Math.min(requestedSoftCorrectionDistance, hardSnapDistance);
   if (drift < softCorrectionDistance) {
     return { action: "none", reason: "within-threshold", drift, inputSequence };
   }

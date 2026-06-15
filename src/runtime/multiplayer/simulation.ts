@@ -214,7 +214,7 @@ export function advanceQuakeMultiplayerRoomPlayerSimulation(
       } else {
         fallVelocityZ = nextPlayer.velocity[2] < 0 ? nextPlayer.velocity[2] : undefined;
       }
-      if (selected.input) {
+      if (selected.consumesInput) {
         lastAcceptedInput = selected.input;
         lastAcceptedInputSequence = selected.input.inputSequence;
         if (!consumedInputSequences.includes(selected.input.inputSequence)) {
@@ -306,17 +306,19 @@ function selectInputForSimulationTick(
   simulatedAt: number,
   maxInputHoldMs: number,
 ): {
+  consumesInput: boolean;
   input: QuakeMultiplayerLocalInputIntent | undefined;
   pendingInputs: readonly QuakeMultiplayerLocalInputIntent[];
 } {
   const freshPendingInputs = state.pendingInputs.filter((input) =>
     input.inputSequence > state.lastAcceptedInputSequence
   );
-  const queuedInput = freshPendingInputs.at(-1);
+  const queuedInput = freshPendingInputs[0];
   if (queuedInput) {
     return {
+      consumesInput: true,
       input: queuedInput,
-      pendingInputs: [],
+      pendingInputs: freshPendingInputs.slice(1),
     };
   }
   if (
@@ -325,11 +327,13 @@ function selectInputForSimulationTick(
     simulatedAt - state.lastAcceptedInput.sampledAt <= maxInputHoldMs
   ) {
     return {
+      consumesInput: false,
       input: state.lastAcceptedInput,
       pendingInputs: [],
     };
   }
   return {
+    consumesInput: false,
     input: undefined,
     pendingInputs: [],
   };
