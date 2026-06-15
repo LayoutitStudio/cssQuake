@@ -7,7 +7,7 @@ import {
   worldPositionToPolyCss,
 } from "@layoutit/polycss";
 
-import { QUAKE_COLLISION_UNIT_SCALE } from "./constants";
+import { COLLISION_EPSILON, QUAKE_COLLISION_UNIT_SCALE } from "./constants";
 import { crossVec3, normalizeVec3 } from "./math";
 import {
   createQuakeViewmodelRasterLayer,
@@ -549,6 +549,9 @@ export function createQuakeViewmodelController({
     const elapsed = (now - walkBobAt) / 1000;
     const horizontalDistance = Math.hypot(origin[0] - walkBobOrigin[0], origin[1] - walkBobOrigin[1]);
     syncWalkBobOrigin(origin, now);
+    if (horizontalDistance <= COLLISION_EPSILON && elapsed < QUAKE_WEAPON_BOB_MIN_DT) {
+      return walkBob;
+    }
     if (
       !Number.isFinite(elapsed) ||
       elapsed <= 0 ||
