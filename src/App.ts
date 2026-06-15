@@ -2280,6 +2280,8 @@ quakePlayerLifecycle = createQuakePlayerLifecycleFlow({
 let quakeDebugCollisionBypassUntil = 0;
 let quakeGamePaused = false;
 let quakeGamePausedAt = 0;
+let quakeMenuPauseActive = false;
+let quakeClickToPlayPauseActive = false;
 let quakeMultiplayerInputPaused = QUAKE_MULTIPLAYER_DEBUG_INPUT_PAUSED;
 
 function setQuakeGameplayStarted(started: boolean): void {
@@ -2322,12 +2324,31 @@ function isQuakeGamePaused(): boolean {
 }
 
 function setQuakeMenuPauseState(paused: boolean): void {
+  quakeMenuPauseActive = paused;
+  syncQuakePauseState();
+}
+
+function setQuakeClickToPlayPauseState(paused: boolean): void {
+  if (quakeClickToPlayPauseActive === paused) return;
+  quakeClickToPlayPauseActive = paused;
+  syncQuakePauseState();
+}
+
+function shouldForceQuakeGamePaused(): boolean {
+  return quakeMenuPauseActive ||
+    quakeClickToPlayPauseActive ||
+    menu.isMainMenuOpen() ||
+    menu.isMenuPanelOpen();
+}
+
+function syncQuakePauseState(): void {
+  const paused = shouldForceQuakeGamePaused();
   if (QUAKE_MULTIPLAYER_ENABLED) {
     if (QUAKE_MULTIPLAYER_DEBUG_INPUT_PAUSED && !paused) return;
     setQuakeMultiplayerInputPaused(paused);
     return;
   }
-  setQuakeGamePaused(paused);
+  applyQuakeGamePaused(paused);
 }
 
 function setQuakeMultiplayerInputPaused(paused: boolean): void {
@@ -2354,6 +2375,10 @@ function setQuakeMultiplayerInputPaused(paused: boolean): void {
 }
 
 function setQuakeGamePaused(paused: boolean): void {
+  applyQuakeGamePaused(paused || shouldForceQuakeGamePaused());
+}
+
+function applyQuakeGamePaused(paused: boolean): void {
   if (quakeGamePaused === paused) {
     syncQuakeInteractionPresentation();
     return;
@@ -2519,10 +2544,12 @@ function syncQuakeInteractionPresentation(): void {
   const pointerUnlocked = document.pointerLockElement !== host;
   const gameplayPointerUnlocked = quakeGameplayStarted && pointerUnlocked;
   const debugPointerUnlocked = quakeDebugPanelFlow.isModeEnabled() && pointerUnlocked;
+  const clickToPlayVisible = gameplayPointerUnlocked && !menuSurfaceOpen;
+  setQuakeClickToPlayPauseState(clickToPlayVisible);
   setQuakeBodyClass("quake-debug-active", quakeDebugPanelFlow.isModeEnabled());
   setQuakeBodyClass("quake-debug-pointer-unlocked", debugPointerUnlocked);
   setQuakeBodyClass("quake-menu-unlocked", menuSurfaceOpen || gameplayPointerUnlocked || debugPointerUnlocked);
-  syncQuakeClickToPlayCenterPrint(gameplayPointerUnlocked && !menuSurfaceOpen);
+  syncQuakeClickToPlayCenterPrint(clickToPlayVisible);
 }
 
 function syncQuakeClickToPlayCenterPrint(visible: boolean): void {
