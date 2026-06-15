@@ -492,6 +492,12 @@ async function buildDeterministicAtlasResidency(renderBundle, visibility, output
     visibilityLeafPages[leaf.leafIndex] = list;
     pagesByLeaf.set(leaf.leafIndex, list);
   }
+  addBrushModelAtlasResidencyPages({
+    pagesByLeaf,
+    sourceFaceToPages,
+    visibility,
+    visibilityLeafPages,
+  });
   for (const leaf of visibility.metadata.leaves) {
     const prewarm = new Set(pagesByLeaf.get(leaf.leafIndex) ?? []);
     for (const adjacentLeafIndex of leaf.adjacentLeafIndexes ?? []) {
@@ -538,6 +544,47 @@ async function buildDeterministicAtlasResidency(renderBundle, visibility, output
     visibilityLeafPages,
     visibilityLeafPrewarmPages,
   };
+}
+
+function addBrushModelAtlasResidencyPages({
+  pagesByLeaf,
+  sourceFaceToPages,
+  visibility,
+  visibilityLeafPages,
+}) {
+  for (const sourceFace of visibility.metadata.sourceFaces ?? []) {
+    if (!sourceFace.modelIndex || sourceFace.modelIndex <= 0) continue;
+    const pages = sourceFaceToPages.get(sourceFace.faceIndex);
+    if (!pages?.size) continue;
+    for (const leafIndex of sourceFace.leafIndexes ?? []) {
+      addAtlasResidencyLeafPages(visibilityLeafPages, pagesByLeaf, leafIndex, pages);
+    }
+  }
+  for (const blocker of visibility.metadata.doorBlockers ?? []) {
+    const pages = new Set();
+    for (const sourceFaceIndex of blocker.faceIndexes ?? []) {
+      for (const pageIndex of sourceFaceToPages.get(sourceFaceIndex) ?? []) pages.add(pageIndex);
+    }
+    if (!pages.size) continue;
+    const leafIndexes = blocker.nearbyLeafIndexes?.length
+      ? blocker.nearbyLeafIndexes
+      : blocker.leafIndexes ?? [];
+    for (const leafIndex of leafIndexes) {
+      addAtlasResidencyLeafPages(visibilityLeafPages, pagesByLeaf, leafIndex, pages);
+    }
+  }
+}
+
+function addAtlasResidencyLeafPages(visibilityLeafPages, pagesByLeaf, leafIndex, pages) {
+  if (!Number.isInteger(leafIndex) || leafIndex < 0 || leafIndex >= visibilityLeafPages.length) return;
+  const current = pagesByLeaf.get(leafIndex) ?? visibilityLeafPages[leafIndex] ?? [];
+  const next = new Set(current);
+  for (const pageIndex of pages) {
+    if (Number.isInteger(pageIndex) && pageIndex >= 0) next.add(pageIndex);
+  }
+  const list = [...next].sort((a, b) => a - b);
+  visibilityLeafPages[leafIndex] = list;
+  pagesByLeaf.set(leafIndex, list);
 }
 
 function renderBundleLeafPageIndexes(html, expectedLeafCount) {

@@ -6,7 +6,7 @@ import {
 } from "@layoutit/polycss";
 
 import type { QuakePreparedRenderBundle, QuakeRenderBundleLeafFrameStyle } from "../types/quake";
-import { isQuakeDebugDomMetadataEnabled, markQuakeTrace } from "./debug/traceMarks";
+import { markQuakeTrace } from "./debug/traceMarks";
 
 export interface QuakeRenderBundleFrameSetFrame {
   name: string;
@@ -79,6 +79,7 @@ let renderBundleDebugLabelsEnabled = false;
 const renderBundleDebugLeafBackgrounds = new WeakMap<HTMLElement, QuakeRenderBundleDebugLeafBackground>();
 const renderBundleDebugLeavesByElement = new WeakMap<HTMLElement, Set<HTMLElement>>();
 const renderBundleDebugOutlineLeavesByElement = new WeakMap<HTMLElement, Set<HTMLElement>>();
+const renderBundleDebugHiddenTextureLeaves = new WeakSet<HTMLElement>();
 const QUAKE_MOTION_MATERIAL_ACTIVE_CLASS = "quake-motion-material-active";
 const QUAKE_MOTION_MATERIAL_TARGET_CLASS = "quake-motion-material-target";
 const QUAKE_MOTION_MATERIAL_STYLE_ID = "quake-motion-material-style";
@@ -266,7 +267,6 @@ export function mountQuakeRenderBundleFrameSetMesh(
   }
   const handle = mountQuakeRenderBundleMesh(sceneElement, frameSet.renderBundle) as QuakeRenderBundleFrameSetHandle;
   let currentFrameIndex = 0;
-  syncQuakeRenderBundleFrameSetMetadata(handle.element, currentFrameIndex);
   const frameSetLeaves = handle.element.querySelectorAll<HTMLElement>("b,i,s,u");
   const styleOptimization = quakeRenderBundleFrameSetStyleOptimization(frameSet);
   syncQuakeRenderBundleRootVars(handle.element, firstFrame.renderBundle);
@@ -313,7 +313,6 @@ export function mountQuakeRenderBundleFrameSetMesh(
       if (next.styleClassName) handle.element.classList.add(next.styleClassName);
     }
     currentFrameIndex = boundedNextFrameIndex;
-    syncQuakeRenderBundleFrameSetMetadata(handle.element, currentFrameIndex);
     syncQuakeRenderBundleDebugOutlineLeaves(handle.element, frameSetLeaves);
     return true;
   };
@@ -322,12 +321,6 @@ export function mountQuakeRenderBundleFrameSetMesh(
   }
   if (boundedFrameIndex !== currentFrameIndex) handle.setFrameIndex(boundedFrameIndex);
   return handle;
-}
-
-function syncQuakeRenderBundleFrameSetMetadata(element: HTMLElement, frameIndex: number): void {
-  if (!isQuakeDebugDomMetadataEnabled()) return;
-  element.dataset.frameSet = "true";
-  element.dataset.frameIndex = String(frameIndex);
 }
 
 export function setQuakeRenderBundleFrameSetHandleFrame(handle: PolyMeshHandle | null, frameIndex: number): boolean {
@@ -428,7 +421,6 @@ function activateQuakeRenderBundleMotionMaterial(
     if (!quakeRenderBundleMotionMaterialActivationIsFromFrame(reason)) {
       state.phase = "scheduled";
       state.deferAttempts = 0;
-      syncQuakeRenderBundleMotionMaterialDataset(element, state);
       markQuakeTrace("renderbundle-motion-material", {
         phase: "scheduled",
         reason,
@@ -450,7 +442,6 @@ function activateQuakeRenderBundleMotionMaterial(
     if (!summary.visibleLeaves && state.deferAttempts < QUAKE_MOTION_MATERIAL_DEFER_FRAME_COUNT) {
       state.phase = "deferred";
       state.deferAttempts++;
-      syncQuakeRenderBundleMotionMaterialDataset(element, state);
       markQuakeTrace("renderbundle-motion-material", {
         phase: "deferred",
         reason,
@@ -472,7 +463,6 @@ function activateQuakeRenderBundleMotionMaterial(
     state.deferAttempts = 0;
     if (!summary.targetLeaves) {
       state.phase = "restored";
-      syncQuakeRenderBundleMotionMaterialDataset(element, state);
       markQuakeTrace("renderbundle-motion-material", {
         phase: "empty",
         reason,
@@ -485,7 +475,6 @@ function activateQuakeRenderBundleMotionMaterial(
     }
     element.classList.add(QUAKE_MOTION_MATERIAL_ACTIVE_CLASS);
     state.phase = "motion";
-    syncQuakeRenderBundleMotionMaterialDataset(element, state);
     markQuakeTrace("renderbundle-motion-material", {
       phase: "motion",
       reason,
@@ -514,7 +503,6 @@ function prepareQuakeRenderBundleMotionMaterialTargets(
 ): QuakeRenderBundleMotionMaterialTargetSummary {
   for (const leaf of state.targetLeaves) {
     leaf.classList.remove(QUAKE_MOTION_MATERIAL_TARGET_CLASS);
-    delete leaf.dataset.quakeMotionMaterial;
   }
   const document = element.ownerDocument;
   const view = document.defaultView;
@@ -541,12 +529,10 @@ function prepareQuakeRenderBundleMotionMaterialTargets(
       continue;
     }
     entry.leaf.classList.add(QUAKE_MOTION_MATERIAL_TARGET_CLASS);
-    entry.leaf.dataset.quakeMotionMaterial = "solid";
     targetLeaves.push(entry.leaf);
     targetAreaPx += entry.areaPx;
   }
   state.targetLeaves = targetLeaves;
-  syncQuakeRenderBundleMotionMaterialDataset(element, state);
   const summary: QuakeRenderBundleMotionMaterialTargetSummary = {
     projectedAreaPct: (totalAreaPx / viewportAreaPx) * 100,
     solidProjectedAreaPct: (targetAreaPx / viewportAreaPx) * 100,
@@ -579,7 +565,6 @@ function restoreQuakeRenderBundleMotionMaterialChunked(
   state.phase = "restoring";
   state.deferAttempts = 0;
   state.chunkIndex = 0;
-  syncQuakeRenderBundleMotionMaterialDataset(element, state);
   const chunkSize = Math.max(1, Math.ceil(targets.length / QUAKE_MOTION_MATERIAL_CHUNK_COUNT));
   markQuakeTrace("renderbundle-motion-material", {
     phase: "restore-start",
@@ -595,7 +580,6 @@ function restoreQuakeRenderBundleMotionMaterialChunked(
     for (let index = start; index < end; index++) {
       const leaf = targets[index];
       leaf?.classList.remove(QUAKE_MOTION_MATERIAL_TARGET_CLASS);
-      if (leaf) delete leaf.dataset.quakeMotionMaterial;
     }
     state.chunkIndex++;
     markQuakeTrace("renderbundle-motion-material", {
@@ -609,7 +593,6 @@ function restoreQuakeRenderBundleMotionMaterialChunked(
       finishQuakeRenderBundleMotionMaterialRestore(element, state, reason, targets.length);
       return;
     }
-    syncQuakeRenderBundleMotionMaterialDataset(element, state);
     state.chunkTimer = window.setTimeout(restoreNextChunk, state.intervalMs);
   };
   restoreNextChunk();
@@ -624,14 +607,12 @@ function finishQuakeRenderBundleMotionMaterialRestore(
   clearQuakeRenderBundleMotionMaterialTimers(state);
   for (const leaf of state.targetLeaves) {
     leaf.classList.remove(QUAKE_MOTION_MATERIAL_TARGET_CLASS);
-    delete leaf.dataset.quakeMotionMaterial;
   }
   element.classList.remove(QUAKE_MOTION_MATERIAL_ACTIVE_CLASS);
   state.targetLeaves = [];
   state.phase = "restored";
   state.deferAttempts = 0;
   state.chunkIndex = 0;
-  syncQuakeRenderBundleMotionMaterialDataset(element, state);
   markQuakeTrace("renderbundle-motion-material", {
     phase: "restored",
     reason,
@@ -643,7 +624,6 @@ function clearQuakeRenderBundleMotionMaterial(element: HTMLElement, state: Quake
   clearQuakeRenderBundleMotionMaterialTimers(state);
   for (const leaf of state.targetLeaves) {
     leaf.classList.remove(QUAKE_MOTION_MATERIAL_TARGET_CLASS);
-    delete leaf.dataset.quakeMotionMaterial;
   }
   state.targetLeaves = [];
   state.phase = "restored";
@@ -651,8 +631,6 @@ function clearQuakeRenderBundleMotionMaterial(element: HTMLElement, state: Quake
   state.chunkIndex = 0;
   element.classList.remove(QUAKE_MOTION_MATERIAL_ACTIVE_CLASS);
   element.style.removeProperty("--quake-motion-material-solid-background");
-  delete element.dataset.motionMaterialPhase;
-  delete element.dataset.motionMaterialTargetLeaves;
 }
 
 function clearQuakeRenderBundleMotionMaterialTimers(state: QuakeRenderBundleMotionMaterialState): void {
@@ -668,15 +646,6 @@ function clearQuakeRenderBundleMotionMaterialTimers(state: QuakeRenderBundleMoti
     window.cancelAnimationFrame(state.deferFrame);
     state.deferFrame = null;
   }
-}
-
-function syncQuakeRenderBundleMotionMaterialDataset(
-  element: HTMLElement,
-  state: QuakeRenderBundleMotionMaterialState,
-): void {
-  if (!isQuakeDebugDomMetadataEnabled()) return;
-  element.dataset.motionMaterialPhase = state.phase;
-  element.dataset.motionMaterialTargetLeaves = String(state.targetLeaves.length);
 }
 
 function quakeRenderBundleClippedRectAreaPx(rect: DOMRect, viewportWidth: number, viewportHeight: number): number {
@@ -1048,19 +1017,11 @@ function applyQuakeRenderBundleDebugOutlineLeaves(
     ) {
       continue;
     }
-    if (options.hideTextures === true) {
-      leaf.removeAttribute("data-quake-debug-texture-hidden");
-      leaf.style.backgroundImage = image;
-      leaf.style.backgroundPosition = layeredPosition;
-      leaf.style.backgroundSize = layeredSize;
-      leaf.style.backgroundRepeat = repeat;
-    } else {
-      leaf.removeAttribute("data-quake-debug-texture-hidden");
-      leaf.style.backgroundImage = image;
-      leaf.style.backgroundPosition = layeredPosition;
-      leaf.style.backgroundSize = layeredSize;
-      leaf.style.backgroundRepeat = repeat;
-    }
+    renderBundleDebugHiddenTextureLeaves.delete(leaf);
+    leaf.style.backgroundImage = image;
+    leaf.style.backgroundPosition = layeredPosition;
+    leaf.style.backgroundSize = layeredSize;
+    leaf.style.backgroundRepeat = repeat;
   }
 }
 
@@ -1109,12 +1070,12 @@ function quakeRenderBundleDebugLeafOverrideIsApplied(leaf: HTMLElement): boolean
 }
 
 function quakeRenderBundleDebugLeafTextureIsHidden(leaf: HTMLElement): boolean {
-  return leaf.dataset.quakeDebugTextureHidden === "true" && leaf.style.backgroundImage === "none";
+  return renderBundleDebugHiddenTextureLeaves.has(leaf) && leaf.style.backgroundImage === "none";
 }
 
 function hideQuakeRenderBundleDebugLeafTexture(leaf: HTMLElement): void {
   if (quakeRenderBundleDebugLeafTextureIsHidden(leaf)) return;
-  leaf.dataset.quakeDebugTextureHidden = "true";
+  renderBundleDebugHiddenTextureLeaves.add(leaf);
   leaf.style.background = "none";
 }
 
@@ -1129,7 +1090,7 @@ function restoreQuakeRenderBundleDebugOutlineLeafBackgrounds(element: HTMLElemen
 
 function restoreQuakeRenderBundleDebugOutlineLeafBackground(leaf: HTMLElement): void {
   const previous = renderBundleDebugLeafBackgrounds.get(leaf);
-  leaf.removeAttribute("data-quake-debug-texture-hidden");
+  renderBundleDebugHiddenTextureLeaves.delete(leaf);
   if (!previous) return;
   leaf.style.removeProperty("background");
   leaf.style.removeProperty("background-image");

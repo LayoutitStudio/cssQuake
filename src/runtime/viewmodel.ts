@@ -900,8 +900,7 @@ function roundDebugNumber(value: number, decimals = 4): number {
 
 function createQuakeViewmodelStage(layer: HTMLElement): HTMLElement {
   const stage = document.createElement("div");
-  stage.id = "quake-viewmodel-stage";
-  stage.className = "polycss-scene";
+  stage.className = "quake-weapon-stage polycss-scene";
   layer.appendChild(stage);
   return stage;
 }

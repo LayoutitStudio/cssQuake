@@ -189,7 +189,6 @@ export interface QuakeDebugRecording {
 
 export interface QuakeDebugRecorderOptions {
   appVersion: string;
-  button: HTMLButtonElement | null;
   statusElement: HTMLElement | null;
   currentMapName: () => string;
   entityManifest?: () => unknown;
@@ -392,35 +391,9 @@ export function createQuakeDebugRecorder(options: QuakeDebugRecorderOptions): Qu
     stop("dispose");
     unregisterTraceMarkSink?.();
     unregisterTraceMarkSink = null;
-    options.button?.removeEventListener("click", handleClick);
-  }
-
-  function handleClick(): void {
-    if (recording) {
-      stop();
-    } else {
-      start();
-    }
   }
 
   function updatePresentation(finished?: QuakeDebugRecording): void {
-    if (options.button) {
-      options.button.textContent = recording ? "STOP" : "RECORD";
-      options.button.dataset.recording = recording ? "true" : "false";
-      options.button.setAttribute("aria-pressed", recording ? "true" : "false");
-      options.button.setAttribute("aria-label", recording ? "Stop debug recording" : "Record debug data");
-      if (recording) {
-        delete options.button.dataset.lastSamples;
-        delete options.button.dataset.lastEvents;
-        delete options.button.dataset.lastCullingEntries;
-      } else if (finished) {
-        options.button.dataset.lastSamples = String(finished.samples.length);
-        options.button.dataset.lastEvents = String(finished.events.length);
-        options.button.dataset.lastCullingEntries = String(
-          finished.samples[finished.samples.length - 1]?.snapshot.shootableCulling.entries.length ?? 0,
-        );
-      }
-    }
     if (!options.statusElement) return;
     if (recording) {
       const duration = Math.max(0, performance.now() - startedAt) / 1000;
@@ -435,7 +408,6 @@ export function createQuakeDebugRecorder(options: QuakeDebugRecorderOptions): Qu
     options.statusElement.textContent = "-";
   }
 
-  options.button?.addEventListener("click", handleClick);
   updatePresentation();
 
   return {

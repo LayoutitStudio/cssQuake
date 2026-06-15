@@ -89,25 +89,30 @@
         isolation: isolate;
       }
 
-      #quake-ui,
-      #quake-app > .polycss-camera,
-      #quake-viewmodel-layer,
+      #quake-scene,
+      #quake-menu,
+      #quake-weapon,
       #quake-hud {
         position: absolute;
         inset: 0;
       }
 
-      #quake-app > .polycss-camera {
+      #quake-scene {
         z-index: 1;
+      }
+
+      #quake-scene > .polycss-camera {
+        position: absolute;
+        inset: 0;
         outline: none;
         touch-action: none;
       }
 
-      #quake-viewmodel-layer {
+      #quake-weapon {
         z-index: 2;
       }
 
-      #quake-ui {
+      #quake-menu {
         z-index: 3;
         pointer-events: none;
       }
@@ -578,26 +583,25 @@
     </style>
   </head>
   <body id="quake-app" class="quake-loading quake-menu-open quake-main-menu-pending">
-      <script>
-        (() => {
-          const params = new URLSearchParams(window.location.search);
-          if (params.has("map") || params.has("view")) {
-            document.body.classList.remove("quake-menu-open");
-            document.body.classList.add("quake-main-menu-deferred");
-          }
-        })();
-      </script>
-      <div id="quake-viewmodel-layer" aria-hidden="true"></div>
-      <div id="quake-ui">
+      <!-- scene -->
+      <div id="quake-scene"></div>
+      <!-- weapon -->
+      <div id="quake-weapon"></div>
+      <!-- menu -->
+      <div id="quake-menu">
         <img class="cssquake-logo" src="/src/assets/cssquake-logo.png" width="1343" height="262" alt="cssQuake" fetchpriority="high" loading="eager" decoding="sync" draggable="false" />
         <span id="cssquake-version" class="cssquake-version" aria-hidden="true"></span>
+        <!-- hud -->
         <div id="quake-hud">
+        <!-- screen effects -->
         <div id="quake-bonus-overlay" aria-hidden="true"></div>
         <div id="quake-damage-overlay" aria-hidden="true"></div>
         <div id="quake-impact-particles" aria-hidden="true"></div>
+        <!-- messages -->
         <div id="quake-notify" role="log" aria-live="polite" hidden></div>
         <div id="quake-centerprint" role="status" aria-live="polite" hidden></div>
         <div id="quake-intermission" role="status" aria-live="polite" hidden></div>
+        <!-- main menu -->
         <div id="quake-main-menu" role="button" tabindex="-1" aria-label="cssQuake menu">
           <span id="quake-main-menu-art">
             <img id="quake-main-menu-plaque" src="/q/main-menu-plaque.png" width="32" height="144" alt="" />
@@ -630,6 +634,7 @@
             </span>
           </span>
         </div>
+        <!-- single player -->
         <section id="quake-single-player-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-single-player-title" tabindex="-1" hidden>
           <div id="quake-single-player-card" class="quake-menu-card" role="document">
             <header class="quake-menu-panel-header">
@@ -737,6 +742,7 @@
             </nav>
           </div>
         </section>
+        <!-- multiplayer -->
         <section id="quake-multiplayer-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-multiplayer-title" tabindex="-1" hidden>
           <div id="quake-multiplayer-card" class="quake-menu-card" role="document">
             <header class="quake-menu-panel-header">
@@ -794,6 +800,7 @@
             </nav>
           </div>
         </section>
+        <!-- level select -->
         <section id="quake-level-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-level-title" tabindex="-1" hidden>
           <div id="quake-level-card" class="quake-menu-card" role="document">
             <header class="quake-menu-panel-header">
@@ -807,6 +814,7 @@
             </nav>
           </div>
         </section>
+        <!-- options -->
         <section id="quake-options-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-options-title" tabindex="-1" hidden>
           <div id="quake-options-card" class="quake-menu-card" role="document">
             <header class="quake-menu-panel-header">
@@ -883,6 +891,7 @@
             </nav>
           </div>
         </section>
+        <!-- debug menu -->
         <section id="quake-debug-menu-panel" class="quake-menu-panel" role="dialog" aria-labelledby="quake-debug-menu-title" tabindex="-1" hidden>
           <div id="quake-debug-menu-card" class="quake-menu-card" role="document">
             <header class="quake-menu-panel-header">
@@ -928,7 +937,7 @@
                 </label>
                 <div class="quake-debug-menu-divider" role="separator" aria-hidden="true"></div>
                 <label class="quake-option-toggle" tabindex="0">
-                  <input id="quake-debug-show-fps" type="checkbox" checked />
+                  <input id="quake-debug-show-fps" type="checkbox" />
                   <span class="quake-option-checkbox" aria-hidden="true"></span>
                   <span class="quake-option-text quake-bm-label">Show FPS</span>
                   <span class="quake-option-value quake-option-value-off quake-bm-label quake-bm-alt">off</span>
@@ -969,7 +978,9 @@
             </nav>
           </div>
         </section>
+        <!-- crosshair -->
         <div id="quake-crosshair" aria-hidden="true"></div>
+        <!-- status bar -->
         <div id="quake-classic-hud" aria-label="Quake status bar">
           <img id="quake-classic-hud-image" src="/q/hud.png" width="320" height="24" alt="" />
           <div id="quake-hud-inventory" aria-hidden="true"></div>
@@ -1020,31 +1031,6 @@
             </span>
           </div>
         </div>
-      </div>
-      </div>
-      <div id="quake-debug-stack">
-        <aside id="quake-debug-panel" aria-labelledby="quake-debug-title" hidden>
-          <div id="quake-debug-card">
-            <header id="quake-debug-header">
-              <h2 id="quake-debug-title" class="quake-bm-label quake-bm-alt">Debug</h2>
-              <button id="quake-debug-record" class="quake-debug-record-button" type="button" aria-pressed="false">RECORD</button>
-            </header>
-            <dl id="quake-debug-stats" aria-label="Debug stats">
-              <div><dt class="quake-bm-label">Record</dt><dd data-qstat="recording">-</dd></div>
-              <div><dt class="quake-bm-label">Capture</dt><dd data-qstat="capture">-</dd></div>
-              <div><dt class="quake-bm-label">Visible</dt><dd data-qstat="visible">-</dd></div>
-              <div><dt class="quake-bm-label">DOM</dt><dd data-qstat="dom">-</dd></div>
-              <div><dt class="quake-bm-label">Enemies</dt><dd data-qstat="enemies">-</dd></div>
-              <div><dt class="quake-bm-label">Pickups</dt><dd data-qstat="pickups">-</dd></div>
-            </dl>
-            <div id="quake-debug-outline-legend" aria-label="Surface outline legend">
-              <span><span class="quake-debug-outline-swatch quake-debug-outline-swatch-world" aria-hidden="true"></span><span class="quake-bm-label">World</span></span>
-              <span><span class="quake-debug-outline-swatch quake-debug-outline-swatch-special" aria-hidden="true"></span><span class="quake-bm-label">Special</span></span>
-              <span><span class="quake-debug-outline-swatch quake-debug-outline-swatch-movers" aria-hidden="true"></span><span class="quake-bm-label">Objects/items</span></span>
-              <span><span class="quake-debug-outline-swatch quake-debug-outline-swatch-enemies" aria-hidden="true"></span><span class="quake-bm-label">Enemies</span></span>
-            </div>
-          </div>
-        </aside>
       </div>
       <a
         class="btn-github"
@@ -1101,6 +1087,7 @@
           alt=""
         />
       </a>
+      <!-- loading -->
       <div id="quake-loading-overlay" role="status" aria-live="polite" aria-busy="true">
         <div class="quake-loading-mark">
           <div class="quake-loading-readout">
@@ -1112,137 +1099,31 @@
           </div>
         </div>
       </div>
-    <script>
-      (() => {
-        const lineLimit = 10;
-        const lineMaxChars = 42;
-
-        function errorText(error) {
-          if (error instanceof Error) return error.stack || `${error.name}: ${error.message}`;
-          if (typeof error === "string") return error;
-          try {
-            const json = JSON.stringify(error);
-            if (json) return json;
-          } catch {
-            // Fall through to String().
-          }
-          return String(error);
-        }
-
-        function wrapLine(line) {
-          if (line.length <= lineMaxChars) return [line];
-          const words = line.split(/\s+/).filter(Boolean);
-          const wrapped = [];
-          let current = "";
-          for (const word of words) {
-            if (word.length > lineMaxChars) {
-              if (current) {
-                wrapped.push(current);
-                current = "";
-              }
-              for (let index = 0; index < word.length; index += lineMaxChars) {
-                wrapped.push(word.slice(index, index + lineMaxChars));
-              }
-              continue;
-            }
-            const next = current ? `${current} ${word}` : word;
-            if (next.length <= lineMaxChars) {
-              current = next;
-            } else {
-              wrapped.push(current);
-              current = word;
-            }
-          }
-          if (current) wrapped.push(current);
-          return wrapped.length ? wrapped : [line.slice(0, lineMaxChars)];
-        }
-
-        function errorLines(error) {
-          const rawLines = errorText(error)
-            .split(/\r?\n/)
-            .map((line) => line.replace(/\s+/g, " ").trim())
-            .filter(Boolean);
-          const lines = ["Load failed"];
-          for (let index = 0; index < rawLines.length && lines.length < lineLimit; index++) {
-            const prefix = index === 0 ? "error: " : "";
-            for (const line of wrapLine(`${prefix}${rawLines[index]}`)) {
-              lines.push(line);
-              if (lines.length >= lineLimit) break;
-            }
-          }
-          return lines;
-        }
-
-        function glyph(char) {
-          const code = char.charCodeAt(0) & 127;
-          const element = document.createElement("span");
-          element.className = `quake-bitmap-glyph quake-bitmap-col-${code & 15} quake-bitmap-row-${code >> 4}`;
-          return element;
-        }
-
-        function bitmapWord(text) {
-          const word = document.createElement("span");
-          word.className = "quake-bitmap-word";
-          for (const char of text) word.append(glyph(char));
-          return word;
-        }
-
-        function bitmapText(text) {
-          const source = document.createElement("span");
-          source.className = "quake-bitmap-source";
-          source.textContent = text;
-
-          const bitmap = document.createElement("span");
-          bitmap.className = "quake-bitmap-text quake-bitmap-text--copy quake-bitmap-text--word";
-          bitmap.setAttribute("aria-hidden", "true");
-          for (const word of text.split(" ")) {
-            if (word) bitmap.append(bitmapWord(word));
-          }
-          return [source, bitmap];
-        }
-
-        function hideMainMenuForError() {
-          document.body.classList.remove("quake-menu-open", "quake-main-menu-pending");
-          document.body.classList.add("quake-main-menu-deferred");
-          const mainMenu = document.getElementById("quake-main-menu");
-          if (mainMenu) mainMenu.hidden = true;
-          document.querySelectorAll(".quake-menu-panel").forEach((panel) => {
-            panel.setAttribute("hidden", "");
-          });
-        }
-
-        window.__cssQuakeShowLoadingError = (error) => {
-          hideMainMenuForError();
-          const overlay = document.getElementById("quake-loading-overlay");
-          const status = document.getElementById("quake-loading-status");
-          const progress = document.getElementById("quake-loading-progress");
-          const action = document.getElementById("quake-loading-action");
-          if (!overlay || !status) return;
-          document.body.classList.add("quake-loading");
-          overlay.hidden = false;
-          overlay.setAttribute("aria-busy", "false");
-          overlay.classList.add("quake-loading-console-persisted");
-          status.textContent = "";
-          const lines = errorLines(error);
-          for (const line of lines) {
-            const element = document.createElement("span");
-            element.className = "quake-loading-console-line quake-bm-copy quake-bitmap-host";
-            element.append(...bitmapText(line));
-            status.append(element);
-          }
-          status.setAttribute("aria-label", lines.join("\n"));
-          if (progress) progress.hidden = true;
-          if (action) action.hidden = true;
-        };
-
-        window.addEventListener("error", (event) => {
-          window.__cssQuakeShowLoadingError(event.error || event.message);
-        });
-        window.addEventListener("unhandledrejection", (event) => {
-          window.__cssQuakeShowLoadingError(event.reason);
-        });
-      })();
-    </script>
+      <!-- debug panel -->
+      <div id="quake-debug-stack">
+        <aside id="quake-debug-panel" aria-labelledby="quake-debug-title" hidden>
+          <div id="quake-debug-card">
+            <header id="quake-debug-header">
+              <h2 id="quake-debug-title" class="quake-bm-label quake-bm-alt">Debug</h2>
+            </header>
+            <dl id="quake-debug-stats" aria-label="Debug stats">
+              <div><dt class="quake-bm-label">Record</dt><dd data-qstat="recording">-</dd></div>
+              <div><dt class="quake-bm-label">Capture</dt><dd data-qstat="capture">-</dd></div>
+              <div><dt class="quake-bm-label">Visible</dt><dd data-qstat="visible">-</dd></div>
+              <div><dt class="quake-bm-label">DOM</dt><dd data-qstat="dom">-</dd></div>
+              <div><dt class="quake-bm-label">Enemies</dt><dd data-qstat="enemies">-</dd></div>
+              <div><dt class="quake-bm-label">Pickups</dt><dd data-qstat="pickups">-</dd></div>
+            </dl>
+            <div id="quake-debug-outline-legend" aria-label="Surface outline legend">
+              <span><span class="quake-debug-outline-swatch quake-debug-outline-swatch-world" aria-hidden="true"></span><span class="quake-bm-label">World</span></span>
+              <span><span class="quake-debug-outline-swatch quake-debug-outline-swatch-special" aria-hidden="true"></span><span class="quake-bm-label">Special</span></span>
+              <span><span class="quake-debug-outline-swatch quake-debug-outline-swatch-movers" aria-hidden="true"></span><span class="quake-bm-label">Objects/items</span></span>
+              <span><span class="quake-debug-outline-swatch quake-debug-outline-swatch-enemies" aria-hidden="true"></span><span class="quake-bm-label">Enemies</span></span>
+            </div>
+          </div>
+        </aside>
+      </div>
+      </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -239,8 +239,9 @@ const QUAKE_DOOR_MESSAGE_COOLDOWN_MS = 2000;
 const quakeDom = queryQuakeAppDom();
 const {
   app: quakeApp,
-  ui: quakeUi,
-  viewmodelLayer,
+  scene: quakeSceneRoot,
+  menu: quakeMenu,
+  weapon,
   mainMenu,
   mainMenuArt,
   versionLabel,
@@ -274,6 +275,7 @@ const {
   crosshair,
   crosshairOption,
   crosshairOptionValue,
+  debugStack,
   debugPanel,
   debugShowMenuOption,
   debugEnabledOption,
@@ -285,7 +287,6 @@ const {
   debugFlyModeOption,
   debugShowOutlinesOption,
   debugShowLabelsOption,
-  debugRecordButton,
   debugStatElements,
   loadingOverlay,
   loadingStatus,
@@ -817,6 +818,26 @@ let quakeShowGun = showGunOption?.checked ?? true;
 let quakeDynamicLighting = dynamicLightingOption?.checked ?? true;
 let quakeImpactParticles = impactParticlesOption?.checked ?? true;
 
+function installInspectableQuakePolycssCamera(
+  sceneHandle: { applyCamera(): void },
+  cameraElement: HTMLElement,
+): void {
+  const applyCamera = sceneHandle.applyCamera.bind(sceneHandle);
+  sceneHandle.applyCamera = () => {
+    applyCamera();
+    stripQuakePolycssCameraDataAttributes(cameraElement);
+  };
+  stripQuakePolycssCameraDataAttributes(cameraElement);
+}
+
+function stripQuakePolycssCameraDataAttributes(cameraElement: HTMLElement): void {
+  for (const attribute of Array.from(cameraElement.attributes)) {
+    if (attribute.name.startsWith("data-polycss-camera-")) {
+      cameraElement.removeAttribute(attribute.name);
+    }
+  }
+}
+
 function quakeUrlRouteFromLocation(): QuakeUrlRoute {
   return quakeRoute.routeFromLocation();
 }
@@ -1199,8 +1220,13 @@ const scene = createPolyScene(quakeApp, {
   autoCenter: false,
 });
 const host = scene.cameraEl as HTMLElement;
-quakeApp.insertBefore(host, viewmodelLayer ?? quakeUi);
+if (quakeSceneRoot) {
+  quakeSceneRoot.appendChild(host);
+} else {
+  quakeApp.insertBefore(host, weapon ?? quakeMenu);
+}
 host.tabIndex = 0;
+installInspectableQuakePolycssCamera(scene, host);
 // PolyCSS controls read scene.host when they are created; keep that target on the inspectable camera node.
 (scene as unknown as { host: HTMLElement }).host = host;
 const sceneElement = scene.sceneElement;
@@ -1434,13 +1460,14 @@ const quakeDebugPanelFlow = createQuakeDebugPanelFlow({
   debugShowLabelsOption,
   debugShowMenuOption,
   debugShowOutlinesOption,
+  debugStack,
   debugShowTexturesOption,
   debugStatElements,
   hideMainMenu: () => menu.hideMainMenu(),
   initialHideTextures: debugShowTexturesOption ? !debugShowTexturesOption.checked : false,
   initialAnimationsEnabled: quakeEnemyAnimationsEnabled,
   initialMode: quakeUrlBoolean("debugPolys"),
-  initialShowFps: debugShowFpsOption?.checked ?? true,
+  initialShowFps: debugShowFpsOption?.checked ?? false,
   initialShowLabels: debugShowLabelsOption?.checked ?? false,
   initialShowMenu: debugShowMenuOption?.checked ?? true,
   initialShowOutlines: debugShowOutlinesOption?.checked ?? false,
@@ -1547,7 +1574,6 @@ const quakeDebugRecordingSnapshot = createQuakeDebugRecordingSnapshotFlow({
 });
 const quakeDebugRecorder = createQuakeDebugRecorder({
   appVersion: __CSSQUAKE_VERSION__,
-  button: debugRecordButton,
   currentMapName: () => currentMapName,
   entityManifest: () => currentResult?.entityManifest ?? null,
   snapshot: () => quakeDebugRecordingSnapshot.capture(),
@@ -1595,7 +1621,7 @@ viewmodel = createQuakeViewmodelController({
   controls,
   getRenderOrigin: quakeCameraView.currentRenderOrigin,
   host,
-  layer: viewmodelLayer,
+  layer: weapon,
 });
 const quakeViewmodelAssets = createQuakeViewmodelAssetFlow({
   activeWeapon: () => player?.inventory().activeWeapon ?? null,
@@ -1852,6 +1878,7 @@ const weapons = createQuakeWeaponsController({
   damagePlayer: (amount, context) => getPlayer().damage(amount, context),
   canDamageTargetOrigin: (start, targetOrigin) => shootables.canDamageTargetOrigin(start, targetOrigin),
   damageMultiplier: () => quakePowerups.damageMultiplier(),
+  onFire: sendQuakeMultiplayerFireIntent,
   onDamageImpact: (event) => {
     quakeImpactParticleFlow.spawnBlood({
       damage: event.damage,
@@ -1859,7 +1886,6 @@ const weapons = createQuakeWeaponsController({
       origin: event.origin,
     });
   },
-  onFire: sendQuakeMultiplayerFireIntent,
   onHit: () => quakeWeaponPresentation.flashCrosshairHit(),
   onWallImpact: (event) => {
     quakeImpactParticleFlow.spawnWallImpact({
@@ -1935,7 +1961,7 @@ quakeStatsOverlay = createQuakeStatsOverlayFlow({
   isDisposed: () => quakeAppDisposed,
   isLoading: () => quakeAppLoading,
   isMobileAvailable: quakePointerGameplay.isMobileAvailable,
-  root: quakeUi ?? quakeApp,
+  root: quakeMenu ?? quakeApp,
   showFpsEnabled: () => quakeDebugPanelFlow.showFpsEnabled(),
 });
 
@@ -2438,7 +2464,7 @@ function canShowQuakeImpactParticles(): boolean {
     currentResult !== null &&
     !quakePlayerDead &&
     !hasQuakeBodyClass("quake-level-complete") &&
-    !hasQuakeBodyClass("quake-ui-unlocked") &&
+    !hasQuakeBodyClass("quake-menu-unlocked") &&
     !menu.isMainMenuOpen() &&
     !menu.isMenuPanelOpen()
   );
@@ -2472,7 +2498,7 @@ function syncQuakeInteractionPresentation(): void {
   const debugPointerUnlocked = quakeDebugPanelFlow.isModeEnabled() && document.pointerLockElement !== host;
   setQuakeBodyClass("quake-debug-active", quakeDebugPanelFlow.isModeEnabled());
   setQuakeBodyClass("quake-debug-pointer-unlocked", debugPointerUnlocked);
-  setQuakeBodyClass("quake-ui-unlocked", menuSurfaceOpen || debugPointerUnlocked);
+  setQuakeBodyClass("quake-menu-unlocked", menuSurfaceOpen || debugPointerUnlocked);
 }
 
 function handleQuakeMenuDebugToggle(): void {
@@ -2497,10 +2523,14 @@ function quitQuakeToMainMenu(): void {
 
 function setQuakeDebugFlyMode(enabled: boolean): void {
   quakeDebugFly.setEnabled(enabled);
+  world.setDebugShellVisible(enabled);
+  world.syncVisibility(true);
 }
 
 function syncQuakeDebugFlyMode(): void {
   quakeDebugFly.syncMode();
+  world.setDebugShellVisible(quakeDebugFly.isEnabled());
+  world.syncVisibility(true);
 }
 
 function respawnQuakePlayerFromFlyMode(): boolean {
@@ -4210,6 +4240,12 @@ async function completeQuakeSceneReadiness(
   modelPromise = quakeViewmodelAssets.preload(),
   progress?: QuakeLoadingProgressTracker,
 ): Promise<void> {
+  const completeWorldTexturesTask = progress?.startTask("World textures");
+  try {
+    await world.waitForVisibleAtlasPages();
+  } finally {
+    completeWorldTexturesTask?.();
+  }
   await quakeLoading.completeSceneReadiness(modelPromise, quakeViewmodelAssets.mount, progress);
 }
 
@@ -4459,14 +4495,8 @@ const quakeInput = createQuakeAppInputController({
   showMainMenu: () => menu.showMainMenu(),
   syncViewmodelTransform: () => viewmodel.syncTransform(),
   toggleAudioMuted: toggleQuakeAudioMuted,
-  toggleDebugRecording: () => {
-    if (quakeDebugRecorder.isRecording()) {
-      quakeDebugRecorder.stop();
-    } else {
-      quakeDebugRecorder.start();
-    }
-  },
   toggleDebugMode: toggleQuakeDebugMode,
+  toggleOutlineTextureMode: () => quakeDebugPanelFlow.toggleOutlineTextureMode(),
 });
 
 const quakeAppRuntime = createQuakeAppRuntimeContext({

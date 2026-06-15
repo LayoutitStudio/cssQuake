@@ -21,6 +21,7 @@ export interface QuakeDebugPanelFlowOptions {
   debugShowLabelsOption: HTMLInputElement | null;
   debugShowMenuOption: HTMLInputElement | null;
   debugShowOutlinesOption: HTMLInputElement | null;
+  debugStack: HTMLElement | null;
   debugShowTexturesOption: HTMLInputElement | null;
   debugStatElements: ReadonlyMap<string, HTMLElement>;
   hideMainMenu: () => void;
@@ -67,6 +68,7 @@ export interface QuakeDebugPanelFlow {
   syncPanelVisibility: () => void;
   syncRenderOptions: () => void;
   toggleMode: () => void;
+  toggleOutlineTextureMode: () => void;
 }
 
 export function createQuakeDebugPanelFlow(options: QuakeDebugPanelFlowOptions): QuakeDebugPanelFlow {
@@ -78,6 +80,8 @@ export function createQuakeDebugPanelFlow(options: QuakeDebugPanelFlowOptions): 
   let showOutlines = options.initialShowOutlines;
   let showLabels = options.initialShowLabels;
   let statsTimer: number | null = null;
+  const debugStackParent = options.debugStack?.parentNode ?? null;
+  const debugStackNextSibling = options.debugStack?.nextSibling ?? null;
 
   function isModeEnabled(): boolean {
     return mode;
@@ -143,6 +147,16 @@ export function createQuakeDebugPanelFlow(options: QuakeDebugPanelFlowOptions): 
     syncRenderOptions();
   }
 
+  function setOutlineTextureMode(enabled: boolean): void {
+    hideTextures = enabled;
+    showOutlines = enabled;
+    syncRenderOptions();
+  }
+
+  function toggleOutlineTextureMode(): void {
+    setOutlineTextureMode(!(hideTextures && showOutlines));
+  }
+
   function syncRenderOptions(): void {
     const effectiveShowOutlines = showOutlines || hideTextures;
     if (options.debugShowTexturesOption) options.debugShowTexturesOption.checked = !hideTextures;
@@ -160,7 +174,11 @@ export function createQuakeDebugPanelFlow(options: QuakeDebugPanelFlowOptions): 
   }
 
   function syncPanelVisibility(): void {
-    if (!options.debugPanel) return;
+    syncDebugStackMounted(mode);
+    if (!options.debugPanel) {
+      if (!mode) stopStats();
+      return;
+    }
     options.debugPanel.hidden = !mode;
     if (mode) {
       syncPanelStats();
@@ -168,6 +186,17 @@ export function createQuakeDebugPanelFlow(options: QuakeDebugPanelFlowOptions): 
       return;
     }
     stopStats();
+  }
+
+  function syncDebugStackMounted(mounted: boolean): void {
+    if (!options.debugStack || !debugStackParent) return;
+    if (mounted) {
+      if (!options.debugStack.isConnected) {
+        debugStackParent.insertBefore(options.debugStack, debugStackNextSibling);
+      }
+      return;
+    }
+    options.debugStack.remove();
   }
 
   function startStats(): void {
@@ -239,6 +268,7 @@ export function createQuakeDebugPanelFlow(options: QuakeDebugPanelFlowOptions): 
     syncPanelVisibility,
     syncRenderOptions,
     toggleMode,
+    toggleOutlineTextureMode,
   };
 }
 

@@ -86,7 +86,6 @@ export function createQuakeOptionsFlow(options: QuakeOptionsFlowOptions): QuakeO
       options.crosshair.hidden = definition.value === "off";
     }
     if (options.crosshairOption) {
-      options.crosshairOption.dataset.quakeCrosshair = definition.value;
       options.crosshairOption.setAttribute("aria-label", `Crosshair ${definition.label}`);
     }
     if (options.crosshairOptionValue) {

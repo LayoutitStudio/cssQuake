@@ -46,6 +46,7 @@ const quakeMeshPresentationObservers = new WeakMap<HTMLElement, MutationObserver
 const quakeBackfaceVisibleLeaves = new WeakSet<HTMLElement>();
 
 export interface QuakeFaceLeaf {
+  leafIndex: number;
   faceIndex: number;
   modelIndex?: number;
   entityIndex?: number;
@@ -143,9 +144,11 @@ export interface QuakeWorldController {
   mount: (result: QuakeScene) => void;
   pixelate: (handle?: PolyMeshHandle | null) => void;
   schedulePresentationResync: (handle?: PolyMeshHandle | null) => Promise<void>;
+  setDebugShellVisible: (visible: boolean) => void;
   syncVisibilityAt: (origin: [number, number, number], force?: boolean) => void;
   syncVisibility: (force?: boolean) => void;
   visibleLeavesAt: (origin: [number, number, number]) => Set<number> | null;
+  waitForVisibleAtlasPages: () => Promise<void>;
 }
 
 export interface QuakeWorldDebugBucket {
@@ -201,6 +204,10 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
   let semanticResidencyMetadataCache: QuakeSemanticResidencyMetadataCache | null = null;
   let semanticResidencyMetadataSource: QuakePreparedVisibilityMetadata | null = null;
   let semanticResidencyStats = createQuakeWorldSemanticResidencyStats();
+  let visibleAtlasPageKey = "";
+  let visibleAtlasPageSet = new Set<number>();
+  let visibleAtlasPageReadyPromise: Promise<void> = Promise.resolve();
+  let debugShellVisible = false;
 
   const clear = (): void => {
     cancelSemanticResidencyQueue();
@@ -224,6 +231,9 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     semanticResidencyMetadataCache = null;
     semanticResidencyMetadataSource = null;
     semanticResidencyStats = createQuakeWorldSemanticResidencyStats();
+    visibleAtlasPageKey = "";
+    visibleAtlasPageSet = new Set();
+    visibleAtlasPageReadyPromise = Promise.resolve();
   };
 
   const clearPresentationResyncTimers = (): void => {
@@ -304,6 +314,10 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       return;
     }
     options.syncPickupsVisibility(origin);
+    if (debugShellVisible) {
+      mountAllQuakeWorldLeaves(startedAt, force, "debug-shell");
+      return;
+    }
     const nextLeafIndexValue = currentVisibility?.leafIndexAt(origin);
     const nextLeafIndex = Number.isInteger(nextLeafIndexValue) ? nextLeafIndexValue : null;
     syncWorldAtlasResidencyPages(nextLeafIndex);
@@ -316,6 +330,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       let removedLeaves = 0;
       if (visibleFaceKey === "all") {
         visibleLeafIndex = nextLeafIndex;
+        syncMountedAtlasResidencyPages();
         recordQuakeWorldVisibilitySync(visibilityChurn, "same-key", startedAt, { force });
         if (force) {
           markQuakeTrace("world-visibility", {
@@ -338,6 +353,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
         visibleFaceKey = "all";
         visibleLeafIndex = nextLeafIndex;
       }
+      syncMountedAtlasResidencyPages();
       recordQuakeWorldVisibilitySync(visibilityChurn, "no-pvs", startedAt, { force, addedLeaves, removedLeaves });
       if (force || addedLeaves > 0 || removedLeaves > 0) {
         markQuakeTrace("world-visibility", {
@@ -372,6 +388,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     if (nextKey === visibleFaceKey) {
       const leafChanged = nextLeafIndex !== visibleLeafIndex;
       visibleLeafIndex = nextLeafIndex;
+      syncMountedAtlasResidencyPages();
       recordQuakeWorldVisibilitySync(visibilityChurn, "same-key", startedAt, {
         force,
         pvsFaceCount: visibleFaces.size,
@@ -423,6 +440,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       if (change > 0) addedLeaves++;
       if (change < 0) removedLeaves++;
     }
+    syncMountedAtlasResidencyPages();
     const mutationJsMs = performance.now() - mutationStartedAt;
     const mountedLeafCountAfter = countMountedQuakeLeaves();
     recordQuakeWorldVisibilitySync(visibilityChurn, force ? "force" : "leaf-change", startedAt, {
@@ -498,6 +516,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       const queueResult = force
         ? applySemanticResidencyQueue(now, residencyOptions.budget)
         : emptyResidencyQueueApplyResult();
+      syncMountedAtlasResidencyPages();
       const mountedLeafCountAfter = countMountedQuakeLeaves();
       if (semanticResidencyQueue.length > 0) scheduleSemanticResidencyQueue(residencyOptions);
       updateSemanticResidencyStats(residencyOptions, {
@@ -580,6 +599,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     }
 
     const queueResult = applySemanticResidencyQueue(now, residencyOptions.budget);
+    syncMountedAtlasResidencyPages();
     const mutationJsMs = performance.now() - mutationStartedAt;
     if (semanticResidencyQueue.length > 0) scheduleSemanticResidencyQueue(residencyOptions);
     visibleFaceKey = nextKey;
@@ -761,6 +781,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
         removedLeaves: 0,
       });
       if (queueResult.addedLeaves > 0 || semanticResidencyQueue.length > 0) {
+        syncMountedAtlasResidencyPages();
         markQuakeTrace("world-visibility", {
           reason: "semantic-residency-queue",
           queuedAddedLeaves: queueResult.addedLeaves,
@@ -968,6 +989,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       options.syncButtonLeafVisual(leaf);
       syncQuakeLightstyleLeafAnimationClock(leaf.element, leaf.lightstyleStyleId, now);
       syncQuakeTextureAnimationLeafAnimationClock(leaf.element, now);
+      exposeMountedLeafAtlasResidencyPage(leaf);
       insertQuakeLeafInOrder(leaf);
       leaf.element.hidden = false;
     } else {
@@ -1034,11 +1056,72 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     const handle = mountQuakeRenderBundleMesh(options.sceneElement, renderBundle);
     currentRenderBundle = renderBundle;
     const element = handle.element;
+    element.classList.add("quake-world-mesh");
     stripQuakeWorldMeshMetadata(element);
     faceLeaves = indexQuakeFaceLeaves(handle, renderBundle, new Map(), true, "world");
     preloadQuakeButtonStateTextures();
     return handle;
   };
+
+  const setDebugShellVisible = (visible: boolean): void => {
+    if (debugShellVisible === visible) return;
+    debugShellVisible = visible;
+    if (visible) {
+      mountAllQuakeWorldLeaves(performance.now(), true, "debug-shell-enable");
+    }
+  };
+
+  const mountAllQuakeWorldLeaves = (startedAt: number, force: boolean, reason: string): void => {
+    const mountedLeafCountBefore = countMountedQuakeLeaves();
+    const prevLeafIndex = visibleLeafIndex;
+    const prevVisibleFaceKey = visibleFaceKey || null;
+    const now = performance.now();
+    let addedLeaves = 0;
+    const mutationStartedAt = performance.now();
+    for (const leaf of quakeLeaves) {
+      if (setQuakeLeafMounted(leaf, true, now) > 0) addedLeaves++;
+    }
+    syncMountedAtlasResidencyPages();
+    visibleFaceKey = "debug-shell";
+    visibleLeafIndex = null;
+    semanticResidencyDesiredLeaves = new Set(quakeLeaves);
+    semanticResidencyQueue = [];
+    const mutationJsMs = performance.now() - mutationStartedAt;
+    const mountedLeafCountAfter = countMountedQuakeLeaves();
+    recordQuakeWorldVisibilitySync(visibilityChurn, force ? "force" : "same-key", startedAt, {
+      force,
+      addedLeaves,
+      removedLeaves: 0,
+    });
+    recordResidencyTransition({
+      addCount: addedLeaves,
+      force,
+      mountedLeafCountAfter,
+      mountedLeafCountBefore,
+      mutationJsMs,
+      nextLeafIndex: null,
+      nextVisibleFaceKey: "debug-shell",
+      prevLeafIndex,
+      prevVisibleFaceKey,
+      reason,
+      scannedFaceLeafCount: quakeLeaves.length,
+      startedAt,
+      visibleFaceCount: null,
+      removeCount: 0,
+    });
+    if (force || addedLeaves > 0) {
+      markQuakeTrace("world-visibility", {
+        reason,
+        force,
+        addedLeaves,
+        removedLeaves: 0,
+        mountedLeaves: mountedLeafCountAfter,
+        mutationJsMs,
+      });
+    }
+  };
+
+  const waitForVisibleAtlasPages = (): Promise<void> => visibleAtlasPageReadyPromise;
 
   const syncWorldAtlasResidencyPages = (leafIndex: number | null): void => {
     const atlasResidency = currentRenderBundle?.atlasResidency;
@@ -1052,8 +1135,59 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       : atlasResidency.visibilityLeafPrewarmPages[leafIndex] ?? currentPages;
     const exposedPages = currentPages.length ? currentPages : allPages;
     const warmPages = prewarmPages.length ? prewarmPages : exposedPages;
-    exposeQuakeRenderBundleAtlasPages(currentHandle.element, currentRenderBundle, exposedPages);
+    setVisibleAtlasResidencyPages(exposedPages);
     void preloadQuakeRenderBundleAtlasPages(currentRenderBundle, warmPages);
+  };
+
+  const setVisibleAtlasResidencyPages = (pageIndexes: readonly number[]): void => {
+    if (!currentHandle || !currentRenderBundle) return;
+    const nextPages = normalizedAtlasResidencyPageIndexes(pageIndexes);
+    exposeQuakeRenderBundleAtlasPages(currentHandle.element, currentRenderBundle, nextPages);
+    visibleAtlasPageSet = new Set(nextPages);
+    const pageKey = nextPages.join(",");
+    if (pageKey !== visibleAtlasPageKey) {
+      visibleAtlasPageKey = pageKey;
+      visibleAtlasPageReadyPromise = preloadQuakeRenderBundleAtlasPages(currentRenderBundle, nextPages);
+    }
+  };
+
+  const syncMountedAtlasResidencyPages = (): void => {
+    if (!currentHandle || !currentRenderBundle || currentRenderBundle.atlasResidency?.mode !== "pvs-pages") return;
+    const nextPages = mountedAtlasResidencyPageIndexes(visibleAtlasPageSet);
+    const pageKey = nextPages.join(",");
+    if (pageKey === visibleAtlasPageKey) return;
+    exposeQuakeRenderBundleAtlasPages(currentHandle.element, currentRenderBundle, nextPages);
+    visibleAtlasPageSet = new Set(nextPages);
+    visibleAtlasPageKey = pageKey;
+    visibleAtlasPageReadyPromise = preloadQuakeRenderBundleAtlasPages(currentRenderBundle, nextPages);
+  };
+
+  const normalizedAtlasResidencyPageIndexes = (pageIndexes: Iterable<number>): number[] =>
+    [...new Set([...pageIndexes].filter((pageIndex) => Number.isInteger(pageIndex) && pageIndex >= 0))]
+      .sort((a, b) => a - b);
+
+  const mountedAtlasResidencyPageIndexes = (pageIndexes: Iterable<number>): number[] => {
+    const pages = new Set(normalizedAtlasResidencyPageIndexes(pageIndexes));
+    const leafPageIndexes = currentRenderBundle?.atlasResidency?.leafPageIndexes;
+    if (!leafPageIndexes) return normalizedAtlasResidencyPageIndexes(pages);
+    for (const leaf of quakeLeaves) {
+      if (leaf.meshKind !== "world" || !leaf.mounted || !leaf.element.isConnected) continue;
+      const pageIndex = leafPageIndexes[leaf.leafIndex];
+      if (Number.isInteger(pageIndex) && pageIndex >= 0) pages.add(pageIndex);
+    }
+    return normalizedAtlasResidencyPageIndexes(pages);
+  };
+
+  const exposeMountedLeafAtlasResidencyPage = (leaf: QuakeFaceLeaf): void => {
+    if (leaf.meshKind !== "world" || !currentHandle || !currentRenderBundle) return;
+    const pageIndex = currentRenderBundle.atlasResidency?.leafPageIndexes[leaf.leafIndex];
+    if (!Number.isInteger(pageIndex) || pageIndex < 0) return;
+    exposeQuakeRenderBundleAtlasPages(currentHandle.element, currentRenderBundle, [pageIndex]);
+    if (visibleAtlasPageSet.has(pageIndex)) return;
+    visibleAtlasPageSet.add(pageIndex);
+    visibleAtlasPageKey = [...visibleAtlasPageSet].sort((a, b) => a - b).join(",");
+    const pagePromise = preloadQuakeRenderBundleAtlasPages(currentRenderBundle, [pageIndex]);
+    visibleAtlasPageReadyPromise = Promise.all([visibleAtlasPageReadyPromise, pagePromise]).then(() => undefined);
   };
 
   const addQuakeLightstyleRenderBundleMesh = (renderBundle: QuakePreparedRenderBundle): PolyMeshHandle => {
@@ -1117,6 +1251,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       }
       const previous = previousByParent.get(parent);
       const record: QuakeFaceLeaf = {
+        leafIndex: index,
         faceIndex,
         ...(Number.isInteger(modelIndex) ? { modelIndex } : {}),
         ...(Number.isInteger(entityIndex) ? { entityIndex } : {}),
@@ -1193,9 +1328,11 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     mount,
     pixelate,
     schedulePresentationResync,
+    setDebugShellVisible,
     syncVisibilityAt,
     syncVisibility,
     visibleLeavesAt: (origin: [number, number, number]) => currentVisibility?.visibleLeavesAt(origin) ?? null,
+    waitForVisibleAtlasPages,
   };
 }
 

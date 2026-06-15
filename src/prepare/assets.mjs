@@ -56,7 +56,7 @@ const staticPublicAssets = [
   [path.join(projectRoot, "src/site/sitemap.xml"), path.join(generatedPublicDir, "sitemap.xml")],
 ];
 const menuTitleLevelSelectSourcePath = path.join(projectRoot, "src/assets/menu-title-level-select-source.png");
-const sourcePortConbackSourcePath = path.join(projectRoot, "src/assets/source-port-conback.lmp");
+const sourcePortConbackSourcePath = path.join(projectRoot, "src/assets/source-port-conback.png");
 const quakeMapNames = ["start", "e1m1", "e1m2", "e1m3", "e1m4", "e1m5", "e1m6", "e1m7", "e1m8"];
 const quakeRenderBundleDefaultMapNames = quakeMapNames;
 const quakeStartMap = "e1m1";
@@ -234,7 +234,7 @@ const QUAKE_MAIN_MENU_LEVEL_LABEL = "LEVEL SELECT";
 const QUAKE_MAIN_MENU_LEVEL_LABEL_SCALE = 2;
 const QUAKE_PICKUP_MODEL_SCALE = QUAKE_UNIT_SCALE;
 const QUAKE_WEAPON_MODEL_PIVOT = parseQuakeWeaponModelPivot(process.env.QUAKE_WEAPON_MODEL_PIVOT);
-const QUAKE_ENEMY_ALIAS_MODEL_RENDER_SCALE = 8;
+const QUAKE_ENEMY_ALIAS_MODEL_RENDER_SCALE = 4;
 const QUAKE_PLAYER_ALIAS_MODEL_RENDER_SCALE = 4;
 const QUAKE_ANIMATION_FRAME_SET_MIN_COMMON_LEAF_RATIO = 0.95;
 const QUAKE_ALIAS_MERGE_MAX_NONPLANAR_DISTANCE = 0.03;
@@ -863,7 +863,7 @@ try {
       await writeFile(mainMenuActiveOutputPaths[index], mainMenuActivePngs[index]);
     }
     await writeFile(mainMenuCursorOutputPath, await buildQuakeMainMenuCursorPng(uiAssets));
-    await writeFile(mainMenuBackgroundOutputPath, await buildLooseQpicPng(uiAssets, sourcePortConbackSourcePath));
+    await writeFile(mainMenuBackgroundOutputPath, await readFile(sourcePortConbackSourcePath));
     await writeFile(singlePlayerMenuOutputPath, await buildPakQpicPng(uiAssets, "gfx/sp_menu.lmp"));
     await writeFile(aboutOutputPath, await buildQuakeAboutPng(uiAssets));
     await writeFile(menuPanelTextureOutputPath, await buildQuakeMenuPanelTexturePng(menuPanelTextureMaps));
@@ -3106,22 +3106,6 @@ async function buildPakQpicPng(assets, pakPath) {
   }).png().toBuffer();
 }
 
-async function buildLooseQpicPng(assets, sourcePath) {
-  const qpic = await readFile(sourcePath);
-  const width = qpic.readInt32LE(0);
-  const height = qpic.readInt32LE(4);
-  const dataOffset = 8;
-  const expectedLength = dataOffset + width * height;
-  if (width <= 0 || height <= 0 || qpic.length < expectedLength) {
-    throw new Error(`Invalid Quake qpic ${path.relative(projectRoot, sourcePath)}.`);
-  }
-  const rgba = Buffer.alloc(width * height * 4);
-  drawIndexedImage(rgba, assets.palette, qpic, dataOffset, width, height, 0, 0, width, height);
-  return sharp(rgba, {
-    raw: { width, height, channels: 4 },
-  }).png().toBuffer();
-}
-
 async function buildCustomMenuTitlePng(sourcePath, options = {}) {
   const height = options.height ?? 20;
   const resized = await sharp(sourcePath)
@@ -3509,9 +3493,7 @@ async function buildQuakeWeaponModel(assets, renderBundleBuilder, modelPath = QU
 }
 
 function quakeWeaponRenderBundleName(modelPath) {
-  return modelPath === QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH
-    ? "w"
-    : `w/${path.basename(modelPath, path.extname(modelPath)).toLowerCase().replace(/[^a-z0-9_-]+/g, "_")}`;
+  return `w/${path.basename(modelPath, path.extname(modelPath)).toLowerCase().replace(/[^a-z0-9_-]+/g, "_")}`;
 }
 
 function quakeWeaponNozzleColor(vertices) {

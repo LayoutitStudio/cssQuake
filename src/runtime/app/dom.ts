@@ -1,7 +1,8 @@
 export interface QuakeAppDomElements {
   app: HTMLElement;
-  ui: HTMLElement | null;
-  viewmodelLayer: HTMLElement | null;
+  scene: HTMLElement | null;
+  menu: HTMLElement | null;
+  weapon: HTMLElement | null;
   mainMenu: HTMLElement | null;
   mainMenuArt: HTMLElement | null;
   versionLabel: HTMLElement | null;
@@ -36,6 +37,7 @@ export interface QuakeAppDomElements {
   crosshair: HTMLElement | null;
   crosshairOption: HTMLButtonElement | null;
   crosshairOptionValue: HTMLElement | null;
+  debugStack: HTMLElement | null;
   debugPanel: HTMLElement | null;
   debugShowMenuOption: HTMLInputElement | null;
   debugEnabledOption: HTMLInputElement | null;
@@ -47,7 +49,6 @@ export interface QuakeAppDomElements {
   debugFlyModeOption: HTMLInputElement | null;
   debugShowOutlinesOption: HTMLInputElement | null;
   debugShowLabelsOption: HTMLInputElement | null;
-  debugRecordButton: HTMLButtonElement | null;
   debugStatElements: Map<string, HTMLElement>;
   loadingOverlay: HTMLElement | null;
   loadingStatus: HTMLElement | null;
@@ -70,8 +71,9 @@ export interface QuakeAppDomElements {
 export function queryQuakeAppDom(): QuakeAppDomElements {
   return {
     app: requiredQuakeElement("quake-app"),
-    ui: quakeElement("quake-ui"),
-    viewmodelLayer: quakeElement("quake-viewmodel-layer"),
+    scene: quakeElement("quake-scene"),
+    menu: quakeElement("quake-menu"),
+    weapon: quakeElement("quake-weapon"),
     mainMenu: quakeElement("quake-main-menu"),
     mainMenuArt: quakeElement("quake-main-menu-art"),
     versionLabel: quakeElement("cssquake-version"),
@@ -106,6 +108,7 @@ export function queryQuakeAppDom(): QuakeAppDomElements {
     crosshair: quakeElement("quake-crosshair"),
     crosshairOption: quakeElement("quake-option-crosshair"),
     crosshairOptionValue: quakeElement("quake-option-crosshair-value"),
+    debugStack: quakeElement("quake-debug-stack"),
     debugPanel: quakeElement("quake-debug-panel"),
     debugShowMenuOption: quakeElement("quake-debug-show-menu"),
     debugEnabledOption: quakeElement("quake-debug-enabled"),
@@ -117,7 +120,6 @@ export function queryQuakeAppDom(): QuakeAppDomElements {
     debugFlyModeOption: quakeElement("quake-debug-fly-mode"),
     debugShowOutlinesOption: quakeElement("quake-debug-show-outlines"),
     debugShowLabelsOption: quakeElement("quake-debug-show-labels"),
-    debugRecordButton: quakeElement("quake-debug-record"),
     debugStatElements: new Map(
       Array.from(document.querySelectorAll<HTMLElement>("[data-qstat]"))
         .map((element) => [element.dataset.qstat ?? "", element] as const)
