@@ -5,10 +5,12 @@ import {
   QUAKE_PLAYER_VIEW_Z,
 } from "../constants";
 import {
+  QUAKE_CONTENTS_WATER,
   QUAKE_CONTENTS_LAVA,
   QUAKE_CONTENTS_SLIME,
   quakePlayerWaterLevel,
 } from "../hazards";
+import { quakePlayerFallDamageFromVelocityZ } from "../playerPhysics";
 import { quakeMultiplayerAdvancePlayerWithInputResult } from "./movement";
 import type {
   QuakeMultiplayerAuthoritativePlayerState,
@@ -36,6 +38,7 @@ export interface QuakeMultiplayerRoomPlayerSimulationState {
   playerId: string;
   grounded: boolean;
   floorZ?: number;
+  fallVelocityZ?: number;
   lastAcceptedInput?: QuakeMultiplayerLocalInputIntent;
   lastAcceptedInputSequence: number;
   lastSimulatedAt: number;
@@ -48,7 +51,7 @@ export interface QuakeMultiplayerRoomPlayerSimulationState {
 export interface QuakeMultiplayerRoomHazardDamage {
   damagedAt: number;
   damage: number;
-  kind: "drown" | "lava" | "slime";
+  kind: "drown" | "fall" | "lava" | "slime";
   waterLevel: number;
 }
 
@@ -175,8 +178,11 @@ export function advanceQuakeMultiplayerRoomPlayerSimulation(
     let lastAcceptedInputSequence = nextState.lastAcceptedInputSequence;
     let grounded = nextState.grounded;
     let floorZ = nextState.floorZ;
+    let fallVelocityZ = nextState.fallVelocityZ;
 
     if (tickInput) {
+      const wasGrounded = nextState.grounded;
+      const incomingVelocityZ = nextPlayer.velocity[2];
       const advanced = quakeMultiplayerAdvancePlayerWithInputResult(nextPlayer, tickInput, {
         now: simulatedAt,
         maxDt: tickMs / 1000,
@@ -188,6 +194,26 @@ export function advanceQuakeMultiplayerRoomPlayerSimulation(
       nextPlayer = advanced.player;
       grounded = advanced.grounded ?? grounded;
       floorZ = advanced.groundZ ?? floorZ;
+      if (!wasGrounded && grounded) {
+        const landingVelocityZ = incomingVelocityZ < 0 ? incomingVelocityZ : (fallVelocityZ ?? 0);
+        const damage = quakePlayerFallDamageFromVelocityZ(landingVelocityZ);
+        if (
+          damage > 0 &&
+          !quakeMultiplayerFallDamageBlockedByWater(nextPlayer, options.collisionWorld, options.playerEyeHeight)
+        ) {
+          hazardDamages.push({
+            damagedAt: simulatedAt,
+            damage,
+            kind: "fall",
+            waterLevel: 0,
+          });
+        }
+        fallVelocityZ = undefined;
+      } else if (grounded) {
+        fallVelocityZ = undefined;
+      } else {
+        fallVelocityZ = nextPlayer.velocity[2] < 0 ? nextPlayer.velocity[2] : undefined;
+      }
       if (selected.input) {
         lastAcceptedInput = selected.input;
         lastAcceptedInputSequence = selected.input.inputSequence;
@@ -212,9 +238,11 @@ export function advanceQuakeMultiplayerRoomPlayerSimulation(
       simulatedAt,
     });
 
+    const { fallVelocityZ: _previousFallVelocityZ, ...stateWithoutFallVelocity } = nextState;
     nextState = {
-      ...nextState,
+      ...stateWithoutFallVelocity,
       ...(floorZ !== undefined ? { floorZ } : {}),
+      ...(fallVelocityZ !== undefined ? { fallVelocityZ } : {}),
       grounded,
       lastAcceptedInput,
       lastAcceptedInputSequence,
@@ -449,6 +477,17 @@ function quakeMultiplayerStateWithoutLiquidDamageTimer(
   const next = { ...state };
   delete next.nextLiquidDamageAt;
   return next;
+}
+
+function quakeMultiplayerFallDamageBlockedByWater(
+  player: QuakeMultiplayerAuthoritativePlayerState,
+  collisionWorld: Pick<QuakeCollisionWorld, "contentsAt"> | null | undefined,
+  playerEyeHeight: number | undefined,
+): boolean {
+  const contentsAt = collisionWorld?.contentsAt;
+  if (!contentsAt) return false;
+  const eyeHeight = normalizePositiveNumber(playerEyeHeight, QUAKE_PLAYER_VIEW_Z - QUAKE_PLAYER_MINS_Z);
+  return contentsAt(quakeMultiplayerLiquidContentsPoint(player.origin, eyeHeight)) === QUAKE_CONTENTS_WATER;
 }
 
 function quakeMultiplayerLiquidContentsPoint(

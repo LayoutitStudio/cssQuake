@@ -10,7 +10,7 @@ import {
   QUAKE_PLAYER_MINS_Z,
   STEP_HEIGHT,
 } from "./constants";
-import type { QuakeHazardDamage } from "./hazards";
+import { QUAKE_CONTENTS_WATER, type QuakeHazardDamage } from "./hazards";
 import { markQuakeTrace } from "./debug/traceMarks";
 import {
   applyQuakeDamageToInventory,
@@ -30,6 +30,7 @@ import {
   QUAKE_PMOVE_FORWARD_SPEED,
   QUAKE_PMOVE_SIDE_SPEED,
   QUAKE_PMOVE_SPEED_KEY_MULTIPLIER,
+  quakePlayerFallDamageFromVelocityZ,
   updateQuakePlayerPhysics,
   type QuakePlayerMoveCommand,
 } from "./playerPhysics";
@@ -305,6 +306,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   let fallingFrame: number | null = null;
   let fallingTime = 0;
   let fallingVelocity = 0;
+  let fallDamageVelocityZ = 0;
   let pushFrame: number | null = null;
   let pushTime = 0;
   let pushVelocity: Vec3 = [0, 0, 0];
@@ -438,6 +440,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     clearMoveInput();
     stopMoveFrame();
     moveVelocity = [0, 0, 0];
+    fallDamageVelocityZ = 0;
     stopFalling();
     stopPush();
     stopDeathToss();
@@ -922,6 +925,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
 
     const dt = Math.min(QUAKE_PMOVE_DT_CLAMP, moveTime ? (frameNow - moveTime) / 1000 : 0.0167);
     moveTime = frameNow;
+    const wasGroundedAtTickStart = currentGrounded;
     const origin = options.controls.getOrigin();
     const footZ = origin[2] - currentEyeHeight;
     const snapGroundZ = !currentGrounded && moveVelocity[2] <= 0
@@ -991,13 +995,17 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
       moveVelocity[0] = actualDeltaX / dt;
       moveVelocity[1] = actualDeltaY / dt;
     }
+    const landingVelocityZ = !wasGroundedAtTickStart && resolved.grounded
+      ? (moveVelocity[2] < 0 ? moveVelocity[2] : fallDamageVelocityZ)
+      : 0;
     if (resolved.grounded) {
       moveVelocity[2] = 0;
     } else if (moveVelocity[2] > 0 && actualDeltaZ < intendedDeltaZ * 0.25) {
       moveVelocity[2] = 0;
     }
+    if (!resolved.grounded) rememberFallDamageVelocity(moveVelocity[2]);
 
-    applyCollisionResult(resolved, origin, false);
+    applyCollisionResult(resolved, origin, false, landingVelocityZ);
     if (moveFrame === null && hasMoveMotion()) scheduleMoveFrame();
   };
 
@@ -1060,6 +1068,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     resolved: { origin: [number, number, number]; groundZ: number; grounded: boolean; touches?: QuakeTouchedTrigger[] },
     previousOrigin: [number, number, number],
     jumpEnabled = false,
+    landingVelocityZ = 0,
   ): void {
     const moved = distanceSq3(previousOrigin, resolved.origin) > COLLISION_EPSILON;
     const groundDelta = resolved.groundZ - currentGroundZ;
@@ -1087,6 +1096,10 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     }
 
     if (resolved.grounded) lastSafeOrigin = resolved.origin;
+    if (resolved.grounded) {
+      if (applyFallDamage(landingVelocityZ, resolved.origin)) return;
+      fallDamageVelocityZ = 0;
+    }
     lastGroundEntityIndex = resolved.touches?.find((touch) => touch.contact === "floor")?.entityIndex ?? null;
     for (const touch of resolved.touches ?? []) {
       options.activateSolidTouch(touch);
@@ -1157,6 +1170,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     clearMoveInput();
     stopMoveFrame();
     moveVelocity = [0, 0, 0];
+    fallDamageVelocityZ = 0;
     stopFalling();
     stopPush();
     stopDeathToss();
@@ -1355,6 +1369,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     options.syncCrosshairTarget();
 
     if (landed) {
+      if (applyFallDamage(-fallingVelocity, nextOrigin)) return;
       stopFalling();
       return;
     }
@@ -1379,6 +1394,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     pushVelocity[2] -= options.gravity * dt;
 
     const origin = options.controls.getOrigin();
+    const wasGroundedAtTickStart = currentGrounded;
     const target: [number, number, number] = [
       origin[0] + pushVelocity[0] * dt,
       origin[1] + pushVelocity[1] * dt,
@@ -1392,6 +1408,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     const actualDelta = subtractVec3(resolved.origin, origin);
     const intendedDelta = subtractVec3(target, origin);
     const grounded = resolved.grounded;
+    const landingVelocityZ = !wasGroundedAtTickStart && grounded ? pushVelocity[2] : 0;
 
     if (grounded && pushVelocity[2] < 0) pushVelocity[2] = 0;
     if (!grounded && pushVelocity[2] > 0 && actualDelta[2] < intendedDelta[2] * 0.25) {
@@ -1403,6 +1420,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     pushVelocity[1] *= damping;
 
     setOrigin(resolved.origin, resolved.groundZ, false, grounded, "move");
+    if (grounded && applyFallDamage(landingVelocityZ, resolved.origin)) return;
     lastGroundEntityIndex = resolved.touches?.find((touch) => touch.contact === "floor")?.entityIndex ?? null;
     for (const touch of resolved.touches ?? []) {
       options.activateSolidTouch(touch);
@@ -1459,6 +1477,32 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
       });
     }
   };
+
+  function rememberFallDamageVelocity(velocityZ: number): void {
+    fallDamageVelocityZ = Number.isFinite(velocityZ) && velocityZ < 0 ? velocityZ : 0;
+  }
+
+  function applyFallDamage(velocityZ: number, origin: [number, number, number]): boolean {
+    const damage = quakePlayerFallDamageFromVelocityZ(velocityZ);
+    if (damage <= 0) return false;
+    if (fallDamageBlockedByWater(origin)) {
+      markQuakeTrace("player-fall-damage-blocked", { damage, velocityZ, reason: "water" });
+      return false;
+    }
+    markQuakeTrace("player-fall-damage", { damage, velocityZ });
+    const previousVelocityZ = moveVelocity[2];
+    if (velocityZ < 0) moveVelocity[2] = velocityZ;
+    const died = applyDamage(damage);
+    if (!died) moveVelocity[2] = previousVelocityZ;
+    return died;
+  }
+
+  function fallDamageBlockedByWater(origin: [number, number, number]): boolean {
+    const contentsAt = options.getCollisionWorld()?.contentsAt;
+    if (!contentsAt) return false;
+    const footZ = origin[2] - currentEyeHeight;
+    return contentsAt([origin[0], origin[1], footZ + QUAKE_COLLISION_UNIT_SCALE]) === QUAKE_CONTENTS_WATER;
+  }
 
   const carryWithMover = (delta: Vec3, entityIndex: number): void => {
     if (dead) return;
