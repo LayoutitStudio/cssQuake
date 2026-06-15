@@ -146,7 +146,6 @@ const quakePrepareReferencedModelsOnly = process.env.QUAKE_PREPARE_REFERENCED_MO
 const quakePrepareMapOnlyAllowNewManifest = process.env.QUAKE_PREPARE_MAP_ONLY_ALLOW_NEW_MANIFEST === "1";
 const quakeDomTighteningTargets = parseQuakeDomTighteningTargets(process.env.QUAKE_DOM_TIGHTENING ?? "all");
 const quakeTriangleAtlasBasis = process.env.QUAKE_TRIANGLE_ATLAS_BASIS === "1";
-const quakeDeterministicWorldAtlas = process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS !== "0";
 const quakeDeferDeterministicWorldAtlasWrites = process.env.QUAKE_DEFER_DETERMINISTIC_WORLD_ATLAS_WRITES !== "0";
 const quakeDeterministicWorldAtlasImagePolicy =
   process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS_IMAGE_POLICY?.trim().toLowerCase() ?? "atlas";
@@ -673,7 +672,7 @@ try {
       (mapEntry) => quakeMapPreparePriority(mapEntry, pakEntrySizeByName),
       async ([mapPath, outputPath]) => {
         const mapName = mapNameFromPakPath(mapPath);
-        const deterministicRenderBundleMap = quakeDeterministicWorldAtlas && shouldBuildRenderBundleForMap(mapName);
+        const deterministicRenderBundleMap = shouldBuildRenderBundleForMap(mapName);
         return runPrepareStep(`map ${mapName}`, async () => {
           const prepared = await runPrepareDetailStep(`map ${mapName} prepared scene`, () =>
             createQuakePreparedSceneFromPakBuffer(buffer, {
@@ -738,57 +737,54 @@ try {
             const lightstyleOverlayPolygons = await runPrepareDetailStep(`map ${mapName} lightstyle overlay`, () =>
               buildQuakeLightstyleOverlayPolygons(scene.polygons));
             const tightenWorldDom = quakeDomTighteningEnabled("world", false);
-            const tightenWorldAtlasLeaves = tightenWorldDom && !quakeDeterministicWorldAtlas;
             prepared.renderBundle = await runPrepareDetailStep(`map ${mapName} render bundle world`, () =>
               renderBundleBuilder.build({
                 mapName,
                 polygons: scene.polygons,
-                deferAssetWrites: quakeDeterministicWorldAtlas && quakeDeferDeterministicWorldAtlasWrites,
-                layoutOnly: quakeDeterministicWorldAtlas,
-                tightenAtlasLeaves: tightenWorldAtlasLeaves,
+                deferAssetWrites: quakeDeferDeterministicWorldAtlasWrites,
+                layoutOnly: true,
+                tightenAtlasLeaves: false,
                 optimizeAtlasLeafBasis: tightenWorldDom,
                 optimizeAtlasLeafHomography: tightenWorldDom,
               }));
-            if (quakeDeterministicWorldAtlas) {
-              delete prepared.renderBundle.debugOutlineSourceAssetUrls;
-              delete prepared.renderBundle.debugOutlineAssetUrls;
-              delete prepared.renderBundle.debugOutlineBackgrounds;
-              delete prepared.renderBundle.debugOutlineOverpainted;
-              delete prepared.renderBundle.debugTransparentOutlineSourceAssetUrls;
-              delete prepared.renderBundle.debugTransparentOutlineAssetUrls;
-              delete prepared.renderBundle.debugTransparentOutlineBackgrounds;
-              const deterministicAtlasStats = await runPrepareDetailStep(`map ${mapName} deterministic atlas`, () =>
-                replaceQuakeRenderBundleWorldAtlas({
-                  imagePolicy: quakeDeterministicWorldAtlasImagePolicy,
-                  mapPath,
-                  name: mapName,
-                  optimizeAtlasLeafBasis: tightenWorldDom,
-                  outputDir: path.join(renderBundleOutputDir, mapName),
-                  pakBuffer: pak,
-                  polygons: scene.polygons,
-                  publicPath: `${quakeRenderBundlePublicPath}/${mapName}`,
-                  readTextureUrl: readGeneratedPublicTextureFile,
-                  renderBundle: prepared.renderBundle,
-                  visibility: prepared.visibility,
-                }));
-              prepared.renderBundle.deterministicWorldAtlasStats = deterministicAtlasStats;
-              assertNoDeferredQuakeRenderBundleAssetReferences(prepared.renderBundle, deterministicAtlasStats);
-              await runPrepareDetailStep(`map ${mapName} debug outlines`, () =>
-                addQuakeRenderBundleDebugOutlineAssets(prepared.renderBundle, {
-                  outlineKind: quakeRenderBundleDebugOutlineKindForName(mapName),
-                  outputDir: path.join(renderBundleOutputDir, mapName),
-                  publicPath: `${quakeRenderBundlePublicPath}/${mapName}`,
-                }));
-              delete prepared.renderBundle[deterministicAtlasDebugSourceImagesSymbol];
-              console.log(
-                `Deterministic world atlas for ${mapName}: ` +
-                `${deterministicAtlasStats.replacedLeaves} replaced, ` +
-                `${deterministicAtlasStats.skippedLeaves} skipped, ` +
-                `${deterministicAtlasStats.pageCount ?? 0} ${deterministicAtlasStats.pageFormat ?? "png"} pages, ` +
-                `${deterministicAtlasStats.leafImageCount ?? 0} leaf images, ` +
-                `${formatBytes(deterministicAtlasStats.pageBytes ?? 0)}`,
-              );
-            }
+            delete prepared.renderBundle.debugOutlineSourceAssetUrls;
+            delete prepared.renderBundle.debugOutlineAssetUrls;
+            delete prepared.renderBundle.debugOutlineBackgrounds;
+            delete prepared.renderBundle.debugOutlineOverpainted;
+            delete prepared.renderBundle.debugTransparentOutlineSourceAssetUrls;
+            delete prepared.renderBundle.debugTransparentOutlineAssetUrls;
+            delete prepared.renderBundle.debugTransparentOutlineBackgrounds;
+            const deterministicAtlasStats = await runPrepareDetailStep(`map ${mapName} deterministic atlas`, () =>
+              replaceQuakeRenderBundleWorldAtlas({
+                imagePolicy: quakeDeterministicWorldAtlasImagePolicy,
+                mapPath,
+                name: mapName,
+                optimizeAtlasLeafBasis: tightenWorldDom,
+                outputDir: path.join(renderBundleOutputDir, mapName),
+                pakBuffer: pak,
+                polygons: scene.polygons,
+                publicPath: `${quakeRenderBundlePublicPath}/${mapName}`,
+                readTextureUrl: readGeneratedPublicTextureFile,
+                renderBundle: prepared.renderBundle,
+                visibility: prepared.visibility,
+              }));
+            prepared.renderBundle.deterministicWorldAtlasStats = deterministicAtlasStats;
+            assertNoDeferredQuakeRenderBundleAssetReferences(prepared.renderBundle, deterministicAtlasStats);
+            await runPrepareDetailStep(`map ${mapName} debug outlines`, () =>
+              addQuakeRenderBundleDebugOutlineAssets(prepared.renderBundle, {
+                outlineKind: quakeRenderBundleDebugOutlineKindForName(mapName),
+                outputDir: path.join(renderBundleOutputDir, mapName),
+                publicPath: `${quakeRenderBundlePublicPath}/${mapName}`,
+              }));
+            delete prepared.renderBundle[deterministicAtlasDebugSourceImagesSymbol];
+            console.log(
+              `Deterministic world atlas for ${mapName}: ` +
+              `${deterministicAtlasStats.replacedLeaves} replaced, ` +
+              `${deterministicAtlasStats.skippedLeaves} skipped, ` +
+              `${deterministicAtlasStats.pageCount ?? 0} ${deterministicAtlasStats.pageFormat ?? "png"} pages, ` +
+              `${deterministicAtlasStats.leafImageCount ?? 0} leaf images, ` +
+              `${formatBytes(deterministicAtlasStats.pageBytes ?? 0)}`,
+            );
             if (lightstyleOverlayPolygons.length) {
               prepared.lightstyleRenderBundle = await runPrepareDetailStep(`map ${mapName} render bundle lightstyle`, () =>
                 renderBundleBuilder.build({
