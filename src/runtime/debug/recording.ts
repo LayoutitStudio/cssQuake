@@ -105,6 +105,7 @@ export interface QuakeDebugRecordingCullingEventState {
   enemy: boolean;
   health: number;
   inPvs: boolean | null;
+  inPrewarmPvs: boolean | null;
   leafIndex: number | null;
   mounted: boolean;
   mountCandidate: boolean;
@@ -116,6 +117,7 @@ export interface QuakeDebugRecordingCullingEventState {
   pendingAttackFireInMs: number | null;
   pendingAttackQuakecChain: string | null;
   prewarmed: boolean;
+  pvsSource: string;
   quakecChain: string | null;
   quakecIdealYaw: number | null;
   quakecMovementCall: string | null;
@@ -443,6 +445,7 @@ function isCombatTraceMark(kind: string): boolean {
     kind.startsWith("player-quakec-") ||
     kind === "shootable-damage" ||
     kind === "shootable-destroy" ||
+    kind === "shootables-visibility" ||
     kind === "shootable-radius-damage" ||
     kind === "shootable-radius-player-damage";
 }
@@ -551,6 +554,7 @@ function changedCullingFields(
     "enemy",
     "health",
     "inPvs",
+    "inPrewarmPvs",
     "leafIndex",
     "mounted",
     "mountCandidate",
@@ -562,6 +566,7 @@ function changedCullingFields(
     "pendingAttackFireInMs",
     "pendingAttackQuakecChain",
     "prewarmed",
+    "pvsSource",
     "quakecChain",
     "quakecIdealYaw",
     "quakecMovementCall",
@@ -602,6 +607,7 @@ function cullingEventState(entry: QuakeShootableDebugCullingEntry): QuakeDebugRe
     enemy: entry.enemy,
     health: entry.health,
     inPvs: entry.inPvs,
+    inPrewarmPvs: entry.inPrewarmPvs,
     leafIndex: entry.leafIndex,
     mounted: entry.mounted,
     mountCandidate: entry.mountCandidate,
@@ -613,6 +619,7 @@ function cullingEventState(entry: QuakeShootableDebugCullingEntry): QuakeDebugRe
     pendingAttackFireInMs: entry.pendingAttackFireInMs,
     pendingAttackQuakecChain: entry.pendingAttackQuakecChain,
     prewarmed: entry.prewarmed,
+    pvsSource: entry.pvsSource,
     quakecChain: entry.quakecChain,
     quakecIdealYaw: entry.quakecIdealYaw,
     quakecMovementCall: entry.quakecMovementCall,

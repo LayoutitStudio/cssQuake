@@ -6,13 +6,19 @@ import { Window } from "happy-dom";
 import { importTsModule } from "./importTsModule.mjs";
 
 const {
+  QUAKE_MOBILE_CONTROLS_QUERY,
   createQuakeMobileControls,
 } = await importTsModule("src/runtime/mobileControls.ts");
+
+test("mobile controls availability includes portrait mobile viewports", () => {
+  assert.equal(QUAKE_MOBILE_CONTROLS_QUERY, "(any-pointer: coarse), (max-width: 960px)");
+});
 
 test("mobile move stick handles pointer input and updates the visible nub", () => {
   const harness = createMobileControlsHarness();
   try {
     assert.equal(harness.controls.isTarget(harness.front), true);
+    assertMoveVisualGeometry(harness);
 
     harness.moveZone.dispatchEvent(pointer(harness.window, "pointerdown", harness.centerX, harness.centerY, 11, 1));
     assert.deepEqual(harness.analogSamples.at(-1), [0, 0]);
@@ -134,9 +140,11 @@ function createMobileControlsHarness({ canUseInput = () => true } = {}) {
   controls.attach();
 
   const moveZone = document.querySelector("#quake-mobile-move-zone");
+  const back = document.querySelector("#quake-mobile-move-zone .back");
   const front = document.querySelector("#quake-mobile-move-zone .front");
   const stick = document.querySelector("#quake-mobile-move-zone .joystick");
   assert.ok(moveZone instanceof window.HTMLElement);
+  assert.ok(back instanceof window.HTMLElement);
   assert.ok(front instanceof window.HTMLElement);
   assert.ok(stick instanceof window.HTMLElement);
 
@@ -154,6 +162,7 @@ function createMobileControlsHarness({ canUseInput = () => true } = {}) {
 
   return {
     analogSamples,
+    back,
     centerX: 90,
     centerY: 172,
     controls,
@@ -193,6 +202,30 @@ function assertMoveReleased(harness) {
 function assertVisualReleased(harness) {
   assert.equal(harness.front.style.transform, "translate(0px, 0px)");
   assert.equal(harness.stick.style.opacity, "0.58");
+}
+
+function assertMoveVisualGeometry(harness) {
+  assert.equal(harness.stick.style.left, "50%");
+  assert.equal(harness.stick.style.top, "50%");
+  assert.equal(harness.stick.style.width, "108px");
+  assert.equal(harness.stick.style.height, "108px");
+  assert.equal(harness.stick.style.marginLeft, "-54px");
+  assert.equal(harness.stick.style.marginTop, "-54px");
+  assert.equal(harness.stick.style.pointerEvents, "none");
+  assert.equal(harness.back.style.left, "0px");
+  assert.equal(harness.back.style.top, "0px");
+  assert.equal(harness.back.style.width, "108px");
+  assert.equal(harness.back.style.height, "108px");
+  assert.equal(harness.back.style.marginLeft, "0px");
+  assert.equal(harness.back.style.marginTop, "0px");
+  assert.equal(harness.back.style.pointerEvents, "none");
+  assert.equal(harness.front.style.left, "50%");
+  assert.equal(harness.front.style.top, "50%");
+  assert.equal(harness.front.style.width, "54px");
+  assert.equal(harness.front.style.height, "54px");
+  assert.equal(harness.front.style.marginLeft, "-27px");
+  assert.equal(harness.front.style.marginTop, "-27px");
+  assert.equal(harness.front.style.pointerEvents, "none");
 }
 
 function pointer(window, type, clientX, clientY, pointerId, buttons) {

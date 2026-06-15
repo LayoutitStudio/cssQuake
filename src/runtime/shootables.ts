@@ -104,6 +104,7 @@ import {
   quakeShootablesDebugStats,
   type QuakeShootablesDebugCullingSnapshot,
   type QuakeShootablesDebugStats,
+  type QuakeShootablesDebugVisibilitySyncSnapshot,
 } from "./shootables/debugStats";
 import {
   quakecCanDamageAnyTracePointClear,
@@ -301,6 +302,7 @@ export interface QuakeShootablesControllerOptions {
   contentsAt?(point: Vec3): number | null;
   dropBackpack?: (drop: QuakeMonsterBackpackDropRuntime) => boolean | void;
   onDestroyed?: (entity: QuakeEntity) => void;
+  onExplosion?(event: QuakeShootableExplosionEvent): void;
   enemyAnimationsEnabled?: () => boolean;
   enemiesFrozen?: () => boolean;
   enemyAttacksEnabled?: () => boolean;
@@ -323,8 +325,17 @@ export interface QuakeShootablesControllerOptions {
   playerClearance?: QuakeShootablesPlayerClearanceOptions | null;
   schedulePresentationResync(handle: PolyMeshHandle): void;
   visibleLeavesAt(origin: [number, number, number]): Set<number> | null;
+  prewarmLeavesAt?(origin: [number, number, number]): Set<number> | null;
   fireTarget(targetname: string, sourceEntityIndex?: number): void;
   playSound?(soundPath: string, options?: QuakeShootableSoundOptions): boolean;
+}
+
+export interface QuakeShootableExplosionEvent {
+  classname?: string;
+  entityIndex?: number;
+  flavor: "explobox" | "grenade" | "lava" | "rocket";
+  origin: Vec3;
+  radiusUnits?: number;
 }
 
 export interface QuakeShootablesPlayerClearanceOptions {
@@ -380,7 +391,10 @@ const QUAKE_MONSTER_SIGHT_ENTITY_WINDOW_SECONDS = 0.1;
 const QUAKE_MONSTER_AMBUSH_OR_ZOMBIE_CRUCIFIED_FLAGS = 3;
 const QUAKE_MONSTER_JUMP_GRAVITY = 800 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MONSTER_DEATH_OUTPUT_CLASS = "quake-monster-death-output";
-const QUAKE_MONSTER_DEATH_OUTPUT_LIFETIME_MS = 4000;
+const QUAKE_MONSTER_DEATH_OUTPUT_ARC_MAX_ACTIVE = 24;
+const QUAKE_MONSTER_DEATH_OUTPUT_ARC_MAX_MS = 900;
+const QUAKE_MONSTER_DEATH_OUTPUT_ARC_DT_CLAMP = 0.05;
+const QUAKE_MONSTER_DEATH_OUTPUT_ARC_GRAVITY = 800 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MONSTER_PATH_CORNER_HALF_EXTENT = 8 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MONSTER_PATH_TOUCH_RADIUS = 24 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_CONTENTS_SOLID = -2;
@@ -467,6 +481,7 @@ export function createQuakeShootablesController({
   contentsAt,
   dropBackpack,
   onDestroyed,
+  onExplosion,
   enemyAnimationsEnabled,
   enemiesFrozen,
   enemyAttacksEnabled,
@@ -489,12 +504,15 @@ export function createQuakeShootablesController({
   playerClearance = null,
   schedulePresentationResync,
   visibleLeavesAt,
+  prewarmLeavesAt = visibleLeavesAt,
   fireTarget,
   playSound,
 }: QuakeShootablesControllerOptions): QuakeShootablesController {
   let shootables = createQuakeShootableStateMap();
   let deathTimers: number[] = [];
   let deathOutputHandles: QuakeMonsterDeathOutputVisualHandle[] = [];
+  let deathOutputAnimationFrame: number | null = null;
+  const activeDeathOutputAnimations = new Set<QuakeMonsterDeathOutputVisualHandle>();
   let destroyedEntityIndexes = new Set<number>();
   let currentModelLibrary: QuakePickupModelLibrary | null = null;
   let monsterPathCornersByTargetname = new Map<string, QuakeMonsterPathCorner>();
@@ -505,6 +523,7 @@ export function createQuakeShootablesController({
   const mountedEnemyAcquisitionVisibilityCache = createQuakeEnemyAcquisitionVisibilityCache();
   let mountedEnemySightEntity: { entityIndex: number; seenAtSeconds: number } | null = null;
   let lastVisibilitySelectionKey = "";
+  let lastVisibilitySync: QuakeShootablesDebugVisibilitySyncSnapshot | null = null;
   let lastMotionMaterialForward: Vec3 | null = null;
   let lastMotionMaterialOrigin: Vec3 | null = null;
   const prewarmQueues = createQuakeShootablePrewarmQueues<QuakeShootableState>({
@@ -596,6 +615,13 @@ export function createQuakeShootablesController({
     randomRange: quakecRandomRange,
     schedulePresentationResync,
     traceLine: sourceTraceLine ? traceProjectileLine : undefined,
+    onExplosion: (event) => {
+      onExplosion?.({
+        flavor: event.flavor,
+        origin: event.origin,
+        radiusUnits: event.radiusUnits,
+      });
+    },
   });
   const enemyMovement = createQuakeEnemyMovementRuntime({
     collisionEpsilon: QUAKE_SHOOTABLE_COLLISION_EPSILON,
@@ -730,8 +756,12 @@ export function createQuakeShootablesController({
   }
 
   function clearDeathOutputHandles(): void {
+    if (deathOutputAnimationFrame !== null) {
+      window.cancelAnimationFrame(deathOutputAnimationFrame);
+      deathOutputAnimationFrame = null;
+    }
+    activeDeathOutputAnimations.clear();
     for (const output of deathOutputHandles) {
-      window.clearTimeout(output.timer);
       output.handle.remove();
     }
     visibilityChurn.totalMeshHandlesRemoved += deathOutputHandles.length;
@@ -1127,6 +1157,7 @@ export function createQuakeShootablesController({
     shootable.dead = true;
     destroyedEntityIndexes.add(entityIndex);
     onDestroyed?.(shootable.entity);
+    emitShootableDeathExplosion(shootable);
     applyShootableDeathRadiusDamage(shootable, context);
     clearEnemyAttackState(shootable);
     const deathAnimationMs = deathState.playDeathAnimation(shootable, performance.now());
@@ -1244,6 +1275,26 @@ export function createQuakeShootablesController({
       item.shootable.leafIndex = item.leafIndex;
       syncShootableTransform(item.shootable);
     }
+  }
+
+  function emitShootableDeathExplosion(shootable: QuakeShootableState): void {
+    const radiusDamage = quakeShootableDeathRadiusDamage(shootable.entity.classname);
+    if (!radiusDamage) return;
+    onExplosion?.({
+      classname: shootable.entity.classname,
+      entityIndex: shootable.entity.index,
+      flavor: "explobox",
+      origin: shootableFloorOrigin(shootable),
+      radiusUnits: radiusDamage.radiusUnits,
+    });
+  }
+
+  function shootableFloorOrigin(shootable: QuakeShootableState): Vec3 {
+    return [
+      shootable.origin[0],
+      shootable.origin[1],
+      shootable.origin[2] + shootable.bounds.min[2],
+    ];
   }
 
   function applyShootableDeathRadiusDamage(
@@ -1593,6 +1644,7 @@ export function createQuakeShootablesController({
       distanceSq: number;
       inFrontOfCamera: boolean | null;
       inPvs: boolean | null;
+      inPrewarmPvs: boolean | null;
       lineOfSightTargetCount: number | null;
       mountCandidate: boolean;
       oversizedRenderVolume: boolean;
@@ -1606,6 +1658,8 @@ export function createQuakeShootablesController({
       withinUnmountDistance: boolean;
     }>();
     const now = performance.now();
+    const prewarmLeaves = prewarmLeavesAt(origin);
+    const prewarmExtraLeaves = prewarmExtraLeafIndexes(visibleLeaves, prewarmLeaves);
 
     for (const shootable of shootables.values()) {
       const oversizedRenderVolume = isOversizedShootableRenderVolume(shootable);
@@ -1613,7 +1667,12 @@ export function createQuakeShootablesController({
         shootable.leafIndex === undefined ||
         visibleLeaves.has(shootable.leafIndex) ||
         oversizedRenderVolume;
+      const prewarmLeaf = !prewarmLeaves ||
+        shootable.leafIndex === undefined ||
+        prewarmLeaves.has(shootable.leafIndex) ||
+        oversizedRenderVolume;
       const inPvs = visibleLeaves ? pvsVisible : null;
+      const inPrewarmPvs = prewarmLeaves ? prewarmLeaf : null;
       const distanceSq = distanceSq3(origin, shootable.origin);
       const distance = Math.sqrt(distanceSq);
       const usingUnmountDistance = shootable.visible;
@@ -1630,7 +1689,7 @@ export function createQuakeShootablesController({
       const prewarmCandidate = !isPersistentCorpse &&
         !shootable.dead &&
         distanceSq <= QUAKE_SHOOTABLE_PREWARM_DISTANCE_SQ &&
-        canPrewarmShootableForSelection(shootable, pvsVisible, origin);
+        canPrewarmShootableForSelection(shootable, prewarmLeaf, origin);
       inputs.set(shootable.entity.index, {
         canMount: mountDecision.canMount,
         canPrewarm,
@@ -1638,6 +1697,7 @@ export function createQuakeShootablesController({
         distanceSq,
         inFrontOfCamera: mountDecision.inFrontOfCamera,
         inPvs,
+        inPrewarmPvs,
         lineOfSightTargetCount: mountDecision.lineOfSightTargetCount,
         mountCandidate,
         oversizedRenderVolume,
@@ -1675,6 +1735,11 @@ export function createQuakeShootablesController({
 
     return {
       visibleLeafCount: visibleLeaves?.size ?? null,
+      prewarmLeafCount: prewarmLeaves?.size ?? null,
+      prewarmExtraLeafCount: prewarmExtraLeaves?.size ?? null,
+      visibleLeafIndexes: sortedOptionalLeafIndexes(visibleLeaves),
+      prewarmLeafIndexes: sortedOptionalLeafIndexes(prewarmLeaves),
+      prewarmExtraLeafIndexes: sortedOptionalLeafIndexes(prewarmExtraLeaves),
       limits: {
         mountDistance: QUAKE_SHOOTABLE_MOUNT_DISTANCE,
         unmountDistance: QUAKE_SHOOTABLE_UNMOUNT_DISTANCE,
@@ -1691,6 +1756,7 @@ export function createQuakeShootablesController({
       desiredPrewarmIndexes: sortedDebugIndexes(desiredPrewarmIndexes),
       candidateIndexes: candidates.concat(corpseCandidates).map((candidate) => candidate.index),
       prewarmCandidateIndexes: prewarmCandidates.map((candidate) => candidate.index),
+      lastVisibilitySync,
       entries: [...shootables.values()].map((shootable) => {
         const input = inputs.get(shootable.entity.index);
         const handleCount = countShootableHandles(shootable);
@@ -1717,6 +1783,13 @@ export function createQuakeShootablesController({
           mounted: handleCount > 0,
           prewarmed: handleCount > 0 && !shootable.visible,
           inPvs: input?.inPvs ?? null,
+          inPrewarmPvs: input?.inPrewarmPvs ?? null,
+          pvsSource: debugShootablePvsSource(
+            shootable,
+            visibleLeaves,
+            prewarmLeaves,
+            input?.oversizedRenderVolume ?? false,
+          ),
           oversizedRenderVolume: input?.oversizedRenderVolume ?? false,
           distance: input?.distance ?? 0,
           distanceSq: input?.distanceSq ?? 0,
@@ -1884,6 +1957,37 @@ export function createQuakeShootablesController({
     return [...indexes].sort((a, b) => a - b);
   }
 
+  function sortedOptionalLeafIndexes(indexes: Set<number> | null): number[] | null {
+    return indexes ? sortedDebugIndexes(indexes) : null;
+  }
+
+  function prewarmExtraLeafIndexes(
+    visibleLeaves: Set<number> | null,
+    prewarmLeaves: Set<number> | null,
+  ): Set<number> | null {
+    if (!prewarmLeaves) return null;
+    if (!visibleLeaves) return new Set(prewarmLeaves);
+    const extra = new Set<number>();
+    for (const leafIndex of prewarmLeaves) {
+      if (!visibleLeaves.has(leafIndex)) extra.add(leafIndex);
+    }
+    return extra;
+  }
+
+  function debugShootablePvsSource(
+    shootable: QuakeShootableState,
+    visibleLeaves: Set<number> | null,
+    prewarmLeaves: Set<number> | null,
+    oversizedRenderVolume: boolean,
+  ): "current" | "prewarm-extra" | "oversized" | "none" | "unknown" {
+    if (oversizedRenderVolume) return "oversized";
+    if (shootable.leafIndex === undefined) return "unknown";
+    if (!visibleLeaves) return "unknown";
+    if (visibleLeaves.has(shootable.leafIndex)) return "current";
+    if (prewarmLeaves?.has(shootable.leafIndex)) return "prewarm-extra";
+    return "none";
+  }
+
   function debugSetOrigin(entityIndex: number, origin: Vec3): boolean {
     const shootable = shootables.get(entityIndex);
     if (!shootable) return false;
@@ -1988,6 +2092,8 @@ export function createQuakeShootablesController({
     const frameHandlesCreatedBefore = visibilityChurn.totalFrameHandlesCreated;
     const frameHandlesRemovedBefore = visibilityChurn.totalFrameHandlesRemoved;
     const visibleLeaves = visibleLeavesAt(origin);
+    const prewarmLeaves = prewarmLeavesAt(origin);
+    const prewarmExtraLeaves = prewarmExtraLeafIndexes(visibleLeaves, prewarmLeaves);
     const coarseCandidates: QuakeShootableVisibilityCandidate[] = [];
     const candidates: QuakeShootableVisibilityCandidate[] = [];
     const corpseCandidates: QuakeShootableVisibilityCandidate[] = [];
@@ -1997,6 +2103,10 @@ export function createQuakeShootablesController({
       const visibleLeaf = !visibleLeaves ||
         shootable.leafIndex === undefined ||
         visibleLeaves.has(shootable.leafIndex) ||
+        isOversizedShootableRenderVolume(shootable);
+      const prewarmLeaf = !prewarmLeaves ||
+        shootable.leafIndex === undefined ||
+        prewarmLeaves.has(shootable.leafIndex) ||
         isOversizedShootableRenderVolume(shootable);
       const distanceSq = distanceSq3(origin, shootable.origin);
       const maxDistanceSq = shootable.visible ? QUAKE_SHOOTABLE_UNMOUNT_DISTANCE_SQ : QUAKE_SHOOTABLE_MOUNT_DISTANCE_SQ;
@@ -2017,7 +2127,7 @@ export function createQuakeShootablesController({
       }
       if (
         distanceSq <= QUAKE_SHOOTABLE_PREWARM_DISTANCE_SQ &&
-        canPrewarmShootableForSelection(shootable, visibleLeaf, origin)
+        canPrewarmShootableForSelection(shootable, prewarmLeaf, origin)
       ) {
         prewarmCandidates.push({ index: shootable.entity.index, distanceSq });
       }
@@ -2070,6 +2180,34 @@ export function createQuakeShootablesController({
     const meshHandlesRemoved = visibilityChurn.totalMeshHandlesRemoved - meshHandlesRemovedBefore;
     const frameHandlesCreated = visibilityChurn.totalFrameHandlesCreated - frameHandlesCreatedBefore;
     const frameHandlesRemoved = visibilityChurn.totalFrameHandlesRemoved - frameHandlesRemovedBefore;
+    lastVisibilitySync = {
+      atMs: startedAt,
+      force,
+      origin: [origin[0], origin[1], origin[2]],
+      visibleLeafCount: visibleLeaves?.size ?? null,
+      prewarmLeafCount: prewarmLeaves?.size ?? null,
+      prewarmExtraLeafCount: prewarmExtraLeaves?.size ?? null,
+      visibleLeafIndexes: sortedOptionalLeafIndexes(visibleLeaves),
+      prewarmLeafIndexes: sortedOptionalLeafIndexes(prewarmLeaves),
+      prewarmExtraLeafIndexes: sortedOptionalLeafIndexes(prewarmExtraLeaves),
+      candidateIndexes: [...candidates, ...corpseCandidates].map((candidate) => candidate.index),
+      corpseCandidateIndexes: corpseCandidates.map((candidate) => candidate.index),
+      prewarmCandidateIndexes: prewarmCandidates.map((candidate) => candidate.index),
+      desiredMountedIndexes: sortedDebugIndexes(mountedIndexes),
+      desiredPrewarmIndexes: sortedDebugIndexes(prewarmedIndexes),
+      beforeMountedIndexes: sortedDebugIndexes(before.mountedIndexes),
+      beforeVisibleIndexes: sortedDebugIndexes(before.visibleIndexes),
+      beforePrewarmedIndexes: sortedDebugIndexes(before.prewarmedIndexes),
+      afterMountedIndexes: sortedDebugIndexes(after.mountedIndexes),
+      afterVisibleIndexes: sortedDebugIndexes(after.visibleIndexes),
+      afterPrewarmedIndexes: sortedDebugIndexes(after.prewarmedIndexes),
+      selectionChanged,
+      selectionApplied: selectionNeedsApply,
+      meshHandlesCreated,
+      meshHandlesRemoved,
+      frameHandlesCreated,
+      frameHandlesRemoved,
+    };
     recordQuakeShootablesVisibilitySync(visibilityChurn, startedAt, {
       force,
       selectionChanged,
@@ -2090,6 +2228,12 @@ export function createQuakeShootablesController({
         selectionChanged,
         candidates: candidates.length,
         corpseCandidates: corpseCandidates.length,
+        visibleLeafCount: visibleLeaves?.size ?? -1,
+        prewarmLeafCount: prewarmLeaves?.size ?? -1,
+        prewarmExtraLeafCount: prewarmExtraLeaves?.size ?? -1,
+        desiredMountedKey: sortedDebugIndexes(mountedIndexes).join(","),
+        desiredPrewarmKey: sortedDebugIndexes(prewarmedIndexes).join(","),
+        afterVisibleKey: sortedDebugIndexes(after.visibleIndexes).join(","),
         desiredMounted: mountedIndexes.size,
         desiredPrewarm: prewarmedIndexes.size,
         visibleEnemies: after.visibleEnemies,
@@ -2140,12 +2284,20 @@ export function createQuakeShootablesController({
     if (!shootable.handle) {
       if (!mounted) {
         if (!canPrewarmHandle) return;
-        prewarmQueues.scheduleShootable(shootable);
-        return;
+        if (!shouldMountShootablePrewarmImmediately(shootable)) {
+          prewarmQueues.scheduleShootable(shootable);
+          return;
+        }
+        mountShootableHandle(shootable);
+      } else {
+        mountShootableHandle(shootable);
       }
-      mountShootableHandle(shootable);
     }
     setShootableVisible(shootable, mounted || deathAnimating);
+  }
+
+  function shouldMountShootablePrewarmImmediately(shootable: QuakeShootableState): boolean {
+    return shootable.enemy !== undefined && !shootable.dead;
   }
 
   function mountShootableHandle(shootable: QuakeShootableState): void {
@@ -2225,9 +2377,12 @@ export function createQuakeShootablesController({
     if (!canCoarselyMountShootableHandle(shootable, playerOrigin)) return false;
     const visibleTargets = shootableMountVisibilityTargets(shootable).filter((target) => isInPlayerView(target));
     if (isOversizedShootableRenderVolume(shootable)) return true;
+    const lineOfSight = shootable.handle && !shootable.visible
+      ? unbudgetedLineOfSight
+      : budgetedLineOfSight;
     let lineOfSightDeferred = false;
     for (const target of visibleTargets) {
-      const result = budgetedLineOfSight(playerOrigin, target);
+      const result = lineOfSight(playerOrigin, target);
       if (result === "clear") return true;
       if (result === "deferred") lineOfSightDeferred = true;
     }
@@ -2611,13 +2766,16 @@ export function createQuakeShootablesController({
     const shouldWalk = enemyMovement.shouldAnimateChasingEnemy(shootable, movementTarget, profile, canSeePlayer);
     if (shouldWalk) updateEnemyAnimation(shootable, "walk", now);
     const moved = enemyMovement.moveChasingEnemy(shootable, movementTarget, profile, dt, now, canSeePlayer);
+    const handledMovementStep = enemy.quakecMovementHandledStep;
     if (moved) applyEnemyMonsterJumpTriggers(shootable);
-    if (!shouldWalk) updateEnemyAnimation(shootable, moved ? "walk" : "idle", now);
+    if (!shouldWalk || (shouldWalk && !moved && !handledMovementStep)) {
+      updateEnemyAnimation(shootable, moved ? "walk" : "idle", now);
+    }
     enemyEye = shootableEyeOrigin(shootable);
     if (attacksEnabled && !attackBeforeMove && shouldAttemptEnemyAttack(canSeePlayer, shootable, enemy, now)) {
       if (tryStartEnemyAttack(shootable, enemy, enemyEye, attackTargetOrigin, profile, now, attackTarget)) return;
     }
-    if (enemy.quakecMovementHandledStep || (enemy.quakecRunner && shouldWalk)) {
+    if (handledMovementStep || (enemy.quakecRunner && moved)) {
       syncShootableTransform(shootable);
     } else {
       enemyMovement.faceShootableAtOrigin(shootable, movementTarget);
@@ -2855,16 +3013,14 @@ export function createQuakeShootablesController({
       movementCall: "ai_walk",
       stopDistance: 0,
     });
+    const handledMovementStep = enemy.quakecMovementHandledStep;
     if (moved) applyEnemyMonsterJumpTriggers(shootable);
-    if (enemy.quakecMovementHandledStep || enemy.quakecRunner) {
+    if (handledMovementStep || (enemy.quakecRunner && moved)) {
       syncShootableTransform(shootable);
     } else {
       enemyMovement.faceShootableAtOrigin(shootable, target.origin);
     }
-    if (
-      moved ||
-      enemyMovement.shouldAnimateMovingEnemy(shootable, target.origin, QUAKE_MONSTER_PATH_TOUCH_RADIUS, COLLISION_EPSILON)
-    ) {
+    if (moved || handledMovementStep) {
       updateEnemyAnimation(shootable, "path", now);
     } else {
       updateEnemyAnimation(shootable, "idle", now);
@@ -3658,6 +3814,7 @@ export function createQuakeShootablesController({
           ...gib.gibModelPaths.map((path) => ({ kind: "gib", path })),
         ];
     const count = Math.max(1, pieces.length);
+    const floorZ = shootable.origin[2] + shootable.collisionBounds.min[2];
     for (const [index, item] of pieces.entries()) {
       const model = currentModelLibrary.models[item.path];
       if (!model) continue;
@@ -3666,22 +3823,20 @@ export function createQuakeShootablesController({
       const origin: Vec3 = [
         shootable.origin[0] + Math.cos(angle) * radius,
         shootable.origin[1] + Math.sin(angle) * radius,
-        shootable.origin[2] + (item.kind === "head" ? 0.65 : 0.28 + (index % 2) * 0.08),
+        floorZ - model.bounds.min[2],
       ];
-      const handle = addMonsterDeathOutputMesh(shootable, model, origin, shootable.yaw + index * 37, item.kind);
+      const yaw = shootable.yaw + index * 37;
+      const handle = addMonsterDeathOutputMesh(shootable, model, origin, yaw, item.kind);
       if (!handle) continue;
-      const output: QuakeMonsterDeathOutputVisualHandle = {
-        handle,
-        timer: 0,
-      };
-      const timer = window.setTimeout(() => {
-        output.handle.remove();
-        visibilityChurn.totalMeshHandlesRemoved++;
-        deathOutputHandles = deathOutputHandles.filter((entry) => entry !== output);
-      }, QUAKE_MONSTER_DEATH_OUTPUT_LIFETIME_MS);
-      output.timer = timer;
+      const output: QuakeMonsterDeathOutputVisualHandle = { handle };
+      const animation = monsterDeathOutputArcAnimation(model, origin, angle, index, item.kind, yaw);
+      if (animation && activeDeathOutputAnimations.size < QUAKE_MONSTER_DEATH_OUTPUT_ARC_MAX_ACTIVE) {
+        output.animation = animation;
+        activeDeathOutputAnimations.add(output);
+      }
       deathOutputHandles.push(output);
     }
+    scheduleDeathOutputAnimationFrame();
   }
 
   function addMonsterDeathOutputMesh(
@@ -3708,6 +3863,72 @@ export function createQuakeShootablesController({
       scale: model.renderScale ? 1 / model.renderScale : 1,
     });
     return handle;
+  }
+
+  function monsterDeathOutputArcAnimation(
+    model: QuakePickupModel,
+    origin: Vec3,
+    angle: number,
+    index: number,
+    kind: string,
+    yaw: number,
+  ): NonNullable<QuakeMonsterDeathOutputVisualHandle["animation"]> | null {
+    if (typeof window.requestAnimationFrame !== "function") return null;
+    const horizontalSpeed = (kind === "head" ? 70 : 95 + (index % 3) * 18) * QUAKE_COLLISION_UNIT_SCALE;
+    const verticalSpeed = (kind === "head" ? 190 : 150 + (index % 2) * 35) * QUAKE_COLLISION_UNIT_SCALE;
+    return {
+      elapsedMs: 0,
+      lastAt: 0,
+      landingZ: origin[2],
+      position: [...origin] as Vec3,
+      renderYaw: normalizeShootableYaw(yaw, true),
+      scale: model.renderScale ? 1 / model.renderScale : 1,
+      velocity: [
+        Math.cos(angle) * horizontalSpeed,
+        Math.sin(angle) * horizontalSpeed,
+        verticalSpeed,
+      ],
+    };
+  }
+
+  function scheduleDeathOutputAnimationFrame(): void {
+    if (deathOutputAnimationFrame !== null || activeDeathOutputAnimations.size === 0) return;
+    deathOutputAnimationFrame = window.requestAnimationFrame(tickDeathOutputAnimations);
+  }
+
+  function tickDeathOutputAnimations(frameNow: number): void {
+    deathOutputAnimationFrame = null;
+    const now = Number.isFinite(frameNow) ? frameNow : performance.now();
+    for (const output of [...activeDeathOutputAnimations]) {
+      const animation = output.animation;
+      if (!animation) {
+        activeDeathOutputAnimations.delete(output);
+        continue;
+      }
+      const dt = Math.min(
+        QUAKE_MONSTER_DEATH_OUTPUT_ARC_DT_CLAMP,
+        animation.lastAt ? Math.max(0, (now - animation.lastAt) / 1000) : 0.0167,
+      );
+      animation.lastAt = now;
+      animation.elapsedMs += dt * 1000;
+      animation.velocity[2] -= QUAKE_MONSTER_DEATH_OUTPUT_ARC_GRAVITY * dt;
+      animation.position = [
+        animation.position[0] + animation.velocity[0] * dt,
+        animation.position[1] + animation.velocity[1] * dt,
+        animation.position[2] + animation.velocity[2] * dt,
+      ];
+      if (animation.position[2] <= animation.landingZ || animation.elapsedMs >= QUAKE_MONSTER_DEATH_OUTPUT_ARC_MAX_MS) {
+        animation.position = [animation.position[0], animation.position[1], animation.landingZ];
+        activeDeathOutputAnimations.delete(output);
+        delete output.animation;
+      }
+      output.handle.setTransform({
+        position: animation.position,
+        rotation: [0, 0, animation.renderYaw],
+        scale: animation.scale,
+      });
+    }
+    scheduleDeathOutputAnimationFrame();
   }
 
   function isPersistentShootableCorpse(shootable: QuakeShootableState): boolean {

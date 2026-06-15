@@ -244,16 +244,34 @@ body.quake-menu-open #quake-hud {
 .quake-impact-particle-dust-a,
 .quake-impact-particle-dust-b,
 .quake-impact-particle-dust-c {
-  border-radius: 1px;
+  border-radius: 0;
 }
 .quake-impact-particle-dust-a {
-  background: #444444;
+  background: #c8c8c8;
 }
 .quake-impact-particle-dust-b {
-  background: #444444;
+  background: #808080;
 }
 .quake-impact-particle-dust-c {
-  background: #444444;
+  background: #202020;
+}
+.quake-impact-particle-explosion-a,
+.quake-impact-particle-explosion-b,
+.quake-impact-particle-explosion-c,
+.quake-impact-particle-explosion-d {
+  border-radius: 50%;
+}
+.quake-impact-particle-explosion-a {
+  background: #ffe06a;
+}
+.quake-impact-particle-explosion-b {
+  background: #f06416;
+}
+.quake-impact-particle-explosion-c {
+  background: #6b625a;
+}
+.quake-impact-particle-explosion-d {
+  background: #29231f;
 }
 body.quake-loading #quake-damage-overlay,
 body.quake-loading #quake-bonus-overlay,
@@ -2263,7 +2281,8 @@ body.quake-debug-outlines #quake-debug-outline-legend {
   visibility: visible;
 }
 .polycss-mesh.shootable.quake-shootable-prewarmed {
-  visibility: hidden;
+  visibility: visible;
+  opacity: 0.001;
   pointer-events: none;
   transition: none;
 }
@@ -2337,11 +2356,16 @@ body.quake-menu-unlocked #quake-weapon {
 }
 #quake-mobile-move-zone .joystick {
   position: absolute;
-  left: 72px;
-  top: 72px;
+  left: 50%;
+  top: 50%;
+  width: 108px;
+  height: 108px;
+  margin-left: -54px;
+  margin-top: -54px;
   display: block;
   z-index: 999;
   opacity: 0.58;
+  pointer-events: none;
   touch-action: none;
   user-select: none;
   transition: opacity 80ms linear;
@@ -2350,20 +2374,21 @@ body.quake-menu-unlocked #quake-weapon {
 #quake-mobile-move-zone .joystick .front {
   position: absolute;
   display: block;
-  left: 0;
-  top: 0;
+  pointer-events: none;
   border-radius: 50%;
 }
 #quake-mobile-move-zone .joystick .back {
+  left: 0;
+  top: 0;
   width: 108px;
   height: 108px;
-  margin-left: -54px;
-  margin-top: -54px;
   background: rgba(10, 9, 7, 0.34);
   box-sizing: border-box;
   border: 2px solid rgba(245, 232, 200, 0.42);
 }
 #quake-mobile-move-zone .joystick .front {
+  left: 50%;
+  top: 50%;
   width: 54px;
   height: 54px;
   margin-left: -27px;
@@ -2410,7 +2435,7 @@ body.quake-menu-unlocked #quake-weapon {
   background: rgba(74, 30, 14, 0.56);
   border-color: rgba(232, 154, 72, 0.86);
 }
-@media (any-pointer: coarse) and (orientation: landscape), (max-width: 960px) and (orientation: landscape) {
+@media (any-pointer: coarse), (max-width: 960px) {
   body:not(.quake-loading):not(.quake-menu-open):not(.quake-dead):not(.quake-level-complete) #quake-mobile-controls {
     display: block;
   }

@@ -203,8 +203,18 @@ export interface QuakeEnemyProjectile {
 }
 
 export interface QuakeMonsterDeathOutputVisualHandle {
+  animation?: QuakeMonsterDeathOutputAnimation;
   handle: PolyMeshHandle;
-  timer: number;
+}
+
+export interface QuakeMonsterDeathOutputAnimation {
+  elapsedMs: number;
+  lastAt: number;
+  landingZ: number;
+  position: Vec3;
+  renderYaw: number;
+  scale: number;
+  velocity: Vec3;
 }
 
 export interface QuakeDamageTraceResult {

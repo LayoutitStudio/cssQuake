@@ -3381,9 +3381,12 @@ async function writeQuakeWeaponModelFiles(assets, sourceProgramFacts, renderBund
 }
 
 function buildQuakeWeaponModels(assets, sourceProgramFacts, renderBundleBuilder) {
+  const muzzleFlashModelPaths = quakePlayerWeaponMuzzleFlashViewModelPaths(sourceProgramFacts);
   return Promise.all(
     quakePlayerWeaponViewModelPaths(sourceProgramFacts)
-      .map((modelPath) => buildQuakeWeaponModel(assets, renderBundleBuilder, modelPath)),
+      .map((modelPath) => buildQuakeWeaponModel(assets, renderBundleBuilder, modelPath, {
+        muzzleFlash: muzzleFlashModelPaths.has(modelPath),
+      })),
   );
 }
 
@@ -3404,6 +3407,30 @@ function quakePlayerWeaponViewModelPaths(sourceProgramFacts) {
     }
   }
   return paths;
+}
+
+function quakePlayerWeaponMuzzleFlashViewModelPaths(sourceProgramFacts) {
+  const paths = new Set();
+  const profiles = sourceProgramFacts?.playerWeapons?.profiles;
+  if (!profiles || typeof profiles !== "object") return paths;
+  for (const profile of Object.values(profiles)) {
+    const modelPath = quakeNormalizedWeaponViewModelPath(profile?.presentation?.viewModelPath);
+    if (!modelPath || !quakeWeaponPresentationHasMuzzleFlash(profile?.presentation)) continue;
+    paths.add(modelPath);
+  }
+  return paths;
+}
+
+function quakeWeaponPresentationHasMuzzleFlash(presentation) {
+  const variants = presentation?.fireAnimation?.variants;
+  return Array.isArray(variants) && variants.some((variant) =>
+    Array.isArray(variant?.frames) && variant.frames.some((frame) => frame?.muzzleFlash === true),
+  );
+}
+
+function quakeNormalizedWeaponViewModelPath(value) {
+  const modelPath = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return /^progs\/v_[a-z0-9_]+\.mdl$/.test(modelPath) ? modelPath : "";
 }
 
 function quakePlayerWeaponProjectileModelPaths(sourceProgramFacts) {
@@ -3442,7 +3469,12 @@ function quakeWeaponModelUrlMap(sourceProgramFacts) {
   return urls;
 }
 
-async function buildQuakeWeaponModel(assets, renderBundleBuilder, modelPath = QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH) {
+async function buildQuakeWeaponModel(
+  assets,
+  renderBundleBuilder,
+  modelPath = QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH,
+  options = {},
+) {
   const model = parseQuakeAliasModel(assets, modelPath);
   const idleFrame = model.frames[0];
   const fireFrame = model.frames[1] ?? idleFrame;
@@ -3456,10 +3488,13 @@ async function buildQuakeWeaponModel(assets, renderBundleBuilder, modelPath = QU
     brightness: textureBrightness,
   });
   const polygons = model.triangles.map((triangle) => {
-    const uvs = triangle.indices.map((index) => quakeAliasUv(model, triangle, index));
-    const isNozzle = isQuakeWeaponNozzlePolygon(uvs);
+    const indices = quakeAliasRenderBundleWindingOrder(triangle.indices);
+    const uvs = quakeAliasRenderBundleWindingOrder(
+      triangle.indices.map((index) => quakeAliasUv(model, triangle, index)),
+    );
+    const isNozzle = options.muzzleFlash === true && isQuakeWeaponNozzlePolygon(uvs);
     const frame = isNozzle ? fireFrame : idleFrame;
-    const vertices = triangle.indices.map((index) => quakeWeaponVertex(frame.vertices[index]));
+    const vertices = indices.map((index) => quakeWeaponVertex(frame.vertices[index]));
     if (isNozzle) {
       return {
         vertices,
@@ -3476,16 +3511,16 @@ async function buildQuakeWeaponModel(assets, renderBundleBuilder, modelPath = QU
       uvs,
     };
   });
-  const tightenWeaponDom = quakeDomTighteningEnabled("other", false);
   return {
     source: modelPath,
     renderBundle: await renderBundleBuilder.build({
       bundleName: quakeWeaponRenderBundleName(modelPath),
       polygons: anchorQuakeWeaponPolygons(polygons),
       extractLeafStyles: true,
-      tightenAtlasLeaves: tightenWeaponDom,
-      optimizeAtlasLeafBasis: tightenWeaponDom,
-      optimizeAtlasLeafHomography: tightenWeaponDom,
+      // Viewmodel leaves are close to camera; atlas tightening can detach visible weapon faces.
+      tightenAtlasLeaves: false,
+      optimizeAtlasLeafBasis: false,
+      optimizeAtlasLeafHomography: false,
     }),
   };
 }

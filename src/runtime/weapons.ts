@@ -90,6 +90,13 @@ export interface QuakeWeaponWallImpactEvent {
   weapon: QuakeWeaponId;
 }
 
+export interface QuakeWeaponExplosionImpactEvent {
+  flavor: "grenade" | "rocket";
+  origin: Vec3;
+  radiusUnits?: number;
+  weapon: QuakeWeaponId;
+}
+
 export interface QuakeWeaponsControllerOptions {
   scene: PolySceneHandle;
   controls: Pick<PolyFirstPersonControlsHandle, "getOrigin">;
@@ -115,6 +122,7 @@ export interface QuakeWeaponsControllerOptions {
   damageMultiplier?: () => number;
   random?: () => number;
   onDamageImpact?(event: QuakeWeaponDamageImpactEvent): void;
+  onExplosionImpact?(event: QuakeWeaponExplosionImpactEvent): void;
   onFire?(event: QuakeWeaponFireEvent): void;
   onWallImpact?(event: QuakeWeaponWallImpactEvent): void;
   onHit(): void;
@@ -722,6 +730,7 @@ export function createQuakeWeaponsController({
   damageMultiplier,
   random = Math.random,
   onDamageImpact,
+  onExplosionImpact,
   onFire,
   onWallImpact,
   onHit,
@@ -1349,6 +1358,7 @@ export function createQuakeWeaponsController({
     }
     if (hit) onHit();
     projectile.origin = projectileImpactPresentationOrigin(projectile, trace);
+    emitWeaponExplosionImpact(projectile);
     recordProjectileDebugEvent("impact", {
       ...projectileDebugEventPayload(projectile),
       impactResult: "remove",
@@ -1390,6 +1400,25 @@ export function createQuakeWeaponsController({
     recordProjectileDebugEvent("expire", projectileDebugEventPayload(projectile));
     if (!projectile.profile.explodeOnExpire) return;
     if (damageProjectileSplash(projectile.origin, projectile.profile, undefined)) onHit();
+    emitWeaponExplosionImpact(projectile);
+  }
+
+  function emitWeaponExplosionImpact(projectile: QuakeWeaponProjectile): void {
+    if (!projectile.profile.splashDamage || !projectile.profile.splashRadius) return;
+    const flavor = weaponExplosionFlavor(projectile.profile.weapon);
+    if (!flavor) return;
+    onExplosionImpact?.({
+      flavor,
+      origin: [...projectile.origin] as Vec3,
+      radiusUnits: projectile.profile.splashRadius / QUAKE_COLLISION_UNIT_SCALE,
+      weapon: projectile.profile.weapon,
+    });
+  }
+
+  function weaponExplosionFlavor(weapon: QuakeWeaponId): QuakeWeaponExplosionImpactEvent["flavor"] | null {
+    if (weapon === "grenadelauncher") return "grenade";
+    if (weapon === "rocketlauncher") return "rocket";
+    return null;
   }
 
   function projectileDebugEventPayload(projectile: QuakeWeaponProjectile): Omit<QuakeWeaponProjectileDebugEvent, "at" | "seq" | "type"> {

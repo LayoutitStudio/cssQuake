@@ -36,6 +36,7 @@ export interface QuakeMoverInteractionFlowOptions {
   requiredDoorText(entityIndexes: number[], requiredKey: QuakeDoorKey): string | null;
   shootables: QuakeShootablesController;
   showCenterPrint(text: string): void;
+  syncShootablesVisibility(origin: [number, number, number], force?: boolean): void;
   syncCrosshairTarget(): void;
 }
 
@@ -201,9 +202,21 @@ export function createQuakeMoverInteractionFlow(options: QuakeMoverInteractionFl
       if (state.kind === "button") options.applyButtonLeafVisual(leaf, quakeButtonIsPressed(state));
     }
     if (carryPlayer) carryPlayerWithMover(state, delta);
+    if (shouldSyncShootablesAfterMoverApply(state, delta)) {
+      options.syncShootablesVisibility(options.playerOrigin(), true);
+    }
     state.lastOffset = [...state.offset] as Vec3;
     syncMoverSound(state, movePlayer);
     options.syncCrosshairTarget();
+  }
+
+  function shouldSyncShootablesAfterMoverApply(state: QuakeMoverState, delta: Vec3): boolean {
+    if (state.kind === "button") return false;
+    if (distanceSq3(delta, [0, 0, 0]) <= COLLISION_EPSILON) return false;
+    return state.kind === "door" ||
+      state.kind === "secret-door" ||
+      state.kind === "plat" ||
+      state.kind === "train";
   }
 
   function syncMoverSound(state: QuakeMoverState, activeUpdate: boolean): void {

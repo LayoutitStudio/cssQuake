@@ -59,6 +59,7 @@ export interface QuakeEnemyProjectileRuntimeOptions {
   damagePlayer(amount: number, context?: QuakePlayerDamageContext): boolean;
   hasLineOfSight(start: Vec3, end: Vec3): boolean;
   markTrace(kind: string, details?: QuakeEnemyProjectileTraceDetails): void;
+  onExplosion?(event: QuakeEnemyProjectileExplosionEvent): void;
   offsetPoint(
     origin: Vec3,
     start: Vec3,
@@ -72,6 +73,14 @@ export interface QuakeEnemyProjectileRuntimeOptions {
   randomRange(enemy: QuakeEnemyState, min: number, max: number): number;
   schedulePresentationResync(handle: PolyMeshHandle): void;
   traceLine?(start: Vec3, end: Vec3): QuakeEnemyProjectileWorldTrace | null;
+}
+
+export interface QuakeEnemyProjectileExplosionEvent {
+  flavor: "grenade" | "lava" | "rocket";
+  origin: Vec3;
+  projectile: string;
+  radiusUnits?: number;
+  sourceEntityIndex?: number;
 }
 
 export interface QuakeEnemyProjectilePlayerPainRandomDetails {
@@ -254,6 +263,7 @@ export function createQuakeEnemyProjectileRuntime(
         recordProjectileDebugEvent("expire", projectileDebugEventPayload(projectile));
         if (projectile.profile.projectileSplashOnExpire) {
           applySplashDamage(projectile, projectile.origin, playerOrigin, now, "expire");
+          emitProjectileExplosion(projectile, projectile.origin);
           playProjectileSound(projectileExplosionSound(projectile.profile), projectile);
         }
         recordProjectileDebugEvent("remove", projectileDebugEventPayload(projectile));
@@ -289,6 +299,7 @@ export function createQuakeEnemyProjectileRuntime(
       if (hit.hit) {
         if (projectile.profile.projectileSplashDamage && projectile.profile.projectileSplashRadius) {
           applySplashDamage(projectile, hit.hitPoint, playerOrigin, now, "hit");
+          emitProjectileExplosion(projectile, hit.hitPoint);
           playProjectileSound(projectileExplosionSound(projectile.profile), projectile);
         } else {
           const died = options.damagePlayer(projectile.damage, { inflictorOrigin: hit.hitPoint });
@@ -379,6 +390,7 @@ export function createQuakeEnemyProjectileRuntime(
       return true;
     }
     applySplashDamage(projectile, trace.end, playerOrigin, now, "blocked");
+    emitProjectileExplosion(projectile, trace.end);
     playProjectileSound(projectileWorldTouchSound(projectile.profile), projectile);
     options.markTrace("enemy-projectile-blocked", {
       damage: projectile.damage,
@@ -395,6 +407,24 @@ export function createQuakeEnemyProjectileRuntime(
     recordProjectileDebugEvent("remove", projectileDebugEventPayload(projectile));
     remove(projectile);
     return false;
+  }
+
+  function emitProjectileExplosion(projectile: QuakeEnemyProjectile, origin: Vec3): void {
+    if (!projectile.profile.projectileSplashDamage || !projectile.profile.projectileSplashRadius) return;
+    const projectileClassname = projectile.profile.projectileClassname ?? "enemy_projectile_magic";
+    options.onExplosion?.({
+      flavor: enemyProjectileExplosionFlavor(projectileClassname),
+      origin: [...origin] as Vec3,
+      projectile: projectileClassname,
+      radiusUnits: projectile.profile.projectileSplashRadius / QUAKE_COLLISION_UNIT_SCALE,
+      sourceEntityIndex: projectile.sourceEntityIndex,
+    });
+  }
+
+  function enemyProjectileExplosionFlavor(projectileClassname: string): QuakeEnemyProjectileExplosionEvent["flavor"] {
+    if (projectileClassname === "enemy_projectile_lavaball") return "lava";
+    if (projectileClassname === "enemy_projectile_grenade") return "grenade";
+    return "rocket";
   }
 
   function bounceProjectile(
