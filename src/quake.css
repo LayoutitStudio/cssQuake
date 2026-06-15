@@ -2337,11 +2337,16 @@ body.quake-menu-unlocked #quake-weapon {
 }
 #quake-mobile-move-zone .joystick {
   position: absolute;
-  left: 72px;
-  top: 72px;
+  left: 50%;
+  top: 50%;
+  width: 108px;
+  height: 108px;
+  margin-left: -54px;
+  margin-top: -54px;
   display: block;
   z-index: 999;
   opacity: 0.58;
+  pointer-events: none;
   touch-action: none;
   user-select: none;
   transition: opacity 80ms linear;
@@ -2350,20 +2355,21 @@ body.quake-menu-unlocked #quake-weapon {
 #quake-mobile-move-zone .joystick .front {
   position: absolute;
   display: block;
-  left: 0;
-  top: 0;
+  pointer-events: none;
   border-radius: 50%;
 }
 #quake-mobile-move-zone .joystick .back {
+  left: 0;
+  top: 0;
   width: 108px;
   height: 108px;
-  margin-left: -54px;
-  margin-top: -54px;
   background: rgba(10, 9, 7, 0.34);
   box-sizing: border-box;
   border: 2px solid rgba(245, 232, 200, 0.42);
 }
 #quake-mobile-move-zone .joystick .front {
+  left: 50%;
+  top: 50%;
   width: 54px;
   height: 54px;
   margin-left: -27px;

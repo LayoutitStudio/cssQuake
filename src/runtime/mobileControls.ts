@@ -39,6 +39,7 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
   let root: HTMLElement | null = null;
   let moveZone: HTMLElement | null = null;
   let moveStick: HTMLElement | null = null;
+  let moveStickBack: HTMLElement | null = null;
   let moveStickFront: HTMLElement | null = null;
   let lookZone: HTMLElement | null = null;
   let fireButton: HTMLButtonElement | null = null;
@@ -121,6 +122,7 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
     lookZone = nextLookZone;
     moveZone = nextMoveZone;
     moveStick = nextMoveStick;
+    moveStickBack = nextMoveStickBack;
     moveStickFront = nextMoveStickFront;
     fireButton = nextFireButton;
     syncMoveStickVisual(0, 0, false);
@@ -162,6 +164,7 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
     lookZone = null;
     moveZone = null;
     moveStick = null;
+    moveStickBack = null;
     moveStickFront = null;
     fireButton = null;
   }
@@ -438,18 +441,54 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
 
   function syncMoveStickVisual(x: number, y: number, active: boolean): void {
     const stick = moveStick;
+    const back = moveStickBack;
     const front = moveStickFront;
-    if (!stick || !front) return;
+    if (!stick || !back || !front) return;
     const stickSize = 108;
+    const frontSize = 54;
     const frontTravel = stickSize / 4;
     stick.style.position = "absolute";
     stick.style.display = "block";
-    stick.style.left = "72px";
-    stick.style.top = "72px";
+    stick.style.left = "50%";
+    stick.style.top = "50%";
+    stick.style.width = `${stickSize}px`;
+    stick.style.height = `${stickSize}px`;
+    stick.style.marginLeft = `${-stickSize / 2}px`;
+    stick.style.marginTop = `${-stickSize / 2}px`;
     stick.style.opacity = active ? "1" : "0.58";
     stick.style.touchAction = "none";
     stick.style.userSelect = "none";
+    stick.style.pointerEvents = "none";
     stick.style.zIndex = "999";
+
+    back.style.position = "absolute";
+    back.style.display = "block";
+    back.style.left = "0px";
+    back.style.top = "0px";
+    back.style.width = `${stickSize}px`;
+    back.style.height = `${stickSize}px`;
+    back.style.marginLeft = "0px";
+    back.style.marginTop = "0px";
+    back.style.borderRadius = "50%";
+    back.style.background = "rgba(10, 9, 7, 0.34)";
+    back.style.boxSizing = "border-box";
+    back.style.border = "2px solid rgba(245, 232, 200, 0.42)";
+    back.style.pointerEvents = "none";
+
+    front.style.position = "absolute";
+    front.style.display = "block";
+    front.style.left = "50%";
+    front.style.top = "50%";
+    front.style.width = `${frontSize}px`;
+    front.style.height = `${frontSize}px`;
+    front.style.marginLeft = `${-frontSize / 2}px`;
+    front.style.marginTop = `${-frontSize / 2}px`;
+    front.style.borderRadius = "50%";
+    front.style.background = "rgba(245, 232, 200, 0.18)";
+    front.style.opacity = "0.5";
+    front.style.boxSizing = "border-box";
+    front.style.border = "2px solid rgba(245, 232, 200, 0.48)";
+    front.style.pointerEvents = "none";
     front.style.transform = `translate(${x * frontTravel}px, ${-y * frontTravel}px)`;
   }
 
