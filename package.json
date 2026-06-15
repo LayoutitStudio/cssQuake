@@ -22,6 +22,7 @@
     "test:assets": "node test/runAssetIntegrity.mjs",
     "test:browser:smoke": "node test/runBrowserSmoke.mjs",
     "test:browser": "node test/runBrowserFixtures.mjs",
+    "test:harness": "node test/runHarnessPlan.mjs",
     "test:perf": "node test/runPerfPreflight.mjs",
     "test:dev": "pnpm test && pnpm test:perf",
     "test:all": "pnpm test && pnpm test:assets && pnpm test:browser:smoke && pnpm test:browser && pnpm test:perf"

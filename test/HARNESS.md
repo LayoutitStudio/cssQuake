@@ -8,6 +8,7 @@ Use `package.json` as the canonical command menu. Local files under ignored `scr
 | Generated asset or manifest concern | `pnpm test:assets` | requires ready prepared assets |
 | Browser startup/link concern | `pnpm test:browser:smoke` | requires ready prepared assets |
 | Browser gameplay fixture concern | `pnpm test:browser` | heavier; requires ready prepared assets |
+| Unsure which gate applies | `pnpm test:harness` | dry-run planner from current changed files |
 | Perf claim or monster-render work | `pnpm test:perf`, then an explicit ignored local perf harness command if needed | read `notes/monster-render-spike.md` first when present; package gates do not run ignored scripts |
 | Source/gameplay parity concern | use the named committed oracle runner | keep oracle scope narrow |
 
@@ -18,6 +19,7 @@ Use `package.json` as the canonical command menu. Local files under ignored `scr
 - `pnpm test:assets`: manifest and prepared scene integrity.
 - `pnpm test:browser:smoke`: fast URL/API browser smoke.
 - `pnpm test:browser`: explicit browser gameplay fixtures from committed fixture definitions. Use `pnpm test:browser -- --list`, `pnpm test:browser -- --family <name>`, or `pnpm test:browser -- --fixture <id>` for focused runs.
+- `pnpm test:harness`: dry-run changed-file planner that prints exact recommended committed gates.
 - `pnpm test:perf`: no-asset preflight for the committed perf command surface and harness guidance.
 - `pnpm test:dev`: normal no-asset confidence gate.
 - `pnpm test:all`: all committed stable gates that require prepared assets, including browser fixtures.

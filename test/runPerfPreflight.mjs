@@ -12,6 +12,7 @@ const requiredScripts = [
   "test:assets",
   "test:browser:smoke",
   "test:browser",
+  "test:harness",
   "test:perf",
   "test:dev",
   "test:all",
@@ -19,6 +20,7 @@ const requiredScripts = [
 const requiredDocPhrases = [
   "Perf claim or monster-render work",
   "pnpm test:perf",
+  "pnpm test:harness",
   "notes/monster-render-spike.md",
   "Committed runners should print what they validate",
 ];
