@@ -1,0 +1,58 @@
+name: Deploy
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      HOSTING_AUTH_TOKEN: ${{ secrets.HOSTING_AUTH_TOKEN }}
+      HOSTING_SITE_ID: ${{ secrets.HOSTING_SITE_ID }}
+      QUAKE_RENDER_BUNDLE_AVIF_EFFORT: "0"
+      QUAKE_SHAREWARE_URL: ${{ secrets.QUAKE_SHAREWARE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Check build inputs
+        run: |
+          test -n "$QUAKE_SHAREWARE_URL"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            test -n "$HOSTING_AUTH_TOKEN"
+            test -n "$HOSTING_SITE_ID"
+          fi
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build:full
+
+      - name: Publish prebuilt site
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          pnpm --package=netlify-cli@latest dlx netlify deploy \
+            --prod \
+            --dir=dist \
+            --no-build \
+            --auth "$HOSTING_AUTH_TOKEN" \
+            --site "$HOSTING_SITE_ID"
