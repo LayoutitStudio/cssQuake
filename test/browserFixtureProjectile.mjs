@@ -181,6 +181,7 @@ export const rocketTouchFixture = {
   id: "rocket-touch",
   label: "Rocket touch browser fixture",
   artifact: "bench/results/quake/oracle/e1m1-soldier-rocket-touch.cssquake.json",
+  family: "projectile",
   requirements: { requiredMaps: [ROCKET_TOUCH_MAP], requireRenderBundle: true },
   run: runRocketTouchFixture,
 };
@@ -189,6 +190,7 @@ export const rocketFireFixture = {
   id: "rocket-fire",
   label: "Rocket fire browser fixture",
   artifact: "bench/results/quake/oracle/e1m1-soldier-rocket-fire.cssquake.json",
+  family: "projectile",
   requirements: { requiredMaps: [ROCKET_FIRE_MAP], requireRenderBundle: true },
   run: runRocketFireFixture,
 };
@@ -622,6 +624,7 @@ function enemyProjectileChainFixture({ artifact, id, label, scenario }) {
     id,
     label,
     artifact,
+    family: "projectile",
     requirements: { requiredMaps: [scenario.map], requireRenderBundle: true },
     run: (context) => runEnemyProjectileChainFixture(context, scenario),
   };
