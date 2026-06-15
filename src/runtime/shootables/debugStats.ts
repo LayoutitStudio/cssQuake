@@ -40,6 +40,8 @@ export interface QuakeShootableDebugCullingEntry {
   mounted: boolean;
   prewarmed: boolean;
   inPvs: boolean | null;
+  inPrewarmPvs: boolean | null;
+  pvsSource: "current" | "prewarm-extra" | "oversized" | "none" | "unknown";
   oversizedRenderVolume: boolean;
   distance: number;
   distanceSq: number;
@@ -102,8 +104,42 @@ export interface QuakeShootableDebugMoveGoalDecision {
   kind: string;
 }
 
+export interface QuakeShootablesDebugVisibilitySyncSnapshot {
+  atMs: number;
+  force: boolean;
+  origin: [number, number, number];
+  visibleLeafCount: number | null;
+  prewarmLeafCount: number | null;
+  prewarmExtraLeafCount: number | null;
+  visibleLeafIndexes: number[] | null;
+  prewarmLeafIndexes: number[] | null;
+  prewarmExtraLeafIndexes: number[] | null;
+  candidateIndexes: number[];
+  corpseCandidateIndexes: number[];
+  prewarmCandidateIndexes: number[];
+  desiredMountedIndexes: number[];
+  desiredPrewarmIndexes: number[];
+  beforeMountedIndexes: number[];
+  beforeVisibleIndexes: number[];
+  beforePrewarmedIndexes: number[];
+  afterMountedIndexes: number[];
+  afterVisibleIndexes: number[];
+  afterPrewarmedIndexes: number[];
+  selectionChanged: boolean;
+  selectionApplied: boolean;
+  meshHandlesCreated: number;
+  meshHandlesRemoved: number;
+  frameHandlesCreated: number;
+  frameHandlesRemoved: number;
+}
+
 export interface QuakeShootablesDebugCullingSnapshot {
   visibleLeafCount: number | null;
+  prewarmLeafCount: number | null;
+  prewarmExtraLeafCount: number | null;
+  visibleLeafIndexes: number[] | null;
+  prewarmLeafIndexes: number[] | null;
+  prewarmExtraLeafIndexes: number[] | null;
   limits: {
     mountDistance: number;
     unmountDistance: number;
@@ -120,6 +156,7 @@ export interface QuakeShootablesDebugCullingSnapshot {
   desiredPrewarmIndexes: number[];
   candidateIndexes: number[];
   prewarmCandidateIndexes: number[];
+  lastVisibilitySync: QuakeShootablesDebugVisibilitySyncSnapshot | null;
   entries: QuakeShootableDebugCullingEntry[];
 }
 

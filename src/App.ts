@@ -1390,6 +1390,40 @@ const quakeEntityMeshes = createQuakeEntityMeshMountFlow({
   sceneElement,
   schedulePresentationResync: (handle) => world.schedulePresentationResync(handle),
 });
+
+function quakeShootablePrewarmLeavesAt(origin: [number, number, number]): Set<number> | null {
+  const visibility = currentResult?.visibility;
+  const visibleLeaves = visibility?.visibleLeavesAt(origin) ?? null;
+  const metadata = visibility?.metadata;
+  if (!visibility || !metadata || !visibleLeaves) return visibleLeaves;
+  const leafIndex = visibility.leafIndexAt(origin);
+  const leaf = metadata.leaves[leafIndex];
+  if (!leaf) return visibleLeaves;
+  const prewarmLeaves = new Set(visibleLeaves);
+  for (const adjacentLeafIndex of leaf.adjacentLeafIndexes) {
+    const adjacentLeaf = metadata.leaves[adjacentLeafIndex];
+    if (!adjacentLeaf) continue;
+    prewarmLeaves.add(adjacentLeafIndex);
+    for (const visibleLeafIndex of adjacentLeaf.visibleLeafIndexes ?? []) {
+      prewarmLeaves.add(visibleLeafIndex);
+    }
+  }
+  for (const mover of movers.debugStats().movers) {
+    if (mover.kind === "button" || mover.mode === "closed") continue;
+    const modelIndex = entityByIndex.get(mover.entityIndex)?.modelIndex;
+    if (modelIndex === undefined) continue;
+    for (const moverLeaf of world.modelLeaves(modelIndex)) {
+      const leaf = metadata.leaves[moverLeaf.leafIndex];
+      if (!leaf) continue;
+      prewarmLeaves.add(moverLeaf.leafIndex);
+      for (const visibleLeafIndex of leaf.visibleLeafIndexes ?? []) {
+        prewarmLeaves.add(visibleLeafIndex);
+      }
+    }
+  }
+  return prewarmLeaves;
+}
+
 const menu = createQuakeMenuController({
   enabled: QUAKE_MENU_ENABLED,
   host,
@@ -1755,6 +1789,7 @@ const shootables = createQuakeShootablesController({
   pixelate: world.pixelate,
   schedulePresentationResync: world.schedulePresentationResync,
   visibleLeavesAt: world.visibleLeavesAt,
+  prewarmLeavesAt: quakeShootablePrewarmLeavesAt,
   fireTarget: fireQuakeTarget,
   playSound: (soundPath, options) => audio.playSound(soundPath, options),
 });
@@ -2087,6 +2122,7 @@ quakeMoverInteractions = createQuakeMoverInteractionFlow({
     ),
   shootables,
   showCenterPrint: (text) => quakeTextPresentation.centerPrint(text),
+  syncShootablesVisibility: (origin, force) => shootables.syncVisibility(origin, force),
   syncCrosshairTarget: syncQuakeCrosshairTarget,
 });
 const quakeAssetWarmup = createQuakeAssetWarmupFlow({
@@ -4406,6 +4442,11 @@ function syncPlayerCollision(): void {
   getPlayer().syncCollision();
 }
 
+function handleQuakeControlsChange(): void {
+  syncPlayerCollision();
+  shootables.syncVisibility(controls.getOrigin());
+}
+
 function disposeQuakeApp(): void {
   quakeAppDisposed = true;
   stopQuakeMultiplayerScene("app-dispose");
@@ -4440,7 +4481,7 @@ function disposeQuakeApp(): void {
   debugShowLabelsOption?.removeEventListener("change", quakeDebugPanelFlow.handleShowLabelsOptionChange);
   quakeDebugRecorder.dispose();
   quakeDebugPanelFlow.stopStats();
-  controls.removeEventListener("change", syncPlayerCollision);
+  controls.removeEventListener("change", handleQuakeControlsChange);
   controls.removeEventListener("end", quakeGameplayInput.clearCrouchInput);
   controls.destroy();
   menu.dispose();
@@ -4621,7 +4662,7 @@ debugShowTexturesOption?.addEventListener("change", quakeDebugPanelFlow.handleSh
 debugFlyModeOption?.addEventListener("change", handleQuakeDebugFlyModeOptionChange);
 debugShowOutlinesOption?.addEventListener("change", quakeDebugPanelFlow.handleShowOutlinesOptionChange);
 debugShowLabelsOption?.addEventListener("change", quakeDebugPanelFlow.handleShowLabelsOptionChange);
-controls.addEventListener("change", syncPlayerCollision);
+controls.addEventListener("change", handleQuakeControlsChange);
 controls.addEventListener("end", quakeGameplayInput.clearCrouchInput);
 
 syncQuakeHud();
