@@ -17,7 +17,7 @@ Use `package.json` as the canonical command menu. Local files under ignored `scr
 - `pnpm test:asset-state`: manifest/status/process preflight for prepared assets.
 - `pnpm test:assets`: manifest and prepared scene integrity.
 - `pnpm test:browser:smoke`: fast URL/API browser smoke.
-- `pnpm test:browser`: explicit browser gameplay fixtures from committed fixture definitions. Use `pnpm test:browser -- --list` or `pnpm test:browser -- --fixture <id>` for focused runs.
+- `pnpm test:browser`: explicit browser gameplay fixtures from committed fixture definitions. Use `pnpm test:browser -- --list`, `pnpm test:browser -- --family <name>`, or `pnpm test:browser -- --fixture <id>` for focused runs.
 - `pnpm test:perf`: no-asset preflight for the committed perf command surface and harness guidance.
 - `pnpm test:dev`: normal no-asset confidence gate.
 - `pnpm test:all`: all committed stable gates that require prepared assets, including browser fixtures.
@@ -30,7 +30,16 @@ Committed runners should print what they validate, prerequisites, whether they r
 
 `pnpm test:browser` is selective, not exhaustive. It currently covers committed DOM monster visibility, combat budget caps, logical weapon targetability, player rocket fire/touch behavior, forced enemy projectile chains for ogre/wizard/zombie, ogre grenade bounce and timeout lifecycle, zombie projectile world-stop, map trigger/target/mover logic, liquid damage, and pickup gameplay fixtures.
 
-Browser gameplay fixture definitions live in `test/browserFixtureDefinitions.mjs`; `test/runBrowserFixtures.mjs` is the only committed gameplay-fixture runner.
+Browser gameplay fixtures are assembled in `test/browserFixtureDefinitions.mjs`; family implementations live beside it as `test/browserFixture*.mjs`. `test/runBrowserFixtures.mjs` is the only committed gameplay-fixture runner.
+
+Current fixture families:
+
+| Family | Command | Covers |
+| --- | --- | --- |
+| `monster` | `pnpm test:browser -- --family monster` | representative monster DOM visibility |
+| `combat` | `pnpm test:browser -- --family combat` | combat budget and logical targetability |
+| `projectile` | `pnpm test:browser -- --family projectile` | player and enemy projectile fixture paths |
+| `map-logic` | `pnpm test:browser -- --family map-logic` | trigger/mover, liquid, and pickup gameplay |
 
 Current fixture IDs:
 

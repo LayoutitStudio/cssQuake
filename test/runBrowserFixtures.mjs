@@ -7,7 +7,7 @@ import {
   writeJsonArtifact,
 } from "./browserHarnessSupport.mjs";
 import { assertAssetState } from "./checkAssetState.mjs";
-import { browserFixtureById, browserFixtures } from "./browserFixtureDefinitions.mjs";
+import { browserFixtureById, browserFixtureFamilies, browserFixtures } from "./browserFixtureDefinitions.mjs";
 
 const DEFAULT_PORT = 5184;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -79,6 +79,7 @@ function printHelp() {
 
 Options:
   --fixture <id[,id]>  Run only selected fixture ids. Repeatable.
+  --family <name[,name]>  Run fixture families. Known: ${browserFixtureFamilies().join(", ")}
   --list              Print fixture ids.
   --url <url>         Use an already-running cssQuake dev server.
   --port <port>       Port for temporary Vite. Default: ${DEFAULT_PORT}
@@ -92,9 +93,10 @@ Options:
 function printFixtureList() {
   console.log("Browser gameplay fixtures");
   console.log("focused run: pnpm test:browser -- --fixture <id>");
+  console.log("family run: pnpm test:browser -- --family <name>");
   for (const fixture of browserFixtures) {
     const maps = fixture.requirements?.requiredMaps?.join(",") || "-";
-    console.log(`${fixture.id}\t${fixture.label}\tmaps=${maps}\tartifact=${fixture.artifact}`);
+    console.log(`${fixture.id}\t${fixture.family}\t${fixture.label}\tmaps=${maps}\tartifact=${fixture.artifact}`);
   }
 }
 
@@ -106,6 +108,7 @@ function validateFixtureDefinitions(fixtures) {
     if (seenIds.has(fixture.id)) throw new Error(`Duplicate browser fixture id "${fixture.id}".`);
     seenIds.add(fixture.id);
     if (!fixture.label) throw new Error(`Browser fixture "${fixture.id}" is missing label.`);
+    if (!fixture.family) throw new Error(`Browser fixture "${fixture.id}" is missing family.`);
     if (!fixture.artifact) throw new Error(`Browser fixture "${fixture.id}" is missing artifact.`);
     if (seenArtifacts.has(fixture.artifact)) throw new Error(`Duplicate browser fixture artifact "${fixture.artifact}".`);
     seenArtifacts.add(fixture.artifact);
@@ -129,7 +132,8 @@ function selectFixtures(argv) {
     .flatMap((value) => value.split(","))
     .map((value) => value.trim())
     .filter(Boolean);
-  if (!selectedIds.length) return browserFixtures;
+  const selectedFamilies = selectedFixtureFamilies(argv);
+  if (!selectedIds.length && !selectedFamilies.length) return browserFixtures;
 
   const fixtures = selectedIds.map((id) => {
     const fixture = browserFixtureById(id);
@@ -138,7 +142,31 @@ function selectFixtures(argv) {
     }
     return fixture;
   });
+  for (const family of selectedFamilies) {
+    const familyFixtures = browserFixtures.filter((fixture) => fixture.family === family);
+    if (!familyFixtures.length) {
+      throw new Error(`Unknown browser fixture family "${family}". Known families: ${browserFixtureFamilies().join(", ")}`);
+    }
+    fixtures.push(...familyFixtures);
+  }
   return [...new Map(fixtures.map((fixture) => [fixture.id, fixture])).values()];
+}
+
+function selectedFixtureFamilies(argv) {
+  const rawSelections = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === "--family" && argv[index + 1] && !argv[index + 1].startsWith("--")) {
+      rawSelections.push(argv[index + 1]);
+      index += 1;
+    }
+  }
+  const prefixed = argv
+    .filter((arg) => arg.startsWith("--family="))
+    .map((arg) => arg.slice("--family=".length));
+  return [...rawSelections, ...prefixed]
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 async function runFixtureWithRetry({ fixture, browser, baseUrl, options, restartBrowser }) {
