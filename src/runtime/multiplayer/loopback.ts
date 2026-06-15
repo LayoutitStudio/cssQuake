@@ -610,7 +610,7 @@ export function createQuakeLoopbackMultiplayerSession(
       appliedHazardDamage = applyLocalRoomDamage({
         damage: hazard.damage,
         damageSource: hazard.kind,
-        eventId: `liquid-${hazard.kind}-${hazard.damagedAt}`,
+        eventId: `hazard-${hazard.kind}-${hazard.damagedAt}`,
       }) || appliedHazardDamage;
     }
     return result.advancedTicks > 0 || appliedHazardDamage;

@@ -8,6 +8,9 @@ interface QuakePrewarmShootableState {
   visible: boolean;
 }
 
+const QUAKE_SHOOTABLE_PREWARM_MIN_IDLE_MS = 4;
+const QUAKE_SHOOTABLE_PREWARM_MAX_DRAIN_PER_CALLBACK = 3;
+
 export interface QuakeShootablePrewarmQueues<TShootable extends QuakePrewarmShootableState> {
   animationFrameQueueLength(): number;
   cancel(): void;
@@ -92,8 +95,9 @@ export function createQuakeShootablePrewarmQueues<TShootable extends QuakePrewar
     prewarmIdleHandle = null;
   }
 
-  function drainPrewarmQueue(_deadline: QuakeIdleDeadline): void {
+  function drainPrewarmQueue(deadline: QuakeIdleDeadline): void {
     prewarmIdleHandle = null;
+    let mounted = 0;
     while (prewarmQueue.length > 0) {
       const entityIndex = prewarmQueue.shift() as number;
       queuedPrewarmIndexes.delete(entityIndex);
@@ -103,7 +107,8 @@ export function createQuakeShootablePrewarmQueues<TShootable extends QuakePrewar
       if (!options.canPrewarmShootable(shootable)) continue;
       options.mountShootable(shootable);
       options.setShootableVisible(shootable, false);
-      break;
+      mounted++;
+      if (mounted >= QUAKE_SHOOTABLE_PREWARM_MAX_DRAIN_PER_CALLBACK || !canContinuePrewarmDrain(deadline)) break;
     }
     if (prewarmQueue.length > 0) schedulePrewarmDrain();
   }
@@ -143,8 +148,9 @@ export function createQuakeShootablePrewarmQueues<TShootable extends QuakePrewar
     animationFramePrewarmIdleHandle = null;
   }
 
-  function drainAnimationFramePrewarmQueue(_deadline: QuakeIdleDeadline): void {
+  function drainAnimationFramePrewarmQueue(deadline: QuakeIdleDeadline): void {
     animationFramePrewarmIdleHandle = null;
+    let prepared = 0;
     while (animationFramePrewarmQueue.length > 0) {
       const item = animationFramePrewarmQueue.shift();
       if (!item) break;
@@ -154,9 +160,14 @@ export function createQuakeShootablePrewarmQueues<TShootable extends QuakePrewar
       if (shootable.frameHandles.has(item.frameIndex)) continue;
       options.ensureAnimationFrame(shootable, item.frameIndex);
       options.trimAnimationFrameHandles(shootable);
-      break;
+      prepared++;
+      if (prepared >= QUAKE_SHOOTABLE_PREWARM_MAX_DRAIN_PER_CALLBACK || !canContinuePrewarmDrain(deadline)) break;
     }
     if (animationFramePrewarmQueue.length > 0) scheduleAnimationFramePrewarmDrain();
+  }
+
+  function canContinuePrewarmDrain(deadline: QuakeIdleDeadline): boolean {
+    return deadline.didTimeout || deadline.timeRemaining() >= QUAKE_SHOOTABLE_PREWARM_MIN_IDLE_MS;
   }
 
   function animationFramePrewarmKey(entityIndex: number, frameIndex: number): string {

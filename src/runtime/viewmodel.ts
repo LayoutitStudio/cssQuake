@@ -2,19 +2,16 @@ import {
   buildPolySceneTransform,
   polyCssDistanceToWorld,
   type PolyFirstPersonControlsHandle,
+  type PolyMeshHandle,
   type PolySceneHandle,
   type Vec3,
   worldPositionToPolyCss,
 } from "@layoutit/polycss";
 
-import { QUAKE_COLLISION_UNIT_SCALE } from "./constants";
+import type { QuakePreparedRenderBundle } from "../prepare/scene";
+import { COLLISION_EPSILON, QUAKE_COLLISION_UNIT_SCALE } from "./constants";
 import { crossVec3, normalizeVec3 } from "./math";
-import {
-  createQuakeViewmodelRasterLayer,
-  type QuakeViewmodelRasterLayer,
-  type QuakeViewmodelRasterModel,
-  type QuakeViewmodelRasterPostTransform,
-} from "./viewmodelRaster";
+import { mountQuakeRenderBundleMesh, stripPolyMeshMetadata } from "./renderBundleMesh";
 
 export interface QuakeViewmodelController {
   mount(model: QuakeViewmodelModel): void;
@@ -57,15 +54,6 @@ export interface QuakeViewmodelTuning {
   screenYOffsetPx?: number;
   screenScaleX?: number;
   screenScaleY?: number;
-  rasterPostOriginXPx?: number;
-  rasterPostOriginYPx?: number;
-  rasterPostTranslateXPx?: number;
-  rasterPostTranslateYPx?: number;
-  rasterPostRotateDeg?: number;
-  rasterPostSkewXDeg?: number;
-  rasterPostSkewYDeg?: number;
-  rasterPostScaleX?: number;
-  rasterPostScaleY?: number;
   perspectiveScale?: number;
   stageOffsetPx?: number;
   perspectiveOriginXOffsetPx?: number;
@@ -76,7 +64,7 @@ export type QuakeResolvedViewmodelTuning = Required<QuakeViewmodelTuning>;
 
 export interface QuakeViewmodelModel {
   source: string;
-  rasterModel: QuakeViewmodelRasterModel;
+  renderBundle: QuakePreparedRenderBundle;
 }
 
 export interface QuakeViewmodelDebugSnapshot {
@@ -193,15 +181,6 @@ const QUAKE_WEAPON_DEFAULT_TUNING: QuakeResolvedViewmodelTuning = {
   screenYOffsetPx: 12.5,
   screenScaleX: 0.98,
   screenScaleY: 1,
-  rasterPostOriginXPx: 640,
-  rasterPostOriginYPx: 360,
-  rasterPostTranslateXPx: 0,
-  rasterPostTranslateYPx: 0,
-  rasterPostRotateDeg: 0,
-  rasterPostSkewXDeg: 0,
-  rasterPostSkewYDeg: 0,
-  rasterPostScaleX: 1,
-  rasterPostScaleY: 1,
   perspectiveScale: 0.8,
   stageOffsetPx: QUAKE_WEAPON_REFERENCE_STAGE_OFFSET_PX,
   perspectiveOriginXOffsetPx: 0,
@@ -214,15 +193,6 @@ const QUAKE_WEAPON_MODEL_TUNING_OVERRIDES: Record<string, QuakeViewmodelTuning> 
     screenYOffsetPx: 15,
     screenScaleX: 0.866,
     screenScaleY: 0.972,
-    // The axe head exposes a small residual canvas/vkQuake alias projection drift.
-    rasterPostOriginXPx: 767,
-    rasterPostOriginYPx: 455,
-    rasterPostTranslateXPx: -1.3,
-    rasterPostTranslateYPx: 1.1,
-    rasterPostRotateDeg: -1.5,
-    rasterPostSkewYDeg: -6.5,
-    rasterPostScaleX: 0.97,
-    rasterPostScaleY: 1.03,
   },
   "progs/v_shot2.mdl": {
     screenScaleX: 1.149,
@@ -247,12 +217,6 @@ const QUAKE_WEAPON_MODEL_TUNING_OVERRIDES: Record<string, QuakeViewmodelTuning> 
   "progs/v_light.mdl": {
     screenScaleX: 0.916,
     screenScaleY: 0.922,
-    rasterPostOriginXPx: 637,
-    rasterPostOriginYPx: 508,
-    rasterPostTranslateXPx: 0.6,
-    rasterPostTranslateYPx: 1.8,
-    rasterPostScaleX: 0.967,
-    rasterPostScaleY: 0.995,
   },
 };
 const QUAKE_WEAPON_SCREEN_ROT_X = 90;
@@ -283,7 +247,7 @@ export function createQuakeViewmodelController({
   layer,
 }: QuakeViewmodelControllerOptions): QuakeViewmodelController {
   const stage = layer ? createQuakeViewmodelStage(layer) : null;
-  const raster: QuakeViewmodelRasterLayer | null = layer ? createQuakeViewmodelRasterLayer(layer) : null;
+  let handle: PolyMeshHandle | null = null;
   let carrier: HTMLElement | null = null;
   let viewportSyncFrame = 0;
   let cachedLayerScale = 1;
@@ -319,13 +283,17 @@ export function createQuakeViewmodelController({
     clearFireAnimation();
     resetWalkBob();
     invalidateViewportLayer();
-    carrier?.remove();
+    handle?.remove();
+    handle = null;
+    carrier = null;
     if (!stage) throw new Error("Quake viewmodel mount requires a viewmodel stage.");
-    carrier = createQuakeViewmodelTransformCarrier(stage);
+    handle = mountQuakeRenderBundleMesh(stage, model.renderBundle);
+    carrier = handle.element;
+    carrier.classList.add("viewmodel", "quake-viewmodel-transform");
+    stripPolyMeshMetadata(carrier);
     appliedLocalTransform = "";
-    if (!raster) throw new Error("Quake viewmodel raster mount requires a viewmodel layer.");
-    raster.mount(model.rasterModel);
     mountedSource = source;
+    prepareNozzleLeaves();
     syncTransform();
     setNozzleVisible(false);
   }
@@ -333,9 +301,9 @@ export function createQuakeViewmodelController({
   function remove(): void {
     clearFireAnimation();
     resetWalkBob();
-    carrier?.remove();
+    handle?.remove();
+    handle = null;
     carrier = null;
-    raster?.remove();
     appliedLocalTransform = "";
     mountedSource = null;
   }
@@ -440,7 +408,6 @@ export function createQuakeViewmodelController({
     const weapon = weaponTransform(origin, rotX, rotY, bob);
     syncCarrierTransform(weapon);
     syncLayer();
-    syncRasterLayer(rotY);
   }
 
   function queueViewportSync(): void {
@@ -513,29 +480,29 @@ export function createQuakeViewmodelController({
   }
 
   function setNozzleVisible(visible: boolean): void {
-    setWeaponFrameIndex(visible ? 1 : 0);
+    if (!carrier) return;
+    carrier.classList.toggle("quake-nozzle-visible", visible);
   }
 
   function setWeaponFrameIndex(frameIndex: number): void {
-    raster?.setFrameIndex(frameIndex);
+    setNozzleVisible(frameIndex > 0);
   }
 
-  function syncRasterLayer(rotY: number): void {
-    if (!raster || !layer || !stage || !carrier) return;
-    const currentTuning = activeTuning();
-    raster.sync({
-      width: QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX,
-      height: QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX,
-      stageLeftPx: QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX / 2,
-      stageTopPx: QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX / 2 + currentTuning.stageOffsetPx,
-      stageTransform: stage.style.transform,
-      meshTransform: carrier.style.transform,
-      perspectivePx: weaponPerspectivePx(),
-      perspectiveOriginX: QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX / 2 + currentTuning.perspectiveOriginXOffsetPx,
-      perspectiveOriginY: QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX / 2 + currentTuning.perspectiveOriginYOffsetPx,
-      rotY,
-      postTransform: weaponRasterPostTransform(currentTuning),
-    });
+  function prepareNozzleLeaves(): void {
+    if (!carrier) return;
+    let nozzleGroup = carrier.querySelector<HTMLElement>(".quake-nozzle-group");
+    if (!nozzleGroup) {
+      nozzleGroup = carrier.ownerDocument.createElement("span");
+      nozzleGroup.className = "quake-nozzle-group";
+    }
+    for (const leaf of carrier.querySelectorAll<HTMLElement>("[data-weapon]")) {
+      leaf.removeAttribute("data-weapon");
+    }
+    for (const leaf of carrier.querySelectorAll<HTMLElement>("[data-nozzle]")) {
+      nozzleGroup.appendChild(leaf);
+      leaf.removeAttribute("data-nozzle");
+    }
+    carrier.appendChild(nozzleGroup);
   }
 
   function updateWalkBob(origin: Vec3): number {
@@ -549,6 +516,9 @@ export function createQuakeViewmodelController({
     const elapsed = (now - walkBobAt) / 1000;
     const horizontalDistance = Math.hypot(origin[0] - walkBobOrigin[0], origin[1] - walkBobOrigin[1]);
     syncWalkBobOrigin(origin, now);
+    if (horizontalDistance <= COLLISION_EPSILON && elapsed < QUAKE_WEAPON_BOB_MIN_DT) {
+      return walkBob;
+    }
     if (
       !Number.isFinite(elapsed) ||
       elapsed <= 0 ||
@@ -802,31 +772,6 @@ function weaponLocalTransform(tuning: QuakeResolvedViewmodelTuning): string {
   ].filter(Boolean).join(" ");
 }
 
-function weaponRasterPostTransform(tuning: QuakeResolvedViewmodelTuning): QuakeViewmodelRasterPostTransform | null {
-  if (
-    Math.abs(tuning.rasterPostTranslateXPx) <= 0.001 &&
-    Math.abs(tuning.rasterPostTranslateYPx) <= 0.001 &&
-    Math.abs(tuning.rasterPostRotateDeg) <= 0.001 &&
-    Math.abs(tuning.rasterPostSkewXDeg) <= 0.001 &&
-    Math.abs(tuning.rasterPostSkewYDeg) <= 0.001 &&
-    Math.abs(tuning.rasterPostScaleX - 1) <= 0.001 &&
-    Math.abs(tuning.rasterPostScaleY - 1) <= 0.001
-  ) {
-    return null;
-  }
-  return {
-    originX: tuning.rasterPostOriginXPx,
-    originY: tuning.rasterPostOriginYPx,
-    translateX: tuning.rasterPostTranslateXPx,
-    translateY: tuning.rasterPostTranslateYPx,
-    rotateDeg: tuning.rasterPostRotateDeg,
-    skewXDeg: tuning.rasterPostSkewXDeg,
-    skewYDeg: tuning.rasterPostSkewYDeg,
-    scaleX: tuning.rasterPostScaleX,
-    scaleY: tuning.rasterPostScaleY,
-  };
-}
-
 function weaponTransformCss(weapon: QuakeViewmodelDebugSnapshot["weapon"]): string {
   const [x, y, z] = weapon.position;
   const cssPosition = worldPositionToPolyCss([x, y, z]);
@@ -955,17 +900,9 @@ function roundDebugNumber(value: number, decimals = 4): number {
 
 function createQuakeViewmodelStage(layer: HTMLElement): HTMLElement {
   const stage = document.createElement("div");
-  stage.id = "quake-viewmodel-stage";
-  stage.className = "polycss-scene";
+  stage.className = "quake-weapon-stage polycss-scene";
   layer.appendChild(stage);
   return stage;
-}
-
-function createQuakeViewmodelTransformCarrier(stage: HTMLElement): HTMLElement {
-  const carrier = stage.ownerDocument.createElement("div");
-  carrier.className = "polycss-mesh viewmodel quake-viewmodel-transform";
-  stage.appendChild(carrier);
-  return carrier;
 }
 
 function forwardDirection(rotX: number, rotY: number): Vec3 {

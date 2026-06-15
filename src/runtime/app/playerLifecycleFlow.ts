@@ -266,10 +266,10 @@ export function createQuakePlayerLifecycleFlow(
   }
 
   async function startNewGame(): Promise<void> {
-    const startMap = options.startMap();
-    if (!options.currentResult() || options.currentMapName() !== startMap) {
-      await options.loadMap(startMap, {
-        loadingStatus: `World ${startMap}.bsp`,
+    const mapName = options.currentResult() ? options.currentMapName() : options.startMap();
+    if (!options.currentResult()) {
+      await options.loadMap(mapName, {
+        loadingStatus: `World ${mapName}.bsp`,
         preserveLoadingConsole: true,
         urlMode: "push",
       });

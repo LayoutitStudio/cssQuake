@@ -31,8 +31,8 @@ export interface QuakeAppInputControllerOptions {
   showMainMenu(): void;
   syncViewmodelTransform(): void;
   toggleAudioMuted(): void;
-  toggleDebugRecording(): void;
   toggleDebugMode(): void;
+  toggleOutlineTextureMode(): void;
 }
 
 export function createQuakeAppInputController(options: QuakeAppInputControllerOptions): QuakeAppInputController {
@@ -49,7 +49,7 @@ export function createQuakeAppInputController(options: QuakeAppInputControllerOp
     if (event.code === "KeyO" && !options.isEditableTarget(event.target)) {
       event.preventDefault();
       event.stopPropagation();
-      if (!event.repeat) options.toggleDebugRecording();
+      if (!event.repeat) options.toggleOutlineTextureMode();
       return;
     }
     if (options.isLoading()) {

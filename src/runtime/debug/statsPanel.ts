@@ -1,18 +1,14 @@
 interface QuakeStatsPanel {
   value: HTMLElement;
-  canvas: HTMLCanvasElement;
-  context: CanvasRenderingContext2D;
+  bars: HTMLElement[];
   history: number[];
   max: number;
   label: string;
-  fg: string;
 }
 
 const FPS_SAMPLE_MS = 1000;
 const MS_SAMPLE_MS = 500;
 const STATS_GRAPH_COLUMNS = 40;
-const STATS_GRAPH_COLUMN_WIDTH = 2;
-const STATS_GRAPH_WIDTH = STATS_GRAPH_COLUMNS * STATS_GRAPH_COLUMN_WIDTH;
 const STATS_GRAPH_HEIGHT = 30;
 const STATS_OVERLAY_BACKGROUND = "#050302";
 const STATS_GRAPH_BACKGROUND = "#050302";
@@ -102,22 +98,25 @@ function createStatsPanel(label: string, fg: string, bg: string, max: number): Q
 
   const graph = document.createElement("div");
   graph.style.position = "relative";
+  graph.style.display = "grid";
+  graph.style.gridTemplateColumns = `repeat(${STATS_GRAPH_COLUMNS}, 1fr)`;
+  graph.style.alignItems = "end";
+  graph.style.gap = "0";
   graph.style.height = `${STATS_GRAPH_HEIGHT}px`;
   graph.style.background = STATS_GRAPH_BACKGROUND;
   graph.style.overflow = "hidden";
 
-  const canvas = document.createElement("canvas");
-  canvas.width = STATS_GRAPH_WIDTH;
-  canvas.height = STATS_GRAPH_HEIGHT;
-  canvas.style.display = "block";
-  canvas.style.width = "100%";
-  canvas.style.height = `${STATS_GRAPH_HEIGHT}px`;
-  canvas.style.imageRendering = "pixelated";
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Stats panel canvas context unavailable.");
-  graph.appendChild(canvas);
+  const bars = Array.from({ length: STATS_GRAPH_COLUMNS }, () => {
+    const bar = document.createElement("span");
+    bar.style.display = "block";
+    bar.style.width = "100%";
+    bar.style.height = "0";
+    bar.style.background = fg;
+    graph.appendChild(bar);
+    return bar;
+  });
   element.append(value, graph);
-  const panel = { element, value, canvas, context, history: [], max, label, fg };
+  const panel = { element, value, bars, history: [], max, label };
   drawStatsPanelGraph(panel);
   return panel;
 }
@@ -131,17 +130,10 @@ function updateStatsPanel(panel: QuakeStatsPanel, value: number): void {
 }
 
 function drawStatsPanelGraph(panel: QuakeStatsPanel): void {
-  const { context } = panel;
-  context.clearRect(0, 0, STATS_GRAPH_WIDTH, STATS_GRAPH_HEIGHT);
-  context.fillStyle = STATS_GRAPH_BACKGROUND;
-  context.fillRect(0, 0, STATS_GRAPH_WIDTH, STATS_GRAPH_HEIGHT);
-  context.fillStyle = panel.fg;
   const offset = STATS_GRAPH_COLUMNS - panel.history.length;
-  for (let index = 0; index < panel.history.length; index++) {
-    const value = panel.history[index] ?? 0;
+  for (let index = 0; index < panel.bars.length; index++) {
+    const value = index >= offset ? panel.history[index - offset] ?? 0 : 0;
     const height = Math.round((value / panel.max) * STATS_GRAPH_HEIGHT);
-    const x = (offset + index) * STATS_GRAPH_COLUMN_WIDTH;
-    const y = STATS_GRAPH_HEIGHT - height;
-    context.fillRect(x, y, STATS_GRAPH_COLUMN_WIDTH, height);
+    panel.bars[index].style.height = `${height}px`;
   }
 }

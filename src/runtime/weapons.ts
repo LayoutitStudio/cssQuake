@@ -47,7 +47,7 @@ export interface QuakeWeaponsController {
   debugFireProjectile(options?: QuakeWeaponProjectileDebugFireOptions): boolean;
   debugProjectileImpact(
     weapon: QuakeWeaponId,
-    entityIndex: number,
+    entityIndex: number | null,
     origin: Vec3,
     directDamage?: number,
   ): QuakeWeaponProjectileImpactDebugResult | null;
@@ -67,6 +67,27 @@ export interface QuakeWeaponFireEvent {
   origin: Vec3;
   direction: Vec3;
   range: number;
+}
+
+export interface QuakeWeaponDamageImpactEvent {
+  damage: number;
+  direction: Vec3;
+  entityIndex: number;
+  fireKind: QuakeWeaponFireEvent["fireKind"];
+  origin: Vec3;
+  targetKind: "shootable";
+  weapon: QuakeWeaponId;
+}
+
+export type QuakeWeaponWallImpactEffect = "gunshot" | "spike" | "superspike";
+
+export interface QuakeWeaponWallImpactEvent {
+  direction: Vec3;
+  effect: QuakeWeaponWallImpactEffect;
+  fireKind: QuakeWeaponFireEvent["fireKind"];
+  origin: Vec3;
+  targetKind: "world";
+  weapon: QuakeWeaponId;
 }
 
 export interface QuakeWeaponsControllerOptions {
@@ -93,7 +114,9 @@ export interface QuakeWeaponsControllerOptions {
   canDamageTargetOrigin?(start: Vec3, targetOrigin: Vec3): boolean;
   damageMultiplier?: () => number;
   random?: () => number;
+  onDamageImpact?(event: QuakeWeaponDamageImpactEvent): void;
   onFire?(event: QuakeWeaponFireEvent): void;
+  onWallImpact?(event: QuakeWeaponWallImpactEvent): void;
   onHit(): void;
   showLightningBeam?(beam: QuakeWeaponLightningBeamVisual): void;
   syncCrosshairTarget(): void;
@@ -113,7 +136,7 @@ export interface QuakeWeaponLightningBeamVisual {
 
 export interface QuakeWeaponProjectileImpactDebugResult {
   directDamage: number;
-  directEntityIndex: number;
+  directEntityIndex: number | null;
   directEntityClassname: string | null;
   impactResult: "keep" | "remove";
   origin: Vec3;
@@ -698,7 +721,9 @@ export function createQuakeWeaponsController({
   canDamageTargetOrigin,
   damageMultiplier,
   random = Math.random,
+  onDamageImpact,
   onFire,
+  onWallImpact,
   onHit,
   showLightningBeam,
   syncCrosshairTarget,
@@ -824,16 +849,16 @@ export function createQuakeWeaponsController({
 
   function debugProjectileImpact(
     weapon: QuakeWeaponId,
-    entityIndex: number,
+    entityIndex: number | null,
     origin: Vec3,
     directDamage?: number,
   ): QuakeWeaponProjectileImpactDebugResult | null {
     const profile = QUAKE_WEAPON_FIRE_PROFILES[weapon];
-    if (!Number.isFinite(entityIndex) || !vec3IsFinite(origin)) return null;
+    if ((entityIndex !== null && !Number.isFinite(entityIndex)) || !vec3IsFinite(origin)) return null;
     if (!profile || !quakeWeaponFireProfileIsRuntimeSupported(profile) || profile.kind !== "projectile") return null;
-    const directEntityIndex = Math.round(entityIndex);
-    const entity = getEntities().get(directEntityIndex);
-    if (!entity) return null;
+    const directEntityIndex = entityIndex === null ? null : Math.round(entityIndex);
+    const entity = directEntityIndex === null ? null : getEntities().get(directEntityIndex);
+    if (directEntityIndex !== null && !entity) return null;
     const damage = Number.isFinite(directDamage) ? Math.max(0, directDamage) : projectileDirectDamage(profile);
     const direction: Vec3 = [0, -1, 0];
     const impactOrigin = [...origin] as Vec3;
@@ -852,16 +877,18 @@ export function createQuakeWeaponsController({
       velocity,
     };
     const trace: QuakeProjectileTrace = {
-      classname: entity.classname,
       end: impactOrigin,
-      entityIndex: directEntityIndex,
       fraction: 0,
       planeNormal: null,
     };
+    if (entity && directEntityIndex !== null) {
+      trace.classname = entity.classname;
+      trace.entityIndex = directEntityIndex;
+    }
     const impactResult = handleProjectileImpact(projectile, trace);
     return {
       directDamage: damage,
-      directEntityClassname: entity.classname ?? null,
+      directEntityClassname: entity?.classname ?? null,
       directEntityIndex,
       impactResult,
       origin: impactOrigin,
@@ -1080,18 +1107,30 @@ export function createQuakeWeaponsController({
   function fireShotgunPellets(profile: QuakeHitscanPelletFireProfile): boolean {
     const aim = weaponAimForFire();
     const damageByEntity = new Map<number, number>();
+    let wallImpactTrace: QuakeUseTrace | null = null;
     const { right, up } = weaponSpreadAxes();
 
     for (let pellet = 0; pellet < profile.pelletCount; pellet++) {
       const direction = spreadWeaponDirection(aim.direction, right, up, profile);
       const trace = traceWeaponRay(viewRayFromDirection(aim.ray.origin, direction, QUAKE_WEAPON_TRACE_RANGE));
-      if (!traceIsShootable(trace) || trace.entityIndex === undefined) continue;
-      damageByEntity.set(trace.entityIndex, (damageByEntity.get(trace.entityIndex) ?? 0) + profile.pelletDamage);
+      if (!trace) continue;
+      if (traceIsShootable(trace) && trace.entityIndex !== undefined) {
+        damageByEntity.set(trace.entityIndex, (damageByEntity.get(trace.entityIndex) ?? 0) + profile.pelletDamage);
+        continue;
+      }
+      wallImpactTrace ??= trace;
     }
 
     let hit = false;
     for (const [entityIndex, damage] of damageByEntity) {
-      if (damageWeaponEntity(entityIndex, damage)) hit = true;
+      if (damageWeaponEntity(entityIndex, damage, {
+        direction: aim.direction,
+        fireKind: "hitscan",
+        weapon: profile.weapon,
+      })) hit = true;
+    }
+    if (wallImpactTrace) {
+      emitWeaponWallImpact(profile.weapon, "hitscan", "gunshot", aim.direction, wallImpactTrace);
     }
     return hit;
   }
@@ -1100,7 +1139,12 @@ export function createQuakeWeaponsController({
     const ray = weaponRayAtCrosshair(profile.range);
     const trace = traceWeaponRay(ray);
     if (!traceIsShootable(trace) || trace.entityIndex === undefined) return false;
-    return damageWeaponEntity(trace.entityIndex, profile.damage);
+    return damageWeaponEntity(trace.entityIndex, profile.damage, {
+      direction: ray.direction,
+      fireKind: "melee",
+      origin: trace.end,
+      weapon: profile.weapon,
+    });
   }
 
   function fireBeam(profile: QuakeBeamFireProfile): boolean {
@@ -1125,7 +1169,7 @@ export function createQuakeWeaponsController({
       sourceEnd[1] + direction[1] * damageEndOffset,
       sourceEnd[2] + direction[2] * damageEndOffset,
     ];
-    return damageBeamTraces(profile, damageOrigin, damageEnd);
+    return damageBeamTraces(profile, damageOrigin, damageEnd, direction);
   }
 
   function fireBeamUnderwaterDischarge(profile: QuakeBeamUnderwaterDischargeProfile): boolean {
@@ -1283,9 +1327,19 @@ export function createQuakeWeaponsController({
 
     let hit = false;
     const directEntityIndex = trace.entityIndex;
+    const wallImpactEffect = projectileWallImpactEffect(projectile.profile.weapon);
+    if (wallImpactEffect && !traceIsShootable(trace)) {
+      emitWeaponWallImpact(projectile.profile.weapon, "projectile", wallImpactEffect, projectile.direction, trace);
+    }
     if (projectile.damage > 0 && directEntityIndex !== undefined && traceIsShootable(trace) && damageWeaponEntity(
       directEntityIndex,
       projectileDamageForEntity(projectile.damage, projectile.profile, directEntityIndex),
+      {
+        direction: projectile.direction,
+        fireKind: "projectile",
+        origin: trace.end,
+        weapon: projectile.profile.weapon,
+      },
     )) {
       hit = true;
     }
@@ -1307,6 +1361,29 @@ export function createQuakeWeaponsController({
       trace: projectileDebugTrace(trace),
     });
     return "remove";
+  }
+
+  function emitWeaponWallImpact(
+    weapon: QuakeWeaponId,
+    fireKind: QuakeWeaponFireEvent["fireKind"],
+    effect: QuakeWeaponWallImpactEffect,
+    direction: Vec3,
+    trace: Pick<QuakeUseTrace, "end">,
+  ): void {
+    onWallImpact?.({
+      direction: [...direction] as Vec3,
+      effect,
+      fireKind,
+      origin: [...trace.end] as Vec3,
+      targetKind: "world",
+      weapon,
+    });
+  }
+
+  function projectileWallImpactEffect(weapon: QuakeWeaponId): QuakeWeaponWallImpactEffect | null {
+    if (weapon === "nailgun") return "spike";
+    if (weapon === "supernailgun") return "superspike";
+    return null;
   }
 
   function handleProjectileExpire(projectile: QuakeWeaponProjectile): void {
@@ -1490,7 +1567,7 @@ export function createQuakeWeaponsController({
     );
   }
 
-  function damageBeamTraces(profile: QuakeBeamFireProfile, start: Vec3, end: Vec3): boolean {
+  function damageBeamTraces(profile: QuakeBeamFireProfile, start: Vec3, end: Vec3, direction: Vec3): boolean {
     const offset = lightningDamageOffset(start, end, profile.damageTraceOffsetUnits);
     const offsets: Vec3[] = [
       [0, 0, 0],
@@ -1505,7 +1582,12 @@ export function createQuakeWeaponsController({
         continue;
       }
       damagedEntityIndexes.add(trace.entityIndex);
-      if (damageWeaponEntity(trace.entityIndex, profile.damage)) hit = true;
+      if (damageWeaponEntity(trace.entityIndex, profile.damage, {
+        direction,
+        fireKind: "beam",
+        origin: trace.end,
+        weapon: profile.weapon,
+      })) hit = true;
     }
     return hit;
   }
@@ -1531,11 +1613,29 @@ export function createQuakeWeaponsController({
     return traceWeaponRay(viewRayFromDirection(origin, normalizeVec3(delta), range));
   }
 
-  function damageWeaponEntity(entityIndex: number, amount: number): boolean {
+  function damageWeaponEntity(
+    entityIndex: number,
+    amount: number,
+    impact?: Omit<QuakeWeaponDamageImpactEvent, "damage" | "entityIndex" | "origin" | "targetKind"> & {
+      origin?: Vec3;
+    },
+  ): boolean {
     const damageAmount = scaledWeaponDamage(amount);
     for (const shootable of getShootables()) {
       if (shootable.dead || shootable.entity.index !== entityIndex) continue;
-      return damageShootable(entityIndex, damageAmount);
+      const damaged = damageShootable(entityIndex, damageAmount);
+      if (damaged && impact) {
+        onDamageImpact?.({
+          damage: damageAmount,
+          direction: [...impact.direction] as Vec3,
+          entityIndex,
+          fireKind: impact.fireKind,
+          origin: impact.origin ? [...impact.origin] as Vec3 : shootableImpactOrigin(shootable),
+          targetKind: "shootable",
+          weapon: impact.weapon,
+        });
+      }
+      return damaged;
     }
     const entity = getEntities().get(entityIndex);
     if (!entity) return false;
@@ -1543,6 +1643,15 @@ export function createQuakeWeaponsController({
       return damageBrushEntity(entity.index, damageAmount);
     }
     return false;
+  }
+
+  function shootableImpactOrigin(shootable: QuakeWeaponShootableTarget): Vec3 {
+    const { min, max } = shootable.bounds;
+    return [
+      (min[0] + max[0]) * 0.5,
+      (min[1] + max[1]) * 0.5,
+      (min[2] + max[2]) * 0.5,
+    ];
   }
 
   function scaledWeaponDamage(amount: number): number {

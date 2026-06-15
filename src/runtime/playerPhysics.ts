@@ -11,6 +11,8 @@ export const QUAKE_PMOVE_SPEED_KEY_MULTIPLIER = 2;
 export const QUAKE_PMOVE_EDGE_DISTANCE = 16 * QUAKE_COLLISION_UNIT_SCALE;
 export const QUAKE_PMOVE_EDGE_DROP = 34 * QUAKE_COLLISION_UNIT_SCALE;
 export const QUAKE_PMOVE_EDGE_FRICTION = 2;
+export const QUAKE_PLAYER_FALL_LAND_SOUND_VELOCITY = 300 * QUAKE_COLLISION_UNIT_SCALE;
+export const QUAKE_PLAYER_FALL_DAMAGE_VELOCITY = 650 * QUAKE_COLLISION_UNIT_SCALE;
 
 const QUAKE_PMOVE_ACCELERATE = 10;
 const QUAKE_PMOVE_AIR_ACCELERATE = 10;
@@ -65,6 +67,11 @@ export function updateQuakePlayerPhysics(
 
   if (!grounded) velocity[2] -= gravity * dt;
   return grounded;
+}
+
+export function quakePlayerFallDamageFromVelocityZ(velocityZ: number): number {
+  // QuakeC PlayerPostThink only damages the hard land2 branch; the 300-650 band is sound-only.
+  return Number.isFinite(velocityZ) && velocityZ < -QUAKE_PLAYER_FALL_DAMAGE_VELOCITY ? 5 : 0;
 }
 
 function applyQuakeFriction(velocity: Vec3, dt: number, frictionScale: number): void {

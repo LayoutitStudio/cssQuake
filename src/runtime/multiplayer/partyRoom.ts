@@ -685,7 +685,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
           victimPlayerId: playerId,
           damage: hazard.damage,
           source: hazard.kind,
-          eventId: `liquid-${hazard.kind}-${playerId}-${hazard.damagedAt}`,
+          eventId: `hazard-${hazard.kind}-${playerId}-${hazard.damagedAt}`,
         });
       }
       advanced = true;

@@ -38,9 +38,7 @@ export function createQuakePointerTracer(options: QuakePointerTracerOptions): Qu
     traceWindow.__cssQuakePointerTraceClear = () => {
       serial = 0;
       traceWindow.__cssQuakePointerTrace = [];
-      syncTraceDom([]);
     };
-    syncTraceDom(traceWindow.__cssQuakePointerTrace);
     return traceWindow;
   }
 
@@ -62,25 +60,12 @@ export function createQuakePointerTracer(options: QuakePointerTracerOptions): Qu
       traceEntries.splice(0, traceEntries.length - QUAKE_POINTER_TRACE_LIMIT);
     }
     traceWindow.__cssQuakePointerTrace = traceEntries;
-    syncTraceDom(traceEntries);
     if (options.logToConsole()) {
       console.debug(`cssquake:pointer ${JSON.stringify(entry)}`);
     }
   }
 
   return { syncAccessors, trace };
-}
-
-function syncTraceDom(trace: readonly QuakePointerTraceEntry[]): void {
-  let element = document.getElementById("quake-pointer-trace-dump") as HTMLScriptElement | null;
-  if (!element) {
-    element = document.createElement("script");
-    element.id = "quake-pointer-trace-dump";
-    element.type = "application/json";
-    document.body.appendChild(element);
-  }
-  element.dataset.count = String(trace.length);
-  element.textContent = JSON.stringify(trace);
 }
 
 export function quakePointerEventTargetLabel(target: EventTarget | null): string | null {
