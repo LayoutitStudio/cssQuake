@@ -247,13 +247,13 @@ body.quake-menu-open #quake-hud {
   border-radius: 1px;
 }
 .quake-impact-particle-dust-a {
-  background: #666666;
+  background: #444444;
 }
 .quake-impact-particle-dust-b {
-  background: #666666;
+  background: #444444;
 }
 .quake-impact-particle-dust-c {
-  background: #666666;
+  background: #444444;
 }
 body.quake-loading #quake-damage-overlay,
 body.quake-loading #quake-bonus-overlay,
