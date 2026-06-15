@@ -2263,8 +2263,7 @@ body.quake-debug-outlines #quake-debug-outline-legend {
   visibility: visible;
 }
 .polycss-mesh.shootable.quake-shootable-prewarmed {
-  visibility: visible;
-  opacity: 0.001;
+  visibility: hidden;
   pointer-events: none;
   transition: none;
 }

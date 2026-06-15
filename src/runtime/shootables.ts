@@ -2203,8 +2203,7 @@ export function createQuakeShootablesController({
     if (!shootable.enemy) return true;
     if (canKeepEngagedEnemyPrewarmed(shootable, playerOrigin)) return true;
     if (shootable.visible || shootable.dead || !visibleLeaf) return false;
-    if (!isShootableInFrontOfCameraNearPlane(shootable, playerOrigin)) return false;
-    return shootableHasPlayerViewTargetAtDot(shootable, playerOrigin, QUAKE_SHOOTABLE_ENEMY_PREWARM_VIEW_DOT_MIN);
+    return true;
   }
 
   function canKeepEngagedEnemyPrewarmed(shootable: QuakeShootableState, playerOrigin: Vec3): boolean {
