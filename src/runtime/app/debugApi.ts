@@ -93,10 +93,26 @@ function createQuakeAppDebugRuntime({
     debugRecorder,
     enemyAcquisition: (entityIndex, playerSourceOrigin, monsterYaw) =>
       runtime.controllers.shootables.debugEnemyAcquisition(entityIndex, playerSourceOrigin, { monsterYaw }),
+    enemyForceAttack: (entityIndex, targetOrigin) =>
+      runtime.controllers.shootables.debugForceEnemyAttack(
+        entityIndex,
+        targetOrigin
+          ? pointToPoly({ x: targetOrigin[0], y: targetOrigin[1], z: targetOrigin[2] })
+          : undefined,
+      ),
+    enemyForceAttackChain: (entityIndex, chain, targetOrigin) =>
+      runtime.controllers.shootables.debugForceEnemyAttackChain(
+        entityIndex,
+        chain,
+        targetOrigin
+          ? pointToPoly({ x: targetOrigin[0], y: targetOrigin[1], z: targetOrigin[2] })
+          : undefined,
+      ),
     enemyProjectileTraceCapture: () => runtime.controllers.shootables.debugEnemyProjectileCapture(),
     enemyProjectileTraceClear: () => runtime.controllers.shootables.debugClearEnemyProjectileCapture(),
     enemyProjectileTraceEnabled: (enabled) =>
       runtime.controllers.shootables.debugSetEnemyProjectileCaptureEnabled(enabled),
+    enemyProjectileTraceStep: (dtMs) => runtime.controllers.shootables.debugStepEnemyProjectiles(dtMs),
     entities: runtime.session.entities,
     fireWeapon: () => runtime.controllers.weapons.fire(),
     fireWeaponDebug: (options) => runtime.controllers.weapons.debugFireProjectile(options),
