@@ -391,7 +391,10 @@ const QUAKE_MONSTER_SIGHT_ENTITY_WINDOW_SECONDS = 0.1;
 const QUAKE_MONSTER_AMBUSH_OR_ZOMBIE_CRUCIFIED_FLAGS = 3;
 const QUAKE_MONSTER_JUMP_GRAVITY = 800 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MONSTER_DEATH_OUTPUT_CLASS = "quake-monster-death-output";
-const QUAKE_MONSTER_DEATH_OUTPUT_LIFETIME_MS = 4000;
+const QUAKE_MONSTER_DEATH_OUTPUT_ARC_MAX_ACTIVE = 24;
+const QUAKE_MONSTER_DEATH_OUTPUT_ARC_MAX_MS = 900;
+const QUAKE_MONSTER_DEATH_OUTPUT_ARC_DT_CLAMP = 0.05;
+const QUAKE_MONSTER_DEATH_OUTPUT_ARC_GRAVITY = 800 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MONSTER_PATH_CORNER_HALF_EXTENT = 8 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MONSTER_PATH_TOUCH_RADIUS = 24 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_CONTENTS_SOLID = -2;
@@ -508,6 +511,8 @@ export function createQuakeShootablesController({
   let shootables = createQuakeShootableStateMap();
   let deathTimers: number[] = [];
   let deathOutputHandles: QuakeMonsterDeathOutputVisualHandle[] = [];
+  let deathOutputAnimationFrame: number | null = null;
+  const activeDeathOutputAnimations = new Set<QuakeMonsterDeathOutputVisualHandle>();
   let destroyedEntityIndexes = new Set<number>();
   let currentModelLibrary: QuakePickupModelLibrary | null = null;
   let monsterPathCornersByTargetname = new Map<string, QuakeMonsterPathCorner>();
@@ -751,8 +756,12 @@ export function createQuakeShootablesController({
   }
 
   function clearDeathOutputHandles(): void {
+    if (deathOutputAnimationFrame !== null) {
+      window.cancelAnimationFrame(deathOutputAnimationFrame);
+      deathOutputAnimationFrame = null;
+    }
+    activeDeathOutputAnimations.clear();
     for (const output of deathOutputHandles) {
-      window.clearTimeout(output.timer);
       output.handle.remove();
     }
     visibilityChurn.totalMeshHandlesRemoved += deathOutputHandles.length;
@@ -3805,7 +3814,7 @@ export function createQuakeShootablesController({
           ...gib.gibModelPaths.map((path) => ({ kind: "gib", path })),
         ];
     const count = Math.max(1, pieces.length);
-    const floorZ = shootable.origin[2] + shootable.bounds.min[2];
+    const floorZ = shootable.origin[2] + shootable.collisionBounds.min[2];
     for (const [index, item] of pieces.entries()) {
       const model = currentModelLibrary.models[item.path];
       if (!model) continue;
@@ -3816,20 +3825,18 @@ export function createQuakeShootablesController({
         shootable.origin[1] + Math.sin(angle) * radius,
         floorZ - model.bounds.min[2],
       ];
-      const handle = addMonsterDeathOutputMesh(shootable, model, origin, shootable.yaw + index * 37, item.kind);
+      const yaw = shootable.yaw + index * 37;
+      const handle = addMonsterDeathOutputMesh(shootable, model, origin, yaw, item.kind);
       if (!handle) continue;
-      const output: QuakeMonsterDeathOutputVisualHandle = {
-        handle,
-        timer: 0,
-      };
-      const timer = window.setTimeout(() => {
-        output.handle.remove();
-        visibilityChurn.totalMeshHandlesRemoved++;
-        deathOutputHandles = deathOutputHandles.filter((entry) => entry !== output);
-      }, QUAKE_MONSTER_DEATH_OUTPUT_LIFETIME_MS);
-      output.timer = timer;
+      const output: QuakeMonsterDeathOutputVisualHandle = { handle };
+      const animation = monsterDeathOutputArcAnimation(model, origin, angle, index, item.kind, yaw);
+      if (animation && activeDeathOutputAnimations.size < QUAKE_MONSTER_DEATH_OUTPUT_ARC_MAX_ACTIVE) {
+        output.animation = animation;
+        activeDeathOutputAnimations.add(output);
+      }
       deathOutputHandles.push(output);
     }
+    scheduleDeathOutputAnimationFrame();
   }
 
   function addMonsterDeathOutputMesh(
@@ -3856,6 +3863,72 @@ export function createQuakeShootablesController({
       scale: model.renderScale ? 1 / model.renderScale : 1,
     });
     return handle;
+  }
+
+  function monsterDeathOutputArcAnimation(
+    model: QuakePickupModel,
+    origin: Vec3,
+    angle: number,
+    index: number,
+    kind: string,
+    yaw: number,
+  ): NonNullable<QuakeMonsterDeathOutputVisualHandle["animation"]> | null {
+    if (typeof window.requestAnimationFrame !== "function") return null;
+    const horizontalSpeed = (kind === "head" ? 70 : 95 + (index % 3) * 18) * QUAKE_COLLISION_UNIT_SCALE;
+    const verticalSpeed = (kind === "head" ? 190 : 150 + (index % 2) * 35) * QUAKE_COLLISION_UNIT_SCALE;
+    return {
+      elapsedMs: 0,
+      lastAt: 0,
+      landingZ: origin[2],
+      position: [...origin] as Vec3,
+      renderYaw: normalizeShootableYaw(yaw, true),
+      scale: model.renderScale ? 1 / model.renderScale : 1,
+      velocity: [
+        Math.cos(angle) * horizontalSpeed,
+        Math.sin(angle) * horizontalSpeed,
+        verticalSpeed,
+      ],
+    };
+  }
+
+  function scheduleDeathOutputAnimationFrame(): void {
+    if (deathOutputAnimationFrame !== null || activeDeathOutputAnimations.size === 0) return;
+    deathOutputAnimationFrame = window.requestAnimationFrame(tickDeathOutputAnimations);
+  }
+
+  function tickDeathOutputAnimations(frameNow: number): void {
+    deathOutputAnimationFrame = null;
+    const now = Number.isFinite(frameNow) ? frameNow : performance.now();
+    for (const output of [...activeDeathOutputAnimations]) {
+      const animation = output.animation;
+      if (!animation) {
+        activeDeathOutputAnimations.delete(output);
+        continue;
+      }
+      const dt = Math.min(
+        QUAKE_MONSTER_DEATH_OUTPUT_ARC_DT_CLAMP,
+        animation.lastAt ? Math.max(0, (now - animation.lastAt) / 1000) : 0.0167,
+      );
+      animation.lastAt = now;
+      animation.elapsedMs += dt * 1000;
+      animation.velocity[2] -= QUAKE_MONSTER_DEATH_OUTPUT_ARC_GRAVITY * dt;
+      animation.position = [
+        animation.position[0] + animation.velocity[0] * dt,
+        animation.position[1] + animation.velocity[1] * dt,
+        animation.position[2] + animation.velocity[2] * dt,
+      ];
+      if (animation.position[2] <= animation.landingZ || animation.elapsedMs >= QUAKE_MONSTER_DEATH_OUTPUT_ARC_MAX_MS) {
+        animation.position = [animation.position[0], animation.position[1], animation.landingZ];
+        activeDeathOutputAnimations.delete(output);
+        delete output.animation;
+      }
+      output.handle.setTransform({
+        position: animation.position,
+        rotation: [0, 0, animation.renderYaw],
+        scale: animation.scale,
+      });
+    }
+    scheduleDeathOutputAnimationFrame();
   }
 
   function isPersistentShootableCorpse(shootable: QuakeShootableState): boolean {
