@@ -31,6 +31,8 @@ export interface QuakeAppDomElements {
   alwaysRunOption: HTMLInputElement | null;
   showGunOption: HTMLInputElement | null;
   dynamicLightingOption: HTMLInputElement | null;
+  impactParticlesOption: HTMLInputElement | null;
+  impactParticlesLayer: HTMLElement | null;
   crosshair: HTMLElement | null;
   crosshairOption: HTMLButtonElement | null;
   crosshairOptionValue: HTMLElement | null;
@@ -99,6 +101,8 @@ export function queryQuakeAppDom(): QuakeAppDomElements {
     alwaysRunOption: quakeElement("quake-option-always-run"),
     showGunOption: quakeElement("quake-option-show-gun"),
     dynamicLightingOption: quakeElement("quake-option-dynamic-lighting"),
+    impactParticlesOption: quakeElement("quake-option-impact-particles"),
+    impactParticlesLayer: quakeElement("quake-impact-particles"),
     crosshair: quakeElement("quake-crosshair"),
     crosshairOption: quakeElement("quake-option-crosshair"),
     crosshairOptionValue: quakeElement("quake-option-crosshair-value"),

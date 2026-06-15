@@ -24,12 +24,14 @@ export interface QuakeOptionsFlowOptions {
   disableEnemiesOption: HTMLInputElement | null;
   disableSoundOption: HTMLInputElement | null;
   dynamicLightingOption: HTMLInputElement | null;
+  impactParticlesOption: HTMLInputElement | null;
   invertMouseOption: HTMLInputElement | null;
   showGunOption: HTMLInputElement | null;
   audioMuted(): boolean;
   damageDisabled(): boolean;
   dynamicLightingEnabled(): boolean;
   enemiesDisabled(): boolean;
+  impactParticlesEnabled(): boolean;
   invertMouse(): boolean;
   alwaysRun(): boolean;
   showGun(): boolean;
@@ -40,6 +42,7 @@ export interface QuakeOptionsFlowOptions {
   setDamageDisabled(disabled: boolean): void;
   setDynamicLighting(enabled: boolean): void;
   setEnemiesDisabled(disabled: boolean): void;
+  setImpactParticles(enabled: boolean): void;
   setInvertMouse(invert: boolean): void;
   setShowGun(enabled: boolean): void;
   setStaticLightingClass(enabled: boolean): void;
@@ -55,6 +58,7 @@ export interface QuakeOptionsFlow {
   syncAudioToggle(): void;
   syncControls(): void;
   syncDynamicLightingOption(): void;
+  syncImpactParticlesOption(): void;
 }
 
 export function createQuakeOptionsFlow(options: QuakeOptionsFlowOptions): QuakeOptionsFlow {
@@ -68,6 +72,10 @@ export function createQuakeOptionsFlow(options: QuakeOptionsFlowOptions): QuakeO
     const enabled = options.dynamicLightingEnabled();
     if (options.dynamicLightingOption) options.dynamicLightingOption.checked = enabled;
     options.setStaticLightingClass(!enabled);
+  }
+
+  function syncImpactParticlesOption(): void {
+    if (options.impactParticlesOption) options.impactParticlesOption.checked = options.impactParticlesEnabled();
   }
 
   function setCrosshairOption(value: QuakeCrosshairOption): void {
@@ -104,6 +112,7 @@ export function createQuakeOptionsFlow(options: QuakeOptionsFlowOptions): QuakeO
     options.syncDebugControls();
     options.syncDebugFlyMode();
     syncDynamicLightingOption();
+    syncImpactParticlesOption();
     if (options.invertMouseOption) options.invertMouseOption.checked = options.invertMouse();
     if (options.alwaysRunOption) options.alwaysRunOption.checked = options.alwaysRun();
     if (options.showGunOption) options.showGunOption.checked = options.showGun();
@@ -125,6 +134,10 @@ export function createQuakeOptionsFlow(options: QuakeOptionsFlowOptions): QuakeO
 
   function handleDynamicLightingOptionChange(event: Event): void {
     options.setDynamicLighting((event.currentTarget as HTMLInputElement).checked);
+  }
+
+  function handleImpactParticlesOptionChange(event: Event): void {
+    options.setImpactParticles((event.currentTarget as HTMLInputElement).checked);
   }
 
   function handleAlwaysRunOptionChange(event: Event): void {
@@ -155,6 +168,7 @@ export function createQuakeOptionsFlow(options: QuakeOptionsFlowOptions): QuakeO
     options.disableEnemiesOption?.addEventListener("change", handleDisableEnemiesOptionChange);
     options.disableDamageOption?.addEventListener("change", handleDisableDamageOptionChange);
     options.dynamicLightingOption?.addEventListener("change", handleDynamicLightingOptionChange);
+    options.impactParticlesOption?.addEventListener("change", handleImpactParticlesOptionChange);
     options.alwaysRunOption?.addEventListener("change", handleAlwaysRunOptionChange);
     options.showGunOption?.addEventListener("change", handleShowGunOptionChange);
     options.crosshairOption?.addEventListener("click", handleCrosshairOptionClick);
@@ -167,6 +181,7 @@ export function createQuakeOptionsFlow(options: QuakeOptionsFlowOptions): QuakeO
     options.disableEnemiesOption?.removeEventListener("change", handleDisableEnemiesOptionChange);
     options.disableDamageOption?.removeEventListener("change", handleDisableDamageOptionChange);
     options.dynamicLightingOption?.removeEventListener("change", handleDynamicLightingOptionChange);
+    options.impactParticlesOption?.removeEventListener("change", handleImpactParticlesOptionChange);
     options.alwaysRunOption?.removeEventListener("change", handleAlwaysRunOptionChange);
     options.showGunOption?.removeEventListener("change", handleShowGunOptionChange);
     options.crosshairOption?.removeEventListener("click", handleCrosshairOptionClick);
@@ -182,6 +197,7 @@ export function createQuakeOptionsFlow(options: QuakeOptionsFlowOptions): QuakeO
     syncAudioToggle,
     syncControls,
     syncDynamicLightingOption,
+    syncImpactParticlesOption,
   };
 }
 

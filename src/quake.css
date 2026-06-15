@@ -194,6 +194,51 @@ body.quake-menu-open #quake-hud {
   mix-blend-mode: screen;
   transition: opacity 420ms linear;
 }
+#quake-impact-particles {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  contain: layout paint style;
+}
+.quake-impact-particle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(0, 0, 0) scale(1);
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+.quake-impact-particle-red-a {
+  background: #ff0000;
+}
+.quake-impact-particle-red-b {
+  background: #ff0000;
+}
+.quake-impact-particle-red-c {
+  background: #ff0000;
+}
+.quake-impact-particle-dust-a,
+.quake-impact-particle-dust-b,
+.quake-impact-particle-dust-c {
+  border-radius: 1px;
+}
+.quake-impact-particle-dust-a {
+  background: #666666;
+}
+.quake-impact-particle-dust-b {
+  background: #666666;
+}
+.quake-impact-particle-dust-c {
+  background: #666666;
+}
 #quake-damage-overlay.quake-damage-overlay-active {
   opacity: 1;
   transition-duration: 0ms;
@@ -204,8 +249,13 @@ body.quake-menu-open #quake-hud {
 }
 body.quake-loading #quake-damage-overlay,
 body.quake-loading #quake-bonus-overlay,
+body.quake-loading #quake-impact-particles,
 body.quake-menu-open #quake-damage-overlay,
-body.quake-menu-open #quake-bonus-overlay {
+body.quake-menu-open #quake-bonus-overlay,
+body.quake-menu-open #quake-impact-particles,
+body.quake-dead #quake-impact-particles,
+body.quake-level-complete #quake-impact-particles,
+body.quake-ui-unlocked #quake-impact-particles {
   opacity: 0;
   transition: none;
 }

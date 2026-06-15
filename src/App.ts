@@ -87,6 +87,10 @@ import {
 } from "./runtime/app/levelStatsFlow";
 import { createQuakeAppInputController } from "./runtime/app/input";
 import { createQuakeGameplayInputFlow } from "./runtime/app/gameplayInputFlow";
+import {
+  createQuakeImpactParticleFlow,
+  type QuakeImpactParticleFlow,
+} from "./runtime/app/impactParticleFlow";
 import { createQuakeDamageableBrushFlow } from "./runtime/app/damageableBrushFlow";
 import { createQuakePowerupFlow } from "./runtime/app/powerupFlow";
 import { createQuakeRouteFlow, type QuakeCssView } from "./runtime/app/routeFlow";
@@ -194,6 +198,7 @@ import {
   createQuakeWeaponsController,
   type QuakeWeaponFireEvent,
   type QuakeWeaponFireSoundId,
+  type QuakeWeaponWallImpactEffect,
 } from "./runtime/weapons";
 import {
   createQuakeWorldController,
@@ -264,6 +269,8 @@ const {
   alwaysRunOption,
   showGunOption,
   dynamicLightingOption,
+  impactParticlesOption,
+  impactParticlesLayer,
   crosshair,
   crosshairOption,
   crosshairOptionValue,
@@ -808,6 +815,7 @@ let quakeInvertMouse = invertMouseOption?.checked ?? false;
 let quakeAlwaysRun = alwaysRunOption?.checked ?? false;
 let quakeShowGun = showGunOption?.checked ?? true;
 let quakeDynamicLighting = dynamicLightingOption?.checked ?? true;
+let quakeImpactParticles = impactParticlesOption?.checked ?? true;
 
 function quakeUrlRouteFromLocation(): QuakeUrlRoute {
   return quakeRoute.routeFromLocation();
@@ -1596,6 +1604,19 @@ const quakeViewmodelAssets = createQuakeViewmodelAssetFlow({
   trace: markQuakeTrace,
   viewmodel,
 });
+const quakeImpactParticleFlow: QuakeImpactParticleFlow = impactParticlesLayer
+  ? createQuakeImpactParticleFlow({
+      canShow: canShowQuakeImpactParticles,
+      isGameplayPaused: isQuakeGamePaused,
+      layer: impactParticlesLayer,
+      viewOrigin: () => controls.getOrigin(),
+      viewRotation: () => ({
+        rotX: scene.camera.state.rotX ?? 90,
+        rotY: scene.camera.state.rotY ?? 270,
+      }),
+    })
+  : createNoopQuakeImpactParticleFlow();
+quakeImpactParticleFlow.setEnabled(quakeImpactParticles);
 const quakeOptions = createQuakeOptionsFlow({
   alwaysRun: () => quakeAlwaysRun,
   alwaysRunOption,
@@ -1610,6 +1631,8 @@ const quakeOptions = createQuakeOptionsFlow({
   dynamicLightingEnabled: () => quakeDynamicLighting,
   dynamicLightingOption,
   enemiesDisabled: () => quakeEnemiesDisabled,
+  impactParticlesEnabled: () => quakeImpactParticles,
+  impactParticlesOption,
   invertMouse: () => quakeInvertMouse,
   invertMouseOption,
   mountBitmapText: mountQuakeBitmapText,
@@ -1618,6 +1641,7 @@ const quakeOptions = createQuakeOptionsFlow({
   setDamageDisabled: setQuakeDamageDisabled,
   setDynamicLighting: setQuakeDynamicLighting,
   setEnemiesDisabled: setQuakeEnemiesDisabled,
+  setImpactParticles: setQuakeImpactParticles,
   setInvertMouse: setQuakeInvertMouse,
   setShowGun: setQuakeShowGun,
   setStaticLightingClass: (staticLighting) => setQuakeBodyClass("quake-static-lighting", staticLighting),
@@ -1828,8 +1852,21 @@ const weapons = createQuakeWeaponsController({
   damagePlayer: (amount, context) => getPlayer().damage(amount, context),
   canDamageTargetOrigin: (start, targetOrigin) => shootables.canDamageTargetOrigin(start, targetOrigin),
   damageMultiplier: () => quakePowerups.damageMultiplier(),
+  onDamageImpact: (event) => {
+    quakeImpactParticleFlow.spawnBlood({
+      damage: event.damage,
+      directionHint: event.direction,
+      origin: event.origin,
+    });
+  },
   onFire: sendQuakeMultiplayerFireIntent,
   onHit: () => quakeWeaponPresentation.flashCrosshairHit(),
+  onWallImpact: (event) => {
+    quakeImpactParticleFlow.spawnWallImpact({
+      count: quakeWallImpactParticleCount(event.effect),
+      origin: event.origin,
+    });
+  },
   showLightningBeam: (beam) => quakeWeaponPresentation.showLightningBeam(beam),
   syncCrosshairTarget: queueQuakeCrosshairTargetSync,
 });
@@ -2383,10 +2420,43 @@ function setQuakeDynamicLighting(enabled: boolean): void {
   quakeOptions.syncDynamicLightingOption();
 }
 
+function setQuakeImpactParticles(enabled: boolean): void {
+  quakeImpactParticles = enabled;
+  quakeImpactParticleFlow.setEnabled(enabled);
+  quakeOptions.syncImpactParticlesOption();
+}
+
 function setQuakeShowGun(enabled: boolean): void {
   quakeShowGun = enabled;
   viewmodel.setVisible(enabled);
   quakeOptions.syncControls();
+}
+
+function canShowQuakeImpactParticles(): boolean {
+  return (
+    !quakeAppLoading &&
+    currentResult !== null &&
+    !quakePlayerDead &&
+    !hasQuakeBodyClass("quake-level-complete") &&
+    !hasQuakeBodyClass("quake-ui-unlocked") &&
+    !menu.isMainMenuOpen() &&
+    !menu.isMenuPanelOpen()
+  );
+}
+
+function createNoopQuakeImpactParticleFlow(): QuakeImpactParticleFlow {
+  return {
+    clear: () => undefined,
+    dispose: () => undefined,
+    setEnabled: () => undefined,
+    spawnBlood: () => undefined,
+    spawnWallImpact: () => undefined,
+  };
+}
+
+function quakeWallImpactParticleCount(effect: QuakeWeaponWallImpactEffect): number {
+  if (effect === "spike") return 2;
+  return 3;
 }
 
 function setQuakeDebugShowMenuOption(visible: boolean): void {
@@ -4251,6 +4321,7 @@ function disposeQuakeApp(): void {
   quakePointerGameplay.clearAttackInput();
   quakeDebugFly.dispose();
   quakeCameraFeedback.dispose();
+  quakeImpactParticleFlow.dispose();
   quakeHudFlow.dispose();
   quakeCrosshairInteraction?.dispose();
   quakeOptions.dispose();
