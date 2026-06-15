@@ -1214,7 +1214,6 @@ const scene = createPolyScene(quakeApp, {
   textureLighting: "baked",
   textureQuality: 1,
   textureLeafSizing: "raster",
-  textureImageRendering: "pixelated",
   textureBackend: "atlas",
   textureProjection: "affine",
   autoCenter: false,
