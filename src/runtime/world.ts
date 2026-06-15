@@ -22,7 +22,9 @@ import {
 } from "./debug/churnStats";
 import { markQuakeTrace } from "./debug/traceMarks";
 import {
+  exposeQuakeRenderBundleAtlasPages,
   mountQuakeRenderBundleMesh,
+  preloadQuakeRenderBundleAtlasPages,
   registerQuakeRenderBundleDebugOutlineLeaves,
   stripPolyMeshMetadata,
   syncQuakeRenderBundleDebugOutlineLeaves,
@@ -141,6 +143,7 @@ export interface QuakeWorldController {
   mount: (result: QuakeScene) => void;
   pixelate: (handle?: PolyMeshHandle | null) => void;
   schedulePresentationResync: (handle?: PolyMeshHandle | null) => Promise<void>;
+  syncVisibilityAt: (origin: [number, number, number], force?: boolean) => void;
   syncVisibility: (force?: boolean) => void;
   visibleLeavesAt: (origin: [number, number, number]) => Set<number> | null;
 }
@@ -179,6 +182,7 @@ interface QuakePresentationResyncTask {
 
 export function createQuakeWorldController(options: QuakeWorldControllerOptions): QuakeWorldController {
   let currentHandle: PolyMeshHandle | null = null;
+  let currentRenderBundle: QuakePreparedRenderBundle | null = null;
   let currentLightstyleOverlayHandle: PolyMeshHandle | null = null;
   let currentVisibility: QuakeVisibility | null = null;
   let faceLeaves = new Map<number, QuakeFaceLeaf[]>();
@@ -204,6 +208,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     currentHandle?.remove();
     currentLightstyleOverlayHandle?.remove();
     currentHandle = null;
+    currentRenderBundle = null;
     currentLightstyleOverlayHandle = null;
     currentVisibility = null;
     faceLeaves = new Map();
@@ -289,15 +294,19 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
   };
 
   const syncVisibility = (force = false): void => {
+    syncVisibilityAt(options.getOrigin(), force);
+  };
+
+  const syncVisibilityAt = (origin: [number, number, number], force = false): void => {
     const startedAt = performance.now();
     if (!currentHandle) {
       recordQuakeWorldVisibilitySync(visibilityChurn, "no-handle", startedAt, { force });
       return;
     }
-    const origin = options.getOrigin();
     options.syncPickupsVisibility(origin);
     const nextLeafIndexValue = currentVisibility?.leafIndexAt(origin);
     const nextLeafIndex = Number.isInteger(nextLeafIndexValue) ? nextLeafIndexValue : null;
+    syncWorldAtlasResidencyPages(nextLeafIndex);
     const prevLeafIndex = visibleLeafIndex;
     const prevVisibleFaceKey = visibleFaceKey || null;
     const visibleFaceGroup = currentVisibility?.visibleFaceGroupAt(origin) ?? null;
@@ -1023,11 +1032,28 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
 
   const addQuakeRenderBundleMesh = (renderBundle: QuakePreparedRenderBundle): PolyMeshHandle => {
     const handle = mountQuakeRenderBundleMesh(options.sceneElement, renderBundle);
+    currentRenderBundle = renderBundle;
     const element = handle.element;
     stripQuakeWorldMeshMetadata(element);
     faceLeaves = indexQuakeFaceLeaves(handle, renderBundle, new Map(), true, "world");
     preloadQuakeButtonStateTextures();
     return handle;
+  };
+
+  const syncWorldAtlasResidencyPages = (leafIndex: number | null): void => {
+    const atlasResidency = currentRenderBundle?.atlasResidency;
+    if (!currentHandle || !currentRenderBundle || atlasResidency?.mode !== "pvs-pages") return;
+    const allPages = atlasResidency.pages.map((page) => page.index);
+    const currentPages = leafIndex === null
+      ? allPages
+      : atlasResidency.visibilityLeafPages[leafIndex] ?? [];
+    const prewarmPages = leafIndex === null
+      ? currentPages
+      : atlasResidency.visibilityLeafPrewarmPages[leafIndex] ?? currentPages;
+    const exposedPages = currentPages.length ? currentPages : allPages;
+    const warmPages = prewarmPages.length ? prewarmPages : exposedPages;
+    exposeQuakeRenderBundleAtlasPages(currentHandle.element, currentRenderBundle, exposedPages);
+    void preloadQuakeRenderBundleAtlasPages(currentRenderBundle, warmPages);
   };
 
   const addQuakeLightstyleRenderBundleMesh = (renderBundle: QuakePreparedRenderBundle): PolyMeshHandle => {
@@ -1167,6 +1193,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     mount,
     pixelate,
     schedulePresentationResync,
+    syncVisibilityAt,
     syncVisibility,
     visibleLeavesAt: (origin: [number, number, number]) => currentVisibility?.visibleLeavesAt(origin) ?? null,
   };

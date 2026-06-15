@@ -194,6 +194,7 @@ export function mountQuakeRenderBundleMesh(
     throw new Error("Quake render bundle did not contain a .polycss-mesh root.");
   }
   applyQuakeRenderBundleLeafFrameStyles(element, renderBundle);
+  removeQuakeRenderBundleAtlasResidencyRootVars(element, renderBundle);
   const leaves = element.querySelectorAll<HTMLElement>("b,i,s,u");
   const leafCount = leaves.length;
   if (leafCount !== renderBundle.leafCount) {
@@ -742,6 +743,43 @@ export async function preloadQuakeRenderBundleAssets(
   } finally {
     complete?.();
   }
+}
+
+export function exposeQuakeRenderBundleAtlasPages(
+  element: HTMLElement,
+  renderBundle: QuakePreparedRenderBundle,
+  pageIndexes: readonly number[],
+): number {
+  const pageByIndex = quakeRenderBundleAtlasResidencyPageMap(renderBundle);
+  if (!pageByIndex?.size || !pageIndexes.length) return 0;
+  const managedNames = new Set(renderBundleElementRootVarNames.get(element) ?? []);
+  let changed = 0;
+  for (const pageIndex of new Set(pageIndexes)) {
+    const page = pageByIndex.get(pageIndex);
+    if (!page?.url || !page.varName) continue;
+    const value = quakeRenderBundleCssUrl(page.url);
+    if (element.style.getPropertyValue(page.varName) !== value) {
+      element.style.setProperty(page.varName, value);
+      changed++;
+    }
+    managedNames.add(page.varName);
+  }
+  renderBundleElementRootVarNames.set(element, managedNames);
+  return changed;
+}
+
+export async function preloadQuakeRenderBundleAtlasPages(
+  renderBundle: QuakePreparedRenderBundle,
+  pageIndexes: readonly number[],
+): Promise<void> {
+  const pageByIndex = quakeRenderBundleAtlasResidencyPageMap(renderBundle);
+  if (!pageByIndex?.size || !pageIndexes.length) return;
+  const urls: string[] = [];
+  for (const pageIndex of new Set(pageIndexes)) {
+    const url = pageByIndex.get(pageIndex)?.url;
+    if (url) urls.push(url);
+  }
+  await preloadQuakeRenderBundleAssetUrls(urls);
 }
 
 export interface QuakeRenderBundleDebugOutlineOptions {
@@ -1602,6 +1640,34 @@ function syncQuakeRenderBundleRootVars(element: HTMLElement, renderBundle: Quake
     }
   }
   renderBundleElementRootVarNames.set(element, new Set(nextVars.keys()));
+}
+
+function removeQuakeRenderBundleAtlasResidencyRootVars(
+  element: HTMLElement,
+  renderBundle: QuakePreparedRenderBundle,
+): void {
+  const pages = renderBundle.atlasResidency?.pages;
+  if (renderBundle.atlasResidency?.mode !== "pvs-pages" || !pages?.length) return;
+  for (const page of pages) {
+    if (page.varName) element.style.removeProperty(page.varName);
+  }
+}
+
+function quakeRenderBundleAtlasResidencyPageMap(
+  renderBundle: QuakePreparedRenderBundle,
+): Map<number, { index: number; url: string; varName: string }> | null {
+  const pages = renderBundle.atlasResidency?.pages;
+  if (renderBundle.atlasResidency?.mode !== "pvs-pages" || !pages?.length) return null;
+  const pageByIndex = new Map<number, { index: number; url: string; varName: string }>();
+  for (const page of pages) {
+    if (!Number.isInteger(page.index) || !page.url || !page.varName) continue;
+    pageByIndex.set(page.index, {
+      index: page.index,
+      url: page.url,
+      varName: page.varName,
+    });
+  }
+  return pageByIndex;
 }
 
 function quakeRenderBundleRootVars(renderBundle: QuakePreparedRenderBundle): Map<string, string> {
