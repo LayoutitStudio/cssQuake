@@ -1,24 +1,7 @@
-import nipplejs from "nipplejs";
-
 import { markQuakeTrace } from "./debug/traceMarks";
 
 export const QUAKE_MOBILE_CONTROLS_QUERY =
   "(any-pointer: coarse) and (orientation: landscape), (max-width: 960px) and (orientation: landscape)";
-
-interface QuakeMobileMoveStickEvent {
-  data: {
-    raw?: {
-      position?: {
-        x: number;
-        y: number;
-      };
-    };
-    vector?: {
-      x: number;
-      y: number;
-    };
-  };
-}
 
 interface QuakeMobileControlsOptions {
   root: HTMLElement;
@@ -55,13 +38,17 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
   const media = window.matchMedia(QUAKE_MOBILE_CONTROLS_QUERY);
   let root: HTMLElement | null = null;
   let moveZone: HTMLElement | null = null;
+  let moveStick: HTMLElement | null = null;
+  let moveStickFront: HTMLElement | null = null;
   let lookZone: HTMLElement | null = null;
   let fireButton: HTMLButtonElement | null = null;
-  let moveStick: ReturnType<typeof nipplejs.create> | null = null;
   let moveFrame = 0;
   let moveTime = 0;
   let moveX = 0;
   let moveY = 0;
+  let movePointerId: number | null = null;
+  let moveStartedAt = 0;
+  let moveSampleCount = 0;
   let lookPointerId: number | null = null;
   let lookLastX = 0;
   let lookLastY = 0;
@@ -113,6 +100,14 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
 
     const nextMoveZone = document.createElement("div");
     nextMoveZone.id = "quake-mobile-move-zone";
+    const nextMoveStick = document.createElement("div");
+    nextMoveStick.className = "joystick";
+    const nextMoveStickBack = document.createElement("div");
+    nextMoveStickBack.className = "back";
+    const nextMoveStickFront = document.createElement("div");
+    nextMoveStickFront.className = "front";
+    nextMoveStick.append(nextMoveStickBack, nextMoveStickFront);
+    nextMoveZone.append(nextMoveStick);
 
     const nextFireButton = document.createElement("button");
     nextFireButton.id = "quake-mobile-fire";
@@ -125,23 +120,15 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
     root = controlsRoot;
     lookZone = nextLookZone;
     moveZone = nextMoveZone;
+    moveStick = nextMoveStick;
+    moveStickFront = nextMoveStickFront;
     fireButton = nextFireButton;
-    moveStick = nipplejs.create({
-      zone: nextMoveZone,
-      mode: "static",
-      position: { left: "72px", top: "72px" },
-      size: 108,
-      threshold: options.moveDeadzone,
-      dynamicPage: true,
-      restOpacity: 0.58,
-      fadeTime: 80,
-      color: {
-        front: "rgba(245, 232, 200, 0.18)",
-        back: "rgba(10, 9, 7, 0.34)",
-      },
-    });
-    moveStick.on("move", handleMoveStickMove);
-    moveStick.on("end", () => clearMoveInput("end"));
+    syncMoveStickVisual(0, 0, false);
+    nextMoveZone.addEventListener("pointerdown", handleMovePointerDown);
+    nextMoveZone.addEventListener("pointermove", handleMovePointerMove);
+    nextMoveZone.addEventListener("pointerup", handleMovePointerEnd);
+    nextMoveZone.addEventListener("pointercancel", handleMovePointerEnd);
+    nextMoveZone.addEventListener("lostpointercapture", handleMovePointerEnd);
     nextLookZone.addEventListener("pointerdown", handleLookPointerDown);
     nextLookZone.addEventListener("pointermove", handleLookPointerMove);
     nextLookZone.addEventListener("pointerup", handleLookPointerEnd);
@@ -156,8 +143,11 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
   function destroy(): void {
     clearLookInput();
     clearMoveInput();
-    moveStick?.destroy();
-    moveStick = null;
+    moveZone?.removeEventListener("pointerdown", handleMovePointerDown);
+    moveZone?.removeEventListener("pointermove", handleMovePointerMove);
+    moveZone?.removeEventListener("pointerup", handleMovePointerEnd);
+    moveZone?.removeEventListener("pointercancel", handleMovePointerEnd);
+    moveZone?.removeEventListener("lostpointercapture", handleMovePointerEnd);
     lookZone?.removeEventListener("pointerdown", handleLookPointerDown);
     lookZone?.removeEventListener("pointermove", handleLookPointerMove);
     lookZone?.removeEventListener("pointerup", handleLookPointerEnd);
@@ -171,6 +161,8 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
     root = null;
     lookZone = null;
     moveZone = null;
+    moveStick = null;
+    moveStickFront = null;
     fireButton = null;
   }
 
@@ -267,29 +259,86 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
     lookStartedAt = 0;
   }
 
-  function handleMoveStickMove(event: QuakeMobileMoveStickEvent): void {
-    const zone = moveZone;
-    const rawPosition = event.data.raw?.position;
-    if (zone && rawPosition && Number.isFinite(rawPosition.x) && Number.isFinite(rawPosition.y)) {
-      const rect = zone.getBoundingClientRect();
-      const radius = Math.min(rect.width, rect.height) / 2;
-      if (radius > 0) {
-        const centerX = rect.left + window.scrollX + rect.width / 2;
-        const centerY = rect.top + window.scrollY + rect.height / 2;
-        setMoveInput((rawPosition.x - centerX) / radius, (centerY - rawPosition.y) / radius, "raw");
-        return;
-      }
-    }
-
-    const vector = event.data.vector;
-    if (!vector) {
-      clearMoveInput("missing-vector");
+  function handleMovePointerDown(event: PointerEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.button !== 0) {
+      markQuakeTrace("mobile-pointer-conflict", {
+        pointerId: event.pointerId,
+        reason: "move-button",
+        target: "move",
+      });
       return;
     }
-    setMoveInput(vector.x, vector.y, "vector");
+    if (movePointerId !== null) {
+      markQuakeTrace("mobile-pointer-conflict", {
+        pointerId: event.pointerId,
+        reason: "move-active",
+        target: "move",
+      });
+      return;
+    }
+    if (!options.canUseInput()) {
+      markQuakeTrace("mobile-pointer-conflict", {
+        pointerId: event.pointerId,
+        reason: "move-cannot-input",
+        target: "move",
+      });
+      return;
+    }
+    movePointerId = event.pointerId;
+    moveStartedAt = performance.now();
+    moveSampleCount = 0;
+    markQuakeTrace("mobile-move-start", {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    });
+    try {
+      moveZone?.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture can fail if the pointer ended during the same frame.
+    }
+    handleMovePointerPosition(event, "start");
   }
 
-  function setMoveInput(x: number, y: number, source: "raw" | "vector"): void {
+  function handleMovePointerMove(event: PointerEvent): void {
+    if (event.pointerId !== movePointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    handleMovePointerPosition(event, "move");
+  }
+
+  function handleMovePointerEnd(event: PointerEvent): void {
+    if (event.pointerId !== movePointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    clearMoveInput("end");
+  }
+
+  function handleMovePointerPosition(event: PointerEvent, phase: "start" | "move"): void {
+    if (!options.canUseInput()) {
+      clearMoveInput("cannot-input");
+      return;
+    }
+    const zone = moveZone;
+    if (!zone) {
+      clearMoveInput("missing-zone");
+      return;
+    }
+    const rect = zone.getBoundingClientRect();
+    const radius = Math.min(rect.width, rect.height) / 2;
+    if (radius <= 0) {
+      clearMoveInput("missing-radius");
+      return;
+    }
+    moveSampleCount++;
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    setMoveInput((event.clientX - centerX) / radius, (centerY - event.clientY) / radius, phase);
+  }
+
+  function setMoveInput(x: number, y: number, source: "start" | "move"): void {
     const length = Math.hypot(x, y);
     if (length < options.moveDeadzone) {
       markQuakeTrace("mobile-move-input", {
@@ -298,13 +347,15 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
         x,
         y,
       });
-      clearMoveInput("deadzone");
+      syncMoveStickVisual(0, 0, true);
+      clearMoveVector();
       return;
     }
     if (options.canUseInput()) options.onMoveIntent();
     const scale = length > 1 ? 1 / length : 1;
     moveX = x * scale;
     moveY = y * scale;
+    syncMoveStickVisual(moveX, moveY, true);
     const rect = moveZone?.getBoundingClientRect();
     markQuakeTrace("mobile-move-input", {
       length: Math.hypot(moveX, moveY),
@@ -322,13 +373,38 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
   }
 
   function clearMoveInput(reason = "end"): void {
+    const pointerId = movePointerId;
     if (moveX || moveY) {
       markQuakeTrace("mobile-move-clear", {
+        durationMs: moveStartedAt ? performance.now() - moveStartedAt : 0,
         lastX: moveX,
         lastY: moveY,
+        pointerId,
         reason,
+        sampleCount: moveSampleCount,
       });
     }
+    if (pointerId !== null && moveZone?.hasPointerCapture(pointerId)) {
+      try {
+        moveZone.releasePointerCapture(pointerId);
+      } catch {
+        // The browser may already have released capture on pointer cancellation.
+      }
+    }
+    movePointerId = null;
+    moveX = 0;
+    moveY = 0;
+    moveTime = 0;
+    moveStartedAt = 0;
+    moveSampleCount = 0;
+    syncMoveStickVisual(0, 0, false);
+    options.onAnalogMove(0, 0);
+    if (!moveFrame) return;
+    window.cancelAnimationFrame(moveFrame);
+    moveFrame = 0;
+  }
+
+  function clearMoveVector(): void {
     moveX = 0;
     moveY = 0;
     moveTime = 0;
@@ -350,12 +426,31 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
       moveTime = 0;
       return;
     }
-    if (options.canUseInput()) {
-      const dt = Math.min(options.moveDtClamp, moveTime ? (now - moveTime) / 1000 : 0.0167);
-      options.onMoveFrame(dt, moveX, moveY);
+    if (!options.canUseInput()) {
+      clearMoveInput("cannot-input");
+      return;
     }
+    const dt = Math.min(options.moveDtClamp, moveTime ? (now - moveTime) / 1000 : 0.0167);
+    options.onMoveFrame(dt, moveX, moveY);
     moveTime = now;
     scheduleMoveFrame();
+  }
+
+  function syncMoveStickVisual(x: number, y: number, active: boolean): void {
+    const stick = moveStick;
+    const front = moveStickFront;
+    if (!stick || !front) return;
+    const stickSize = 108;
+    const frontTravel = stickSize / 4;
+    stick.style.position = "absolute";
+    stick.style.display = "block";
+    stick.style.left = "72px";
+    stick.style.top = "72px";
+    stick.style.opacity = active ? "1" : "0.58";
+    stick.style.touchAction = "none";
+    stick.style.userSelect = "none";
+    stick.style.zIndex = "999";
+    front.style.transform = `translate(${x * frontTravel}px, ${-y * frontTravel}px)`;
   }
 
   function handleFirePointerDown(event: PointerEvent): void {

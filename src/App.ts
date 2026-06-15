@@ -165,6 +165,7 @@ import {
 } from "./runtime/multiplayer";
 import { createQuakeMenuController } from "./runtime/menu";
 import { createQuakeMoversController } from "./runtime/movers";
+import { requestQuakeLandscapeOnMobile } from "./runtime/orientation";
 import { createQuakeMonsterStateRunner } from "./runtime/quakeMonsterStateRunner";
 import {
   normalizeQuakeUrlAngle,
@@ -2629,6 +2630,14 @@ function respawnQuakePlayerFromDeath(): boolean {
 }
 
 async function startQuakeNewGame(): Promise<void> {
+  requestQuakeLandscapeOnMobile(quakeApp).then((result) => {
+    markQuakeTrace("landscape-lock-request", result);
+  }).catch((error: unknown) => {
+    markQuakeTrace("landscape-lock-request", {
+      reason: "unexpected-error",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  });
   await quakePlayerLifecycle.startNewGame();
 }
 
