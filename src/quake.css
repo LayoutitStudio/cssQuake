@@ -233,13 +233,13 @@ body.quake-menu-open #quake-hud {
   will-change: transform, opacity;
 }
 .quake-impact-particle-red-a {
-  background: #ff0000;
+  background: #8f1111;
 }
 .quake-impact-particle-red-b {
-  background: #ff0000;
+  background: #6f0b0b;
 }
 .quake-impact-particle-red-c {
-  background: #ff0000;
+  background: #a31812;
 }
 .quake-impact-particle-dust-a,
 .quake-impact-particle-dust-b,

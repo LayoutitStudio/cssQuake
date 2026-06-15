@@ -3467,7 +3467,9 @@ async function buildQuakeWeaponModel(assets, renderBundleBuilder, modelPath = QU
     if (isNozzle) {
       return {
         vertices,
-        color: quakeWeaponNozzleColor(vertices),
+        texture,
+        textureAlphaMode: "opaque",
+        uvs,
         data: { nozzle: true },
       };
     }
@@ -3494,14 +3496,6 @@ async function buildQuakeWeaponModel(assets, renderBundleBuilder, modelPath = QU
 
 function quakeWeaponRenderBundleName(modelPath) {
   return `w/${path.basename(modelPath, path.extname(modelPath)).toLowerCase().replace(/[^a-z0-9_-]+/g, "_")}`;
-}
-
-function quakeWeaponNozzleColor(vertices) {
-  const x = vertices.reduce((sum, vertex) => sum + vertex[0], 0) / vertices.length;
-  if (x > 4.3) return "#fff4bf";
-  if (x > 4.1) return "#ffd02a";
-  if (x > 3.8) return "#ff6a13";
-  return "#d71916";
 }
 
 function anchorQuakeWeaponPolygons(polygons) {
