@@ -247,13 +247,13 @@ body.quake-menu-open #quake-hud {
   border-radius: 1px;
 }
 .quake-impact-particle-dust-a {
-  background: #666666;
+  background: #444444;
 }
 .quake-impact-particle-dust-b {
-  background: #666666;
+  background: #444444;
 }
 .quake-impact-particle-dust-c {
-  background: #666666;
+  background: #444444;
 }
 body.quake-loading #quake-damage-overlay,
 body.quake-loading #quake-bonus-overlay,
@@ -428,7 +428,13 @@ body.quake-menu-open .quake-css-logo {
   image-rendering: pixelated;
   pointer-events: auto;
   user-select: none;
-  cursor: progress;
+  cursor: wait;
+}
+body.quake-loading,
+body.quake-loading *,
+.quake-menu-panel[aria-busy="true"],
+.quake-menu-panel[aria-busy="true"] * {
+  cursor: wait !important;
 }
 body.quake-loading .dn-stats-overlay {
   display: none !important;
@@ -877,7 +883,6 @@ body.quake-main-menu-pending #quake-main-menu {
   --quake-main-menu-cursor-gap: 0.625cqw;
   --quake-main-menu-list-top: 10cqw;
   --quake-menu-offset-y: 13.5%;
-  --quake-menu-asset-filter: brightness(1.49) saturate(0.95) contrast(0.94);
   position: relative;
   display: grid;
   justify-items: center;
@@ -885,7 +890,6 @@ body.quake-main-menu-pending #quake-main-menu {
   width: min(860px, calc(100vw - 64px), calc(150dvh - 52px));
   aspect-ratio: 320 / 200;
   image-rendering: pixelated;
-  filter: var(--quake-menu-asset-filter);
   transform: translateY(var(--quake-menu-offset-y));
   container-type: inline-size;
 }
@@ -945,12 +949,13 @@ body.quake-main-menu-pending #quake-main-menu {
 .quake-main-menu-item {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   width: fit-content;
   min-height: var(--quake-main-menu-row-height);
 }
 .quake-main-menu-item-selectable {
+  cursor: pointer;
   pointer-events: auto;
 }
 .quake-main-menu-item[data-quake-main-menu-action="level-select"] {
@@ -983,16 +988,12 @@ body.quake-main-menu-pending #quake-main-menu {
 #quake-main-menu-list > .quake-main-menu-item-disabled[data-quake-main-menu-action="multiplayer"] .quake-main-menu-note-coming-soon:not([hidden]) {
   display: block;
 }
-.quake-main-menu-item-active .quake-main-menu-label {
-  filter: brightness(1.32);
-}
 #quake-main-menu-list > .quake-main-menu-item-disabled {
-  opacity: 0.46;
   cursor: default;
   pointer-events: auto;
 }
 #quake-main-menu-list > .quake-main-menu-item-disabled .quake-main-menu-label {
-  filter: none;
+  opacity: 0.46;
 }
 body.quake-main-menu-pending #quake-main-menu-list > .quake-main-menu-item {
   opacity: 0.46;
@@ -1000,9 +1001,6 @@ body.quake-main-menu-pending #quake-main-menu-list > .quake-main-menu-item {
 }
 body.quake-main-menu-pending #quake-main-menu-list > .quake-main-menu-item-selectable {
   pointer-events: none;
-}
-body.quake-main-menu-pending #quake-main-menu-list .quake-main-menu-label {
-  filter: none;
 }
 body.quake-main-menu-pending #quake-main-menu-list .quake-main-menu-note {
   display: none;
@@ -1013,38 +1011,52 @@ body.quake-main-menu-pending #quake-main-menu-list .quake-main-menu-item-cursor 
 body:not(.quake-main-menu-pending) #quake-main-menu-list > .quake-main-menu-item {
   transition: opacity 260ms steps(6, end);
 }
-body:not(.quake-main-menu-pending) #quake-main-menu-list .quake-main-menu-label {
-  transition: filter 260ms steps(6, end);
-}
 @media (prefers-reduced-motion: reduce) {
-  body:not(.quake-main-menu-pending) #quake-main-menu-list > .quake-main-menu-item,
-  body:not(.quake-main-menu-pending) #quake-main-menu-list .quake-main-menu-label {
+  body:not(.quake-main-menu-pending) #quake-main-menu-list > .quake-main-menu-item {
     transition: none;
   }
 }
 .quake-main-menu-label-single-player {
   --quake-main-menu-label-width: 218;
   --quake-main-menu-label-height: 20;
+  background-image: url("./assets/main-menu-single-player-sprite.png");
 }
 .quake-main-menu-label-multiplayer {
   --quake-main-menu-label-width: 190;
   --quake-main-menu-label-height: 18;
+  --quake-main-menu-label-offset-y: 2;
+  background-image: url("./assets/main-menu-multiplayer-sprite.png");
 }
 .quake-main-menu-label-level-select {
   --quake-main-menu-label-width: 211;
   --quake-main-menu-label-height: 20;
-}
-.quake-main-menu-label-debug {
-  --quake-main-menu-label-width: 90;
-  --quake-main-menu-label-height: 18;
+  background-image: url("./assets/main-menu-level-select-sprite.png");
 }
 .quake-main-menu-label-quit {
   --quake-main-menu-label-width: 70;
   --quake-main-menu-label-height: 20;
+  --quake-main-menu-label-offset-y: 3;
+  background-image: url("./assets/main-menu-quit-sprite.png");
 }
 .quake-main-menu-label-options {
   --quake-main-menu-label-width: 123;
   --quake-main-menu-label-height: 18;
+  --quake-main-menu-label-offset-y: 2;
+  background-image: url("./assets/main-menu-options-sprite.png");
+}
+.quake-main-menu-label-help {
+  --quake-main-menu-label-width: 75;
+  --quake-main-menu-label-height: 16;
+  --quake-main-menu-label-offset-y: 2;
+  background-image: url("./assets/main-menu-help-sprite.png");
+}
+.quake-main-menu-label {
+  background-position: 0 0;
+  background-size: 100% auto;
+  transform: translateY(calc(var(--quake-main-menu-label-offset-y, 0) * var(--quake-main-menu-px)));
+}
+.quake-main-menu-item-active .quake-main-menu-label {
+  background-position: 0 100%;
 }
 .quake-main-menu-item-cursor {
   position: absolute;
@@ -1053,7 +1065,7 @@ body:not(.quake-main-menu-pending) #quake-main-menu-list .quake-main-menu-label 
   display: none;
   width: 5cqw;
   height: 7.5cqw;
-  background-image: url("/q/main-menu-cursor.png");
+  background-image: url("./assets/main-menu-cursor-baked.png");
   background-position: 0 0;
   background-size: 600% 100%;
   image-rendering: pixelated;
@@ -1325,8 +1337,8 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 #quake-options-title {
   left: calc(88 * var(--quake-menu-px));
 }
-#quake-debug-menu-title {
-  left: calc(110 * var(--quake-menu-px));
+#quake-about-title {
+  left: calc(122.5 * var(--quake-menu-px));
 }
 #quake-multiplayer-title {
   left: calc(64 * var(--quake-menu-px));
@@ -1340,6 +1352,9 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 }
 #quake-options-title img {
   height: calc(24 * var(--quake-menu-px));
+}
+#quake-about-title img {
+  height: calc(20 * var(--quake-menu-px));
 }
 #quake-single-player-title img {
   height: calc(24 * var(--quake-menu-px));
@@ -1788,6 +1803,40 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   gap: 0;
   margin: 0;
 }
+#quake-options-panel .quake-options-group-title,
+#quake-about-panel .quake-options-group-title {
+  --quake-menu-row-text-size: calc(8 * var(--quake-menu-px));
+  display: block;
+  height: var(--quake-menu-row-text-size);
+  margin: calc(5 * var(--quake-menu-px)) 0 calc(2 * var(--quake-menu-px));
+  padding: 0 0 0 calc(40 * var(--quake-menu-px));
+  color: #d8893f;
+  font: inherit;
+  line-height: 1;
+}
+#quake-options-panel .quake-options-group-title:first-child,
+#quake-about-panel .quake-options-group-title:first-child {
+  margin-top: 0;
+}
+#quake-options-panel .quake-menu-panel-sections,
+#quake-about-panel .quake-menu-panel-sections {
+  max-height: calc(138 * var(--quake-menu-px));
+  overflow: auto;
+  scrollbar-width: none;
+}
+#quake-options-panel .quake-menu-panel-sections::-webkit-scrollbar,
+#quake-about-panel .quake-menu-panel-sections::-webkit-scrollbar {
+  display: none;
+}
+#quake-options-panel .quake-options-group-title .quake-bitmap-text,
+#quake-about-panel .quake-options-group-title .quake-bitmap-text {
+  --quake-bitmap-glyph-size: var(--quake-menu-row-text-size);
+  --quake-bitmap-sheet-size: calc(16 * var(--quake-menu-row-text-size));
+  --quake-bitmap-space-size: var(--quake-menu-row-text-size);
+  flex-wrap: nowrap;
+  gap: 0 var(--quake-bitmap-space-size);
+  filter: none;
+}
 .quake-option-toggle {
   --quake-menu-row-text-size: calc(8 * var(--quake-menu-px));
   position: relative;
@@ -1805,13 +1854,11 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   outline: none;
   user-select: none;
 }
-#quake-options-panel .quake-option-toggle,
-#quake-debug-menu-panel .quake-option-toggle {
+#quake-options-panel .quake-option-toggle {
   min-height: var(--quake-menu-row-text-size);
 }
-#quake-debug-menu-panel .quake-debug-menu-divider {
-  height: calc(8 * var(--quake-menu-px));
-  margin: calc(4 * var(--quake-menu-px)) 0;
+#quake-about-panel .quake-option-toggle {
+  cursor: default;
 }
 .quake-option-toggle input {
   position: absolute;
@@ -1862,14 +1909,17 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   left: calc(40 * var(--quake-menu-px));
   max-width: calc(144 * var(--quake-menu-px));
 }
+.quake-option-toggle input:not(:checked) ~ .quake-option-text {
+  opacity: 0.46;
+}
 .quake-option-value {
   left: calc(204 * var(--quake-menu-px));
   display: none;
 }
 #quake-options-panel .quake-option-text .quake-bitmap-text,
-#quake-debug-menu-panel .quake-option-text .quake-bitmap-text,
 #quake-options-panel .quake-option-value .quake-bitmap-text,
-#quake-debug-menu-panel .quake-option-value .quake-bitmap-text {
+#quake-about-panel .quake-option-text .quake-bitmap-text,
+#quake-about-panel .quake-option-value .quake-bitmap-text {
   --quake-bitmap-glyph-size: var(--quake-menu-row-text-size);
   --quake-bitmap-sheet-size: calc(16 * var(--quake-menu-row-text-size));
   --quake-bitmap-space-size: var(--quake-menu-row-text-size);
@@ -1879,7 +1929,8 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 }
 .quake-option-toggle input:not(:checked) ~ .quake-option-value-off,
 .quake-option-toggle input:checked ~ .quake-option-value-on,
-.quake-option-cycle .quake-option-value {
+.quake-option-cycle .quake-option-value,
+.quake-shortcut-row .quake-option-value {
   display: block;
 }
 .quake-option-toggle input:checked + .quake-option-checkbox {
@@ -1891,6 +1942,12 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 }
 .quake-option-toggle:focus-within .quake-option-checkbox {
   outline: none;
+}
+#quake-about-panel .quake-option-toggle::before,
+#quake-about-panel .quake-option-toggle:hover::before,
+#quake-about-panel .quake-option-toggle:focus::before,
+#quake-about-panel .quake-option-toggle:focus-within::before {
+  opacity: 0;
 }
 #quake-debug-stack {
   position: fixed;
@@ -1913,10 +1970,6 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 }
 #quake-debug-panel[hidden] {
   display: none;
-}
-#quake-debug-menu-panel {
-  --quake-debug-stat-value-color: rgba(246, 241, 223, 0.84);
-  --quake-debug-legend-filter: brightness(1.08) contrast(1.05) drop-shadow(0 1px 0 #000000);
 }
 #quake-debug-card {
   --quake-debug-title-color: rgba(240, 173, 92, 0.62);
@@ -2109,9 +2162,7 @@ body.quake-debug-outlines #quake-debug-outline-legend {
   line-height: 1;
 }
 #quake-level-actions,
-#quake-single-player-actions,
-#quake-options-actions,
-#quake-debug-menu-actions {
+#quake-single-player-actions {
   display: none;
 }
 .quake-menu-actions a,
@@ -2179,7 +2230,7 @@ body.quake-debug-outlines #quake-debug-outline-legend {
 .quake-menu-actions a:focus-visible .quake-bitmap-text,
 .quake-menu-actions button:hover .quake-bitmap-text,
 .quake-menu-actions button:focus-visible .quake-bitmap-text {
-  filter: none;
+  filter: brightness(1.35) saturate(1.2);
 }
 #quake-weapon .polycss-mesh.viewmodel {
   pointer-events: none;
@@ -2284,11 +2335,41 @@ body.quake-menu-unlocked #quake-weapon {
   pointer-events: auto;
   touch-action: none;
 }
+#quake-mobile-move-zone .joystick {
+  position: absolute;
+  left: 72px;
+  top: 72px;
+  display: block;
+  z-index: 999;
+  opacity: 0.58;
+  touch-action: none;
+  user-select: none;
+  transition: opacity 80ms linear;
+}
+#quake-mobile-move-zone .joystick .back,
+#quake-mobile-move-zone .joystick .front {
+  position: absolute;
+  display: block;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
+}
 #quake-mobile-move-zone .joystick .back {
+  width: 108px;
+  height: 108px;
+  margin-left: -54px;
+  margin-top: -54px;
+  background: rgba(10, 9, 7, 0.34);
   box-sizing: border-box;
   border: 2px solid rgba(245, 232, 200, 0.42);
 }
 #quake-mobile-move-zone .joystick .front {
+  width: 54px;
+  height: 54px;
+  margin-left: -27px;
+  margin-top: -27px;
+  background: rgba(245, 232, 200, 0.18);
+  opacity: 0.5;
   box-sizing: border-box;
   border: 2px solid rgba(245, 232, 200, 0.48);
 }

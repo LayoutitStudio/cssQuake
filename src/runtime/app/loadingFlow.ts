@@ -151,7 +151,7 @@ export function createQuakeLoadingFlow(options: QuakeLoadingFlowOptions): QuakeL
         view: startup.routeIsDirect(startupRoute) ? startupRoute.view : null,
       });
       if (options.isDisposed()) return;
-      startup.syncRoutePresentation(startupRoute, { preferMenu: shouldPrimeInvalidMapFallback });
+      startup.syncRoutePresentation(startupRoute, { preferMenu: true });
       return;
     }
     loadingConsole.queueLine(startup.initializedLine);
@@ -251,7 +251,6 @@ export function createQuakeLoadingFlow(options: QuakeLoadingFlowOptions): QuakeL
     dom.levelPanel?.setAttribute("hidden", "");
     dom.aboutPanel?.setAttribute("hidden", "");
     dom.optionsPanel?.setAttribute("hidden", "");
-    dom.debugMenuPanel?.setAttribute("hidden", "");
   }
 
   function setError(error?: unknown): void {

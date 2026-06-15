@@ -11,9 +11,6 @@ importers:
       '@layoutit/polycss':
         specifier: ^0.2.6
         version: 0.2.6
-      nipplejs:
-        specifier: ^1.0.4
-        version: 1.0.4
       partysocket:
         specifier: 1.1.19
         version: 1.1.19
@@ -1111,9 +1108,6 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  nipplejs@1.0.4:
-    resolution: {integrity: sha512-YtvRZDuyWQ+tOj0nUjfnZt4ZQmJVWfK9+yPmV5OXpQ4k4AkOGcSfKvSXbPNkV0ERqc4eakkBSZ7/Wyx1y6h/Sg==}
-
   npm-run-path@5.3.0:
     resolution: {integrity: sha512-ppwTtiJZq0O/ai0z7yfudtBpWIoxM8yE6nHi1X47eFR2EWORqfbu6CnPlNsjeN683eT0qG6H/Pyf9fCcvjnnnQ==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
@@ -2064,8 +2058,6 @@ snapshots:
   mustache@4.2.0: {}
 
   nanoid@3.3.12: {}
-
-  nipplejs@1.0.4: {}
 
   npm-run-path@5.3.0:
     dependencies:

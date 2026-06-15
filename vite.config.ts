@@ -41,6 +41,14 @@ export default defineConfig({
     __POLYCSS_VERSION__: JSON.stringify(polyCssVersion()),
   },
   publicDir: "build/generated/public",
+  build: {
+    assetsInlineLimit(filePath) {
+      if (/main-menu-.*\.(?:png)$/u.test(filePath)) {
+        return false;
+      }
+      return undefined;
+    },
+  },
   server: {
     host: "127.0.0.1",
   },

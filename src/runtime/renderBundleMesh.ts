@@ -93,6 +93,9 @@ const QUAKE_MOTION_MATERIAL_DEFER_FRAME_COUNT = 2;
 const QUAKE_MOTION_MATERIAL_TEXTURED_AREA_RATIO = 0.25;
 const QUAKE_RENDER_BUNDLE_TEXTURE_PRELOAD_STATUS = "Texture images";
 const QUAKE_RENDER_BUNDLE_TEXTURE_PRELOAD_CONCURRENCY = 48;
+const QUAKE_RENDER_BUNDLE_STYLESHEET_ONLY_PROPERTIES = new Set([
+  "image-rendering",
+]);
 
 type QuakeRenderBundleLeafFrameStylesFile = {
   version: 3;
@@ -1373,7 +1376,7 @@ function compileQuakeRenderBundleLeafExtraStyle(extraStyle: string): QuakeRender
     if (separator <= 0) continue;
     const propertyName = declaration.slice(0, separator).trim();
     let propertyValue = declaration.slice(separator + 1).trim();
-    if (!propertyName || !propertyValue) continue;
+    if (!propertyName || !propertyValue || quakeRenderBundleIsStylesheetOnlyProperty(propertyName)) continue;
     let priority = "";
     if (propertyValue.endsWith("!important")) {
       propertyValue = propertyValue.slice(0, -"!important".length).trimEnd();
@@ -1491,8 +1494,10 @@ function effectiveQuakeRenderBundleLeafFrameExtraStyle(
   options: QuakeRenderBundleLeafFrameStyleCompileOptions,
 ): string {
   const shouldRestoreDynamicExtraStyle = Boolean(options.dynamicExtraStylePropertyNames?.length);
-  if (!baseFrameStyle || !frameStyle || frameStyle.length >= 3) return frameStyle?.[2] ?? "";
-  return shouldRestoreDynamicExtraStyle ? baseFrameStyle[2] ?? "" : "";
+  const extraStyle = !baseFrameStyle || !frameStyle || frameStyle.length >= 3
+    ? frameStyle?.[2] ?? ""
+    : shouldRestoreDynamicExtraStyle ? baseFrameStyle[2] ?? "" : "";
+  return stripQuakeRenderBundleStylesheetOnlyProperties(extraStyle);
 }
 
 function quakeRenderBundleFrameSetStyleOptimization(
@@ -1578,7 +1583,7 @@ function quakeRenderBundleExtraStylePropertyNames(extraStyle?: string): string[]
     const separator = declaration.indexOf(":");
     if (separator <= 0) continue;
     const propertyName = declaration.slice(0, separator).trim();
-    if (propertyName) propertyNames.push(propertyName);
+    if (propertyName && !quakeRenderBundleIsStylesheetOnlyProperty(propertyName)) propertyNames.push(propertyName);
   }
   return propertyNames;
 }
@@ -1655,8 +1660,34 @@ function quakeRenderBundleTemplate(renderBundle: QuakePreparedRenderBundle): HTM
   if (template) return template;
   template = document.createElement("template");
   template.innerHTML = renderBundle.meshHtml.trim();
+  stripQuakeRenderBundleTemplateStylesheetOnlyProperties(template);
   renderBundleTemplateCache.set(renderBundle, template);
   return template;
+}
+
+function stripQuakeRenderBundleTemplateStylesheetOnlyProperties(template: HTMLTemplateElement): void {
+  for (const leaf of template.content.querySelectorAll<HTMLElement>("b,i,s,u")) {
+    for (const propertyName of QUAKE_RENDER_BUNDLE_STYLESHEET_ONLY_PROPERTIES) {
+      leaf.style.removeProperty(propertyName);
+    }
+  }
+}
+
+function stripQuakeRenderBundleStylesheetOnlyProperties(style: string): string {
+  if (!style) return "";
+  return style
+    .split(";")
+    .map((declaration) => declaration.trim())
+    .filter((declaration) => {
+      const separator = declaration.indexOf(":");
+      if (separator <= 0) return Boolean(declaration);
+      return !quakeRenderBundleIsStylesheetOnlyProperty(declaration.slice(0, separator));
+    })
+    .join(";");
+}
+
+function quakeRenderBundleIsStylesheetOnlyProperty(propertyName: string): boolean {
+  return QUAKE_RENDER_BUNDLE_STYLESHEET_ONLY_PROPERTIES.has(propertyName.trim().toLowerCase());
 }
 
 async function preloadQuakeRenderBundleAssetUrls(urls: readonly string[]): Promise<void> {

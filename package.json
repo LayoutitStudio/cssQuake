@@ -21,7 +21,6 @@
   },
   "dependencies": {
     "@layoutit/polycss": "^0.2.6",
-    "nipplejs": "^1.0.4",
     "partysocket": "1.1.19"
   },
   "devDependencies": {
