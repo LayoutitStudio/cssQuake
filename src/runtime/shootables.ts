@@ -3804,6 +3804,7 @@ export function createQuakeShootablesController({
           ...gib.gibModelPaths.map((path) => ({ kind: "gib", path })),
         ];
     const count = Math.max(1, pieces.length);
+    const floorZ = shootable.origin[2] + shootable.bounds.min[2];
     for (const [index, item] of pieces.entries()) {
       const model = currentModelLibrary.models[item.path];
       if (!model) continue;
@@ -3812,7 +3813,7 @@ export function createQuakeShootablesController({
       const origin: Vec3 = [
         shootable.origin[0] + Math.cos(angle) * radius,
         shootable.origin[1] + Math.sin(angle) * radius,
-        shootable.origin[2] + (item.kind === "head" ? 0.65 : 0.28 + (index % 2) * 0.08),
+        floorZ - model.bounds.min[2],
       ];
       const handle = addMonsterDeathOutputMesh(shootable, model, origin, shootable.yaw + index * 37, item.kind);
       if (!handle) continue;
