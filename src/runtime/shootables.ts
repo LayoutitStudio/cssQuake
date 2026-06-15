@@ -300,6 +300,7 @@ export interface QuakeShootablesControllerOptions {
   damagePlayer(amount: number, context?: QuakePlayerDamageContext): boolean;
   contentsAt?(point: Vec3): number | null;
   dropBackpack?: (drop: QuakeMonsterBackpackDropRuntime) => boolean | void;
+  onDestroyed?: (entity: QuakeEntity) => void;
   enemyAnimationsEnabled?: () => boolean;
   enemiesFrozen?: () => boolean;
   enemyAttacksEnabled?: () => boolean;
@@ -465,6 +466,7 @@ export function createQuakeShootablesController({
   damagePlayer,
   contentsAt,
   dropBackpack,
+  onDestroyed,
   enemyAnimationsEnabled,
   enemiesFrozen,
   enemyAttacksEnabled,
@@ -1124,6 +1126,7 @@ export function createQuakeShootablesController({
     if (!shootable || shootable.dead) return false;
     shootable.dead = true;
     destroyedEntityIndexes.add(entityIndex);
+    onDestroyed?.(shootable.entity);
     applyShootableDeathRadiusDamage(shootable, context);
     clearEnemyAttackState(shootable);
     const deathAnimationMs = deathState.playDeathAnimation(shootable, performance.now());

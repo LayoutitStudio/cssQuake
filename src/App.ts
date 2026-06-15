@@ -10,7 +10,9 @@ import {
 import { QUAKE_RENDER_SUPERSAMPLE } from "./prepare/scene";
 import type {
   QuakeEntity,
+  QuakeEntityManifestPoint,
   QuakeScene,
+  QuakeVertex,
 } from "./types/quake";
 import { QUAKE_PLAYER_WEAPON_FIRE_FACTS } from "./generated/quakeProgramFacts";
 import { createQuakeSoundController, type QuakeSoundEvent } from "./runtime/audio";
@@ -78,6 +80,11 @@ import { createQuakeDebugPanelFlow } from "./runtime/app/debugPanelFlow";
 import { createQuakeDebugRecordingSnapshotFlow } from "./runtime/app/debugRecordingSnapshotFlow";
 import { createQuakeEntityMeshMountFlow } from "./runtime/app/entityMeshMountFlow";
 import { createQuakeHudFlow } from "./runtime/app/hudFlow";
+import { createQuakeIntermissionFlow } from "./runtime/app/intermissionFlow";
+import {
+  createQuakeLevelStatsFlow,
+  quakeLevelStatsTotalsForEntities,
+} from "./runtime/app/levelStatsFlow";
 import { createQuakeAppInputController } from "./runtime/app/input";
 import { createQuakeGameplayInputFlow } from "./runtime/app/gameplayInputFlow";
 import { createQuakeDamageableBrushFlow } from "./runtime/app/damageableBrushFlow";
@@ -288,11 +295,17 @@ const {
   damageOverlay,
   notify: quakeNotify,
   centerPrint: quakeCenterPrint,
+  intermission: quakeIntermissionRoot,
 } = quakeDom;
 const quakeText = createQuakeTextController({
   centerPrintRoot: quakeCenterPrint,
   notifyRoot: quakeNotify,
 });
+const quakeIntermission = createQuakeIntermissionFlow({
+  renderBitmapText: mountQuakeBitmapText,
+  root: quakeIntermissionRoot,
+});
+const quakeLevelStats = createQuakeLevelStatsFlow();
 const hudElements = createQuakeHudElements({
   root: classicHud,
   armor: hudArmorValue,
@@ -1687,6 +1700,9 @@ const shootables = createQuakeShootablesController({
   isInPlayerView: (point) => quakeSceneMount.isPointInPlayerView(point, QUAKE_MONSTER_MOUNT_VIEW_DOT_MIN),
   leafIndexAt: world.leafIndexAt,
   monsterRuntimeEnabled: () => QUAKE_MONSTER_RUNTIME_ENABLED && !QUAKE_MULTIPLAYER_ENABLED && !quakeEnemiesDisabled,
+  onDestroyed: (entity) => {
+    if (entity.classname.startsWith("monster_")) quakeLevelStats.markMonsterKilled(entity.index);
+  },
   pointToPoly: quakeCameraView.pointToPoly,
   shouldSpawn: shouldSpawnQuakeShootableForCurrentMode,
   pixelate: world.pixelate,
@@ -1862,6 +1878,7 @@ quakePointerGameplay = createQuakePointerGameplayFlow({
   pointerLockElement: () => document.pointerLockElement,
   queueCrosshairTargetSync: queueQuakeCrosshairTargetSync,
   renderSupersample: QUAKE_RENDER_SUPERSAMPLE,
+  requestIntermissionAdvance: requestQuakeIntermissionAdvance,
   respawnPlayerFromDeath: respawnQuakePlayerFromDeath,
   rotation: () => ({
     rotX: scene.camera.state.rotX ?? 88,
@@ -2052,7 +2069,10 @@ const quakeLoading = createQuakeLoadingFlow({
   trace: markQuakeTrace,
 });
 const quakeSceneMount = createQuakeSceneMountFlow({
-  afterMountScene: startQuakeMultiplayerScene,
+  afterMountScene: () => {
+    resetQuakeLevelStatsForCurrentScene();
+    startQuakeMultiplayerScene();
+  },
   audio,
   beforeDisposeScene: () => stopQuakeMultiplayerScene("scene-dispose"),
   clearPlayerDeath: clearQuakePlayerDeath,
@@ -2115,9 +2135,14 @@ quakeEntityActivation = createQuakeEntityActivationFlow({
   currentGameLogic: () => currentResult?.gameLogic,
   entities: () => entityByIndex,
   getOrigin: () => controls.getOrigin(),
+  intermission: {
+    show: () => quakeIntermission.show(quakeLevelStats.freeze()),
+    syncCamera: syncQuakeIntermissionCamera,
+  },
   loadMap: loadQuakeMap,
   mapExists: quakeAssetCatalog.mapExists,
   movers,
+  onSecretActivated: (entity) => quakeLevelStats.markSecret(entity.index),
   pickups: getPickups(),
   player: getPlayer,
   pointToPoly: quakeCameraView.pointToPoly,
@@ -2129,6 +2154,7 @@ quakeEntityActivation = createQuakeEntityActivationFlow({
   targets: targetSystem,
   text: {
     centerPrint: (message) => quakeTextPresentation.centerPrint(message),
+    clearCenterPrint: () => quakeTextPresentation.clearCenterPrint(),
     hasUseTargetsMessageText: (entity) => quakeTextPresentation.hasUseTargetsMessageText(entity),
     setCenterPrint: (message) => quakeTextPresentation.setCenterPrint(message),
     showDirectCenterPrintMessageText: (entity) => quakeTextPresentation.showDirectCenterPrintMessageText(entity),
@@ -2433,7 +2459,17 @@ function clearQuakeLevelLoadTimer(): void {
 }
 
 function clearQuakeLevelComplete(): void {
+  quakeIntermission.clear();
   quakePlayerLifecycle.clearLevelComplete();
+}
+
+function requestQuakeIntermissionAdvance(): boolean {
+  return quakeEntityActivation.requestIntermissionAdvance();
+}
+
+function requestQuakeIntermissionAdvanceFromKey(event: KeyboardEvent): boolean {
+  if (event.code !== "Space" || quakeGameplayInput.isEditableTarget(event.target)) return false;
+  return requestQuakeIntermissionAdvance();
 }
 
 function isQuakeDeathUnlockControlsEndTraceSuppressed(now = performance.now()): boolean {
@@ -3903,6 +3939,64 @@ function completeQuakeLevel(entity: QuakeEntity): void {
   quakeEntityActivation.completeLevel(entity);
 }
 
+function resetQuakeLevelStatsForCurrentScene(): void {
+  quakeLevelStats.reset(currentMapName, quakeLevelStatsTotalsForEntities(currentResult?.entities ?? []));
+}
+
+function syncQuakeIntermissionCamera(): void {
+  const point = quakeIntermissionPointForCurrentScene();
+  if (!point) return;
+  const origin = quakeCameraView.pointToPoly(point.origin);
+  const { rotX, rotY } = quakeIntermissionCameraRotation(point);
+  quakeCameraView.syncSceneCameraAt(origin, rotX, rotY);
+  shootables.syncVisibility(origin as [number, number, number], true);
+  world.syncVisibilityAt(origin as [number, number, number], true);
+  syncQuakeCrosshairTarget();
+}
+
+function quakeIntermissionPointForCurrentScene(): QuakeEntityManifestPoint | null {
+  const manifestPoint = currentResult?.entityManifest.intermissions?.[0];
+  if (manifestPoint) return manifestPoint;
+  const entity = currentResult?.entities
+    .filter((candidate) => candidate.classname.startsWith("info_intermission") && candidate.origin)
+    .sort((a, b) => a.index - b.index)[0];
+  if (!entity?.origin) return null;
+  return {
+    entityIndex: entity.index,
+    classname: entity.classname,
+    origin: entity.origin,
+    spawnflags: 0,
+    ...(entity.angle !== undefined ? { angle: entity.angle } : {}),
+    ...quakeEntityMangleProperties(entity),
+    ...(entity.properties.targetname ? { targetname: entity.properties.targetname } : {}),
+  };
+}
+
+function quakeIntermissionCameraRotation(point: QuakeEntityManifestPoint): { rotX: number; rotY: number } {
+  if (point.mangle) {
+    return {
+      rotX: 90 - point.mangle.x,
+      rotY: (180 + point.mangle.y + 360) % 360,
+    };
+  }
+  return {
+    rotX: 90,
+    rotY: (180 + (point.angle ?? 0) + 360) % 360,
+  };
+}
+
+function quakeEntityMangleProperties(entity: QuakeEntity): { mangle?: QuakeVertex } {
+  const mangle = quakeParseEntityVector(entity.properties.mangle);
+  return mangle ? { mangle } : {};
+}
+
+function quakeParseEntityVector(value: string | undefined): QuakeVertex | null {
+  if (!value) return null;
+  const parts = value.trim().split(/\s+/).map((part) => Number.parseFloat(part));
+  if (parts.length < 3 || parts.some((part) => !Number.isFinite(part))) return null;
+  return { x: parts[0], y: parts[1], z: parts[2] };
+}
+
 function activateSolidTouch(touch: QuakeTouchedTrigger): void {
   const entity = entityByIndex.get(touch.entityIndex);
   if (entity?.classname === "func_button" && requestQuakeMultiplayerTouchIntent(entity.index, "touch")) return;
@@ -4288,6 +4382,7 @@ const quakeInput = createQuakeAppInputController({
   menuIsMainOpen: () => menu.isMainMenuOpen(),
   menuIsPanelOpen: () => menu.isMenuPanelOpen(),
   parentKeyRelay: quakeGameplayInput.parentKeyRelay,
+  requestIntermissionAdvance: requestQuakeIntermissionAdvanceFromKey,
   shouldOpenMainMenuOnEscape: shouldOpenQuakeMainMenuOnControlsEnd,
   shouldPreventGameplayKeyDefault: quakeGameplayInput.shouldPreventGameplayKeyDefault,
   showMainMenu: () => menu.showMainMenu(),

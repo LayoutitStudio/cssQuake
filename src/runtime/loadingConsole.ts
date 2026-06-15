@@ -3,9 +3,12 @@ export const QUAKE_ASSETS_REGENERATING_ACTION =
   "Wait for pnpm prepare:quake to finish, then reload.";
 export const QUAKE_LOADING_CONSOLE_PAK_LINE = "Assets from id1/pak0.pak";
 
+declare const __POLYCSS_VERSION__: string;
+
 const QUAKE_LOADING_CONSOLE_BOOT_LINES = [
   "Quake (C) 1996 id Software, Inc.",
   "Shareware version 1.06",
+  `Using PolyCSS renderer v${__POLYCSS_VERSION__}`,
   "Host_Init",
 ] as const;
 const QUAKE_LOADING_CONSOLE_LINE_DELAY_MS = 55;

@@ -62,6 +62,7 @@ export interface QuakeAppDomElements {
   damageOverlay: HTMLElement | null;
   notify: HTMLElement | null;
   centerPrint: HTMLElement | null;
+  intermission: HTMLElement | null;
 }
 
 export function queryQuakeAppDom(): QuakeAppDomElements {
@@ -133,6 +134,7 @@ export function queryQuakeAppDom(): QuakeAppDomElements {
     damageOverlay: quakeElement("quake-damage-overlay"),
     notify: quakeElement("quake-notify"),
     centerPrint: quakeElement("quake-centerprint"),
+    intermission: quakeElement("quake-intermission"),
   };
 }
 

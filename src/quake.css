@@ -44,9 +44,11 @@ body {
 #quake-app .polycss-mesh s {
   background-repeat: no-repeat !important;
 }
+body.quake-debug-no-textures#quake-app .polycss-mesh:not(.quake-debug-outline-atlas-ready) s,
 body.quake-debug-no-textures #quake-app .polycss-mesh:not(.quake-debug-outline-atlas-ready) s {
   background: none !important;
 }
+body.quake-static-lighting#quake-app .quake-lightstyle-mesh,
 body.quake-static-lighting #quake-app .quake-lightstyle-mesh {
   display: none;
 }
@@ -57,18 +59,23 @@ body.quake-static-lighting #quake-app .quake-lightstyle-mesh {
 #quake-app .player-lightning-beam :is(b, i, s, u) {
   box-shadow: 0 0 8px #84ffff;
 }
+body.quake-debug-outlines#quake-app .polycss-mesh :is(b, i, s, u),
 body.quake-debug-outlines #quake-app .polycss-mesh :is(b, i, s, u) {
   --quake-debug-label-color: green;
 }
+body.quake-debug-outlines#quake-app .polycss-mesh.pickup :is(b, i, s, u),
 body.quake-debug-outlines #quake-app .polycss-mesh.pickup :is(b, i, s, u) {
   --quake-debug-label-color: yellow;
 }
+body.quake-debug-outlines#quake-app .polycss-mesh.shootable:not(.enemy) :is(b, i, s, u),
 body.quake-debug-outlines #quake-app .polycss-mesh.shootable:not(.enemy) :is(b, i, s, u) {
   --quake-debug-label-color: yellow;
 }
+body.quake-debug-outlines#quake-app .polycss-mesh.shootable.enemy :is(b, i, s, u),
 body.quake-debug-outlines #quake-app .polycss-mesh.shootable.enemy :is(b, i, s, u) {
   --quake-debug-label-color: red;
 }
+body.quake-debug-labels#quake-app .polycss-mesh :is(b, i, s, u)[data-qpid]::after,
 body.quake-debug-labels #quake-app .polycss-mesh :is(b, i, s, u)[data-qpid]::after {
   content: attr(data-qpid);
   position: absolute;
@@ -341,10 +348,18 @@ body.quake-menu-open .quake-css-logo {
   height: 40px;
   filter: drop-shadow(0 1px 0 #000000);
 }
-.quake-css-logo:hover {
+.quake-id-software-logo {
+  display: block;
+  width: 40px;
+  height: 40px;
+  filter: invert(1) drop-shadow(0 1px 0 #000000);
+}
+.quake-css-logo:hover,
+.quake-id-software-link:hover {
   opacity: 0.8;
 }
-.quake-css-logo:focus-visible {
+.quake-css-logo:focus-visible,
+.quake-id-software-link:focus-visible {
   outline: 2px solid #f0ad5c;
   outline-offset: 3px;
 }
@@ -603,6 +618,128 @@ body.quake-menu-open #quake-notify {
 #quake-centerprint .quake-bitmap-glyph {
   filter: drop-shadow(2px 2px 0 #000000);
 }
+#quake-intermission {
+  --quake-intermission-px: min(2px, calc(100vw / 320), calc(100dvh / 200));
+  position: absolute;
+  z-index: 9;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+#quake-intermission[hidden] {
+  display: none;
+}
+.quake-intermission-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: rgba(0, 0, 0, 0.65);
+}
+.quake-intermission-canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  width: calc(320 * var(--quake-intermission-px));
+  height: calc(200 * var(--quake-intermission-px));
+  transform: translate(-50%, -50%);
+}
+.quake-intermission-complete {
+  position: absolute;
+  left: calc(64 * var(--quake-intermission-px));
+  top: calc(24 * var(--quake-intermission-px));
+  display: flex;
+  justify-content: center;
+  width: calc(192 * var(--quake-intermission-px));
+  min-height: calc(24 * var(--quake-intermission-px));
+}
+.quake-intermission-complete-art {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: calc(192 * var(--quake-intermission-px));
+  height: calc(24 * var(--quake-intermission-px));
+  image-rendering: pixelated;
+}
+.quake-intermission-title {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: calc(24 * var(--quake-intermission-px));
+}
+.quake-intermission-complete-source-ready .quake-intermission-title {
+  display: none;
+}
+.quake-intermission-stats {
+  position: absolute;
+  left: 0;
+  top: calc(56 * var(--quake-intermission-px));
+  width: calc(320 * var(--quake-intermission-px));
+  height: calc(144 * var(--quake-intermission-px));
+}
+.quake-intermission-label-art {
+  position: absolute;
+  left: calc(var(--quake-intermission-label-x) * var(--quake-intermission-px));
+  top: 0;
+  display: block;
+  width: calc(160 * var(--quake-intermission-px));
+  height: calc(144 * var(--quake-intermission-px));
+  image-rendering: pixelated;
+}
+.quake-intermission-row {
+  position: absolute;
+  left: 0;
+  top: calc(var(--quake-intermission-row-y) * var(--quake-intermission-px));
+  width: calc(320 * var(--quake-intermission-px));
+  height: calc(24 * var(--quake-intermission-px));
+}
+.quake-intermission-label,
+.quake-intermission-value {
+  position: absolute;
+}
+.quake-intermission-label {
+  left: calc(var(--quake-intermission-label-x) * var(--quake-intermission-px));
+  top: 0;
+  display: flex;
+  align-items: center;
+  width: calc(160 * var(--quake-intermission-px));
+  min-height: calc(24 * var(--quake-intermission-px));
+}
+.quake-intermission-value {
+  left: calc((var(--quake-intermission-value-right) - var(--quake-intermission-value-width)) * var(--quake-intermission-px));
+  top: 0;
+  display: flex;
+  align-items: flex-start;
+  width: calc(var(--quake-intermission-value-width) * var(--quake-intermission-px));
+  height: calc(24 * var(--quake-intermission-px));
+}
+.quake-intermission-label-source-ready .quake-intermission-label {
+  visibility: hidden;
+}
+.quake-intermission-value-glyph {
+  flex: 0 0 calc(24 * var(--quake-intermission-px));
+  width: calc(24 * var(--quake-intermission-px));
+  height: calc(24 * var(--quake-intermission-px));
+}
+.quake-intermission-value-glyph {
+  background-image: url("/q/intermission-numbers.png");
+  background-repeat: no-repeat;
+  background-position-x: calc(var(--quake-intermission-value-glyph-index) * -24 * var(--quake-intermission-px));
+  background-position-y: 0;
+  background-size: calc(312 * var(--quake-intermission-px)) calc(24 * var(--quake-intermission-px));
+  image-rendering: pixelated;
+}
+#quake-intermission .quake-bitmap-text {
+  --quake-bitmap-glyph-size: max(16px, calc(16 * var(--quake-intermission-px)));
+  --quake-bitmap-sheet-size: calc(var(--quake-bitmap-glyph-size) * 16);
+  --quake-bitmap-space-size: var(--quake-bitmap-glyph-size);
+  flex-wrap: nowrap;
+  gap: 0;
+}
+#quake-intermission .quake-bitmap-glyph {
+  filter: drop-shadow(2px 2px 0 #000000);
+}
 @media (orientation: portrait) {
   body.quake-menu-open #quake-notify {
     top: max(var(--quake-notify-top), 43dvh);
@@ -667,7 +804,7 @@ body.quake-menu-open #quake-notify {
   padding: 0;
   border: 0;
   appearance: none;
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.65);
   outline: none;
   pointer-events: auto;
   -webkit-tap-highlight-color: transparent;
@@ -1631,6 +1768,10 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 #quake-debug-menu-panel .quake-option-toggle {
   min-height: var(--quake-menu-row-text-size);
 }
+#quake-debug-menu-panel .quake-debug-menu-divider {
+  height: calc(8 * var(--quake-menu-px));
+  margin: calc(4 * var(--quake-menu-px)) 0;
+}
 .quake-option-toggle input {
   position: absolute;
   width: 1px;
@@ -2152,6 +2293,18 @@ body.quake-ui-unlocked #quake-classic-hud {
 body.quake-dead #quake-crosshair,
 body.quake-dead #quake-classic-hud {
   display: none;
+}
+body.quake-level-complete #quake-crosshair,
+body.quake-level-complete #quake-classic-hud,
+body.quake-level-complete #quake-viewmodel-layer {
+  display: none;
+}
+body.quake-level-complete .cssquake-logo,
+body.quake-level-complete .cssquake-version,
+body.quake-level-complete .quake-id-software-link,
+body.quake-level-complete .dn-stats-overlay,
+body.quake-level-complete #quake-debug-stack {
+  display: none !important;
 }
 body.quake-dead #quake-viewmodel-layer {
   opacity: 0;

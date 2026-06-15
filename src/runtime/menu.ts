@@ -62,6 +62,8 @@ const QUAKE_MAIN_MENU_NOTE_CLASS = "quake-main-menu-note";
 const QUAKE_MAIN_MENU_COMING_SOON_CLASS = "quake-main-menu-note-coming-soon";
 const QUAKE_BITMAP_LABEL_CLASS = "quake-bm-label";
 const QUAKE_BITMAP_ALT_CLASS = "quake-bm-alt";
+const QUAKE_MAIN_MENU_PENDING_CLASS = "quake-main-menu-pending";
+const QUAKE_MAIN_MENU_DEFERRED_CLASS = "quake-main-menu-deferred";
 
 export function createQuakeMenuController({
   enabled,
@@ -125,6 +127,7 @@ export function createQuakeMenuController({
   function hideMainMenu(): void {
     if (!mainMenu) return;
     controls.update({ moveEnabled: true });
+    clearPendingMainMenu();
     mainMenu.hidden = true;
     singlePlayerPanel?.setAttribute("hidden", "");
     multiplayerPanel?.setAttribute("hidden", "");
@@ -139,6 +142,29 @@ export function createQuakeMenuController({
     syncCrosshairTarget();
   }
 
+  function clearPendingMainMenu(): void {
+    document.body.classList.remove(QUAKE_MAIN_MENU_PENDING_CLASS);
+  }
+
+  function showPendingMainMenu(): void {
+    if (!mainMenu) return;
+    controls.update({ moveEnabled: false });
+    updateMainMenuCursor();
+    singlePlayerPanel?.setAttribute("hidden", "");
+    multiplayerPanel?.setAttribute("hidden", "");
+    levelPanel?.setAttribute("hidden", "");
+    aboutPanel?.setAttribute("hidden", "");
+    optionsPanel?.setAttribute("hidden", "");
+    debugPanel?.setAttribute("hidden", "");
+    mainMenu.hidden = false;
+    document.body.classList.remove(QUAKE_MAIN_MENU_DEFERRED_CLASS);
+    document.body.classList.add("quake-menu-open", QUAKE_MAIN_MENU_PENDING_CLASS);
+    onMenuVisibilityChange?.(true);
+    onMenuPauseChange?.(true);
+    clearCrosshairTarget();
+    mainMenu.focus({ preventScroll: true });
+  }
+
   function startFromMainMenu(): void {
     controls.lock();
     hideMainMenu();
@@ -151,15 +177,18 @@ export function createQuakeMenuController({
     }
     if (startingNewGame) return;
     startingNewGame = true;
+    showPendingMainMenu();
     Promise.resolve(onSelectNewGame())
       .then(() => {
         startingNewGame = false;
+        clearPendingMainMenu();
         controls.lock();
         hideMainMenu();
       })
       .catch((error: unknown) => {
         console.error(error);
         startingNewGame = false;
+        clearPendingMainMenu();
         showMainMenu();
       });
   }

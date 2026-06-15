@@ -326,6 +326,7 @@ export interface QuakeEntityManifestPoint {
   origin: QuakeVertex;
   spawnflags: number;
   angle?: number;
+  mangle?: QuakeVertex;
   targetname?: string;
 }
 
@@ -397,6 +398,7 @@ export interface QuakeEntityManifest {
   movers: QuakeEntityManifestMover[];
   teleporters: QuakeEntityManifestTeleporter[];
   exits: QuakeEntityManifestExit[];
+  intermissions?: QuakeEntityManifestPoint[];
   lights: QuakeEntityManifestLight[];
   counters: QuakeEntityManifestTrigger[];
   secrets: QuakeEntityManifestTrigger[];
@@ -548,6 +550,25 @@ export type QuakeSerializedPolygon = Omit<Polygon, "texture"> & {
   texture?: number | string;
 };
 
+export interface QuakeRenderBundleAtlasResidencyPage {
+  index: number;
+  varName: string;
+  url: string;
+  bytes?: number;
+  width?: number;
+  height?: number;
+}
+
+export interface QuakeRenderBundleAtlasResidency {
+  version: 1;
+  mode: "pvs-pages";
+  pageSize: number;
+  pages: QuakeRenderBundleAtlasResidencyPage[];
+  leafPageIndexes: number[];
+  visibilityLeafPages: number[][];
+  visibilityLeafPrewarmPages: number[][];
+}
+
 export interface QuakePreparedRenderBundle {
   version: 1;
   kind: "polycss-mesh";
@@ -574,6 +595,7 @@ export interface QuakePreparedRenderBundle {
   polygonCount: number;
   leafCount: number;
   atlasLeafCount: number;
+  atlasResidency?: QuakeRenderBundleAtlasResidency;
 }
 
 export type QuakeRenderBundleLeafFrameStyle = [

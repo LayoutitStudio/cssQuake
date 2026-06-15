@@ -87,6 +87,9 @@ const mainMenuOutputPath = path.join(quakeOutputDir, "main-menu.png");
 const mainMenuPlaqueOutputPath = path.join(quakeOutputDir, "main-menu-plaque.png");
 const mainMenuTitleOutputPath = path.join(quakeOutputDir, "main-menu-title.png");
 const mainMenuMultiplayerOutputPath = path.join(quakeOutputDir, "main-menu-multiplayer.png");
+const intermissionCompleteOutputPath = path.join(quakeOutputDir, "intermission-complete.png");
+const intermissionLabelsOutputPath = path.join(quakeOutputDir, "intermission-labels.png");
+const intermissionNumbersOutputPath = path.join(quakeOutputDir, "intermission-numbers.png");
 const mainMenuActiveOutputPath = path.join(quakeOutputDir, "main-menu-active.png");
 const mainMenuActiveOutputPaths = [
   mainMenuActiveOutputPath,
@@ -231,7 +234,7 @@ const QUAKE_MAIN_MENU_LEVEL_LABEL = "LEVEL SELECT";
 const QUAKE_MAIN_MENU_LEVEL_LABEL_SCALE = 2;
 const QUAKE_PICKUP_MODEL_SCALE = QUAKE_UNIT_SCALE;
 const QUAKE_WEAPON_MODEL_PIVOT = parseQuakeWeaponModelPivot(process.env.QUAKE_WEAPON_MODEL_PIVOT);
-const QUAKE_ENEMY_ALIAS_MODEL_RENDER_SCALE = 4;
+const QUAKE_ENEMY_ALIAS_MODEL_RENDER_SCALE = 8;
 const QUAKE_PLAYER_ALIAS_MODEL_RENDER_SCALE = 4;
 const QUAKE_ANIMATION_FRAME_SET_MIN_COMMON_LEAF_RATIO = 0.95;
 const QUAKE_ALIAS_MERGE_MAX_NONPLANAR_DISTANCE = 0.03;
@@ -848,6 +851,9 @@ try {
       await writeFile(mainMenuPlaqueOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/qplaque.lmp", 0, 0, 32, 144));
       await writeFile(mainMenuTitleOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/ttl_main.lmp", 0, 0, 96, 24));
       await writeFile(mainMenuMultiplayerOutputPath, await buildQuakeMainMenuMultiplayerPng(uiAssets));
+      await writeFile(intermissionCompleteOutputPath, await buildPakQpicPng(uiAssets, "gfx/complete.lmp"));
+      await writeFile(intermissionLabelsOutputPath, await buildPakQpicPng(uiAssets, "gfx/inter.lmp"));
+      await writeFile(intermissionNumbersOutputPath, await buildQuakeIntermissionNumbersPng(uiAssets));
     });
     const menuTitlePaletteColors = buildQuakeMenuTitlePaletteColors(uiAssets);
     const mainMenuActivePngs = await buildQuakeMainMenuActivePngs(uiAssets);
@@ -940,6 +946,9 @@ try {
     console.log(`Wrote ${path.relative(projectRoot, mainMenuPlaqueOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, mainMenuTitleOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, mainMenuMultiplayerOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, intermissionCompleteOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, intermissionLabelsOutputPath)}`);
+    console.log(`Wrote ${path.relative(projectRoot, intermissionNumbersOutputPath)}`);
     for (const outputPath of mainMenuActiveOutputPaths) {
       console.log(`Wrote ${path.relative(projectRoot, outputPath)}`);
     }
@@ -2868,6 +2877,33 @@ async function buildQuakeHudNumbersPng(assets, options = {}) {
     drawWadQpicTo(rgba, assets, `num_${digit}`, digit * 24, 0, width, height, QUAKE_HUD_TRANSPARENT);
   }
   if (options.damageTint) tintQuakeHudDamageNumbers(rgba);
+  return sharp(rgba, {
+    raw: { width, height, channels: 4 },
+  }).png().toBuffer();
+}
+
+async function buildQuakeIntermissionNumbersPng(assets) {
+  const qpics = [
+    "num_0",
+    "num_1",
+    "num_2",
+    "num_3",
+    "num_4",
+    "num_5",
+    "num_6",
+    "num_7",
+    "num_8",
+    "num_9",
+    "num_colon",
+    "num_slash",
+    "num_minus",
+  ];
+  const width = 24 * qpics.length;
+  const height = 24;
+  const rgba = Buffer.alloc(width * height * 4);
+  for (let index = 0; index < qpics.length; index++) {
+    drawWadQpicTo(rgba, assets, qpics[index], index * 24, 0, width, height, QUAKE_HUD_TRANSPARENT);
+  }
   return sharp(rgba, {
     raw: { width, height, channels: 4 },
   }).png().toBuffer();

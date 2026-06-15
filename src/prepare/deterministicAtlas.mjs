@@ -32,6 +32,7 @@ const BSP_LUMP_COUNT = 15;
 const BSP_HEADER_SIZE = 4 + BSP_LUMP_COUNT * 8;
 const QUAKE_PLAYER_MINS_Z = -24;
 const QUAKE_DETERMINISTIC_ATLAS_PAGE_PADDING = 1;
+const QUAKE_DETERMINISTIC_ATLAS_PVS_PACK_CAPACITY_RATIO = 0.955;
 const QUAKE_DETERMINISTIC_ATLAS_PAGE_SIZE = normalizeDeterministicAtlasPageSize(
   process.env.QUAKE_DETERMINISTIC_ATLAS_PAGE_SIZE,
 );
@@ -321,7 +322,7 @@ export async function replaceQuakeRenderBundleWorldAtlas({
     }
   });
   const pages = withDeterministicAtlasTimingSync(timing, "atlas.packPages", () =>
-    packDeterministicAtlasTiles(atlasTiles));
+    packDeterministicAtlasTiles(atlasTiles, { visibility }));
   const coverageFallbackLeaves = tiles.reduce((total, tile) => total + (tile.coverageFallback ? 1 : 0), 0);
   const derivedUvAffineLeaves = tiles.reduce((total, tile) => total + (tile.derivedUvAffine ? 1 : 0), 0);
   const mergedSourceLeaves = tiles.reduce((total, tile) => total + (tile.mergedSourceFaces > 1 ? 1 : 0), 0);
@@ -392,6 +393,14 @@ export async function replaceQuakeRenderBundleWorldAtlas({
   await withDeterministicAtlasTiming(timing, "mesh.compactAssets", () =>
     compactRenderBundleBackgroundAssets(renderBundle, outputDir, publicPath));
   completeDeterministicRenderBundleAssetUrls(renderBundle, leafImageTiles, tiles);
+  const atlasResidency = await withDeterministicAtlasTiming(timing, "atlas.residency", () =>
+    buildDeterministicAtlasResidency(renderBundle, visibility, outputDir, publicPath));
+  if (atlasResidency) {
+    renderBundle.atlasResidency = atlasResidency;
+    renderBundle.meshHtml = stripRenderBundleBackgroundVars(renderBundle.meshHtml);
+  } else {
+    delete renderBundle.atlasResidency;
+  }
 
   const oldBytes = await withDeterministicAtlasTiming(timing, "oldAssetScan", () =>
     referencedAssetBytes(originalAssetUrls, outputDir, publicPath));
@@ -418,6 +427,7 @@ export async function replaceQuakeRenderBundleWorldAtlas({
     skipSamples: serializeSkipSamples(skipSamples),
     imagePolicyBuckets: Object.fromEntries([...imagePolicyBuckets.entries()].sort()),
     oldAtlasBytesStillReferenced: oldBytes,
+    ...(atlasResidency ? { atlasResidencyPageCount: atlasResidency.pages.length } : {}),
   };
   logDeterministicAtlasTiming(timing, stats);
   return stats;
@@ -444,6 +454,114 @@ function completeDeterministicRenderBundleAssetUrls(renderBundle, leafImageTiles
   }
   renderBundle.assetUrls = [...urls];
   renderBundle.assetUrlsComplete = true;
+}
+
+async function buildDeterministicAtlasResidency(renderBundle, visibility, outputDir, publicPath) {
+  if (!visibility?.metadata?.leaves?.length || !Array.isArray(visibility.candidates)) return null;
+  const leafPageIndexes = renderBundleLeafPageIndexes(renderBundle.meshHtml, renderBundle.leafMetadata.length);
+  const usedPageIndexes = [...new Set(leafPageIndexes.filter((index) => Number.isInteger(index) && index >= 0))]
+    .sort((a, b) => a - b);
+  if (!usedPageIndexes.length) return null;
+
+  const sourceFaceToPages = new Map();
+  for (let leafIndex = 0; leafIndex < leafPageIndexes.length; leafIndex++) {
+    const pageIndex = leafPageIndexes[leafIndex];
+    if (!Number.isInteger(pageIndex) || pageIndex < 0) continue;
+    const renderFaceIndex = renderBundle.leafMetadata[leafIndex]?.f;
+    if (!Number.isInteger(renderFaceIndex)) continue;
+    for (const sourceFaceIndex of visibility.candidates[renderFaceIndex]?.sourceFaceIndices ?? []) {
+      let pages = sourceFaceToPages.get(sourceFaceIndex);
+      if (!pages) {
+        pages = new Set();
+        sourceFaceToPages.set(sourceFaceIndex, pages);
+      }
+      pages.add(pageIndex);
+    }
+  }
+
+  const maxLeafIndex = visibility.metadata.leaves.reduce((max, leaf) => Math.max(max, leaf.leafIndex), 0);
+  const visibilityLeafPages = Array.from({ length: maxLeafIndex + 1 }, () => []);
+  const visibilityLeafPrewarmPages = Array.from({ length: maxLeafIndex + 1 }, () => []);
+  const pagesByLeaf = new Map();
+  for (const leaf of visibility.metadata.leaves) {
+    const pages = new Set();
+    for (const sourceFaceIndex of leaf.visibleFaceIndexes ?? []) {
+      for (const pageIndex of sourceFaceToPages.get(sourceFaceIndex) ?? []) pages.add(pageIndex);
+    }
+    const list = [...pages].sort((a, b) => a - b);
+    visibilityLeafPages[leaf.leafIndex] = list;
+    pagesByLeaf.set(leaf.leafIndex, list);
+  }
+  for (const leaf of visibility.metadata.leaves) {
+    const prewarm = new Set(pagesByLeaf.get(leaf.leafIndex) ?? []);
+    for (const adjacentLeafIndex of leaf.adjacentLeafIndexes ?? []) {
+      for (const pageIndex of pagesByLeaf.get(adjacentLeafIndex) ?? []) prewarm.add(pageIndex);
+    }
+    visibilityLeafPrewarmPages[leaf.leafIndex] = [...prewarm].sort((a, b) => a - b);
+  }
+
+  const pages = [];
+  for (const index of usedPageIndexes) {
+    const url = renderBundle.assetUrls[index];
+    if (!url) continue;
+    const outputPath = renderBundleAssetOutputPath(url, outputDir, publicPath);
+    let bytes;
+    let width;
+    let height;
+    if (outputPath) {
+      try {
+        const fileStat = await stat(outputPath);
+        bytes = fileStat.size;
+        const metadata = await sharp(outputPath).metadata();
+        width = metadata.width;
+        height = metadata.height;
+      } catch {
+        bytes = undefined;
+      }
+    }
+    pages.push({
+      index,
+      varName: `--bg${index}`,
+      url,
+      ...(Number.isFinite(bytes) ? { bytes } : {}),
+      ...(Number.isFinite(width) ? { width } : {}),
+      ...(Number.isFinite(height) ? { height } : {}),
+    });
+  }
+  if (!pages.length) return null;
+  return {
+    version: 1,
+    mode: "pvs-pages",
+    pageSize: QUAKE_DETERMINISTIC_ATLAS_PAGE_SIZE,
+    pages,
+    leafPageIndexes,
+    visibilityLeafPages,
+    visibilityLeafPrewarmPages,
+  };
+}
+
+function renderBundleLeafPageIndexes(html, expectedLeafCount) {
+  const leafPageIndexes = [];
+  for (const match of String(html ?? "").matchAll(/<s\b([^>]*)>/g)) {
+    const attrs = attributes(match[1]);
+    const style = attrs.style ?? "";
+    const background = styleDeclarationValue(style, "background");
+    const pageMatch = background.match(/var\(--bg(\d+)\)/);
+    leafPageIndexes.push(pageMatch ? Number(pageMatch[1]) : -1);
+  }
+  while (leafPageIndexes.length < expectedLeafCount) leafPageIndexes.push(-1);
+  return leafPageIndexes.slice(0, expectedLeafCount);
+}
+
+function stripRenderBundleBackgroundVars(html) {
+  const root = String(html ?? "").match(/^<div\b([^>]*)>/);
+  if (!root) return html;
+  const attrs = attributes(root[1]);
+  const style = attrs.style ?? "";
+  if (!style) return html;
+  const nextStyle = removeRenderBundleBackgroundVarDeclarations(style);
+  if (nextStyle) return html.replace(`style="${style}"`, `style="${nextStyle}"`);
+  return html.replace(/\sstyle="[^"]*"/, "");
 }
 
 function collectDeterministicRenderBundleLiteralAssetUrls(urls, text) {
@@ -548,7 +666,9 @@ async function deterministicLeafTile({ bspData, context, leaf, polygons, visibil
       leaf,
       plan,
       polygon,
+      renderFaceIndex,
       source,
+      sourceFaceIndices,
       sourceSample,
       sources,
     });
@@ -774,6 +894,8 @@ async function deterministicLeafTile({ bspData, context, leaf, polygons, visibil
     matrix: planMatrix,
     rgba,
     ...(runtimeTextureImages ? { runtimeTextureImages } : {}),
+    renderFaceIndex,
+    sourceFaceIndices: [...sourceFaceIndices],
     sourceTexture: source.texture.name,
     transformCompensationX: leaf.transformCompensationX,
     transformCompensationY: leaf.transformCompensationY,
@@ -788,7 +910,9 @@ async function deterministicPreparedTextureLeafTile({
   leaf,
   plan,
   polygon,
+  renderFaceIndex,
   source,
+  sourceFaceIndices,
   sourceSample,
   sources,
 }) {
@@ -877,6 +1001,8 @@ async function deterministicPreparedTextureLeafTile({
     mergedSourceFaces: sources.length,
     matrix: planMatrix,
     rgba,
+    renderFaceIndex,
+    sourceFaceIndices: [...sourceFaceIndices],
     sourceTexture: source.texture.name,
     transformCompensationX: leaf.transformCompensationX,
     transformCompensationY: leaf.transformCompensationY,
@@ -2241,7 +2367,12 @@ function paletteBuffer(palette) {
   return out;
 }
 
-function packDeterministicAtlasTiles(tiles) {
+function packDeterministicAtlasTiles(tiles, options = {}) {
+  return packDeterministicAtlasTilesPvsAware(tiles, options.visibility) ??
+    packDeterministicAtlasTilesShelf(tiles);
+}
+
+function packDeterministicAtlasTilesShelf(tiles) {
   const pages = [];
   let page = null;
   const newPage = () => {
@@ -2287,6 +2418,414 @@ function packDeterministicAtlasTiles(tiles) {
     out.height = Math.max(1, out.height);
   }
   return pages.filter((item) => item.tiles.length);
+}
+
+function packDeterministicAtlasTilesPvsAware(tiles, visibility) {
+  if (!tiles.length || !visibility?.metadata?.leaves?.length || !Array.isArray(visibility.candidates)) return null;
+  const context = deterministicAtlasPvsContext(tiles, visibility);
+  if (!context) return null;
+  const totalPackArea = tiles.reduce((total, tile) => total + deterministicAtlasTilePackArea(tile), 0);
+  const minPages = Math.max(
+    1,
+    Math.ceil(totalPackArea / (QUAKE_DETERMINISTIC_ATLAS_PAGE_SIZE ** 2 * QUAKE_DETERMINISTIC_ATLAS_PVS_PACK_CAPACITY_RATIO)),
+  );
+  let best = null;
+  for (let pageCount = minPages; pageCount <= minPages + 5; pageCount++) {
+    for (const mode of ["spawn-bfs", "tilecount-desc", "area-desc"]) {
+      const seeded = seedDeterministicAtlasPvsAssignment(tiles, context, pageCount, mode);
+      if (!seeded) continue;
+      const assignment = optimizeDeterministicAtlasPvsAssignment(tiles, context, seeded, pageCount);
+      const packed = packDeterministicAtlasAssignedPages(tiles, assignment, pageCount);
+      if (!packed) continue;
+      const metrics = deterministicAtlasPvsAssignmentMetrics(context, assignment, pageCount);
+      const score = metrics.pageMean + metrics.oneHopMean * 0.08 + metrics.edgeNewMean * 0.15 + pageCount * 0.015;
+      if (!best || score < best.score) {
+        best = { assignment, mode, metrics, packed, pageCount, score };
+      }
+    }
+    if (best) break;
+  }
+  if (!best) return null;
+  for (let pageIndex = 0; pageIndex < best.packed.length; pageIndex++) {
+    const page = best.packed[pageIndex];
+    for (const tile of page.tiles) {
+      tile.page = page;
+      tile.pageIndex = pageIndex;
+    }
+  }
+  return best.packed;
+}
+
+function deterministicAtlasPvsContext(tiles, visibility) {
+  const usefulLeaves = [];
+  const rawLeafToUseful = new Map();
+  const pvsTiles = [];
+  const tileMembers = new Map(tiles.map((tile) => [tile, []]));
+  const sourceFaceToTiles = new Map();
+  for (const tile of tiles) {
+    const sourceFaceIndices = Array.isArray(tile.sourceFaceIndices) && tile.sourceFaceIndices.length
+      ? tile.sourceFaceIndices
+      : visibility.candidates?.[tile.renderFaceIndex]?.sourceFaceIndices ?? [];
+    for (const sourceFaceIndex of sourceFaceIndices) {
+      let bucket = sourceFaceToTiles.get(sourceFaceIndex);
+      if (!bucket) {
+        bucket = [];
+        sourceFaceToTiles.set(sourceFaceIndex, bucket);
+      }
+      bucket.push(tile);
+    }
+  }
+  for (const leaf of visibility.metadata.leaves) {
+    const set = new Set();
+    for (const sourceFaceIndex of leaf.visibleFaceIndexes ?? []) {
+      for (const tile of sourceFaceToTiles.get(sourceFaceIndex) ?? []) set.add(tile);
+    }
+    if (!set.size) continue;
+    const usefulIndex = usefulLeaves.length;
+    usefulLeaves.push(leaf);
+    rawLeafToUseful.set(leaf.leafIndex, usefulIndex);
+    const list = [...set];
+    pvsTiles.push(list);
+    for (const tile of list) tileMembers.get(tile)?.push(usefulIndex);
+  }
+  if (!usefulLeaves.length) return null;
+  const pvsArea = pvsTiles.map((list) => list.reduce((total, tile) => total + deterministicAtlasTilePackArea(tile), 0));
+  return { pvsArea, pvsTiles, rawLeafToUseful, tileMembers, usefulLeaves };
+}
+
+function seedDeterministicAtlasPvsAssignment(tiles, context, pageCount, mode) {
+  const capacity = deterministicAtlasPvsPageCapacity();
+  const assignment = new Map();
+  const loads = Array(pageCount).fill(0);
+  const pageLeafCounts = Array.from(
+    { length: context.usefulLeaves.length },
+    () => Array(pageCount).fill(0),
+  );
+  const order = Array.from({ length: context.usefulLeaves.length }, (_item, index) => index);
+  if (mode === "area-desc") {
+    order.sort((a, b) => context.pvsArea[b] - context.pvsArea[a]);
+  } else if (mode === "tilecount-desc") {
+    order.sort((a, b) => context.pvsTiles[b].length - context.pvsTiles[a].length);
+  } else if (mode === "spawn-bfs") {
+    const out = [];
+    const seen = new Set([0]);
+    const queue = [0];
+    while (queue.length) {
+      const usefulIndex = queue.shift();
+      out.push(usefulIndex);
+      const adjacent = (context.usefulLeaves[usefulIndex]?.adjacentLeafIndexes ?? [])
+        .map((leafIndex) => context.rawLeafToUseful.get(leafIndex))
+        .filter((item) => item !== undefined && !seen.has(item))
+        .sort((a, b) => context.pvsArea[b] - context.pvsArea[a]);
+      for (const next of adjacent) {
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+    for (const usefulIndex of order) {
+      if (!seen.has(usefulIndex)) out.push(usefulIndex);
+    }
+    order.splice(0, order.length, ...out);
+  }
+
+  for (const usefulIndex of order) {
+    const list = [...context.pvsTiles[usefulIndex]]
+      .sort((a, b) => deterministicAtlasTilePackArea(b) - deterministicAtlasTilePackArea(a));
+    const assignedCounts = Array(pageCount).fill(0);
+    for (const tile of list) {
+      const pageIndex = assignment.get(tile);
+      if (pageIndex !== undefined) assignedCounts[pageIndex]++;
+    }
+    for (const tile of list) {
+      if (assignment.has(tile)) continue;
+      const tileArea = deterministicAtlasTilePackArea(tile);
+      let bestPage = -1;
+      let bestScore = -Infinity;
+      for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+        if (loads[pageIndex] + tileArea > capacity) continue;
+        let score = assignedCounts[pageIndex] * 1000 - loads[pageIndex] / capacity;
+        for (const member of context.tileMembers.get(tile) ?? []) {
+          if (pageLeafCounts[member][pageIndex] > 0) score += 2;
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestPage = pageIndex;
+        }
+      }
+      if (bestPage < 0) return null;
+      assignment.set(tile, bestPage);
+      loads[bestPage] += tileArea;
+      assignedCounts[bestPage]++;
+      for (const member of context.tileMembers.get(tile) ?? []) pageLeafCounts[member][bestPage]++;
+    }
+  }
+  for (const tile of tiles) {
+    if (assignment.has(tile)) continue;
+    const tileArea = deterministicAtlasTilePackArea(tile);
+    let bestPage = -1;
+    let bestLoad = Infinity;
+    for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+      if (loads[pageIndex] + tileArea > capacity) continue;
+      if (loads[pageIndex] < bestLoad) {
+        bestLoad = loads[pageIndex];
+        bestPage = pageIndex;
+      }
+    }
+    if (bestPage < 0) return null;
+    assignment.set(tile, bestPage);
+    loads[bestPage] += tileArea;
+  }
+  return assignment;
+}
+
+function optimizeDeterministicAtlasPvsAssignment(tiles, context, assignment, pageCount) {
+  const capacity = deterministicAtlasPvsPageCapacity();
+  const loads = Array(pageCount).fill(0);
+  for (const tile of tiles) loads[assignment.get(tile)] += deterministicAtlasTilePackArea(tile);
+  const counts = deterministicAtlasPvsPageCounts(context, assignment, pageCount);
+  const order = [...tiles].sort((a, b) => deterministicAtlasTilePackArea(b) - deterministicAtlasTilePackArea(a));
+  for (let pass = 0; pass < 10; pass++) {
+    let moved = 0;
+    for (const tile of order) {
+      const from = assignment.get(tile);
+      const tileArea = deterministicAtlasTilePackArea(tile);
+      let bestPage = from;
+      let bestDelta = 0;
+      let bestBalance = 0;
+      for (let to = 0; to < pageCount; to++) {
+        if (to === from) continue;
+        if (loads[to] + tileArea > capacity) continue;
+        let delta = 0;
+        for (const member of context.tileMembers.get(tile) ?? []) {
+          if (counts[member][from] === 1) delta--;
+          if (counts[member][to] === 0) delta++;
+        }
+        const balance =
+          Math.abs((loads[from] - tileArea) - (loads[to] + tileArea)) -
+          Math.abs(loads[from] - loads[to]);
+        if (
+          delta < bestDelta ||
+          (delta === bestDelta && delta <= 0 && balance < bestBalance - 50000)
+        ) {
+          bestDelta = delta;
+          bestPage = to;
+          bestBalance = balance;
+        }
+      }
+      if (bestPage === from) continue;
+      assignment.set(tile, bestPage);
+      loads[from] -= tileArea;
+      loads[bestPage] += tileArea;
+      for (const member of context.tileMembers.get(tile) ?? []) {
+        counts[member][from]--;
+        counts[member][bestPage]++;
+      }
+      moved++;
+    }
+    if (!moved) break;
+  }
+  return assignment;
+}
+
+function deterministicAtlasPvsPageCounts(context, assignment, pageCount) {
+  const counts = Array.from(
+    { length: context.usefulLeaves.length },
+    () => Array(pageCount).fill(0),
+  );
+  for (const [tile, pageIndex] of assignment) {
+    for (const member of context.tileMembers.get(tile) ?? []) counts[member][pageIndex]++;
+  }
+  return counts;
+}
+
+function deterministicAtlasPvsAssignmentMetrics(context, assignment, pageCount) {
+  const counts = deterministicAtlasPvsPageCounts(context, assignment, pageCount);
+  const pageSets = counts.map((leafCounts) => leafCounts.flatMap((count, index) => count > 0 ? [index] : []));
+  const pageCounts = pageSets.map((set) => set.length);
+  const edgeNew = [];
+  const oneHopCounts = [];
+  const seenEdges = new Set();
+  for (let usefulIndex = 0; usefulIndex < context.usefulLeaves.length; usefulIndex++) {
+    const oneHop = new Set(pageSets[usefulIndex]);
+    for (const adjacentLeafIndex of context.usefulLeaves[usefulIndex]?.adjacentLeafIndexes ?? []) {
+      const adjacentUsefulIndex = context.rawLeafToUseful.get(adjacentLeafIndex);
+      if (adjacentUsefulIndex === undefined) continue;
+      for (const page of pageSets[adjacentUsefulIndex]) oneHop.add(page);
+      const key = usefulIndex < adjacentUsefulIndex
+        ? `${usefulIndex}:${adjacentUsefulIndex}`
+        : `${adjacentUsefulIndex}:${usefulIndex}`;
+      if (seenEdges.has(key)) continue;
+      seenEdges.add(key);
+      const current = new Set(pageSets[usefulIndex]);
+      const adjacent = new Set(pageSets[adjacentUsefulIndex]);
+      let currentNew = 0;
+      let adjacentNew = 0;
+      for (const page of adjacent) {
+        if (!current.has(page)) currentNew++;
+      }
+      for (const page of current) {
+        if (!adjacent.has(page)) adjacentNew++;
+      }
+      edgeNew.push(Math.max(currentNew, adjacentNew));
+    }
+    oneHopCounts.push(oneHop.size);
+  }
+  return {
+    pageMean: mean(pageCounts),
+    oneHopMean: mean(oneHopCounts),
+    edgeNewMean: mean(edgeNew),
+  };
+}
+
+function packDeterministicAtlasAssignedPages(tiles, assignment, pageCount) {
+  const pages = [];
+  for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+    const pageTiles = tiles.filter((tile) => assignment.get(tile) === pageIndex);
+    const placed = packDeterministicAtlasMaxRectsPage(pageTiles);
+    if (!placed) return null;
+    const page = { height: 1, tiles: [], width: 1 };
+    for (const item of placed) {
+      const tile = item.tile;
+      tile.x = item.x;
+      tile.y = item.y;
+      page.tiles.push(tile);
+      page.width = Math.max(page.width, tile.x + tile.width + QUAKE_DETERMINISTIC_ATLAS_PAGE_PADDING);
+      page.height = Math.max(page.height, tile.y + tile.height + QUAKE_DETERMINISTIC_ATLAS_PAGE_PADDING);
+    }
+    pages.push(page);
+  }
+  return pages.filter((page) => page.tiles.length);
+}
+
+function packDeterministicAtlasMaxRectsPage(tiles) {
+  for (const mode of ["height", "width", "area", "maxside"]) {
+    const packed = tryPackDeterministicAtlasMaxRectsPage(tiles, mode);
+    if (packed) return packed;
+  }
+  return null;
+}
+
+function tryPackDeterministicAtlasMaxRectsPage(tiles, mode) {
+  const sorted = [...tiles].sort((a, b) => deterministicAtlasTileSortScore(b, mode) - deterministicAtlasTileSortScore(a, mode) ||
+    deterministicAtlasTilePackArea(b) - deterministicAtlasTilePackArea(a) ||
+    a.leafIndex - b.leafIndex);
+  let free = [{ x: 0, y: 0, width: QUAKE_DETERMINISTIC_ATLAS_PAGE_SIZE, height: QUAKE_DETERMINISTIC_ATLAS_PAGE_SIZE }];
+  const placed = [];
+  for (const tile of sorted) {
+    const packWidth = deterministicAtlasTilePackWidth(tile);
+    const packHeight = deterministicAtlasTilePackHeight(tile);
+    let bestIndex = -1;
+    let bestShortSide = Infinity;
+    let bestLongSide = Infinity;
+    for (let index = 0; index < free.length; index++) {
+      const rect = free[index];
+      if (packWidth > rect.width || packHeight > rect.height) continue;
+      const leftoverWidth = rect.width - packWidth;
+      const leftoverHeight = rect.height - packHeight;
+      const shortSide = Math.min(leftoverWidth, leftoverHeight);
+      const longSide = Math.max(leftoverWidth, leftoverHeight);
+      if (shortSide < bestShortSide || (shortSide === bestShortSide && longSide < bestLongSide)) {
+        bestIndex = index;
+        bestShortSide = shortSide;
+        bestLongSide = longSide;
+      }
+    }
+    if (bestIndex < 0) return null;
+    const rect = free[bestIndex];
+    const used = { x: rect.x, y: rect.y, width: packWidth, height: packHeight };
+    placed.push({ tile, x: rect.x, y: rect.y });
+    const nextFree = [];
+    for (const freeRect of free) nextFree.push(...splitDeterministicAtlasFreeRect(freeRect, used));
+    free = pruneDeterministicAtlasFreeRects(nextFree);
+  }
+  return placed;
+}
+
+function splitDeterministicAtlasFreeRect(rect, used) {
+  if (
+    used.x >= rect.x + rect.width ||
+    used.x + used.width <= rect.x ||
+    used.y >= rect.y + rect.height ||
+    used.y + used.height <= rect.y
+  ) {
+    return [rect];
+  }
+  const out = [];
+  if (used.x > rect.x) {
+    out.push({ x: rect.x, y: rect.y, width: used.x - rect.x, height: rect.height });
+  }
+  if (used.x + used.width < rect.x + rect.width) {
+    out.push({
+      x: used.x + used.width,
+      y: rect.y,
+      width: rect.x + rect.width - (used.x + used.width),
+      height: rect.height,
+    });
+  }
+  if (used.y > rect.y) {
+    out.push({ x: rect.x, y: rect.y, width: rect.width, height: used.y - rect.y });
+  }
+  if (used.y + used.height < rect.y + rect.height) {
+    out.push({
+      x: rect.x,
+      y: used.y + used.height,
+      width: rect.width,
+      height: rect.y + rect.height - (used.y + used.height),
+    });
+  }
+  return out.filter((item) => item.width > 0 && item.height > 0);
+}
+
+function pruneDeterministicAtlasFreeRects(rects) {
+  const out = [...rects];
+  for (let a = 0; a < out.length; a++) {
+    for (let b = a + 1; b < out.length; b++) {
+      if (deterministicAtlasRectContains(out[b], out[a])) {
+        out.splice(a, 1);
+        a--;
+        break;
+      }
+      if (deterministicAtlasRectContains(out[a], out[b])) {
+        out.splice(b, 1);
+        b--;
+      }
+    }
+  }
+  return out;
+}
+
+function deterministicAtlasRectContains(outer, inner) {
+  return inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.width <= outer.x + outer.width &&
+    inner.y + inner.height <= outer.y + outer.height;
+}
+
+function deterministicAtlasTileSortScore(tile, mode) {
+  if (mode === "height") return deterministicAtlasTilePackHeight(tile) * 100000 + deterministicAtlasTilePackWidth(tile);
+  if (mode === "width") return deterministicAtlasTilePackWidth(tile) * 100000 + deterministicAtlasTilePackHeight(tile);
+  if (mode === "maxside") return Math.max(deterministicAtlasTilePackWidth(tile), deterministicAtlasTilePackHeight(tile));
+  return deterministicAtlasTilePackArea(tile);
+}
+
+function deterministicAtlasTilePackWidth(tile) {
+  return tile.width + QUAKE_DETERMINISTIC_ATLAS_PAGE_PADDING;
+}
+
+function deterministicAtlasTilePackHeight(tile) {
+  return tile.height + QUAKE_DETERMINISTIC_ATLAS_PAGE_PADDING;
+}
+
+function deterministicAtlasTilePackArea(tile) {
+  return deterministicAtlasTilePackWidth(tile) * deterministicAtlasTilePackHeight(tile);
+}
+
+function deterministicAtlasPvsPageCapacity() {
+  return QUAKE_DETERMINISTIC_ATLAS_PAGE_SIZE ** 2 * QUAKE_DETERMINISTIC_ATLAS_PVS_PACK_CAPACITY_RATIO;
+}
+
+function mean(values) {
+  return values.length ? values.reduce((total, value) => total + value, 0) / values.length : 0;
 }
 
 async function renderDeterministicAtlasPage(page, timing = null) {
