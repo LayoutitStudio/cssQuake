@@ -424,7 +424,7 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
         type: event.type,
       });
     };
-    const delayMs = Math.max(0, event.delayMs ?? 0);
+    const delayMs = context.forceAttackEvents === true ? 0 : Math.max(0, event.delayMs ?? 0);
     if (delayMs <= 0) {
       fireProjectile(now, context.playerOrigin);
       return;

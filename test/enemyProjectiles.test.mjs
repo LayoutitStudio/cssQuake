@@ -10,6 +10,8 @@ const {
 function createRuntime({
   consumePlayerPainRandom = () => null,
   damagePlayer = () => true,
+  floorAt,
+  hasLineOfSight = () => true,
   traceLine = true,
   traceNormal = [-1, 0, 0],
 } = {}) {
@@ -30,7 +32,8 @@ function createRuntime({
     currentModelLibrary: () => null,
     consumePlayerPainRandom,
     damagePlayer,
-    hasLineOfSight: () => true,
+    ...(floorAt ? { floorAt } : {}),
+    hasLineOfSight,
     markTrace: () => undefined,
     onExplosion: (event) => { explosions.push(event); },
     offsetPoint: (origin) => [...origin],
@@ -46,16 +49,18 @@ function createRuntime({
     },
     randomRange: () => 0,
     schedulePresentationResync: () => undefined,
-    traceLine: traceLine ? (_start, _end) => {
-      traceCount += 1;
-      if (traceCount > 1) return null;
-      return {
-        classname: "worldspawn",
-        end: [0.5, 0, 0],
-        fraction: 0.5,
-        planeNormal: traceNormal,
-      };
-    } : undefined,
+    traceLine: typeof traceLine === "function"
+      ? traceLine
+      : traceLine ? (_start, _end) => {
+        traceCount += 1;
+        if (traceCount > 1) return null;
+        return {
+          classname: "worldspawn",
+          end: [0.5, 0, 0],
+          fraction: 0.5,
+          planeNormal: traceNormal,
+        };
+      } : undefined,
   });
 
   return { explosions, runtime, sounds };
@@ -144,6 +149,25 @@ test("ogre grenades play source explosion sound on timeout", () => {
   assert.equal(explosions[0].projectile, "enemy_projectile_grenade");
 });
 
+test("ogre grenade timeout records expire, explode, and remove debug events", () => {
+  const { runtime } = createRuntime({ traceLine: false });
+
+  spawnProjectile(runtime, {
+    projectileClassname: "enemy_projectile_grenade",
+    projectileLifetimeMs: 50,
+    projectileSplashDamage: 40,
+    projectileSplashOnExpire: true,
+    projectileSplashRadius: 40,
+  });
+  runtime.debugSetProjectileCaptureEnabled(true);
+  runtime.update([100, 100, 100], 0.1, 100);
+
+  assert.deepEqual(
+    runtime.debugProjectileCapture().events.map((event) => event.type),
+    ["expire", "explode", "remove"],
+  );
+});
+
 test("zombie projectiles play source launch and miss sounds on world stop", () => {
   const { runtime, sounds } = createRuntime();
 
@@ -157,6 +181,72 @@ test("zombie projectiles play source launch and miss sounds on world stop", () =
     "zombie/z_shot1.wav",
     "zombie/z_miss.wav",
   ]);
+});
+
+test("zombie projectiles stop on floor fallback when line trace misses", () => {
+  const { runtime } = createRuntime({
+    floorAt: (_x, _y, maxZ, minZ) => (maxZ >= 0 && minZ <= 0 ? 0 : null),
+    traceLine: (_start, _end) => null,
+  });
+
+  spawnProjectile(runtime, {
+    projectileClassname: "enemy_projectile_zombie_grenade",
+    projectileGravity: 800,
+    projectileVerticalVelocity: -10,
+    projectileWorldTouch: "stop",
+  });
+  runtime.debugSetProjectileCaptureEnabled(true);
+  runtime.update([100, 100, 100], 0.1, 100);
+
+  const impact = runtime.debugProjectileCapture().events.find((event) => event.type === "impact");
+  assert.equal(impact?.impactResult, "stop");
+  assert.deepEqual(impact?.velocity, [0, 0, 0]);
+  assert.equal(impact?.trace?.classname, "worldspawn");
+});
+
+test("ogre grenades bounce on floor fallback when line trace misses", () => {
+  const { runtime } = createRuntime({
+    floorAt: (_x, _y, maxZ, minZ) => (maxZ >= 0 && minZ <= 0 ? 0 : null),
+    traceLine: (_start, _end) => null,
+  });
+
+  spawnProjectile(runtime, {
+    projectileClassname: "enemy_projectile_grenade",
+    projectileGravity: 800,
+    projectileVerticalVelocity: -10,
+    projectileWorldTouch: "bounce",
+  });
+  runtime.debugSetProjectileCaptureEnabled(true);
+  runtime.update([100, 100, 100], 0.1, 100);
+
+  const impact = runtime.debugProjectileCapture().events.find((event) => event.type === "impact");
+  assert.equal(impact?.impactResult, "keep");
+  assert.equal(impact?.trace?.classname, "worldspawn");
+  assert.equal((impact?.velocity?.[2] ?? 0) > 0, true);
+});
+
+test("ogre grenades ignore no-normal obstruction traces instead of exploding", () => {
+  const { runtime } = createRuntime({
+    hasLineOfSight: () => false,
+    traceLine: (_start, end) => ({
+      classname: null,
+      end,
+      fraction: 0,
+      planeNormal: null,
+    }),
+  });
+
+  spawnProjectile(runtime, {
+    projectileClassname: "enemy_projectile_grenade",
+    projectileWorldTouch: "bounce",
+  });
+  runtime.debugSetProjectileCaptureEnabled(true);
+  runtime.update([100, 100, 100], 0.1, 100);
+
+  const capture = runtime.debugProjectileCapture();
+  assert.equal(capture.events.some((event) => event.type === "impact"), false);
+  assert.equal(capture.events.some((event) => event.type === "remove"), false);
+  assert.equal(capture.activeCount, 1);
 });
 
 test("wizard spikes play the source launch sound when fired", () => {

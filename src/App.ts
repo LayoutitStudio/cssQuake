@@ -2327,6 +2327,7 @@ quakePlayerLifecycle = createQuakePlayerLifecycleFlow({
   viewmodel,
 });
 let quakeDebugCollisionBypassUntil = 0;
+let quakeDebugGameplaySyncActive = false;
 let quakeGamePaused = false;
 let quakeGamePausedAt = 0;
 let quakeMenuPauseActive = false;
@@ -2369,7 +2370,7 @@ function isQuakeKey(value: string): value is QuakeKey {
 }
 
 function isQuakeGamePaused(): boolean {
-  return quakeGamePaused;
+  return !quakeDebugGameplaySyncActive && quakeGamePaused;
 }
 
 function setQuakeMenuPauseState(paused: boolean): void {
@@ -4334,7 +4335,14 @@ function syncTouchedTriggers(origin: [number, number, number]): QuakeTouchedTrig
 }
 
 function syncQuakeDebugGameplay(origin: [number, number, number]): void {
-  quakeSceneMount.syncDebugGameplay(origin);
+  getPlayer().setDebugOrigin(origin);
+  const previousDebugGameplaySyncActive = quakeDebugGameplaySyncActive;
+  quakeDebugGameplaySyncActive = true;
+  try {
+    quakeSceneMount.syncDebugGameplay(origin);
+  } finally {
+    quakeDebugGameplaySyncActive = previousDebugGameplaySyncActive;
+  }
 }
 
 function applyQuakeUrlView(view: QuakeCssView): void {

@@ -51,9 +51,23 @@ export interface QuakeDebugHooks {
     playerZ: number,
     monsterYaw?: number,
   ): QuakeShootableEnemyAcquisitionDebugResult | null;
+  enemyForceAttack(
+    entityIndex: number,
+    targetX?: number,
+    targetY?: number,
+    targetZ?: number,
+  ): boolean;
+  enemyForceAttackChain(
+    entityIndex: number,
+    chain: string,
+    targetX?: number,
+    targetY?: number,
+    targetZ?: number,
+  ): boolean;
   enemyProjectileTraceCapture(): QuakeEnemyProjectileDebugCapture | null;
   enemyProjectileTraceClear(): boolean;
   enemyProjectileTraceEnabled(enabled: boolean): boolean;
+  enemyProjectileTraceStep(dtMs?: number): QuakeEnemyProjectileDebugCapture | null;
   entityIndexes(classname?: string): number[];
   fire(): boolean;
   fireProjectileTrace(
@@ -150,9 +164,12 @@ export interface QuakeDebugRuntime {
     playerSourceOrigin: { x: number; y: number; z: number },
     monsterYaw?: number,
   ): QuakeShootableEnemyAcquisitionDebugResult | null;
+  enemyForceAttack(entityIndex: number, targetOrigin?: Vec3): boolean;
+  enemyForceAttackChain(entityIndex: number, chain: string, targetOrigin?: Vec3): boolean;
   enemyProjectileTraceCapture(): QuakeEnemyProjectileDebugCapture;
   enemyProjectileTraceClear(): void;
   enemyProjectileTraceEnabled(enabled: boolean): void;
+  enemyProjectileTraceStep(dtMs?: number): QuakeEnemyProjectileDebugCapture;
   entities(): ReadonlyMap<number, QuakeEntity>;
   fireWeapon(): void;
   fireWeaponDebug(options?: QuakeWeaponProjectileDebugFireOptions): boolean;
@@ -233,9 +250,14 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
     setEnemyTickFilter: (entityIndexes) => setQuakeDebugEnemyTickFilter(runtime, entityIndexes),
     enemyAcquisition: (entityIndex, playerX, playerY, playerZ, monsterYaw) =>
       enemyAcquisitionQuakeDebugProbe(runtime, entityIndex, playerX, playerY, playerZ, monsterYaw),
+    enemyForceAttack: (entityIndex, targetX, targetY, targetZ) =>
+      enemyForceAttackQuakeDebug(runtime, entityIndex, targetX, targetY, targetZ),
+    enemyForceAttackChain: (entityIndex, chain, targetX, targetY, targetZ) =>
+      enemyForceAttackChainQuakeDebug(runtime, entityIndex, chain, targetX, targetY, targetZ),
     enemyProjectileTraceCapture: () => enemyProjectileTraceQuakeDebugCapture(runtime),
     enemyProjectileTraceClear: () => enemyProjectileTraceQuakeDebugClear(runtime),
     enemyProjectileTraceEnabled: (enabled) => enemyProjectileTraceQuakeDebugEnabled(runtime, enabled),
+    enemyProjectileTraceStep: (dtMs) => enemyProjectileTraceQuakeDebugStep(runtime, dtMs),
     entityIndexes: (classname) => quakeDebugEntityIndexes(runtime, classname),
     fire: () => fireQuakeDebugWeapon(runtime),
     fireProjectileTrace: (directDamage, timeoutMs) =>
@@ -418,6 +440,37 @@ function enemyAcquisitionQuakeDebugProbe(
   );
 }
 
+function enemyForceAttackQuakeDebug(
+  runtime: QuakeDebugRuntime,
+  entityIndex: number,
+  targetX?: number,
+  targetY?: number,
+  targetZ?: number,
+): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  if (!Number.isFinite(entityIndex)) return false;
+  const hasTarget = targetX !== undefined || targetY !== undefined || targetZ !== undefined;
+  if (!hasTarget) return runtime.enemyForceAttack(Math.round(entityIndex));
+  if (!Number.isFinite(targetX) || !Number.isFinite(targetY) || !Number.isFinite(targetZ)) return false;
+  return runtime.enemyForceAttack(Math.round(entityIndex), [targetX, targetY, targetZ]);
+}
+
+function enemyForceAttackChainQuakeDebug(
+  runtime: QuakeDebugRuntime,
+  entityIndex: number,
+  chain: string,
+  targetX?: number,
+  targetY?: number,
+  targetZ?: number,
+): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  if (!Number.isFinite(entityIndex) || typeof chain !== "string" || !chain) return false;
+  const hasTarget = targetX !== undefined || targetY !== undefined || targetZ !== undefined;
+  if (!hasTarget) return runtime.enemyForceAttackChain(Math.round(entityIndex), chain);
+  if (!Number.isFinite(targetX) || !Number.isFinite(targetY) || !Number.isFinite(targetZ)) return false;
+  return runtime.enemyForceAttackChain(Math.round(entityIndex), chain, [targetX, targetY, targetZ]);
+}
+
 function enemyProjectileTraceQuakeDebugCapture(
   runtime: QuakeDebugRuntime,
 ): QuakeEnemyProjectileDebugCapture | null {
@@ -435,6 +488,15 @@ function enemyProjectileTraceQuakeDebugEnabled(runtime: QuakeDebugRuntime, enabl
   if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
   runtime.enemyProjectileTraceEnabled(Boolean(enabled));
   return true;
+}
+
+function enemyProjectileTraceQuakeDebugStep(
+  runtime: QuakeDebugRuntime,
+  dtMs = 16,
+): QuakeEnemyProjectileDebugCapture | null {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return null;
+  if (!Number.isFinite(dtMs)) return null;
+  return runtime.enemyProjectileTraceStep(Math.max(1, Math.min(250, dtMs)));
 }
 
 function quakeDebugEntityIndexes(runtime: QuakeDebugRuntime, classname?: string): number[] {

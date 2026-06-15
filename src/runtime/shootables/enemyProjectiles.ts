@@ -57,6 +57,7 @@ export interface QuakeEnemyProjectileRuntimeOptions {
   consumePlayerPainRandom?(details: QuakeEnemyProjectilePlayerPainRandomDetails): number | null;
   currentModelLibrary(): QuakePickupModelLibrary | null;
   damagePlayer(amount: number, context?: QuakePlayerDamageContext): boolean;
+  floorAt?(x: number, y: number, maxZ?: number, minZ?: number): number | null;
   hasLineOfSight(start: Vec3, end: Vec3): boolean;
   markTrace(kind: string, details?: QuakeEnemyProjectileTraceDetails): void;
   onExplosion?(event: QuakeEnemyProjectileExplosionEvent): void;
@@ -99,7 +100,7 @@ export interface QuakeEnemyProjectileDebugCapture {
 export interface QuakeEnemyProjectileDebugEvent {
   seq: number;
   at: number;
-  type: "spawn" | "move" | "impact" | "expire" | "remove";
+  type: "spawn" | "move" | "impact" | "expire" | "explode" | "remove";
   damage?: number;
   expiresAt?: number;
   impactResult?: "keep" | "remove" | "stop";
@@ -118,6 +119,7 @@ export interface QuakeEnemyProjectileDebugEvent {
     fraction: number;
   };
   velocity?: Vec3;
+  worldTouch?: "bounce" | "explode" | "stop";
 }
 
 export interface QuakeEnemyProjectileRuntime {
@@ -284,7 +286,7 @@ export function createQuakeEnemyProjectileRuntime(
         projectile.origin[2] + nextVelocity[2] * dt,
       ];
       const hit = hitsPlayer(projectile, nextOrigin, playerOrigin);
-      const worldTrace = traceProjectileWorld(projectile.origin, nextOrigin);
+      const worldTrace = traceProjectileWorld(projectile, projectile.origin, nextOrigin);
       if (worldTrace && worldTouchPrecedesPlayerHit(projectile.origin, nextOrigin, worldTrace, hit)) {
         if (handleWorldTouch(projectile, worldTrace, nextVelocity, playerOrigin, now)) {
           active.push(projectile);
@@ -326,14 +328,47 @@ export function createQuakeEnemyProjectileRuntime(
   }
 
   function traceProjectileWorld(
+    projectile: QuakeEnemyProjectile,
     start: Vec3,
     end: Vec3,
   ): QuakeEnemyProjectileWorldTrace | null {
-    if (options.traceLine) return options.traceLine(start, end);
+    const behavior = projectileWorldTouchBehavior(projectile.profile);
+    const lineTrace = options.traceLine?.(start, end) ?? null;
+    if (lineTrace?.planeNormal || (lineTrace && behavior !== "bounce")) return lineTrace;
+    const floorTrace = traceProjectileFloor(start, end);
+    if (floorTrace) return floorTrace;
+    if (lineTrace || behavior === "bounce") return null;
     return options.hasLineOfSight(start, end) ? null : {
       fraction: 0,
       end,
       planeNormal: null,
+    };
+  }
+
+  function traceProjectileFloor(
+    start: Vec3,
+    end: Vec3,
+  ): QuakeEnemyProjectileWorldTrace | null {
+    if (!options.floorAt || end[2] >= start[2]) return null;
+    const floorZ = options.floorAt(
+      end[0],
+      end[1],
+      Math.max(start[2], end[2]),
+      Math.min(start[2], end[2]),
+    );
+    if (floorZ === null || floorZ === undefined) return null;
+    if (floorZ > start[2] + COLLISION_EPSILON || floorZ < end[2] - COLLISION_EPSILON) return null;
+    const dz = end[2] - start[2];
+    const fraction = Math.max(0, Math.min(1, dz === 0 ? 1 : (floorZ - start[2]) / dz));
+    return {
+      classname: "worldspawn",
+      end: [
+        start[0] + (end[0] - start[0]) * fraction,
+        start[1] + (end[1] - start[1]) * fraction,
+        floorZ,
+      ],
+      fraction,
+      planeNormal: [0, 0, 1],
     };
   }
 
@@ -412,6 +447,10 @@ export function createQuakeEnemyProjectileRuntime(
   function emitProjectileExplosion(projectile: QuakeEnemyProjectile, origin: Vec3): void {
     if (!projectile.profile.projectileSplashDamage || !projectile.profile.projectileSplashRadius) return;
     const projectileClassname = projectile.profile.projectileClassname ?? "enemy_projectile_magic";
+    recordProjectileDebugEvent("explode", {
+      ...projectileDebugEventPayload(projectile),
+      origin: [...origin] as Vec3,
+    });
     options.onExplosion?.({
       flavor: enemyProjectileExplosionFlavor(projectileClassname),
       origin: [...origin] as Vec3,
@@ -643,6 +682,7 @@ export function createQuakeEnemyProjectileRuntime(
       splashDamage: projectile.profile.projectileSplashDamage,
       splashRadiusQuakeUnits: splashRadius === undefined ? undefined : splashRadius / QUAKE_COLLISION_UNIT_SCALE,
       velocity: [...projectile.velocity] as Vec3,
+      worldTouch: projectileWorldTouchBehavior(projectile.profile),
     };
   }
 
