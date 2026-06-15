@@ -2,8 +2,39 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 
-import { projectRoot } from "./checkAssetState.mjs";
+import { projectRoot } from "./assets/checkAssetState.mjs";
 
+const ALL_BROWSER_FAMILIES = ["combat", "map-logic", "monster", "projectile"];
+const HARNESS_RUNNER_PREFIXES = [
+  "test/assets/run",
+  "test/browser/run",
+  "test/perf/run",
+];
+const HARNESS_COMMAND_SURFACE_FILES = new Set([
+  "package.json",
+  "test/HARNESS.md",
+  "test/runHarnessPlan.mjs",
+]);
+const SHARED_ASSET_GATE_FILES = new Set([
+  "test/assets/checkAssetState.mjs",
+  "test/assets/preparedAssets.mjs",
+]);
+const SHARED_BROWSER_FIXTURE_FILES = new Set([
+  "test/browser/browserFixtureDefinitions.mjs",
+  "test/browser/browserHarnessSupport.mjs",
+  "test/browser/fixtureHarness.mjs",
+  "test/browser/runBrowserFixtures.mjs",
+]);
+const BROWSER_SMOKE_FILES = new Set([
+  "test/browser/browserHarnessSupport.mjs",
+  "test/browser/runBrowserSmoke.mjs",
+]);
+const BROWSER_FIXTURE_FAMILY_BY_FILE = new Map([
+  ["test/browser/browserFixtureCombat.mjs", "combat"],
+  ["test/browser/browserFixtureMapLogic.mjs", "map-logic"],
+  ["test/browser/browserFixtureMonster.mjs", "monster"],
+  ["test/browser/browserFixtureProjectile.mjs", "projectile"],
+]);
 const args = process.argv.slice(2);
 const files = selectedFiles(args);
 const plan = planHarnessCommands(files);
@@ -91,66 +122,92 @@ function routeFile(file) {
     needsPerfPreflight: false,
     reason: "",
   };
+  const sourceFile = file.startsWith("src/");
 
-  if (file === "package.json" || file === "test/HARNESS.md" || file.startsWith("test/run")) {
+  if (BROWSER_SMOKE_FILES.has(file)) {
+    route.needsBrowserSmoke = true;
+    route.reason = file === "test/browser/runBrowserSmoke.mjs"
+      ? "browser smoke runner"
+      : "shared browser harness support";
+  }
+  if (isHarnessCommandSurfaceFile(file)) {
     route.needsDev = true;
     route.needsPerfPreflight = true;
-    route.reason = "harness command surface";
+    route.reason ||= "harness command surface";
   }
-  if (file.startsWith("src/") || file === "package.json") {
+  if (sourceFile || file === "package.json") {
     route.needsDev = true;
     route.needsBuild = true;
   }
-  if (file.startsWith("src/App") || file.includes("/app/") || file.includes("/debug/")) {
+  if (sourceFile && (file.startsWith("src/App") || file.includes("/app/") || file.includes("/debug/"))) {
     route.needsBrowserSmoke = true;
-    route.browserFamilies.push("combat", "map-logic", "projectile");
+    addBrowserFamilies(route, ["combat", "map-logic", "projectile"]);
     route.reason ||= "debug/app browser surface";
   }
-  if (file.includes("/shootables") || file.includes("/weapons") || file.includes("/player")) {
-    route.browserFamilies.push("combat", "projectile");
+  if (sourceFile && (file.includes("/shootables") || file.includes("/weapons") || file.includes("/player"))) {
+    addBrowserFamilies(route, ["combat", "projectile"]);
     route.reason ||= "combat/projectile runtime";
   }
-  if (file.includes("/world") || file === "src/quake.css" || file.includes("/visibility")) {
-    route.browserFamilies.push("monster");
+  if (sourceFile && (file.includes("/world") || file === "src/quake.css" || file.includes("/visibility"))) {
+    addBrowserFamilies(route, ["monster"]);
     route.reason ||= "world rendering or visibility";
   }
-  if (file.includes("/triggers") || file.includes("/movers") || file.includes("/pickups") || file.includes("/liquid")) {
-    route.browserFamilies.push("map-logic");
+  if (sourceFile && (
+    file.includes("/triggers") ||
+    file.includes("/movers") ||
+    file.includes("/pickups") ||
+    file.includes("/liquid")
+  )) {
+    addBrowserFamilies(route, ["map-logic"]);
     route.reason ||= "map gameplay logic";
   }
   if (file.startsWith("src/prepare/")) {
     route.needsAssetIntegrity = true;
     route.needsBuild = true;
-    route.browserFamilies.push("monster");
+    addBrowserFamilies(route, ["monster"]);
     route.reason ||= "prepared asset pipeline";
   }
-  if (file === "test/browserFixtureDefinitions.mjs" || file === "test/runBrowserFixtures.mjs") {
-    route.browserFamilies.push("combat", "map-logic", "monster", "projectile");
+  if (SHARED_ASSET_GATE_FILES.has(file)) {
+    route.needsAssetIntegrity = true;
+    route.needsBrowserSmoke = true;
+    addBrowserFamilies(route, ALL_BROWSER_FAMILIES);
+    route.reason ||= "shared asset gate helper";
+  }
+  if (file === "test/assets/runAssetIntegrity.mjs") {
+    route.needsAssetIntegrity = true;
+    route.reason ||= "asset integrity runner";
+  }
+  if (SHARED_BROWSER_FIXTURE_FILES.has(file)) {
+    addBrowserFamilies(route, ALL_BROWSER_FAMILIES);
     route.reason ||= "browser fixture router";
   }
-  if (file === "test/browserFixtureCombat.mjs") {
-    route.browserFamilies.push("combat");
-    route.reason ||= "combat browser fixture family";
-  }
-  if (file === "test/browserFixtureMapLogic.mjs") {
-    route.browserFamilies.push("map-logic");
-    route.reason ||= "map-logic browser fixture family";
-  }
-  if (file === "test/browserFixtureMonster.mjs") {
-    route.browserFamilies.push("monster");
-    route.reason ||= "monster browser fixture family";
-  }
-  if (file === "test/browserFixtureProjectile.mjs") {
-    route.browserFamilies.push("projectile");
-    route.reason ||= "projectile browser fixture family";
+  const fixtureFamily = BROWSER_FIXTURE_FAMILY_BY_FILE.get(file);
+  if (fixtureFamily) {
+    addBrowserFamilies(route, [fixtureFamily]);
+    route.reason ||= `${fixtureFamily} browser fixture family`;
   }
   if (file.endsWith(".test.mjs")) {
     route.needsDev = true;
-    route.reason ||= "contract test";
+    route.reason ||= contractTestReason(file);
   }
 
   route.browserFamilies = [...new Set(route.browserFamilies)];
   return route;
+}
+
+function addBrowserFamilies(route, families) {
+  route.browserFamilies.push(...families);
+}
+
+function isHarnessCommandSurfaceFile(file) {
+  return HARNESS_COMMAND_SURFACE_FILES.has(file) ||
+    HARNESS_RUNNER_PREFIXES.some((prefix) => file.startsWith(prefix));
+}
+
+function contractTestReason(file) {
+  if (file.startsWith("test/gameplay/")) return "gameplay contract test";
+  if (file.startsWith("test/runtime/")) return "runtime contract test";
+  return "contract test";
 }
 
 function printPlan(plan) {
