@@ -2729,7 +2729,7 @@ function isQuakeLevelTransitionActive(): boolean {
 }
 
 function canUseQuakeGameplayInput(): boolean {
-  return quakePlayerLifecycle.canUseGameplayInput();
+  return !isQuakeGamePaused() && quakePlayerLifecycle.canUseGameplayInput();
 }
 
 function shouldResumeQuakeMainMenuOnEscape(): boolean {
