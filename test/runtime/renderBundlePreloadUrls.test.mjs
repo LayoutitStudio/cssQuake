@@ -7,6 +7,7 @@ import { importTsModule } from "../importTsModule.mjs";
 
 const {
   quakeRenderBundleElementAssetUrls,
+  quakeRenderBundleFloorAssetUrls,
   quakeRenderBundlePreloadAssetUrls,
 } = await importTsModule("src/runtime/renderBundleMesh.ts");
 
@@ -46,6 +47,22 @@ test("render bundles without complete asset URLs fail before runtime preload", (
     })),
     /assetUrls must be complete/,
   );
+});
+
+test("map floor preloads select only direct floor component assets", () => {
+  const urls = quakeRenderBundleFloorAssetUrls(renderBundle({
+    assetUrls: [
+      "/q/b/e1m1/a0.avif",
+      "/q/b/e1m1/pc-e1m1-floor-p658-s0-ground1_2-c164.png",
+      "/q/b/e1m1/pc-e1m1-ceiling-p75-s1-tech01_6-c43.png",
+      "/q/b/e1m1/pc-e1m1-wall-p12-s0-metal1_2-c8.png",
+      "/q/b/e1m2/pc-e1m2-floor-p10-s0-ground1_2-c1.png",
+      "/q/b/e1m1/l3251s.png",
+    ],
+    assetUrlsComplete: true,
+  }), "E1M1");
+
+  assert.deepEqual(urls, ["/q/b/e1m1/pc-e1m1-floor-p658-s0-ground1_2-c164.png"]);
 });
 
 test("mounted render bundle leaves expose direct URLs and atlas root-var URLs for preload", () => {

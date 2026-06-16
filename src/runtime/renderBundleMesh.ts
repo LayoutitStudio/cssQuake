@@ -94,6 +94,7 @@ const QUAKE_MOTION_MATERIAL_CHUNK_COUNT = 12;
 const QUAKE_MOTION_MATERIAL_DEFER_FRAME_COUNT = 2;
 const QUAKE_MOTION_MATERIAL_TEXTURED_AREA_RATIO = 0.25;
 const QUAKE_RENDER_BUNDLE_TEXTURE_PRELOAD_STATUS = "Texture images";
+const QUAKE_RENDER_BUNDLE_FLOOR_TEXTURE_PRELOAD_STATUS = "Floor textures";
 const QUAKE_RENDER_BUNDLE_TEXTURE_PRELOAD_CONCURRENCY = 48;
 const QUAKE_RENDER_BUNDLE_STYLESHEET_ONLY_PROPERTIES = new Set([
   "image-rendering",
@@ -734,6 +735,22 @@ export async function preloadQuakeRenderBundleAssets(
   }
 }
 
+export async function preloadQuakeRenderBundleFloorAssets(
+  renderBundle: QuakePreparedRenderBundle,
+  mapName: string,
+  progress?: QuakeRenderBundlePreloadProgress,
+): Promise<void> {
+  const urls = quakeRenderBundleFloorAssetUrls(renderBundle, mapName);
+  if (!urls.length) return;
+  const hasUncachedAsset = urls.some((url) => !renderBundleAssetPreloads.has(url));
+  const complete = hasUncachedAsset ? progress?.startTask(QUAKE_RENDER_BUNDLE_FLOOR_TEXTURE_PRELOAD_STATUS) : null;
+  try {
+    await preloadQuakeRenderBundleAssetUrls(urls);
+  } finally {
+    complete?.();
+  }
+}
+
 export function exposeQuakeRenderBundleAtlasPages(
   element: HTMLElement,
   renderBundle: QuakePreparedRenderBundle,
@@ -1286,6 +1303,14 @@ export function quakeRenderBundlePreloadAssetUrls(renderBundle: QuakePreparedRen
   return [...urls];
 }
 
+export function quakeRenderBundleFloorAssetUrls(renderBundle: QuakePreparedRenderBundle, mapName: string): string[] {
+  const normalizedMapName = mapName.trim().toLowerCase();
+  if (!normalizedMapName) return [];
+  const floorPrefix = `pc-${normalizedMapName}-floor-`;
+  return quakeRenderBundlePreloadAssetUrls(renderBundle)
+    .filter((url) => quakeRenderBundleUrlBasename(url).startsWith(floorPrefix));
+}
+
 function collectQuakeRenderBundleInlineAssetUrls(
   urls: Set<string>,
   styleText: string,
@@ -1309,6 +1334,11 @@ function normalizeQuakeRenderBundleCssUrl(value: string): string {
     url = url.slice(url.indexOf(";") + 1, url.lastIndexOf("&"));
   }
   return url.trim();
+}
+
+function quakeRenderBundleUrlBasename(url: string): string {
+  const path = url.split(/[?#]/, 1)[0] ?? "";
+  return path.slice(path.lastIndexOf("/") + 1);
 }
 
 function preloadQuakeRenderBundleStyle(renderBundle: QuakePreparedRenderBundle): Promise<void> {
