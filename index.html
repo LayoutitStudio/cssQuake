@@ -11,10 +11,8 @@
     <link rel="preload" as="image" href="/src/assets/main-menu-multiplayer-sprite.png" fetchpriority="high" />
     <link rel="preload" as="image" href="/src/assets/main-menu-options-sprite.png" fetchpriority="high" />
     <link rel="preload" as="image" href="/src/assets/main-menu-help-sprite.png" fetchpriority="high" />
-    <link rel="preload" as="image" href="/src/assets/main-menu-level-select-sprite.png" fetchpriority="high" />
     <link rel="preload" as="image" href="/src/assets/main-menu-quit-sprite.png" fetchpriority="high" />
     <link rel="preload" as="image" href="/q/conchars.png" />
-    <link rel="preload" as="image" href="/q/hud-numbers-damage.png" />
     <script>
       (function () {
         var GA_ID = "G-XV72TXWTM5";
@@ -189,14 +187,6 @@
         image-rendering: pixelated;
         pointer-events: auto;
         user-select: none;
-        cursor: wait;
-      }
-
-      body.quake-loading,
-      body.quake-loading *,
-      .quake-menu-panel[aria-busy="true"],
-      .quake-menu-panel[aria-busy="true"] * {
-        cursor: wait !important;
       }
 
 	      #quake-loading-overlay[hidden] {
@@ -842,7 +832,7 @@
           <div id="quake-about-card" class="quake-menu-card" role="document">
             <header class="quake-menu-panel-header">
               <h1 id="quake-about-title" class="quake-menu-panel-title">
-                <img src="/q/menu-title-help.png" width="75" height="20" alt="Help" />
+                <img src="/q/menu-title-help.png" width="96" height="24" alt="Help" />
               </h1>
             </header>
             <div id="quake-help-sections" class="quake-menu-panel-sections">
@@ -918,7 +908,7 @@
                   <span class="quake-option-value quake-option-value-on quake-bm-label quake-bm-alt">on</span>
                 </label>
                 <label class="quake-option-toggle" tabindex="0">
-                  <input id="quake-debug-show-fps" type="checkbox" />
+                  <input id="quake-debug-show-fps" type="checkbox" checked />
                   <span class="quake-option-checkbox" aria-hidden="true"></span>
                   <span class="quake-option-text quake-bm-label">Show FPS panel</span>
                   <span class="quake-option-value quake-option-value-off quake-bm-label quake-bm-alt">off</span>
@@ -1121,7 +1111,13 @@
               <h2 id="quake-debug-title" class="quake-bm-label quake-bm-alt">Debug</h2>
             </header>
             <dl id="quake-debug-stats" aria-label="Debug stats">
-              <div><dt class="quake-bm-label">Record</dt><dd data-qstat="recording">-</dd></div>
+              <div id="quake-debug-recording-row" hidden>
+                <dt class="quake-bm-label">Record</dt>
+                <dd class="quake-debug-recording-control">
+                  <button id="quake-debug-recording-toggle" class="quake-debug-recording-button" type="button" aria-pressed="false">RECORD</button>
+                  <span data-qstat="recording">-</span>
+                </dd>
+              </div>
               <div><dt class="quake-bm-label">Capture</dt><dd data-qstat="capture">-</dd></div>
               <div><dt class="quake-bm-label">Visible</dt><dd data-qstat="visible">-</dd></div>
               <div><dt class="quake-bm-label">DOM</dt><dd data-qstat="dom">-</dd></div>

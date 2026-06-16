@@ -327,6 +327,7 @@ export type QuakeRenderBundleDebugOutlineBackground = [position: string, size: s
 
 export interface QuakeRenderBundleLeafMetadata {
   f: number;
+  fs?: number[];
   p?: number;
   m?: number;
   e?: number;

@@ -17,6 +17,7 @@ import {
   deterministicAtlasDebugSourceImagesSymbol,
   replaceQuakeRenderBundleWorldAtlas,
 } from "./deterministicAtlas.mjs";
+import { applyQuakeWorldPlanarComponents } from "./worldPlanarComponents.mjs";
 import { QUAKE_UNIT_SCALE } from "../quakeScale.js";
 
 const require = createRequire(import.meta.url);
@@ -57,6 +58,7 @@ const staticPublicAssets = [
 ];
 const menuTitleLevelSelectSourcePath = path.join(projectRoot, "src/assets/menu-title-level-select-source.png");
 const sourcePortConbackSourcePath = path.join(projectRoot, "src/assets/source-port-conback.png");
+const menuTitleHelpSourcePath = path.join(projectRoot, "src/assets/menu-title-help-source.png");
 const quakeMapNames = ["start", "e1m1", "e1m2", "e1m3", "e1m4", "e1m5", "e1m6", "e1m7", "e1m8"];
 const quakeRenderBundleDefaultMapNames = quakeMapNames;
 const quakeStartMap = "e1m1";
@@ -149,6 +151,8 @@ const quakeTriangleAtlasBasis = process.env.QUAKE_TRIANGLE_ATLAS_BASIS === "1";
 const quakeDeferDeterministicWorldAtlasWrites = process.env.QUAKE_DEFER_DETERMINISTIC_WORLD_ATLAS_WRITES !== "0";
 const quakeDeterministicWorldAtlasImagePolicy =
   process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS_IMAGE_POLICY?.trim().toLowerCase() ?? "atlas";
+const quakeWorldPlanarComponents = process.env.QUAKE_WORLD_PLANAR_COMPONENTS !== "0";
+const quakeWeaponAtlasScale = normalizedPositiveInteger(process.env.QUAKE_WEAPON_ATLAS_SCALE, 4);
 const quakeAliasRebakeMerge = process.env.QUAKE_ALIAS_REBAKE_MERGE === "1";
 const quakeAliasRebakeMergeAffineEpsilon = Number.parseFloat(
   process.env.QUAKE_ALIAS_REBAKE_MERGE_AFFINE_EPSILON ?? "",
@@ -246,6 +250,8 @@ const QUAKE_ALIAS_SKIN_PADDING_RADIUS = 4;
 const QUAKE_ALIAS_SKIN_FILLER_INDEX = 208;
 const QUAKE_KNIGHT_MODEL_PATH = "progs/knight.mdl";
 const QUAKE_BACKPACK_MODEL_PATH = "progs/backpack.mdl";
+const QUAKE_BOSS_MODEL_PATH = "progs/boss.mdl";
+const QUAKE_SHAMBLER_MODEL_PATH = "progs/shambler.mdl";
 const QUAKE_LAVABALL_MODEL_PATH = "progs/lavaball.mdl";
 const QUAKE_KNIGHT_SWORD_TRIANGLE_INDICES = new Set([
   11, 48, 64, 88, 91, 104, 105, 107, 110, 112, 114, 118, 134, 151, 164, 193, 197, 199, 201, 204,
@@ -770,6 +776,18 @@ try {
               }));
             prepared.renderBundle.deterministicWorldAtlasStats = deterministicAtlasStats;
             assertNoDeferredQuakeRenderBundleAssetReferences(prepared.renderBundle, deterministicAtlasStats);
+            if (quakeWorldPlanarComponents) {
+              prepared.renderBundle.worldPlanarComponentStats = await runPrepareDetailStep(
+                `map ${mapName} world planar components`,
+                () => applyQuakeWorldPlanarComponents(prepared, {
+                  generatedPublicDir,
+                  mapName,
+                  outputDir: path.join(renderBundleOutputDir, mapName),
+                  projectRoot,
+                  publicPath: `${quakeRenderBundlePublicPath}/${mapName}`,
+                }),
+              );
+            }
             await runPrepareDetailStep(`map ${mapName} debug outlines`, () =>
               addQuakeRenderBundleDebugOutlineAssets(prepared.renderBundle, {
                 outlineKind: quakeRenderBundleDebugOutlineKindForName(mapName),
@@ -869,7 +887,7 @@ try {
     }));
     await writeFile(menuTitleSinglePlayerOutputPath, await buildPakQpicPng(uiAssets, "gfx/ttl_sgl.lmp"));
     await writeFile(menuTitleOptionsOutputPath, await buildPakQpicPng(uiAssets, "gfx/p_option.lmp"));
-    await writeFile(menuTitleHelpOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 1, 60, 75, 20));
+    await writeFile(menuTitleHelpOutputPath, await readFile(menuTitleHelpSourcePath));
     await writeFile(concharsOutputPath, await buildQuakeConcharsPng(uiAssets));
     const programMetadata = buildQuakeProgramMetadata(uiAssets, sourceProgramFacts);
     const weaponModelOutputPaths = await runPrepareStep(
@@ -1066,6 +1084,15 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
       throw new Error(`Unresolved render bundle asset placeholder for ${name}.`);
     }
 
+    if (result.textureAtlasScaleStats?.replacedPages > 0) {
+      meshHtml = rewriteQuakeRenderBundleScaledAtlasVars(
+        meshHtml,
+        assetUrls,
+        result.textureAtlasScaleStats.replacedPages,
+      );
+      assetUrls.length = Math.min(result.textureAtlasScaleStats.replacedPages, assetUrls.length);
+    }
+
     let styleUrl = "";
     if (meshCss && writeStyle) {
       const cssBuffer = Buffer.from(meshCss);
@@ -1090,6 +1117,7 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
       polygonCount: result.polygonCount,
       leafCount: result.leafCount,
       atlasLeafCount: result.atlasLeafCount,
+      ...(result.textureAtlasScaleStats ? { textureAtlasScaleStats: result.textureAtlasScaleStats } : {}),
     };
     if (deferredAssets.length) {
       Object.defineProperty(renderBundle, deferredRenderBundleAssetsSymbol, {
@@ -1130,6 +1158,7 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
       deferAssetWrites = false,
       layoutOnly = false,
       primaryAssetMime = "image/avif",
+      textureAtlasScale = 1,
     }) {
       const name = bundleName ?? mapName;
       if (!name) throw new Error("Render bundle build requires a bundleName or mapName.");
@@ -1145,6 +1174,7 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
         optimizeAtlasTriangleBasis,
         normalizeAtlasLeafImagePixelBoxes,
         layoutOnly,
+        textureAtlasScale,
       };
       const result = shouldBuildStaticRenderBundleInline(name, renderInput)
         ? await buildInlineHappyDomRenderBundle(renderInput)
@@ -2049,6 +2079,29 @@ function replaceQuakeRenderBundleLeafFrameStylePlaceholder(leafFrameStylesByClas
   }
 }
 
+function rewriteQuakeRenderBundleScaledAtlasVars(meshHtml, assetUrls, pageCount) {
+  let next = String(meshHtml ?? "");
+  const count = Math.max(0, Math.min(pageCount, assetUrls.length));
+  for (let index = 0; index < count; index++) {
+    const url = assetUrls[index];
+    if (!url) continue;
+    const pattern = new RegExp(`--bg${index}:url\\((?:&quot;|"|')?[^;)]*(?:&quot;|"|')?\\)`);
+    const replacement = `--bg${index}:url(&quot;${escapeHtmlAttribute(url)}&quot;)`;
+    next = pattern.test(next)
+      ? next.replace(pattern, replacement)
+      : next.replace(/\sstyle="([^"]*)"/, (_match, style) => ` style="${style};${replacement}"`);
+  }
+  return next;
+}
+
+function escapeHtmlAttribute(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/\"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function createQuakeRenderBundleFrameStyleBundle(baseRenderBundle, frameResult) {
   return {
     ...baseRenderBundle,
@@ -2239,6 +2292,11 @@ function maxQuakeRenderBundleParallelism() {
 function normalizedEnvFlag(value) {
   const normalized = value?.trim().toLowerCase();
   return Boolean(normalized && normalized !== "0" && normalized !== "false");
+}
+
+function normalizedPositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function normalizedQuakeRenderBundleAvifQuality() {
@@ -3521,6 +3579,7 @@ async function buildQuakeWeaponModel(
       tightenAtlasLeaves: false,
       optimizeAtlasLeafBasis: false,
       optimizeAtlasLeafHomography: false,
+      textureAtlasScale: quakeWeaponAtlasScale,
     }),
   };
 }
@@ -3628,6 +3687,12 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
       source,
       texture,
       polygons: renderAnimationFrames[0].polygons,
+      ...(
+        source === QUAKE_BOSS_MODEL_PATH ||
+        source === QUAKE_SHAMBLER_MODEL_PATH
+          ? { disableDomTightening: true }
+          : {}
+      ),
       domTighteningTarget: quakeAliasModelDomTighteningTarget(source, {
         animatedAliasModelPaths,
         enemyAliasModelPaths,

@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { Window } from "happy-dom";
 
-import { importTsModule } from "./importTsModule.mjs";
+import { importTsModule } from "../importTsModule.mjs";
 
 const {
   createQuakeImpactParticleFlow,

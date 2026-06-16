@@ -25,6 +25,7 @@ import {
   exposeQuakeRenderBundleAtlasPages,
   mountQuakeRenderBundleMesh,
   preloadQuakeRenderBundleAtlasPages,
+  registerQuakeRenderBundleDebugLeafSourceFace,
   registerQuakeRenderBundleDebugOutlineLeaves,
   stripPolyMeshMetadata,
   syncQuakeRenderBundleDebugOutlineLeaves,
@@ -52,6 +53,7 @@ export interface QuakeFaceLeaf {
   entityIndex?: number;
   meshKind: "world" | "lightstyle";
   tagName: string;
+  atlasPageIndex?: number;
   textureName?: string;
   buttonBaseTexture?: string;
   buttonPressedTexture?: string;
@@ -80,6 +82,10 @@ interface QuakeSemanticResidencyOptions {
   enabled: boolean;
   budget: number;
   frontierHops: number;
+}
+
+interface QuakeWorldMaterialOptions {
+  mode: "off" | "metadata";
 }
 
 interface QuakeSemanticResidencyMetadataCache {
@@ -204,6 +210,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
   let semanticResidencyMetadataCache: QuakeSemanticResidencyMetadataCache | null = null;
   let semanticResidencyMetadataSource: QuakePreparedVisibilityMetadata | null = null;
   let semanticResidencyStats = createQuakeWorldSemanticResidencyStats();
+  const worldMaterialOptions = getQuakeWorldMaterialOptions();
   let visibleAtlasPageKey = "";
   let visibleAtlasPageSet = new Set<number>();
   let visibleAtlasPageReadyPromise: Promise<void> = Promise.resolve();
@@ -1232,6 +1239,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       const modelIndex = metadata.m;
       const entityIndex = metadata.e;
       const textureName = metadata.t;
+      const atlasPageIndex = renderBundle.atlasResidency?.leafPageIndexes[index];
       const lightstyleValue = Number(metadata.l);
       const lightstyleAnimation = Number(leaf.dataset.lsAnim);
       const lightstyleStyleId = Number.isInteger(lightstyleAnimation) ? lightstyleAnimation : undefined;
@@ -1250,6 +1258,9 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
         leaf.removeAttribute("data-ls-pattern");
       }
       const previous = previousByParent.get(parent);
+      const sourceFaceIndices = meshKind === "world"
+        ? currentVisibility?.sourceFaceIndicesForRenderFace(faceIndex) ?? []
+        : [];
       const record: QuakeFaceLeaf = {
         leafIndex: index,
         faceIndex,
@@ -1257,6 +1268,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
         ...(Number.isInteger(entityIndex) ? { entityIndex } : {}),
         meshKind,
         tagName,
+        ...(Number.isInteger(atlasPageIndex) && atlasPageIndex >= 0 ? { atlasPageIndex } : {}),
         ...(textureName ? { textureName } : {}),
         ...(buttonBaseTexture ? { buttonBaseTexture } : {}),
         ...(buttonPressedTexture ? { buttonPressedTexture } : {}),
@@ -1274,14 +1286,22 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
         baseBackgroundPosition: leaf.style.backgroundPosition,
         baseBackgroundSize: leaf.style.backgroundSize,
       };
+      registerQuakeRenderBundleDebugLeafSourceFace(
+        record.element,
+        record.tagName === "s" ? sourceFaceIndices : undefined,
+      );
+      applyQuakeWorldMaterialDebugMetadata(record, metadata, worldMaterialOptions);
       if (previous) previous.next = record;
       previousByParent.set(parent, record);
       quakeLeaves.push(record);
-      const bucket = leaves.get(faceIndex);
-      if (bucket) {
-        bucket.push(record);
-      } else {
-        leaves.set(faceIndex, [record]);
+      const visibilityFaceIndexes = normalizedQuakeLeafVisibilityFaceIndexes(metadata);
+      for (const visibilityFaceIndex of visibilityFaceIndexes) {
+        const bucket = leaves.get(visibilityFaceIndex);
+        if (bucket) {
+          bucket.push(record);
+        } else {
+          leaves.set(visibilityFaceIndex, [record]);
+        }
       }
       if (Number.isInteger(modelIndex)) {
         const modelBucket = modelLeaves.get(modelIndex);
@@ -1399,6 +1419,36 @@ function getQuakeSemanticResidencyOptions(): QuakeSemanticResidencyOptions {
       QUAKE_SEMANTIC_RESIDENCY_MAX_FRONTIER_HOPS,
     ),
   };
+}
+
+function getQuakeWorldMaterialOptions(): QuakeWorldMaterialOptions {
+  if (typeof window === "undefined") return { mode: "off" };
+  const params = new URLSearchParams(window.location.search);
+  const mode = params.get("debugWorldMaterial")?.trim().toLowerCase();
+  return {
+    mode: mode === "metadata" ? mode : "off",
+  };
+}
+
+function applyQuakeWorldMaterialDebugMetadata(
+  leaf: QuakeFaceLeaf,
+  metadata: QuakeVisibilityLeafMetadata,
+  options: QuakeWorldMaterialOptions,
+): void {
+  if (options.mode === "off") return;
+  leaf.element.dataset.qLeafIndex = String(leaf.leafIndex);
+  leaf.element.dataset.qFaceIndex = String(leaf.faceIndex);
+  if (leaf.atlasPageIndex !== undefined) leaf.element.dataset.qAtlasPage = String(leaf.atlasPageIndex);
+  if (leaf.textureName) leaf.element.dataset.qTexture = leaf.textureName;
+  if (metadata.l !== undefined) leaf.element.dataset.qLightstyle = String(metadata.l);
+  if (leaf.modelIndex !== undefined) leaf.element.dataset.qModel = String(leaf.modelIndex);
+  if (leaf.entityIndex !== undefined) leaf.element.dataset.qEntity = String(leaf.entityIndex);
+}
+
+function normalizedQuakeLeafVisibilityFaceIndexes(metadata: QuakePreparedRenderBundle["leafMetadata"][number]): number[] {
+  const indexes = Array.isArray(metadata.fs) ? metadata.fs : [metadata.f];
+  return [...new Set(indexes.filter((faceIndex) => Number.isInteger(faceIndex) && faceIndex >= 0))]
+    .sort((a, b) => a - b);
 }
 
 function clampedIntegerParam(value: string | null, fallback: number, min: number, max: number): number {

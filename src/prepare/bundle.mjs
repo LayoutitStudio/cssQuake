@@ -1,11 +1,16 @@
 import {
+  ATLAS_CANONICAL_SIZE_EXPLICIT,
   BASE_TILE,
   SOLID_QUAD_CANONICAL_SIZE,
+  applyPackedAtlasLeafSizing,
+  buildAtlasPages,
+  buildTextureEdgeRepairSets,
   collectPolyTextureReadiness,
   computeProjectiveQuadMatrix,
   computeTextureAtlasPlanPublic,
   createPolyPerspectiveCamera,
   createPolyScene,
+  packTextureAtlasPlans,
   resolveProjectiveQuadGuards,
   stableBasisFromPlan,
 } from "@layoutit/polycss";
@@ -18,6 +23,12 @@ const QUAKE_TEXTURE_LEAF_SIZING = "raster";
 const QUAKE_TEXTURE_IMAGE_RENDERING = "pixelated";
 const QUAKE_TEXTURE_BACKEND = "atlas";
 const QUAKE_TEXTURE_PROJECTION = "affine";
+const QUAKE_RENDER_AMBIENT_LIGHT = { color: "#ffffff", intensity: Math.PI };
+const QUAKE_RENDER_DIRECTIONAL_LIGHT = { direction: [-0.4, -0.55, -0.65], color: "#ffffff", intensity: 0 };
+const QUAKE_TEXTURE_ATLAS_SCALE_EXTRA_BLEED_PX = 0;
+const QUAKE_TEXTURE_ATLAS_SCALE_EXTRA_BLEED_ALPHA = 0.55;
+const QUAKE_TEXTURE_ATLAS_SCALE_GAMMA = 0.82;
+const QUAKE_TEXTURE_ATLAS_SCALE_BRIGHTNESS = 1.12;
 const QUAKE_MATRIX_LINEAR_SNAP_EPSILON = 0.0015;
 const QUAKE_MATRIX_TRANSLATION_SNAP_EPSILON = 0.012;
 const QUAKE_MATRIX_TRANSLATION_SNAP_GRID = 0.125;
@@ -68,6 +79,7 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
   optimizeAtlasLeafHomography = false,
   skipAssetPayloads = false,
   layoutOnly = false,
+  textureAtlasScale = 1,
 }) {
   const host = createQuakeRenderHost();
 
@@ -116,6 +128,11 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
     const atlasBackgroundSnapStats = runQuakeRenderBundleStep("snap-backgrounds", () =>
       layoutOnly ? null : snapQuakeAtlasLeafBackgroundsToIntegerPx(handle.element)
     );
+    const textureAtlasScaleStats = await runQuakeRenderBundleStepAsync("texture-atlas-scale", () =>
+      !layoutOnly && textureAtlasScale > 1
+        ? applyQuakeTextureAtlasScaleOverride(handle.element, renderPolygons, textureAtlasScale)
+        : null
+    );
     const layoutOnlyPendingStyleStats = runQuakeRenderBundleStep("clear-layout-only-pending-styles", () =>
       layoutOnly ? clearQuakeLayoutOnlyPendingLeafStyles(handle.element) : null
     );
@@ -151,6 +168,7 @@ window.__buildQuakeRenderBundle = async function buildQuakeRenderBundle({
       ...(atlasLeafHomographyOptimizationStats?.optimizedLeaves
         ? { atlasLeafHomographyOptimizationStats }
         : {}),
+      ...(textureAtlasScaleStats?.pageCount ? { textureAtlasScaleStats } : {}),
     };
   } finally {
     host.remove();
@@ -469,8 +487,8 @@ function createQuakeRenderScene(host, textureQuality) {
   });
   return createPolyScene(host, {
     camera,
-    ambientLight: { color: "#ffffff", intensity: Math.PI },
-    directionalLight: { direction: [-0.4, -0.55, -0.65], color: "#ffffff", intensity: 0 },
+    ambientLight: QUAKE_RENDER_AMBIENT_LIGHT,
+    directionalLight: QUAKE_RENDER_DIRECTIONAL_LIGHT,
     textureLighting: "baked",
     textureQuality,
     textureLeafSizing: QUAKE_TEXTURE_LEAF_SIZING,
@@ -479,6 +497,194 @@ function createQuakeRenderScene(host, textureQuality) {
     textureProjection: QUAKE_TEXTURE_PROJECTION,
     autoCenter: false,
   });
+}
+
+async function applyQuakeTextureAtlasScaleOverride(root, polygons, textureAtlasScale) {
+  const scale = Math.max(1, Math.min(8, Math.round(textureAtlasScale)));
+  if (scale <= 1 || !root || !Array.isArray(polygons) || polygons.length === 0) {
+    return null;
+  }
+  const meshRoots = [
+    root,
+    ...Array.from(root.querySelectorAll?.(".polycss-mesh") ?? []),
+  ].filter((element, index, elements) =>
+    element?.style && elements.indexOf(element) === index
+  );
+  if (!meshRoots.length) return null;
+  const textureEdgeRepairSets = buildTextureEdgeRepairSets(polygons);
+  const plans = polygons.map((polygon, index) =>
+    computeTextureAtlasPlanPublic(polygon, index, {
+      tileSize: BASE_TILE,
+      layerElevation: BASE_TILE,
+      ambientLight: QUAKE_RENDER_AMBIENT_LIGHT,
+      directionalLight: QUAKE_RENDER_DIRECTIONAL_LIGHT,
+      ...(textureEdgeRepairSets[index]?.size
+        ? { textureEdgeRepairEdges: textureEdgeRepairSets[index] }
+        : {}),
+    }, QUAKE_POLYCSS_PROJECTIVE_QUAD_GUARDS)
+  );
+  const atlasPlanCount = plans.filter(Boolean).length;
+  const edgeRepairPlanCount = plans.filter((plan) => plan?.textureEdgeRepair).length;
+  if (!atlasPlanCount) return null;
+  const packed = packTextureAtlasPlans(plans, 1);
+  applyPackedAtlasLeafSizing(
+    packed,
+    ATLAS_CANONICAL_SIZE_EXPLICIT,
+    1,
+    QUAKE_TEXTURE_LEAF_SIZING,
+  );
+  const rawPages = await buildAtlasPages(
+    packed.pages,
+    "baked",
+    document,
+    scale,
+    () => false,
+  );
+  const postprocessStats = {
+    bleedPixels: QUAKE_TEXTURE_ATLAS_SCALE_EXTRA_BLEED_PX,
+    bleedAlpha: QUAKE_TEXTURE_ATLAS_SCALE_EXTRA_BLEED_ALPHA,
+    gamma: QUAKE_TEXTURE_ATLAS_SCALE_GAMMA,
+    brightness: QUAKE_TEXTURE_ATLAS_SCALE_BRIGHTNESS,
+    pageCount: 0,
+  };
+  const pages = await postprocessQuakeTextureAtlasScalePages(rawPages, document, postprocessStats);
+  let replacedPages = 0;
+  for (let index = 0; index < pages.length; index++) {
+    const page = pages[index];
+    if (!page?.url) continue;
+    for (const meshRoot of meshRoots) {
+      meshRoot.style.setProperty(`--bg${index}`, `url("${page.url}")`);
+    }
+    replacedPages++;
+  }
+  return {
+    atlasPlanCount,
+    pageCount: pages.length,
+    replacedPages,
+    scale,
+    edgeRepairPlanCount,
+    ...(postprocessStats.pageCount ? { postprocessStats } : {}),
+  };
+}
+
+async function postprocessQuakeTextureAtlasScalePages(pages, doc, stats) {
+  if (!Array.isArray(pages) || pages.length === 0) return pages;
+  const nextPages = [];
+  for (const page of pages) {
+    if (!page?.url) {
+      nextPages.push(page);
+      continue;
+    }
+    const processedUrl = await postprocessQuakeTextureAtlasScalePage(page.url, doc);
+    if (processedUrl) {
+      stats.pageCount++;
+      nextPages.push({ ...page, url: processedUrl });
+    } else {
+      nextPages.push(page);
+    }
+  }
+  return nextPages;
+}
+
+async function postprocessQuakeTextureAtlasScalePage(url, doc) {
+  const win = doc?.defaultView ?? window;
+  const image = await loadQuakeTextureAtlasScaleImage(url, win);
+  if (!image?.width || !image?.height) return null;
+  const canvas = doc.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return null;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0);
+  if (typeof image.close === "function") image.close();
+
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  applyQuakeTextureAtlasScaleGamma(imageData.data);
+  applyQuakeTextureAtlasScaleBleed(
+    imageData.data,
+    canvas.width,
+    canvas.height,
+    QUAKE_TEXTURE_ATLAS_SCALE_EXTRA_BLEED_PX,
+  );
+  context.putImageData(imageData, 0, 0);
+
+  const blob = await new Promise((resolve) =>
+    canvas.toBlob(resolve, "image/avif", 0.92)
+  );
+  return blob ? win.URL.createObjectURL(blob) : null;
+}
+
+async function loadQuakeTextureAtlasScaleImage(url, win) {
+  try {
+    if (typeof win.createImageBitmap === "function" && typeof win.fetch === "function") {
+      const blob = await (await win.fetch(url)).blob();
+      return await win.createImageBitmap(blob);
+    }
+  } catch {
+    // Fall back to an HTMLImageElement decode below.
+  }
+  return await new Promise((resolve, reject) => {
+    const image = new win.Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Could not load atlas page ${url}`));
+    image.src = url;
+  });
+}
+
+function applyQuakeTextureAtlasScaleGamma(data) {
+  const gamma = QUAKE_TEXTURE_ATLAS_SCALE_GAMMA;
+  const brightness = QUAKE_TEXTURE_ATLAS_SCALE_BRIGHTNESS;
+  for (let index = 0; index < data.length; index += 4) {
+    if (data[index + 3] === 0) continue;
+    data[index] = quakeTextureAtlasScaleAdjustedChannel(data[index], gamma, brightness);
+    data[index + 1] = quakeTextureAtlasScaleAdjustedChannel(data[index + 1], gamma, brightness);
+    data[index + 2] = quakeTextureAtlasScaleAdjustedChannel(data[index + 2], gamma, brightness);
+  }
+}
+
+function quakeTextureAtlasScaleAdjustedChannel(value, gamma, brightness) {
+  return Math.max(0, Math.min(255, Math.round((255 * ((value / 255) ** gamma)) * brightness)));
+}
+
+function applyQuakeTextureAtlasScaleBleed(data, width, height, bleedPixels) {
+  const iterations = Math.max(0, Math.round(bleedPixels));
+  if (!iterations || width <= 0 || height <= 0) return;
+  const stride = width * 4;
+  for (let pass = 0; pass < iterations; pass++) {
+    const source = new Uint8ClampedArray(data);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const offset = y * stride + x * 4;
+        if (source[offset + 3] >= 250) continue;
+        let bestOffset = -1;
+        let bestAlpha = source[offset + 3];
+        for (let dy = -1; dy <= 1; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= height) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            if (nx < 0 || nx >= width) continue;
+            const neighborOffset = ny * stride + nx * 4;
+            const alpha = source[neighborOffset + 3];
+            if (alpha > bestAlpha) {
+              bestAlpha = alpha;
+              bestOffset = neighborOffset;
+            }
+          }
+        }
+        if (bestOffset < 0 || bestAlpha <= source[offset + 3]) continue;
+        data[offset] = source[bestOffset];
+        data[offset + 1] = source[bestOffset + 1];
+        data[offset + 2] = source[bestOffset + 2];
+        data[offset + 3] = Math.max(
+          source[offset + 3],
+          Math.round(bestAlpha * QUAKE_TEXTURE_ATLAS_SCALE_EXTRA_BLEED_ALPHA),
+        );
+      }
+    }
+  }
 }
 
 async function waitForQuakeRenderBundleTextures(handle) {

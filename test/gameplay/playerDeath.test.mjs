@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { importTsModule } from "./importTsModule.mjs";
+import { importTsModule } from "../importTsModule.mjs";
 
 const player = await importTsModule("src/runtime/player.ts");
 const constants = await importTsModule("src/runtime/constants.ts");

@@ -48,6 +48,8 @@ export interface QuakeAppDomElements {
   debugFlyModeOption: HTMLInputElement | null;
   debugShowOutlinesOption: HTMLInputElement | null;
   debugShowLabelsOption: HTMLInputElement | null;
+  debugRecordingRow: HTMLElement | null;
+  debugRecordingButton: HTMLButtonElement | null;
   debugStatElements: Map<string, HTMLElement>;
   loadingOverlay: HTMLElement | null;
   loadingStatus: HTMLElement | null;
@@ -118,6 +120,8 @@ export function queryQuakeAppDom(): QuakeAppDomElements {
     debugFlyModeOption: quakeElement("quake-debug-fly-mode"),
     debugShowOutlinesOption: quakeElement("quake-debug-show-outlines"),
     debugShowLabelsOption: quakeElement("quake-debug-show-labels"),
+    debugRecordingRow: quakeElement("quake-debug-recording-row"),
+    debugRecordingButton: quakeElement("quake-debug-recording-toggle"),
     debugStatElements: new Map(
       Array.from(document.querySelectorAll<HTMLElement>("[data-qstat]"))
         .map((element) => [element.dataset.qstat ?? "", element] as const)

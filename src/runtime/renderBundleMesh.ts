@@ -71,12 +71,14 @@ const renderBundleAssetPreloads = new Map<string, {
   promise: Promise<void>;
 }>();
 const QUAKE_DEBUG_POLY_ID_ATTR = "data-qpid";
+const QUAKE_DEBUG_SOURCE_FACE_ATTR = "data-qsource-face";
 const mountedRenderBundleByElement = new WeakMap<HTMLElement, QuakePreparedRenderBundle>();
 const mountedRenderBundleElements = new Set<HTMLElement>();
 let renderBundleDebugOutlinesEnabled = false;
 let renderBundleDebugTransparentOutlinesEnabled = false;
 let renderBundleDebugLabelsEnabled = false;
 const renderBundleDebugLeafBackgrounds = new WeakMap<HTMLElement, QuakeRenderBundleDebugLeafBackground>();
+const renderBundleDebugSourceFaceByLeaf = new WeakMap<HTMLElement, string>();
 const renderBundleDebugLeavesByElement = new WeakMap<HTMLElement, Set<HTMLElement>>();
 const renderBundleDebugOutlineLeavesByElement = new WeakMap<HTMLElement, Set<HTMLElement>>();
 const renderBundleDebugHiddenTextureLeaves = new WeakSet<HTMLElement>();
@@ -225,10 +227,13 @@ function syncQuakeRenderBundleDebugLeafIds(
   leaves: NodeListOf<HTMLElement>,
   renderBundle: QuakePreparedRenderBundle,
 ): void {
+  const idsEnabled = renderBundleDebugLabelsEnabled || renderBundleDebugOutlinesEnabled;
   for (let index = 0; index < leaves.length; index++) {
     const leaf = leaves[index];
-    if (!renderBundleDebugLabelsEnabled) {
+    const shouldStampId = idsEnabled && (renderBundleDebugLabelsEnabled || leaf?.tagName.toLowerCase() === "s");
+    if (!shouldStampId) {
       leaf?.removeAttribute(QUAKE_DEBUG_POLY_ID_ATTR);
+      leaf?.removeAttribute(QUAKE_DEBUG_SOURCE_FACE_ATTR);
       continue;
     }
     const id = quakeRenderBundleDebugLeafId(leaf, renderBundle.leafMetadata[index]);
@@ -237,7 +242,19 @@ function syncQuakeRenderBundleDebugLeafIds(
       continue;
     }
     leaf.setAttribute(QUAKE_DEBUG_POLY_ID_ATTR, String(id));
+    syncQuakeRenderBundleDebugLeafSourceFace(leaf);
   }
+}
+
+function syncQuakeRenderBundleDebugLeafSourceFace(leaf: HTMLElement | undefined): void {
+  const sourceFace = leaf?.tagName.toLowerCase() === "s"
+    ? renderBundleDebugSourceFaceByLeaf.get(leaf)
+    : undefined;
+  if (sourceFace === undefined) {
+    leaf?.removeAttribute(QUAKE_DEBUG_SOURCE_FACE_ATTR);
+    return;
+  }
+  leaf.setAttribute(QUAKE_DEBUG_SOURCE_FACE_ATTR, String(sourceFace));
 }
 
 function quakeRenderBundleDebugLeafId(
@@ -761,8 +778,9 @@ export interface QuakeRenderBundleDebugOutlineOptions {
 export function syncQuakeRenderBundleDebugLabels(enabled: boolean): void {
   renderBundleDebugLabelsEnabled = enabled;
   if (!enabled) {
-    document.querySelectorAll<HTMLElement>(`[${QUAKE_DEBUG_POLY_ID_ATTR}]`).forEach((leaf) => {
+    document.querySelectorAll<HTMLElement>(`[${QUAKE_DEBUG_POLY_ID_ATTR}],[${QUAKE_DEBUG_SOURCE_FACE_ATTR}]`).forEach((leaf) => {
       leaf.removeAttribute(QUAKE_DEBUG_POLY_ID_ATTR);
+      leaf.removeAttribute(QUAKE_DEBUG_SOURCE_FACE_ATTR);
     });
   }
   for (const element of mountedRenderBundleElements) {
@@ -789,6 +807,7 @@ export function syncQuakeRenderBundleDebugOutlines(
     }
     const renderBundle = mountedRenderBundleByElement.get(element);
     if (!renderBundle) continue;
+    syncQuakeRenderBundleDebugLeafIds(element.querySelectorAll<HTMLElement>("b,i,s,u"), renderBundle);
     if (enabled) {
       void enableQuakeRenderBundleDebugOutlines(element, renderBundle, options)
         .catch((error) => console.error("[cssQuake] Could not load debug outline atlas.", error));
@@ -823,6 +842,23 @@ export function registerQuakeRenderBundleDebugOutlineLeaves(
   renderBundleDebugOutlineLeavesByElement.set(element, new Set(leaves));
   if (!renderBundleDebugOutlinesEnabled || !element.classList.contains("quake-debug-outline-atlas-ready")) return;
   syncQuakeRenderBundleDebugOutlineLeaves(element, leaves);
+}
+
+export function registerQuakeRenderBundleDebugLeafSourceFace(
+  leaf: HTMLElement,
+  sourceFaceIndexes: readonly number[] | undefined,
+): void {
+  const value = sourceFaceIndexes?.filter((index) => Number.isSafeInteger(index) && index >= 0).join(",");
+  if (!value) {
+    renderBundleDebugSourceFaceByLeaf.delete(leaf);
+  } else {
+    renderBundleDebugSourceFaceByLeaf.set(leaf, value);
+  }
+  if (renderBundleDebugLabelsEnabled || renderBundleDebugOutlinesEnabled) {
+    syncQuakeRenderBundleDebugLeafSourceFace(leaf);
+  } else {
+    leaf.removeAttribute(QUAKE_DEBUG_SOURCE_FACE_ATTR);
+  }
 }
 
 async function enableQuakeRenderBundleDebugOutlines(

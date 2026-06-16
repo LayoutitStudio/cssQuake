@@ -217,7 +217,10 @@ export interface QuakeShootablesController {
   debugDamageWeaponTarget(entityIndex: number, amount: number): boolean;
   debugClearEnemyProjectileCapture(): void;
   debugEnemyProjectileCapture(): QuakeEnemyProjectileDebugCapture;
+  debugForceEnemyAttack(entityIndex: number, targetOrigin?: Vec3): boolean;
+  debugForceEnemyAttackChain(entityIndex: number, chain: string, targetOrigin?: Vec3): boolean;
   debugMountEntity(entityIndex: number): boolean;
+  debugStepEnemyProjectiles(dtMs?: number): QuakeEnemyProjectileDebugCapture;
   debugSetEnemyTickFilter(entityIndexes: readonly number[] | null): void;
   debugSetEnemyProjectileCaptureEnabled(enabled: boolean): void;
   debugSetOrigin(entityIndex: number, origin: Vec3): boolean;
@@ -519,6 +522,7 @@ export function createQuakeShootablesController({
   let monsterJumpTriggers: QuakeMonsterJumpTrigger[] = [];
   let visibilityChurn = createQuakeShootablesVisibilityChurnStats();
   let debugEnemyTickFilter: Set<number> | null = null;
+  let debugEnemyProjectileStepNow = 0;
   const combatBudget = createQuakeCombatBudgetRuntime();
   const mountedEnemyAcquisitionVisibilityCache = createQuakeEnemyAcquisitionVisibilityCache();
   let mountedEnemySightEntity: { entityIndex: number; seenAtSeconds: number } | null = null;
@@ -605,6 +609,7 @@ export function createQuakeShootablesController({
     consumePlayerPainRandom,
     currentModelLibrary: () => currentModelLibrary,
     damagePlayer,
+    floorAt,
     hasLineOfSight,
     markTrace: markQuakeTrace,
     offsetPoint: quakeEnemyProjectileOffsetPoint,
@@ -2034,10 +2039,112 @@ export function createQuakeShootablesController({
     return shootable.visible;
   }
 
+  function debugForceEnemyAttack(entityIndex: number, targetOrigin?: Vec3): boolean {
+    const shootable = shootables.get(entityIndex);
+    const enemy = shootable?.enemy;
+    if (!shootable || !enemy || shootable.dead || shootable.health <= 0) return false;
+    if (!debugMountEntity(entityIndex)) return false;
+    const profile = enemyCombatProfile(shootable);
+    if (!profile) return false;
+    const now = performance.now();
+    const target = [...(targetOrigin ?? getPlayerOrigin())] as [number, number, number];
+    clearEnemyAttackState(shootable);
+    enemy.awake = true;
+    enemy.currentTarget = targetOrigin ? { kind: "player" } : playerEnemyTargetReference();
+    enemy.oldTarget = null;
+    enemy.nextAttackAt = now;
+    enemy.quakecIdealYaw = quakeYawToOrigin(shootable.origin, target);
+    syncShootableEnemyDatasets(shootable);
+    const started = tryStartEnemyAttack(
+      shootable,
+      enemy,
+      shootableEyeOrigin(shootable),
+      target,
+      profile,
+      now,
+      playerAttackTarget(target),
+    );
+    if (started) startEnemyLoop();
+    return started;
+  }
+
+  function debugForceEnemyAttackChain(entityIndex: number, chain: string, targetOrigin?: Vec3): boolean {
+    const shootable = shootables.get(entityIndex);
+    const enemy = shootable?.enemy;
+    if (!shootable || !enemy || shootable.dead || shootable.health <= 0 || !chain) return false;
+    if (!debugMountEntity(entityIndex)) return false;
+    const profile = enemyCombatProfile(shootable);
+    if (!profile) return false;
+    const now = performance.now();
+    const target = [...(targetOrigin ?? getPlayerOrigin())] as [number, number, number];
+    clearEnemyAttackState(shootable);
+    enemy.awake = true;
+    enemy.currentTarget = playerEnemyTargetReference();
+    enemy.oldTarget = null;
+    enemy.nextAttackAt = now;
+    enemy.pendingAttack = {
+      fireAt: Infinity,
+      forceAttackEvents: true,
+      quakecChain: chain,
+      target: [...target] as Vec3,
+    };
+    enemy.quakecFiredEvents.clear();
+    enemy.quakecIdealYaw = quakeYawToOrigin(shootable.origin, target);
+    syncShootableEnemyDatasets(shootable);
+    const context: QuakeEnemyAnimationContext = {
+      enemyEye: shootableEyeOrigin(shootable),
+      forceAttackEvents: true,
+      playerOrigin: target,
+      profile,
+      target: playerAttackTarget(target),
+    };
+    if (!runDebugEnemyAttackChain(shootable, chain, now, context)) {
+      clearEnemyAttackState(shootable);
+      return false;
+    }
+    startEnemyLoop();
+    return true;
+  }
+
+  function runDebugEnemyAttackChain(
+    shootable: QuakeShootableState,
+    chain: string,
+    now: number,
+    context: QuakeEnemyAnimationContext,
+  ): boolean {
+    const enemy = shootable.enemy;
+    const runner = enemy?.quakecRunner;
+    if (!enemy || !runner || !runner.hasChain(chain)) return false;
+    let step = runner.enterChain(chain);
+    if (!step) return false;
+    enemy.quakecAnimationChain = chain;
+    enemy.animationMode = "attack";
+    for (let index = 0; index < Math.max(1, runner.chainLength(chain)); index++) {
+      applyEnemyQuakecAnimationStep(shootable, step, "attack", now + index * QUAKE_MONSTER_QUAKEC_STATE_FRAME_MS, context);
+      if (step.chainCycleEnd) break;
+      step = runner.advance();
+      if (step.chain !== chain) break;
+    }
+    return true;
+  }
+
   function debugSetEnemyTickFilter(entityIndexes: readonly number[] | null): void {
     debugEnemyTickFilter = entityIndexes
       ? new Set(entityIndexes.filter((entityIndex) => Number.isInteger(entityIndex) && entityIndex > 0))
       : null;
+  }
+
+  function debugClearEnemyProjectileCapture(): void {
+    debugEnemyProjectileStepNow = 0;
+    enemyProjectiles.debugClearProjectileCapture();
+  }
+
+  function debugStepEnemyProjectiles(dtMs = QUAKE_ENEMY_TICK_MS): QuakeEnemyProjectileDebugCapture {
+    const boundedDtMs = Math.max(1, Math.min(250, Number.isFinite(dtMs) ? dtMs : QUAKE_ENEMY_TICK_MS));
+    const now = Math.max(performance.now(), debugEnemyProjectileStepNow + boundedDtMs);
+    debugEnemyProjectileStepNow = now;
+    enemyProjectiles.update(getPlayerOrigin(), boundedDtMs / 1000, now);
+    return enemyProjectiles.debugProjectileCapture();
   }
 
   function shootableVisibilitySnapshot(): QuakeShootablesVisibilitySnapshot {
@@ -2732,6 +2839,7 @@ export function createQuakeShootablesController({
       enemyMovement.faceShootableAtOrigin(shootable, attackTargetOrigin);
       updateEnemyAnimation(shootable, "attack", now, {
         enemyEye,
+        forceAttackEvents: enemy.pendingAttack.forceAttackEvents,
         playerOrigin: attackTargetOrigin,
         profile,
         target: attackTarget,
@@ -2848,6 +2956,7 @@ export function createQuakeShootablesController({
       if (quakeShootableUsesQuakecAttackEvents(shootable)) {
         updateEnemyAnimation(shootable, "attack", now, {
           enemyEye,
+          forceAttackEvents: enemy.pendingAttack.forceAttackEvents,
           playerOrigin: attackTargetOrigin,
           profile,
           target: attackTarget,
@@ -3298,6 +3407,7 @@ export function createQuakeShootablesController({
       enemy.quakecFiredEvents.clear();
       updateEnemyAnimation(shootable, "attack", now, {
         enemyEye: shootableEyeOrigin(shootable),
+        forceAttackEvents: enemy.pendingAttack.forceAttackEvents,
         playerOrigin: targetOrigin,
         profile,
         target,
@@ -3484,7 +3594,7 @@ export function createQuakeShootablesController({
       next: step.next,
       state: step.stateName,
     });
-    const runAttackEvents = mode !== "attack" || enemyAttackRuntimeEnabled();
+    const runAttackEvents = mode !== "attack" || enemyAttackRuntimeEnabled() || context?.forceAttackEvents === true;
     if (runAttackEvents) {
       enemyCombat.runFrameSounds(shootable, step, mode, now);
       enemyCombat.runFrameEvents(shootable, step, mode, now, context);
@@ -3754,6 +3864,7 @@ export function createQuakeShootablesController({
     chain: string,
     mode: QuakeMonsterAnimationMode,
     now: number,
+    context?: QuakeEnemyAnimationContext,
   ): number | null {
     const enemy = shootable.enemy;
     const runner = enemy?.quakecRunner;
@@ -3768,7 +3879,7 @@ export function createQuakeShootablesController({
     enemy.quakecAnimationChain = chain;
     enemy.animationLockUntil = now + duration;
     enemy.nextAnimationFrameAt = now + QUAKE_MONSTER_QUAKEC_STATE_FRAME_MS;
-    applyEnemyQuakecAnimationStep(shootable, step, mode, now);
+    applyEnemyQuakecAnimationStep(shootable, step, mode, now, context);
     return duration;
   }
 
@@ -4263,12 +4374,15 @@ export function createQuakeShootablesController({
     debugStats,
     debugCanDamageTrace,
     debugEnemyAcquisition,
-    debugClearEnemyProjectileCapture: enemyProjectiles.debugClearProjectileCapture,
+    debugClearEnemyProjectileCapture,
     debugDamageWeaponTarget,
     debugEnemyProjectileCapture: enemyProjectiles.debugProjectileCapture,
+    debugForceEnemyAttackChain,
+    debugForceEnemyAttack,
     debugMountEntity,
     debugSetEnemyTickFilter,
     debugSetEnemyProjectileCaptureEnabled: enemyProjectiles.debugSetProjectileCaptureEnabled,
+    debugStepEnemyProjectiles,
     debugSetOrigin,
     debugSetYaw,
     setExpandedLogicalCombatEnabled,

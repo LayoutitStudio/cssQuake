@@ -287,6 +287,8 @@ const {
   debugFlyModeOption,
   debugShowOutlinesOption,
   debugShowLabelsOption,
+  debugRecordingRow,
+  debugRecordingButton,
   debugStatElements,
   loadingOverlay,
   loadingStatus,
@@ -730,7 +732,9 @@ let quakeDamageDisabled = quakeUrlBoolean("disableDamage") || (disableDamageOpti
 let quakeEnemiesFrozen = quakeUrlBoolean("freezeEnemies") || (debugFreezeEnemiesOption?.checked ?? false);
 let quakeAttacksDisabled = quakeUrlBoolean("disableAttacks") || (debugDisableAttacksOption?.checked ?? false);
 const quakeDebugPointerTraceConsole = quakeUrlBoolean("debugPointer");
+const quakeDebugRecordingPanelEnabled = quakeUrlBoolean("debugRecording");
 const quakeInitialDebugFlyMode = quakeUrlBoolean("debugFly") || (debugFlyModeOption?.checked ?? false);
+if (debugRecordingRow) debugRecordingRow.hidden = !quakeDebugRecordingPanelEnabled;
 const QUAKE_MULTIPLAYER_ROOM_TOKEN_LENGTH = 8;
 const QUAKE_MULTIPLAYER_ROOM_TOKEN_ALPHABET = "bcdfghjkmnpqrstvwxyz23456789";
 const QUAKE_MULTIPLAYER_ROOM_TOKEN_PATTERN = /^[bcdfghjkmnpqrstvwxyz23456789]{8}$/i;
@@ -1607,8 +1611,9 @@ const quakeDebugRecorder = createQuakeDebugRecorder({
   appVersion: __CSSQUAKE_VERSION__,
   currentMapName: () => currentMapName,
   entityManifest: () => currentResult?.entityManifest ?? null,
+  onStateChange: quakeDebugRecordingPanelEnabled ? syncQuakeDebugRecordingButton : undefined,
   snapshot: () => quakeDebugRecordingSnapshot.capture(),
-  statusElement: debugStatElements.get("recording") ?? null,
+  statusElement: quakeDebugRecordingPanelEnabled ? debugStatElements.get("recording") ?? null : null,
 });
 const quakePointerTracer = createQuakePointerTracer({
   enabled: () => quakeDebugPanelFlow.isModeEnabled() || isQuakeDebugHooksEnabled(),
@@ -1981,6 +1986,7 @@ quakePointerGameplay = createQuakePointerGameplayFlow({
   isDebugFlyModeActive: isQuakeDebugFlyModeActive,
   isDeathUnlockControlsEndTraceSuppressed: isQuakeDeathUnlockControlsEndTraceSuppressed,
   isDisposed: () => quakeAppDisposed,
+  isInteractiveOverlayTarget: (target) => target instanceof Node && debugPanel?.contains(target) === true,
   isPlayerDead: () => quakePlayerDead,
   mobileRoot: quakeApp,
   onAvailabilityChange: () => quakeStatsOverlay.syncAvailability(),
@@ -2327,6 +2333,7 @@ quakePlayerLifecycle = createQuakePlayerLifecycleFlow({
   viewmodel,
 });
 let quakeDebugCollisionBypassUntil = 0;
+let quakeDebugGameplaySyncActive = false;
 let quakeGamePaused = false;
 let quakeGamePausedAt = 0;
 let quakeMenuPauseActive = false;
@@ -2369,7 +2376,7 @@ function isQuakeKey(value: string): value is QuakeKey {
 }
 
 function isQuakeGamePaused(): boolean {
-  return quakeGamePaused;
+  return !quakeDebugGameplaySyncActive && quakeGamePaused;
 }
 
 function setQuakeMenuPauseState(paused: boolean): void {
@@ -2590,6 +2597,29 @@ function toggleQuakeOutlineTextureModeShortcut(): void {
   showQuakeShortcutState("Outlines", quakeDebugPanelFlow.toggleOutlineTextureMode());
 }
 
+function syncQuakeDebugRecordingButton(recording: boolean): void {
+  if (!quakeDebugRecordingPanelEnabled || !debugRecordingButton) return;
+  debugRecordingButton.textContent = recording ? "STOP" : "RECORD";
+  debugRecordingButton.setAttribute("aria-pressed", String(recording));
+  debugRecordingButton.setAttribute("aria-label", recording ? "Stop debug recording" : "Start debug recording");
+}
+
+function handleQuakeDebugRecordingButtonClick(event: Event): void {
+  event.preventDefault();
+  event.stopPropagation();
+  if (!quakeDebugRecordingPanelEnabled) return;
+  if (quakeDebugRecorder.isRecording()) {
+    quakeDebugRecorder.stop("stop");
+    return;
+  }
+  if (quakeAppLoading || currentResult === null) {
+    const recordingStatus = debugStatElements.get("recording");
+    if (recordingStatus) recordingStatus.textContent = "load first";
+    return;
+  }
+  quakeDebugRecorder.start();
+}
+
 function syncQuakeInteractionPresentation(): void {
   const menuSurfaceOpen = menu.isMainMenuOpen() || menu.isMenuPanelOpen();
   const pointerUnlocked = document.pointerLockElement !== host;
@@ -2728,7 +2758,7 @@ function isQuakeLevelTransitionActive(): boolean {
 }
 
 function canUseQuakeGameplayInput(): boolean {
-  return quakePlayerLifecycle.canUseGameplayInput();
+  return !isQuakeGamePaused() && quakePlayerLifecycle.canUseGameplayInput();
 }
 
 function shouldResumeQuakeMainMenuOnEscape(): boolean {
@@ -4334,7 +4364,14 @@ function syncTouchedTriggers(origin: [number, number, number]): QuakeTouchedTrig
 }
 
 function syncQuakeDebugGameplay(origin: [number, number, number]): void {
-  quakeSceneMount.syncDebugGameplay(origin);
+  getPlayer().setDebugOrigin(origin);
+  const previousDebugGameplaySyncActive = quakeDebugGameplaySyncActive;
+  quakeDebugGameplaySyncActive = true;
+  try {
+    quakeSceneMount.syncDebugGameplay(origin);
+  } finally {
+    quakeDebugGameplaySyncActive = previousDebugGameplaySyncActive;
+  }
 }
 
 function applyQuakeUrlView(view: QuakeCssView): void {
@@ -4495,6 +4532,9 @@ function disposeQuakeApp(): void {
   debugFlyModeOption?.removeEventListener("change", handleQuakeDebugFlyModeOptionChange);
   debugShowOutlinesOption?.removeEventListener("change", quakeDebugPanelFlow.handleShowOutlinesOptionChange);
   debugShowLabelsOption?.removeEventListener("change", quakeDebugPanelFlow.handleShowLabelsOptionChange);
+  if (quakeDebugRecordingPanelEnabled) {
+    debugRecordingButton?.removeEventListener("click", handleQuakeDebugRecordingButtonClick);
+  }
   quakeDebugRecorder.dispose();
   quakeDebugPanelFlow.stopStats();
   controls.removeEventListener("change", handleQuakeControlsChange);
@@ -4678,6 +4718,9 @@ debugShowTexturesOption?.addEventListener("change", quakeDebugPanelFlow.handleSh
 debugFlyModeOption?.addEventListener("change", handleQuakeDebugFlyModeOptionChange);
 debugShowOutlinesOption?.addEventListener("change", quakeDebugPanelFlow.handleShowOutlinesOptionChange);
 debugShowLabelsOption?.addEventListener("change", quakeDebugPanelFlow.handleShowLabelsOptionChange);
+if (quakeDebugRecordingPanelEnabled) {
+  debugRecordingButton?.addEventListener("click", handleQuakeDebugRecordingButtonClick);
+}
 controls.addEventListener("change", handleQuakeControlsChange);
 controls.addEventListener("end", quakeGameplayInput.clearCrouchInput);
 

@@ -16651,6 +16651,72 @@ export const QUAKE_PROGRAM_FACTS = {
           }
         }
       ],
+      "callbackFacts": {
+        "sigil_touch": {
+          "assignments": [
+            {
+              "field": "self.solid",
+              "expression": "SOLID_NOT",
+              "value": 0,
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "sigil_touch",
+                "line": 1038
+              }
+            },
+            {
+              "field": "self.model",
+              "expression": "string_null",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "sigil_touch",
+                "line": 1039
+              }
+            },
+            {
+              "field": "serverflags",
+              "expression": "serverflags | (self.spawnflags & 15)",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "sigil_touch",
+                "line": 1040
+              }
+            },
+            {
+              "field": "self.classname",
+              "expression": "\"\"",
+              "value": "",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "sigil_touch",
+                "line": 1041
+              }
+            },
+            {
+              "field": "activator",
+              "expression": "other",
+              "sourceRef": {
+                "sourceFile": "qcc/v101qc/items.qc",
+                "functionName": "sigil_touch",
+                "line": 1043
+              }
+            }
+          ],
+          "calls": [
+            "centerprint",
+            "sound",
+            "stuffcmd",
+            "SUB_UseTargets"
+          ],
+          "sourceRefs": [
+            {
+              "sourceFile": "qcc/v101qc/items.qc",
+              "functionName": "sigil_touch",
+              "line": 1025
+            }
+          ]
+        }
+      },
       "callbacks": {
         "touch": "sigil_touch"
       },

@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { Window } from "happy-dom";
 
-import { importTsModule } from "./importTsModule.mjs";
+import { importTsModule } from "../importTsModule.mjs";
 
 const {
   QUAKE_MOBILE_CONTROLS_QUERY,
@@ -243,6 +243,10 @@ function pointer(window, type, clientX, clientY, pointerId, buttons) {
 }
 
 function restoreGlobal(name, value) {
+  if (value === undefined) {
+    delete globalThis[name];
+    return;
+  }
   Object.defineProperty(globalThis, name, {
     configurable: true,
     value,

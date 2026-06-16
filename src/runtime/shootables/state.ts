@@ -125,6 +125,7 @@ export interface QuakeMoveGoalOptions {
 
 export interface QuakeEnemyPendingAttack {
   fireAt: number;
+  forceAttackEvents?: boolean;
   quakecChain?: string;
   target: Vec3;
 }
@@ -163,6 +164,7 @@ export interface QuakeEnemyActiveTouchDamage {
 
 export interface QuakeEnemyAnimationContext {
   enemyEye: Vec3;
+  forceAttackEvents?: boolean;
   playerOrigin: [number, number, number];
   profile: QuakeMonsterCombatProfile;
   target?: QuakeEnemyAttackTarget;

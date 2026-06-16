@@ -39,6 +39,17 @@ body {
   z-index: 3;
   pointer-events: none;
 }
+#quake-menu::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: transparent;
+  pointer-events: none;
+}
+body.quake-menu-open.quake-gameplay-started #quake-menu::before {
+  background: rgba(0, 0, 0, 0.65);
+}
 #quake-app .polycss-mesh b,
 #quake-app .polycss-mesh i,
 #quake-app .polycss-mesh s,
@@ -51,6 +62,25 @@ body.quake-debug-fly #quake-app .quake-world-mesh :is(b, i, s, u) {
 }
 #quake-app .polycss-mesh s {
   background-repeat: no-repeat !important;
+}
+#quake-app .quake-world-mesh :is(b, i, s, u).quake-world-material-probe {
+  background: var(--quake-world-material-probe-color, #66696f) !important;
+  background-image: none !important;
+}
+#quake-app .quake-world-mesh .quake-world-material-step6-owner {
+  --quake-world-material-probe-color: #66696f;
+}
+#quake-app .quake-world-mesh .quake-world-contain-paint {
+  contain: paint;
+}
+#quake-app .quake-world-mesh .quake-world-contain-layout-paint-style {
+  contain: layout paint style;
+}
+#quake-app .quake-world-mesh .quake-world-contain-strict {
+  contain: strict;
+}
+#quake-app .quake-world-mesh .quake-world-owner-topology-wrapper {
+  transform-style: preserve-3d;
 }
 body.quake-debug-no-textures#quake-app .polycss-mesh:not(.quake-debug-outline-atlas-ready) s,
 body.quake-debug-no-textures #quake-app .polycss-mesh:not(.quake-debug-outline-atlas-ready) s {
@@ -446,13 +476,6 @@ body.quake-menu-open .quake-css-logo {
   image-rendering: pixelated;
   pointer-events: auto;
   user-select: none;
-  cursor: wait;
-}
-body.quake-loading,
-body.quake-loading *,
-.quake-menu-panel[aria-busy="true"],
-.quake-menu-panel[aria-busy="true"] * {
-  cursor: wait !important;
 }
 body.quake-loading .dn-stats-overlay {
   display: none !important;
@@ -874,6 +897,9 @@ body.quake-menu-open #quake-notify {
   pointer-events: auto;
   -webkit-tap-highlight-color: transparent;
 }
+body.quake-menu-open.quake-gameplay-started #quake-main-menu {
+  background: transparent;
+}
 body.quake-menu-open:not(.quake-gameplay-started) #quake-main-menu {
   background: transparent;
 }
@@ -1107,6 +1133,9 @@ body:not(.quake-main-menu-pending) #quake-main-menu-list > .quake-main-menu-item
   outline: none;
   pointer-events: auto;
   -webkit-tap-highlight-color: transparent;
+}
+body.quake-menu-open.quake-gameplay-started .quake-menu-panel {
+  background: transparent;
 }
 body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   background: transparent;
@@ -1356,7 +1385,7 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   left: calc(88 * var(--quake-menu-px));
 }
 #quake-about-title {
-  left: calc(122.5 * var(--quake-menu-px));
+  left: calc(112 * var(--quake-menu-px));
 }
 #quake-multiplayer-title {
   left: calc(64 * var(--quake-menu-px));
@@ -1372,7 +1401,7 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   height: calc(24 * var(--quake-menu-px));
 }
 #quake-about-title img {
-  height: calc(20 * var(--quake-menu-px));
+  height: calc(24 * var(--quake-menu-px));
 }
 #quake-single-player-title img {
   height: calc(24 * var(--quake-menu-px));
@@ -1810,7 +1839,6 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 }
 .quake-level-button:disabled {
   --quake-level-row-brightness: 0.76;
-  cursor: wait;
   opacity: 0.54;
 }
 .quake-level-button:disabled::before {
@@ -2116,6 +2144,43 @@ body.quake-debug-pointer-unlocked #quake-debug-card {
   overflow-wrap: anywhere;
   text-align: right;
   text-shadow: 0 1px 0 #000000;
+}
+#quake-debug-stats dd.quake-debug-recording-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.quake-debug-recording-button {
+  flex: 0 0 auto;
+  min-width: 64px;
+  padding: 3px 7px;
+  border: 1px solid rgba(191, 116, 44, 0.64);
+  border-radius: 2px;
+  background: rgba(33, 16, 10, 0.86);
+  color: #f0ad5c;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0;
+  line-height: 1;
+  text-align: center;
+  text-shadow: 0 1px 0 #000000;
+}
+.quake-debug-recording-button:hover,
+.quake-debug-recording-button:focus-visible {
+  border-color: rgba(240, 173, 92, 0.96);
+  background: rgba(78, 34, 18, 0.92);
+  color: #f6f1df;
+  outline: none;
+}
+.quake-debug-recording-button[aria-pressed="true"] {
+  border-color: rgba(218, 70, 49, 0.9);
+  background: rgba(92, 18, 14, 0.9);
+  color: #ffb0a2;
+}
+.quake-debug-recording-button + [data-qstat="recording"] {
+  min-width: 0;
 }
 #quake-debug-outline-legend {
   display: none;
