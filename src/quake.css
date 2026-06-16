@@ -39,6 +39,17 @@ body {
   z-index: 3;
   pointer-events: none;
 }
+#quake-menu::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: transparent;
+  pointer-events: none;
+}
+body.quake-menu-open.quake-gameplay-started #quake-menu::before {
+  background: rgba(0, 0, 0, 0.65);
+}
 #quake-app .polycss-mesh b,
 #quake-app .polycss-mesh i,
 #quake-app .polycss-mesh s,
@@ -51,6 +62,25 @@ body.quake-debug-fly #quake-app .quake-world-mesh :is(b, i, s, u) {
 }
 #quake-app .polycss-mesh s {
   background-repeat: no-repeat !important;
+}
+#quake-app .quake-world-mesh :is(b, i, s, u).quake-world-material-probe {
+  background: var(--quake-world-material-probe-color, #66696f) !important;
+  background-image: none !important;
+}
+#quake-app .quake-world-mesh .quake-world-material-step6-owner {
+  --quake-world-material-probe-color: #66696f;
+}
+#quake-app .quake-world-mesh .quake-world-contain-paint {
+  contain: paint;
+}
+#quake-app .quake-world-mesh .quake-world-contain-layout-paint-style {
+  contain: layout paint style;
+}
+#quake-app .quake-world-mesh .quake-world-contain-strict {
+  contain: strict;
+}
+#quake-app .quake-world-mesh .quake-world-owner-topology-wrapper {
+  transform-style: preserve-3d;
 }
 body.quake-debug-no-textures#quake-app .polycss-mesh:not(.quake-debug-outline-atlas-ready) s,
 body.quake-debug-no-textures #quake-app .polycss-mesh:not(.quake-debug-outline-atlas-ready) s {
@@ -867,6 +897,9 @@ body.quake-menu-open #quake-notify {
   pointer-events: auto;
   -webkit-tap-highlight-color: transparent;
 }
+body.quake-menu-open.quake-gameplay-started #quake-main-menu {
+  background: transparent;
+}
 body.quake-menu-open:not(.quake-gameplay-started) #quake-main-menu {
   background: transparent;
 }
@@ -1100,6 +1133,9 @@ body:not(.quake-main-menu-pending) #quake-main-menu-list > .quake-main-menu-item
   outline: none;
   pointer-events: auto;
   -webkit-tap-highlight-color: transparent;
+}
+body.quake-menu-open.quake-gameplay-started .quake-menu-panel {
+  background: transparent;
 }
 body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   background: transparent;
