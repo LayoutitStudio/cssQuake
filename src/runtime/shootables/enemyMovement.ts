@@ -393,6 +393,7 @@ export function createQuakeEnemyMovementRuntime(
     profile: QuakeMonsterCombatProfile,
     canSeePlayer: boolean,
   ): boolean {
+    if ((profile.chaseSpeed ?? 0) <= 0) return false;
     const stopDistance = canSeePlayer
       ? Math.max(profile.chaseStopDistance ?? profile.range * 0.72, PLAYER_RADIUS * 1.45)
       : 0;
