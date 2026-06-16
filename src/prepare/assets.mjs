@@ -248,6 +248,8 @@ const QUAKE_ALIAS_SKIN_PADDING_RADIUS = 4;
 const QUAKE_ALIAS_SKIN_FILLER_INDEX = 208;
 const QUAKE_KNIGHT_MODEL_PATH = "progs/knight.mdl";
 const QUAKE_BACKPACK_MODEL_PATH = "progs/backpack.mdl";
+const QUAKE_BOSS_MODEL_PATH = "progs/boss.mdl";
+const QUAKE_SHAMBLER_MODEL_PATH = "progs/shambler.mdl";
 const QUAKE_LAVABALL_MODEL_PATH = "progs/lavaball.mdl";
 const QUAKE_KNIGHT_SWORD_TRIANGLE_INDICES = new Set([
   11, 48, 64, 88, 91, 104, 105, 107, 110, 112, 114, 118, 134, 151, 164, 193, 197, 199, 201, 204,
@@ -3642,6 +3644,12 @@ async function buildQuakePickupModels(assets, buildBspModel, programMetadata, re
       source,
       texture,
       polygons: renderAnimationFrames[0].polygons,
+      ...(
+        source === QUAKE_BOSS_MODEL_PATH ||
+        source === QUAKE_SHAMBLER_MODEL_PATH
+          ? { disableDomTightening: true }
+          : {}
+      ),
       domTighteningTarget: quakeAliasModelDomTighteningTarget(source, {
         animatedAliasModelPaths,
         enemyAliasModelPaths,
