@@ -17,6 +17,7 @@ import {
   deterministicAtlasDebugSourceImagesSymbol,
   replaceQuakeRenderBundleWorldAtlas,
 } from "./deterministicAtlas.mjs";
+import { applyQuakeWorldPlanarComponents } from "./worldPlanarComponents.mjs";
 import { QUAKE_UNIT_SCALE } from "../quakeScale.js";
 
 const require = createRequire(import.meta.url);
@@ -149,6 +150,7 @@ const quakeTriangleAtlasBasis = process.env.QUAKE_TRIANGLE_ATLAS_BASIS === "1";
 const quakeDeferDeterministicWorldAtlasWrites = process.env.QUAKE_DEFER_DETERMINISTIC_WORLD_ATLAS_WRITES !== "0";
 const quakeDeterministicWorldAtlasImagePolicy =
   process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS_IMAGE_POLICY?.trim().toLowerCase() ?? "atlas";
+const quakeWorldPlanarComponents = process.env.QUAKE_WORLD_PLANAR_COMPONENTS !== "0";
 const quakeAliasRebakeMerge = process.env.QUAKE_ALIAS_REBAKE_MERGE === "1";
 const quakeAliasRebakeMergeAffineEpsilon = Number.parseFloat(
   process.env.QUAKE_ALIAS_REBAKE_MERGE_AFFINE_EPSILON ?? "",
@@ -770,6 +772,18 @@ try {
               }));
             prepared.renderBundle.deterministicWorldAtlasStats = deterministicAtlasStats;
             assertNoDeferredQuakeRenderBundleAssetReferences(prepared.renderBundle, deterministicAtlasStats);
+            if (quakeWorldPlanarComponents) {
+              prepared.renderBundle.worldPlanarComponentStats = await runPrepareDetailStep(
+                `map ${mapName} world planar components`,
+                () => applyQuakeWorldPlanarComponents(prepared, {
+                  generatedPublicDir,
+                  mapName,
+                  outputDir: path.join(renderBundleOutputDir, mapName),
+                  projectRoot,
+                  publicPath: `${quakeRenderBundlePublicPath}/${mapName}`,
+                }),
+              );
+            }
             await runPrepareDetailStep(`map ${mapName} debug outlines`, () =>
               addQuakeRenderBundleDebugOutlineAssets(prepared.renderBundle, {
                 outlineKind: quakeRenderBundleDebugOutlineKindForName(mapName),
