@@ -446,13 +446,6 @@ body.quake-menu-open .quake-css-logo {
   image-rendering: pixelated;
   pointer-events: auto;
   user-select: none;
-  cursor: wait;
-}
-body.quake-loading,
-body.quake-loading *,
-.quake-menu-panel[aria-busy="true"],
-.quake-menu-panel[aria-busy="true"] * {
-  cursor: wait !important;
 }
 body.quake-loading .dn-stats-overlay {
   display: none !important;
@@ -1810,7 +1803,6 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
 }
 .quake-level-button:disabled {
   --quake-level-row-brightness: 0.76;
-  cursor: wait;
   opacity: 0.54;
 }
 .quake-level-button:disabled::before {
