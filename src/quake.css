@@ -2398,20 +2398,21 @@ body.quake-menu-unlocked #quake-weapon {
   user-select: none;
   touch-action: none;
   --quake-mobile-control-center-bottom: max(142px, calc(env(safe-area-inset-bottom) + 142px));
+  --quake-mobile-move-zone-left: max(18px, env(safe-area-inset-left));
 }
 #quake-mobile-look-zone {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  left: 34vw;
+  left: max(34vw, calc(var(--quake-mobile-move-zone-left) + 156px));
   z-index: 0;
   pointer-events: auto;
   touch-action: none;
 }
 #quake-mobile-move-zone {
   position: absolute;
-  left: max(18px, env(safe-area-inset-left));
+  left: var(--quake-mobile-move-zone-left);
   bottom: calc(var(--quake-mobile-control-center-bottom) - 72px);
   width: 144px;
   height: 144px;
