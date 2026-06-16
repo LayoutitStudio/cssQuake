@@ -4,7 +4,7 @@ A port of id Software's [Quake](https://github.com/id-software/quake) that rende
 
 Play the live version: [cssquake.com](https://cssquake.com) 🕹️
 
-<img src="src/assets/cssquake-social.webp" alt="cssQuake gameplay rendered as DOM and CSS markup" width="960">
+<img width="3884" height="1000" alt="cssquake" src="https://github.com/user-attachments/assets/ac076457-17d6-413c-86c9-8fdd01a4c2a2" />
 
 ## How to Play
 
