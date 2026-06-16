@@ -58,6 +58,7 @@ const staticPublicAssets = [
 ];
 const menuTitleLevelSelectSourcePath = path.join(projectRoot, "src/assets/menu-title-level-select-source.png");
 const sourcePortConbackSourcePath = path.join(projectRoot, "src/assets/source-port-conback.png");
+const menuTitleHelpSourcePath = path.join(projectRoot, "src/assets/menu-title-help-source.png");
 const quakeMapNames = ["start", "e1m1", "e1m2", "e1m3", "e1m4", "e1m5", "e1m6", "e1m7", "e1m8"];
 const quakeRenderBundleDefaultMapNames = quakeMapNames;
 const quakeStartMap = "e1m1";
@@ -885,7 +886,7 @@ try {
     }));
     await writeFile(menuTitleSinglePlayerOutputPath, await buildPakQpicPng(uiAssets, "gfx/ttl_sgl.lmp"));
     await writeFile(menuTitleOptionsOutputPath, await buildPakQpicPng(uiAssets, "gfx/p_option.lmp"));
-    await writeFile(menuTitleHelpOutputPath, await buildPakQpicCropPng(uiAssets, "gfx/mainmenu.lmp", 1, 60, 75, 20));
+    await writeFile(menuTitleHelpOutputPath, await readFile(menuTitleHelpSourcePath));
     await writeFile(concharsOutputPath, await buildQuakeConcharsPng(uiAssets));
     const programMetadata = buildQuakeProgramMetadata(uiAssets, sourceProgramFacts);
     const weaponModelOutputPaths = await runPrepareStep(

@@ -1356,7 +1356,7 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   left: calc(88 * var(--quake-menu-px));
 }
 #quake-about-title {
-  left: calc(122.5 * var(--quake-menu-px));
+  left: calc(112 * var(--quake-menu-px));
 }
 #quake-multiplayer-title {
   left: calc(64 * var(--quake-menu-px));
@@ -1372,7 +1372,7 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   height: calc(24 * var(--quake-menu-px));
 }
 #quake-about-title img {
-  height: calc(20 * var(--quake-menu-px));
+  height: calc(24 * var(--quake-menu-px));
 }
 #quake-single-player-title img {
   height: calc(24 * var(--quake-menu-px));
