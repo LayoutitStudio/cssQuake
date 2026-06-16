@@ -454,6 +454,7 @@ const programFactTargets = [
     sourcePath: "qcc/v101qc/items.qc",
   },
   {
+    callbackFactFunctions: ["sigil_touch"],
     classname: "item_sigil",
     functionName: "item_sigil",
     kind: "pickup",
