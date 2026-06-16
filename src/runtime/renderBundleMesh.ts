@@ -771,6 +771,29 @@ export async function preloadQuakeRenderBundleAtlasPages(
   await preloadQuakeRenderBundleAssetUrls(urls);
 }
 
+export async function preloadQuakeRenderBundleElementAssets(
+  meshElement: HTMLElement,
+  elements: Iterable<HTMLElement>,
+): Promise<void> {
+  const urls = quakeRenderBundleElementAssetUrls(meshElement, elements);
+  await preloadQuakeRenderBundleAssetUrls(urls);
+}
+
+export function quakeRenderBundleElementAssetUrls(
+  meshElement: HTMLElement,
+  elements: Iterable<HTMLElement>,
+): string[] {
+  const urls = new Set<string>();
+  for (const element of elements) {
+    collectQuakeRenderBundleInlineAssetUrls(
+      urls,
+      element.getAttribute("style") ?? "",
+      (varName) => meshElement.style.getPropertyValue(varName),
+    );
+  }
+  return [...urls];
+}
+
 export interface QuakeRenderBundleDebugOutlineOptions {
   hideTextures?: boolean;
 }
@@ -1261,6 +1284,31 @@ export function quakeRenderBundlePreloadAssetUrls(renderBundle: QuakePreparedRen
     if (url) urls.add(url);
   }
   return [...urls];
+}
+
+function collectQuakeRenderBundleInlineAssetUrls(
+  urls: Set<string>,
+  styleText: string,
+  resolveVar: (name: string) => string | undefined,
+): void {
+  if (!styleText) return;
+  for (const match of styleText.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*?))\s*\)/g)) {
+    const url = normalizeQuakeRenderBundleCssUrl(match[1] ?? match[2] ?? match[3] ?? "");
+    if (url) urls.add(url);
+  }
+  for (const match of styleText.matchAll(/var\(\s*(--bg\d+)\s*\)/g)) {
+    const value = resolveVar(match[1] ?? "");
+    if (value) collectQuakeRenderBundleInlineAssetUrls(urls, value, resolveVar);
+  }
+}
+
+function normalizeQuakeRenderBundleCssUrl(value: string): string {
+  let url = value.trim();
+  if (!url) return "";
+  if ((url.startsWith("&quot;") && url.endsWith("&quot;")) || (url.startsWith("&#34;") && url.endsWith("&#34;"))) {
+    url = url.slice(url.indexOf(";") + 1, url.lastIndexOf("&"));
+  }
+  return url.trim();
 }
 
 function preloadQuakeRenderBundleStyle(renderBundle: QuakePreparedRenderBundle): Promise<void> {
