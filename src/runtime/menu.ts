@@ -153,13 +153,13 @@ export function createQuakeMenuController({
     if (startingNewGame) return;
     startingNewGame = true;
     syncSinglePlayerItemAvailability();
+    hideMainMenu();
     Promise.resolve(onSelectNewGame())
       .then(() => {
         startingNewGame = false;
         clearPendingMainMenu();
         syncSinglePlayerItemAvailability();
         controls.lock();
-        hideMainMenu();
       })
       .catch((error: unknown) => {
         console.error(error);
@@ -174,12 +174,12 @@ export function createQuakeMenuController({
     if (!onLoadGame || loadingGame || !canLoadGame?.()) return;
     loadingGame = true;
     syncSinglePlayerItemAvailability();
+    hideMainMenu();
     Promise.resolve(onLoadGame())
       .then(() => {
         loadingGame = false;
         syncSinglePlayerItemAvailability();
         controls.lock();
-        hideMainMenu();
       })
       .catch((error: unknown) => {
         console.error(error);
@@ -609,12 +609,12 @@ export function createQuakeMenuController({
     const mapName = button.value;
     if (!mapName || !onSelectLevel || loadingLevelMap) return;
     setLoadingLevel(mapName);
+    hideMainMenu();
     Promise.resolve(onSelectLevel(mapName))
       .then(() => {
         setCurrentLevel(mapName);
         setLoadingLevel(null);
         controls.lock();
-        hideMainMenu();
       })
       .catch((error: unknown) => {
         console.error(error);
