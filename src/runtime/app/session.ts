@@ -5,7 +5,7 @@ import {
   quakeLoadingProgressGroup,
   type QuakeLoadingProgressTracker,
 } from "../loadingConsole";
-import { preloadQuakeRenderBundleAssets } from "../renderBundleMesh";
+import { preloadQuakeRenderBundleAssets, preloadQuakeRenderBundleFloorAssets } from "../renderBundleMesh";
 import type { QuakeUrlUpdateMode, QuakeUrlView } from "../routeState";
 
 export const QUAKE_ASSET_ROOT = "/q";
@@ -200,7 +200,10 @@ export async function fetchQuakeScene(
   }
   const renderBundlePreloads = [
     ...(prepared.renderBundle
-      ? [preloadQuakeRenderBundleAssets(prepared.renderBundle, worldProgress, { preloadImages: false })]
+      ? [
+          preloadQuakeRenderBundleAssets(prepared.renderBundle, worldProgress, { preloadImages: false }),
+          preloadQuakeRenderBundleFloorAssets(prepared.renderBundle, mapName ?? "", worldProgress),
+        ]
       : []),
     ...(prepared.lightstyleRenderBundle
       ? [preloadQuakeRenderBundleAssets(prepared.lightstyleRenderBundle, worldProgress, { preloadImages: false })]
