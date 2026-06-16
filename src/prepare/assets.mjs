@@ -152,6 +152,7 @@ const quakeDeferDeterministicWorldAtlasWrites = process.env.QUAKE_DEFER_DETERMIN
 const quakeDeterministicWorldAtlasImagePolicy =
   process.env.QUAKE_DETERMINISTIC_WORLD_ATLAS_IMAGE_POLICY?.trim().toLowerCase() ?? "atlas";
 const quakeWorldPlanarComponents = process.env.QUAKE_WORLD_PLANAR_COMPONENTS !== "0";
+const quakeWeaponAtlasScale = normalizedPositiveInteger(process.env.QUAKE_WEAPON_ATLAS_SCALE, 4);
 const quakeAliasRebakeMerge = process.env.QUAKE_ALIAS_REBAKE_MERGE === "1";
 const quakeAliasRebakeMergeAffineEpsilon = Number.parseFloat(
   process.env.QUAKE_ALIAS_REBAKE_MERGE_AFFINE_EPSILON ?? "",
@@ -1083,6 +1084,15 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
       throw new Error(`Unresolved render bundle asset placeholder for ${name}.`);
     }
 
+    if (result.textureAtlasScaleStats?.replacedPages > 0) {
+      meshHtml = rewriteQuakeRenderBundleScaledAtlasVars(
+        meshHtml,
+        assetUrls,
+        result.textureAtlasScaleStats.replacedPages,
+      );
+      assetUrls.length = Math.min(result.textureAtlasScaleStats.replacedPages, assetUrls.length);
+    }
+
     let styleUrl = "";
     if (meshCss && writeStyle) {
       const cssBuffer = Buffer.from(meshCss);
@@ -1107,6 +1117,7 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
       polygonCount: result.polygonCount,
       leafCount: result.leafCount,
       atlasLeafCount: result.atlasLeafCount,
+      ...(result.textureAtlasScaleStats ? { textureAtlasScaleStats: result.textureAtlasScaleStats } : {}),
     };
     if (deferredAssets.length) {
       Object.defineProperty(renderBundle, deferredRenderBundleAssetsSymbol, {
@@ -1147,6 +1158,7 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
       deferAssetWrites = false,
       layoutOnly = false,
       primaryAssetMime = "image/avif",
+      textureAtlasScale = 1,
     }) {
       const name = bundleName ?? mapName;
       if (!name) throw new Error("Render bundle build requires a bundleName or mapName.");
@@ -1162,6 +1174,7 @@ async function createQuakeRenderBundleBuilder({ concurrency, engine }) {
         optimizeAtlasTriangleBasis,
         normalizeAtlasLeafImagePixelBoxes,
         layoutOnly,
+        textureAtlasScale,
       };
       const result = shouldBuildStaticRenderBundleInline(name, renderInput)
         ? await buildInlineHappyDomRenderBundle(renderInput)
@@ -2066,6 +2079,21 @@ function replaceQuakeRenderBundleLeafFrameStylePlaceholder(leafFrameStylesByClas
   }
 }
 
+function rewriteQuakeRenderBundleScaledAtlasVars(meshHtml, assetUrls, pageCount) {
+  let next = String(meshHtml ?? "");
+  const count = Math.max(0, Math.min(pageCount, assetUrls.length));
+  for (let index = 0; index < count; index++) {
+    const url = assetUrls[index];
+    if (!url) continue;
+    const pattern = new RegExp(`--bg${index}:url\\((?:&quot;|"|')?[^;)]*(?:&quot;|"|')?\\)`);
+    const replacement = `--bg${index}:url(&quot;${escapeHtmlAttribute(url)}&quot;)`;
+    next = pattern.test(next)
+      ? next.replace(pattern, replacement)
+      : next.replace(/\sstyle="([^"]*)"/, (_match, style) => ` style="${style};${replacement}"`);
+  }
+  return next;
+}
+
 function createQuakeRenderBundleFrameStyleBundle(baseRenderBundle, frameResult) {
   return {
     ...baseRenderBundle,
@@ -2256,6 +2284,11 @@ function maxQuakeRenderBundleParallelism() {
 function normalizedEnvFlag(value) {
   const normalized = value?.trim().toLowerCase();
   return Boolean(normalized && normalized !== "0" && normalized !== "false");
+}
+
+function normalizedPositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function normalizedQuakeRenderBundleAvifQuality() {
@@ -3538,6 +3571,7 @@ async function buildQuakeWeaponModel(
       tightenAtlasLeaves: false,
       optimizeAtlasLeafBasis: false,
       optimizeAtlasLeafHomography: false,
+      textureAtlasScale: quakeWeaponAtlasScale,
     }),
   };
 }
