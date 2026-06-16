@@ -3,6 +3,12 @@ import { markQuakeTrace } from "./debug/traceMarks";
 export const QUAKE_MOBILE_CONTROLS_QUERY =
   "(any-pointer: coarse), (max-width: 960px)";
 
+const QUAKE_MOBILE_MOVE_ZONE_SIZE = 144;
+const QUAKE_MOBILE_STICK_SIZE = 108;
+const QUAKE_MOBILE_STICK_FRONT_SIZE = 54;
+const QUAKE_MOBILE_STICK_FRONT_TRAVEL = QUAKE_MOBILE_STICK_SIZE / 4;
+const QUAKE_MOBILE_STICK_CENTER = QUAKE_MOBILE_MOVE_ZONE_SIZE / 2;
+
 interface QuakeMobileControlsOptions {
   root: HTMLElement;
   moveDeadzone: number;
@@ -48,6 +54,10 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
   let moveX = 0;
   let moveY = 0;
   let movePointerId: number | null = null;
+  let moveAnchorX = 0;
+  let moveAnchorY = 0;
+  let moveStickCenterX = QUAKE_MOBILE_STICK_CENTER;
+  let moveStickCenterY = QUAKE_MOBILE_STICK_CENTER;
   let moveStartedAt = 0;
   let moveSampleCount = 0;
   let lookPointerId: number | null = null;
@@ -297,6 +307,7 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
       x: event.clientX,
       y: event.clientY,
     });
+    setMoveAnchor(event);
     try {
       moveZone?.setPointerCapture(event.pointerId);
     } catch {
@@ -336,9 +347,16 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
       return;
     }
     moveSampleCount++;
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    setMoveInput((event.clientX - centerX) / radius, (centerY - event.clientY) / radius, phase);
+    setMoveInput((event.clientX - moveAnchorX) / radius, (moveAnchorY - event.clientY) / radius, phase);
+  }
+
+  function setMoveAnchor(event: PointerEvent): void {
+    const rect = moveZone?.getBoundingClientRect();
+    moveAnchorX = event.clientX;
+    moveAnchorY = event.clientY;
+    moveStickCenterX = rect ? event.clientX - rect.left : QUAKE_MOBILE_STICK_CENTER;
+    moveStickCenterY = rect ? event.clientY - rect.top : QUAKE_MOBILE_STICK_CENTER;
+    syncMoveStickVisual(0, 0, true);
   }
 
   function setMoveInput(x: number, y: number, source: "start" | "move"): void {
@@ -395,11 +413,15 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
       }
     }
     movePointerId = null;
+    moveAnchorX = 0;
+    moveAnchorY = 0;
     moveX = 0;
     moveY = 0;
     moveTime = 0;
     moveStartedAt = 0;
     moveSampleCount = 0;
+    moveStickCenterX = QUAKE_MOBILE_STICK_CENTER;
+    moveStickCenterY = QUAKE_MOBILE_STICK_CENTER;
     syncMoveStickVisual(0, 0, false);
     options.onAnalogMove(0, 0);
     if (!moveFrame) return;
@@ -444,17 +466,14 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
     const back = moveStickBack;
     const front = moveStickFront;
     if (!stick || !back || !front) return;
-    const stickSize = 108;
-    const frontSize = 54;
-    const frontTravel = stickSize / 4;
     stick.style.position = "absolute";
     stick.style.display = "block";
-    stick.style.left = "50%";
-    stick.style.top = "50%";
-    stick.style.width = `${stickSize}px`;
-    stick.style.height = `${stickSize}px`;
-    stick.style.marginLeft = `${-stickSize / 2}px`;
-    stick.style.marginTop = `${-stickSize / 2}px`;
+    stick.style.left = `${moveStickCenterX}px`;
+    stick.style.top = `${moveStickCenterY}px`;
+    stick.style.width = `${QUAKE_MOBILE_STICK_SIZE}px`;
+    stick.style.height = `${QUAKE_MOBILE_STICK_SIZE}px`;
+    stick.style.marginLeft = `${-QUAKE_MOBILE_STICK_SIZE / 2}px`;
+    stick.style.marginTop = `${-QUAKE_MOBILE_STICK_SIZE / 2}px`;
     stick.style.opacity = active ? "1" : "0.58";
     stick.style.touchAction = "none";
     stick.style.userSelect = "none";
@@ -465,8 +484,8 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
     back.style.display = "block";
     back.style.left = "0px";
     back.style.top = "0px";
-    back.style.width = `${stickSize}px`;
-    back.style.height = `${stickSize}px`;
+    back.style.width = `${QUAKE_MOBILE_STICK_SIZE}px`;
+    back.style.height = `${QUAKE_MOBILE_STICK_SIZE}px`;
     back.style.marginLeft = "0px";
     back.style.marginTop = "0px";
     back.style.borderRadius = "50%";
@@ -479,17 +498,17 @@ export function createQuakeMobileControls(options: QuakeMobileControlsOptions): 
     front.style.display = "block";
     front.style.left = "50%";
     front.style.top = "50%";
-    front.style.width = `${frontSize}px`;
-    front.style.height = `${frontSize}px`;
-    front.style.marginLeft = `${-frontSize / 2}px`;
-    front.style.marginTop = `${-frontSize / 2}px`;
+    front.style.width = `${QUAKE_MOBILE_STICK_FRONT_SIZE}px`;
+    front.style.height = `${QUAKE_MOBILE_STICK_FRONT_SIZE}px`;
+    front.style.marginLeft = `${-QUAKE_MOBILE_STICK_FRONT_SIZE / 2}px`;
+    front.style.marginTop = `${-QUAKE_MOBILE_STICK_FRONT_SIZE / 2}px`;
     front.style.borderRadius = "50%";
     front.style.background = "rgba(245, 232, 200, 0.18)";
     front.style.opacity = "0.5";
     front.style.boxSizing = "border-box";
     front.style.border = "2px solid rgba(245, 232, 200, 0.48)";
     front.style.pointerEvents = "none";
-    front.style.transform = `translate(${x * frontTravel}px, ${-y * frontTravel}px)`;
+    front.style.transform = `translate(${x * QUAKE_MOBILE_STICK_FRONT_TRAVEL}px, ${-y * QUAKE_MOBILE_STICK_FRONT_TRAVEL}px)`;
   }
 
   function handleFirePointerDown(event: PointerEvent): void {

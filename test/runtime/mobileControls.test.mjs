@@ -36,6 +36,39 @@ test("mobile move stick handles pointer input and updates the visible nub", () =
   }
 });
 
+test("mobile move stick uses the touch-down point as the neutral anchor", () => {
+  const harness = createMobileControlsHarness();
+  try {
+    const startX = harness.centerX - 30;
+    const startY = harness.centerY + 20;
+    harness.moveZone.dispatchEvent(pointer(harness.window, "pointerdown", startX, startY, 12, 1));
+    assert.deepEqual(harness.analogSamples.at(-1), [0, 0]);
+    assert.equal(harness.stick.style.left, `${startX - 18}px`);
+    assert.equal(harness.stick.style.top, `${startY - 100}px`);
+    assert.equal(harness.front.style.transform, "translate(0px, 0px)");
+
+    harness.moveZone.dispatchEvent(pointer(harness.window, "pointermove", startX, startY - 72, 12, 1));
+    assert.deepEqual(harness.analogSamples.at(-1), [0, 1]);
+    assert.equal(harness.front.style.transform, "translate(0px, -27px)");
+
+    harness.moveZone.dispatchEvent(pointer(harness.window, "pointerup", startX, startY - 72, 12, 0));
+    assertMoveReleased(harness);
+    assert.equal(harness.stick.style.left, "72px");
+    assert.equal(harness.stick.style.top, "72px");
+
+    const secondStartX = harness.centerX + 24;
+    const secondStartY = harness.centerY - 18;
+    harness.moveZone.dispatchEvent(pointer(harness.window, "pointerdown", secondStartX, secondStartY, 13, 1));
+    assert.deepEqual(harness.analogSamples.at(-1), [0, 0]);
+    assert.equal(harness.stick.style.left, `${secondStartX - 18}px`);
+    assert.equal(harness.stick.style.top, `${secondStartY - 100}px`);
+    harness.moveZone.dispatchEvent(pointer(harness.window, "pointerup", secondStartX, secondStartY, 13, 0));
+    assertMoveReleased(harness);
+  } finally {
+    harness.restore();
+  }
+});
+
 test("mobile move stick clears on cancellation, lost capture, and explicit app cleanup", () => {
   const harness = createMobileControlsHarness();
   try {
@@ -205,8 +238,8 @@ function assertVisualReleased(harness) {
 }
 
 function assertMoveVisualGeometry(harness) {
-  assert.equal(harness.stick.style.left, "50%");
-  assert.equal(harness.stick.style.top, "50%");
+  assert.equal(harness.stick.style.left, "72px");
+  assert.equal(harness.stick.style.top, "72px");
   assert.equal(harness.stick.style.width, "108px");
   assert.equal(harness.stick.style.height, "108px");
   assert.equal(harness.stick.style.marginLeft, "-54px");
