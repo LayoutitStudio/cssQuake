@@ -47,6 +47,7 @@ export interface QuakePointerGameplayFlowOptions {
   isDebugFlyModeActive(): boolean;
   isDeathUnlockControlsEndTraceSuppressed(): boolean;
   isDisposed(): boolean;
+  isInteractiveOverlayTarget(target: EventTarget | null): boolean;
   isPlayerDead(): boolean;
   mobileRoot: HTMLElement;
   onAvailabilityChange(): void;
@@ -149,6 +150,10 @@ export function createQuakePointerGameplayFlow(
     });
     if (mobileControls.isTarget(event.target)) {
       options.trace("host-pointerdown-ignored", { pointerId: event.pointerId, reason: "mobile-controls" });
+      return;
+    }
+    if (options.isInteractiveOverlayTarget(event.target)) {
+      options.trace("host-pointerdown-ignored", { pointerId: event.pointerId, reason: "interactive-overlay" });
       return;
     }
     if (event.button !== 0 || !event.isPrimary) {

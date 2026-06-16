@@ -1111,7 +1111,13 @@
               <h2 id="quake-debug-title" class="quake-bm-label quake-bm-alt">Debug</h2>
             </header>
             <dl id="quake-debug-stats" aria-label="Debug stats">
-              <div><dt class="quake-bm-label">Record</dt><dd data-qstat="recording">-</dd></div>
+              <div id="quake-debug-recording-row" hidden>
+                <dt class="quake-bm-label">Record</dt>
+                <dd class="quake-debug-recording-control">
+                  <button id="quake-debug-recording-toggle" class="quake-debug-recording-button" type="button" aria-pressed="false">RECORD</button>
+                  <span data-qstat="recording">-</span>
+                </dd>
+              </div>
               <div><dt class="quake-bm-label">Capture</dt><dd data-qstat="capture">-</dd></div>
               <div><dt class="quake-bm-label">Visible</dt><dd data-qstat="visible">-</dd></div>
               <div><dt class="quake-bm-label">DOM</dt><dd data-qstat="dom">-</dd></div>
