@@ -6,7 +6,8 @@ const DEFAULT_SURFACES = new Set(["floor-like", "ceiling-like"]);
 const COMPONENT_MIN_LEAVES = 2;
 const COMPONENT_MAX_SIDE = 2048;
 const COMPONENT_MAX_AREA = 2048 * 2048;
-const DEFAULT_COMPONENT_MAX_EXTRA_PIXELS_PER_SAVED_LEAF = 7000;
+const DEFAULT_COMPONENT_MAX_EXTRA_PIXELS_PER_SAVED_LEAF = 9000;
+const DEFAULT_COMPONENT_PVS_HIDDEN_PIXEL_WEIGHT = 0.01;
 const RECT_COVER_ENABLED = process.env.QUAKE_WORLD_PLANAR_COMPONENT_RECT_COVER !== "0";
 const RECT_COVER_MAX_RECTS = positiveIntegerEnv("QUAKE_WORLD_PLANAR_COMPONENT_RECT_COVER_MAX_RECTS", 4);
 const RECT_COVER_MIN_TRANSPARENT_RATIO = positiveNumberEnv(
@@ -29,6 +30,10 @@ const COMPONENT_MAX_AREA_RATIO = positiveNumberEnv("QUAKE_WORLD_PLANAR_COMPONENT
 const COMPONENT_MAX_EXTRA_PIXELS_PER_SAVED_LEAF = positiveNumberEnv(
   "QUAKE_WORLD_PLANAR_COMPONENT_MAX_EXTRA_PIXELS_PER_SAVED_LEAF",
   DEFAULT_COMPONENT_MAX_EXTRA_PIXELS_PER_SAVED_LEAF,
+);
+const COMPONENT_PVS_HIDDEN_PIXEL_WEIGHT = nonNegativeNumberEnv(
+  "QUAKE_WORLD_PLANAR_COMPONENT_PVS_HIDDEN_PIXEL_WEIGHT",
+  DEFAULT_COMPONENT_PVS_HIDDEN_PIXEL_WEIGHT,
 );
 
 export async function applyQuakeWorldPlanarComponents(prepared, {
@@ -91,11 +96,14 @@ export async function applyQuakeWorldPlanarComponents(prepared, {
     suppressedLeaves: plan.selectedLeafIndexes.size,
     coveredRenderFaces: new Set(componentEntries.flatMap((entry) => entry.metadata.fs)).size,
     costGate: {
+      formula: "extraPixelsPerSavedLeaf + pvsHiddenPixelWeight * hiddenPixelsPerSavedMount",
       maxAreaRatio: Number.isFinite(COMPONENT_MAX_AREA_RATIO) ? COMPONENT_MAX_AREA_RATIO : null,
       maxExtraPixelsPerSavedLeaf: Number.isFinite(COMPONENT_MAX_EXTRA_PIXELS_PER_SAVED_LEAF)
         ? COMPONENT_MAX_EXTRA_PIXELS_PER_SAVED_LEAF
         : null,
+      pvsHiddenPixelWeight: COMPONENT_PVS_HIDDEN_PIXEL_WEIGHT,
     },
+    componentMetrics: summarizePlanarComponentMetrics(plan.components),
     rectCover: {
       enabled: RECT_COVER_ENABLED,
       maxRects: RECT_COVER_MAX_RECTS,
@@ -121,10 +129,12 @@ export async function applyQuakeWorldPlanarComponents(prepared, {
       sourceArea: rectCoverStats.sourceArea,
       rejected: Object.fromEntries([...rectCoverStats.rejected.entries()].sort()),
     },
-    dynamicLightstyleComponents: componentEntries
-      .filter((entry) => lightstyleHasDynamic(entry.metadata.l))
-      .length,
-    lightstyles: countBy(componentEntries, (entry) => entry.metadata.l),
+    lightstyleAudit: {
+      dynamicComponents: componentEntries
+        .filter((entry) => lightstyleHasDynamic(entry.metadata.l))
+        .length,
+      styles: countBy(componentEntries, (entry) => entry.metadata.l),
+    },
     textures: countBy(componentEntries, (entry) => entry.texture),
     surfaceTypes: countBy(componentEntries, (entry) => entry.surfaceType),
     skipped: plan.skipped,
@@ -169,6 +179,8 @@ function buildPlanarComponentContext(prepared, elementEntries) {
     renderFacesBySource,
     rows,
     skipped,
+    visibleFaceSets: (visibility.metadata.leaves ?? [])
+      .map((leaf) => new Set(leaf.visibleFaceIndexes ?? [])),
   };
 }
 
@@ -258,8 +270,13 @@ function buildPlanarComponentPlan(context) {
         incrementSkip(skipped, "component-area-ratio-too-large");
         continue;
       }
-      if (component.extraPixelsPerSavedLeaf > COMPONENT_MAX_EXTRA_PIXELS_PER_SAVED_LEAF) {
-        incrementSkip(skipped, "component-extra-pixels-per-saved-leaf-too-large");
+      if (component.weightedExtraPixelsPerSavedLeaf > COMPONENT_MAX_EXTRA_PIXELS_PER_SAVED_LEAF) {
+        incrementSkip(
+          skipped,
+          COMPONENT_PVS_HIDDEN_PIXEL_WEIGHT > 0
+            ? "component-weighted-extra-pixels-per-saved-leaf-too-large"
+            : "component-extra-pixels-per-saved-leaf-too-large",
+        );
         continue;
       }
       components.push(component);
@@ -301,7 +318,7 @@ function createPlanarComponent(rows, context) {
     `s${side}`,
     safeName(first.texture),
   ].join("-");
-  return {
+  const component = {
     axis: first.axis,
     areaRatio: sourceArea > 0 ? componentArea / sourceArea : Infinity,
     bounds: placement.bounds,
@@ -333,6 +350,125 @@ function createPlanarComponent(rows, context) {
     transform: placement.transform,
     width: placement.width,
   };
+  component.pvs = componentPvsMetrics(component, context);
+  component.paintOrder = componentPaintOrderMetrics(component);
+  component.weightedExtraPixelsPerSavedLeaf = weightedExtraPixelsPerSavedLeaf(component);
+  return component;
+}
+
+function componentPvsMetrics(component, context) {
+  const rowFaceIndexes = component.rows.map((row) =>
+    context.renderFacesBySource.get(row.sourceFaceIndex) ?? [row.metadata.f]);
+  let afterMounts = 0;
+  let beforeMounts = 0;
+  let fullyVisibleSamples = 0;
+  let hiddenPixelsTotal = 0;
+  let maxHiddenPixels = 0;
+  let maxVisibleRows = 0;
+  let partialVisibleSamples = 0;
+  let visibleSourcePixelsTotal = 0;
+  for (const visibleFaces of context.visibleFaceSets ?? []) {
+    let visibleRows = 0;
+    let visibleSourcePixels = 0;
+    for (let index = 0; index < rowFaceIndexes.length; index++) {
+      if (!rowFaceIndexes[index].some((faceIndex) => visibleFaces.has(faceIndex))) continue;
+      const row = component.rows[index];
+      visibleRows++;
+      visibleSourcePixels += row.width * row.height;
+    }
+    if (visibleRows <= 0) continue;
+    afterMounts++;
+    beforeMounts += visibleRows;
+    visibleSourcePixelsTotal += visibleSourcePixels;
+    maxVisibleRows = Math.max(maxVisibleRows, visibleRows);
+    if (visibleRows === component.rows.length) fullyVisibleSamples++;
+    else partialVisibleSamples++;
+    const hiddenPixels = Math.max(0, component.componentArea - visibleSourcePixels);
+    hiddenPixelsTotal += hiddenPixels;
+    maxHiddenPixels = Math.max(maxHiddenPixels, hiddenPixels);
+  }
+  const savedMounts = beforeMounts - afterMounts;
+  const visibleSamples = afterMounts;
+  return {
+    afterMounts,
+    beforeMounts,
+    fullyVisibleSamples,
+    hiddenPixelsPerSavedMount: savedMounts > 0 ? round(hiddenPixelsTotal / savedMounts) : 0,
+    hiddenPixelsPerVisibleSample: visibleSamples > 0 ? round(hiddenPixelsTotal / visibleSamples) : 0,
+    hiddenPixelsTotal: Math.round(hiddenPixelsTotal),
+    maxHiddenPixels: Math.round(maxHiddenPixels),
+    maxVisibleRows,
+    partialRatio: visibleSamples > 0 ? round(partialVisibleSamples / visibleSamples, 4) : 0,
+    partialVisibleSamples,
+    sampleCount: context.visibleFaceSets?.length ?? 0,
+    savedMounts,
+    savedMountsPerVisibleSample: visibleSamples > 0 ? round(savedMounts / visibleSamples, 4) : 0,
+    visibleSamples,
+    visibleSourcePixelsPerVisibleSample: visibleSamples > 0 ? round(visibleSourcePixelsTotal / visibleSamples) : 0,
+    visibleSourcePixelsTotal: Math.round(visibleSourcePixelsTotal),
+  };
+}
+
+function componentPaintOrderMetrics(component) {
+  const leafIndexes = component.leafIndexes.length ? component.leafIndexes : [0];
+  const sourceFaceIndexes = component.sourceFaceIndexes.length ? component.sourceFaceIndexes : [0];
+  const minLeafIndex = Math.min(...leafIndexes);
+  const maxLeafIndex = Math.max(...leafIndexes);
+  const minSourceFaceIndex = Math.min(...sourceFaceIndexes);
+  const maxSourceFaceIndex = Math.max(...sourceFaceIndexes);
+  const faces = component.metadata.fs ?? [];
+  const renderFaceIndexes = faces.length ? faces : [Number(component.metadata.f ?? 0)];
+  const minRenderFaceIndex = Math.min(...renderFaceIndexes);
+  const maxRenderFaceIndex = Math.max(...renderFaceIndexes);
+  return {
+    leafSpan: maxLeafIndex - minLeafIndex,
+    maxLeafIndex,
+    maxRenderFaceIndex,
+    maxSourceFaceIndex,
+    minLeafIndex,
+    minRenderFaceIndex,
+    minSourceFaceIndex,
+    renderFaceSpan: maxRenderFaceIndex - minRenderFaceIndex,
+    sourceFaceSpan: maxSourceFaceIndex - minSourceFaceIndex,
+  };
+}
+
+function weightedExtraPixelsPerSavedLeaf(component) {
+  return component.extraPixelsPerSavedLeaf +
+    COMPONENT_PVS_HIDDEN_PIXEL_WEIGHT * component.pvs.hiddenPixelsPerSavedMount;
+}
+
+function summarizePlanarComponentMetrics(components) {
+  const outputEntries = components.reduce((total, component) => total + (component.outputEntryCount ?? 1), 0);
+  const sourceLeaves = components.reduce((total, component) => total + component.rows.length, 0);
+  const outputArea = components.reduce((total, component) => total + (component.outputArea ?? component.componentArea), 0);
+  const sourceArea = components.reduce((total, component) => total + component.sourceArea, 0);
+  const hiddenPixelsPerSavedMount = components.map((component) => component.pvs.hiddenPixelsPerSavedMount);
+  const partialRatios = components.map((component) => component.pvs.partialRatio);
+  const transparentRatios = components.map((component) => component.alpha?.transparentRatio ?? 0);
+  const leafSpans = components.map((component) => component.paintOrder.leafSpan);
+  const weightedCosts = components.map((component) => component.weightedExtraPixelsPerSavedLeaf);
+  return {
+    alphaTransparentRatioMax: round(Math.max(0, ...transparentRatios), 4),
+    alphaTransparentRatioMedian: round(median(transparentRatios), 4),
+    domSavedEntries: sourceLeaves - outputEntries,
+    hiddenPixelsPerSavedMountMax: round(Math.max(0, ...hiddenPixelsPerSavedMount)),
+    hiddenPixelsPerSavedMountMedian: round(median(hiddenPixelsPerSavedMount)),
+    outputArea,
+    outputEntries,
+    outputExtraPixels: outputArea - sourceArea,
+    outputExtraPixelsPerSavedEntry: sourceLeaves > outputEntries
+      ? round((outputArea - sourceArea) / (sourceLeaves - outputEntries))
+      : 0,
+    paintLeafSpanMax: Math.max(0, ...leafSpans),
+    paintLeafSpanMedian: round(median(leafSpans)),
+    partialPvsRatioMax: round(Math.max(0, ...partialRatios), 4),
+    partialPvsRatioMedian: round(median(partialRatios), 4),
+    sourceArea,
+    sourceLeaves,
+    weightedExtraPixelsPerSavedLeafMax: round(Math.max(0, ...weightedCosts)),
+    weightedExtraPixelsPerSavedLeafMedian: round(median(weightedCosts)),
+  };
 }
 
 async function bakePlanarComponent(component, {
@@ -358,11 +494,22 @@ async function bakePlanarComponent(component, {
       projectRoot,
     );
   }
-  const rectCover = RECT_COVER_ENABLED ? opaqueRectCoverForComponent(canvas, component, rectCoverStats) : null;
+  component.alpha = canvasAlphaMetrics(canvas);
+  const rectCover = RECT_COVER_ENABLED ? opaqueRectCoverForComponent(canvas, component, rectCoverStats, component.alpha) : null;
   if (rectCover) {
-    return writePlanarComponentRectCover(component, canvas, rectCover, outputDir, publicPath);
+    const entries = await writePlanarComponentRectCover(component, canvas, rectCover, outputDir, publicPath);
+    component.outputArea = rectCover.splitArea;
+    component.outputEntryCount = entries.length;
+    component.outputRepresentation = "rect-cover";
+    component.alpha = alphaSummary(component.alpha);
+    return entries;
   }
-  return [await writePlanarComponentImage(component, canvas, outputDir, publicPath)];
+  const entry = await writePlanarComponentImage(component, canvas, outputDir, publicPath);
+  component.outputArea = component.componentArea;
+  component.outputEntryCount = 1;
+  component.outputRepresentation = "alpha-rect";
+  component.alpha = alphaSummary(component.alpha);
+  return [entry];
 }
 
 async function writePlanarComponentImage(component, canvas, outputDir, publicPath) {
@@ -424,7 +571,7 @@ async function writePlanarComponentRectCover(component, canvas, rectCover, outpu
   return entries;
 }
 
-function opaqueRectCoverForComponent(canvas, component, stats) {
+function opaqueRectCoverForComponent(canvas, component, stats, alpha) {
   stats.evaluated++;
   const reject = (reason) => {
     incrementSkip(stats.rejected, reason);
@@ -433,18 +580,8 @@ function opaqueRectCoverForComponent(canvas, component, stats) {
   if (RECT_COVER_MAX_RECTS < 2) return reject("max-rects-too-low");
   if (RECT_COVER_MAX_ADDED_ENTRIES <= 0) return reject("added-entries-disabled");
   if (component.rows.length <= 2) return reject("not-enough-source-leaves");
-  const ctx = canvas.getContext("2d");
-  const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const mask = new Uint8Array(width * height);
-  let opaquePixels = 0;
-  for (let index = 0; index < width * height; index++) {
-    if (data[index * 4 + 3] === 0) continue;
-    mask[index] = 1;
-    opaquePixels++;
-  }
+  const { componentArea, height, mask, opaquePixels, transparentRatio, width } = alpha;
   if (opaquePixels <= 0) return reject("empty-opaque-mask");
-  const componentArea = width * height;
-  const transparentRatio = (componentArea - opaquePixels) / componentArea;
   if (transparentRatio < RECT_COVER_MIN_TRANSPARENT_RATIO) return reject("transparent-ratio-too-low");
 
   const cover = greedyOpaqueRectCover(mask, width, height, opaquePixels, RECT_COVER_MAX_RECTS);
@@ -484,6 +621,40 @@ function opaqueRectCoverForComponent(canvas, component, stats) {
     splitArea,
     splitExtraPixelsPerSavedLeaf,
     transparentRatio,
+  };
+}
+
+function canvasAlphaMetrics(canvas) {
+  const ctx = canvas.getContext("2d");
+  const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const mask = new Uint8Array(width * height);
+  let opaquePixels = 0;
+  for (let index = 0; index < width * height; index++) {
+    if (data[index * 4 + 3] === 0) continue;
+    mask[index] = 1;
+    opaquePixels++;
+  }
+  const componentArea = width * height;
+  const transparentPixels = componentArea - opaquePixels;
+  return {
+    componentArea,
+    height,
+    mask,
+    opaquePixels,
+    transparentPixels,
+    transparentRatio: componentArea > 0 ? transparentPixels / componentArea : 0,
+    width,
+  };
+}
+
+function alphaSummary(alpha) {
+  return {
+    componentArea: alpha.componentArea,
+    height: alpha.height,
+    opaquePixels: alpha.opaquePixels,
+    transparentPixels: alpha.transparentPixels,
+    transparentRatio: alpha.transparentRatio,
+    width: alpha.width,
   };
 }
 
@@ -1036,6 +1207,13 @@ function positiveNumberEnv(name, fallback) {
   if (raw === undefined || raw === "") return fallback;
   const value = Number(raw);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function nonNegativeNumberEnv(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
 function positiveIntegerEnv(name, fallback) {
