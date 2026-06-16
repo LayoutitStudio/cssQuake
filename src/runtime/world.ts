@@ -434,13 +434,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     }
     const mountedLeafCountBefore = countMountedQuakeLeaves();
     const planningStartedAt = performance.now();
-    const leafMountRequests: Array<[QuakeFaceLeaf, boolean]> = [];
-    let scannedFaceLeafCount = 0;
-    for (const [faceIndex, leaves] of faceLeaves) {
-      const visible = visibleFaces.has(faceIndex);
-      scannedFaceLeafCount += leaves.length;
-      for (const leaf of leaves) leafMountRequests.push([leaf, visible]);
-    }
+    const { leafMountRequests, scannedFaceLeafCount } = buildQuakeLeafVisibilityMountRequests(faceLeaves, visibleFaces);
     const planningMs = performance.now() - planningStartedAt;
     visibleFaceKey = nextKey;
     visibleLeafIndex = nextLeafIndex;
@@ -1486,6 +1480,22 @@ function normalizedQuakeLeafVisibilityFaceIndexes(metadata: QuakePreparedRenderB
   const indexes = Array.isArray(metadata.fs) ? metadata.fs : [metadata.f];
   return [...new Set(indexes.filter((faceIndex) => Number.isInteger(faceIndex) && faceIndex >= 0))]
     .sort((a, b) => a - b);
+}
+
+export function buildQuakeLeafVisibilityMountRequests(
+  faceLeaves: Map<number, QuakeFaceLeaf[]>,
+  visibleFaces: Set<number>,
+): { leafMountRequests: Map<QuakeFaceLeaf, boolean>; scannedFaceLeafCount: number } {
+  const leafMountRequests = new Map<QuakeFaceLeaf, boolean>();
+  let scannedFaceLeafCount = 0;
+  for (const [faceIndex, leaves] of faceLeaves) {
+    const visible = visibleFaces.has(faceIndex);
+    scannedFaceLeafCount += leaves.length;
+    for (const leaf of leaves) {
+      leafMountRequests.set(leaf, visible || leafMountRequests.get(leaf) === true);
+    }
+  }
+  return { leafMountRequests, scannedFaceLeafCount };
 }
 
 function clampedIntegerParam(value: string | null, fallback: number, min: number, max: number): number {
