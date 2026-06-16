@@ -2623,7 +2623,8 @@ function handleQuakeDebugRecordingButtonClick(event: Event): void {
 function syncQuakeInteractionPresentation(): void {
   const menuSurfaceOpen = menu.isMainMenuOpen() || menu.isMenuPanelOpen();
   const pointerUnlocked = document.pointerLockElement !== host;
-  const gameplayPointerUnlocked = quakeGameplayStarted && pointerUnlocked;
+  const mobileControlsAvailable = quakePointerGameplay.isMobileAvailable();
+  const gameplayPointerUnlocked = quakeGameplayStarted && pointerUnlocked && !mobileControlsAvailable;
   const debugPointerUnlocked = quakeDebugPanelFlow.isModeEnabled() && pointerUnlocked;
   const clickToPlayVisible = gameplayPointerUnlocked && !menuSurfaceOpen;
   setQuakeClickToPlayPauseState(clickToPlayVisible);
@@ -4394,7 +4395,7 @@ async function completeQuakeSceneReadiness(
 ): Promise<void> {
   const completeWorldTexturesTask = progress?.startTask("World textures");
   try {
-    await world.waitForVisibleAtlasPages();
+    await world.waitForVisibleTextures();
   } finally {
     completeWorldTexturesTask?.();
   }
