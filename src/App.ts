@@ -4395,7 +4395,7 @@ async function completeQuakeSceneReadiness(
 ): Promise<void> {
   const completeWorldTexturesTask = progress?.startTask("World textures");
   try {
-    await world.waitForVisibleAtlasPages();
+    await world.waitForVisibleTextures();
   } finally {
     completeWorldTexturesTask?.();
   }
