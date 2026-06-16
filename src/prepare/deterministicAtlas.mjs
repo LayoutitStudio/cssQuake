@@ -433,6 +433,90 @@ export async function replaceQuakeRenderBundleWorldAtlas({
   return stats;
 }
 
+export async function renderQuakeDeterministicAtlasSourceCropPreview({
+  leafIndices,
+  mapPath,
+  pakBuffer,
+  renderBundle,
+  visibility,
+}) {
+  if (!renderBundle?.meshHtml || !Array.isArray(renderBundle.leafMetadata)) {
+    throw new Error("renderBundle with meshHtml and leafMetadata is required.");
+  }
+  if (!visibility?.candidates) {
+    throw new Error("visibility.candidates is required.");
+  }
+  if (!pakBuffer) {
+    throw new Error("pakBuffer is required.");
+  }
+  const bspData = parseQuakeBspFromPak(pakBuffer, mapPath);
+  const leaves = parseRenderBundleAtlasLeaves(renderBundle.meshHtml, renderBundle.leafMetadata);
+  const softwareOracle = deterministicAtlasNeedsSoftwareOracle() ? await createSoftwareQuakeSurfaceOracle() : null;
+  const context = {
+    boundsBySourceFace: new Map(),
+    directPreparedTextureByKey: new Map(),
+    nativeRasterAddon: null,
+    nativeRasterJobs: null,
+    planByPolygon: new Map(),
+    preparedTextureByUrl: new Map(),
+    readTextureUrl: null,
+    sourceByFace: new Map(),
+    softwareSurfaceBySourceFace: new Map(),
+    softwareOracle,
+    timing: null,
+  };
+  try {
+    const crops = [];
+    for (const leafIndex of leafIndices ?? []) {
+      const leaf = leaves[leafIndex];
+      const metadata = renderBundle.leafMetadata[leafIndex];
+      const sourceFaceIndices = visibility.candidates[metadata?.f]?.sourceFaceIndices ?? [];
+      if (!leaf || !metadata) {
+        crops.push({ leafIndex, skip: "missing-leaf" });
+        continue;
+      }
+      if (sourceFaceIndices.length !== 1) {
+        crops.push({ leafIndex, metadata, sourceFaceIndices, skip: "non-single-source-face" });
+        continue;
+      }
+      if (!leaf.matrix || !leaf.width || !leaf.height) {
+        crops.push({ leafIndex, metadata, sourceFaceIndices, skip: "missing-leaf-transform-or-size" });
+        continue;
+      }
+      const source = cachedSourceFace(context, bspData, sourceFaceIndices[0]);
+      const bounds = cachedSourceBounds(context, source);
+      const softwareSurface = await cachedWinQuakeSurface(context, source, bounds, bspData);
+      const sample = leafLocalSingleSourceTextureSampleContext(
+        leaf.matrix,
+        { source, softwareSurface },
+        bspData.pivot,
+      );
+      if (!sample) {
+        crops.push({ leafIndex, metadata, sourceFaceIndices, skip: "missing-source-sampler" });
+        continue;
+      }
+      const rgba = Buffer.alloc(leaf.width * leaf.height * 4);
+      for (let y = 0; y < leaf.height; y++) {
+        const localY = y + 0.5;
+        for (let x = 0; x < leaf.width; x++) {
+          writeLeafLocalSingleSourceSampleRgbAt(sample, x + 0.5, localY, rgba, (y * leaf.width + x) * 4);
+        }
+      }
+      crops.push({
+        leafIndex,
+        metadata,
+        sourceFaceIndices,
+        width: leaf.width,
+        height: leaf.height,
+        rgba,
+      });
+    }
+    return crops;
+  } finally {
+    await softwareOracle?.close?.();
+  }
+}
+
 function completeDeterministicRenderBundleAssetUrls(renderBundle, leafImageTiles, tiles) {
   const urls = new Set(renderBundle.assetUrls ?? []);
   for (const tile of leafImageTiles) {
