@@ -194,6 +194,7 @@ export interface QuakeDebugRecorderOptions {
   statusElement: HTMLElement | null;
   currentMapName: () => string;
   entityManifest?: () => unknown;
+  onStateChange?: (recording: boolean) => void;
   snapshot: () => QuakeDebugRecordingSnapshot;
 }
 
@@ -396,6 +397,7 @@ export function createQuakeDebugRecorder(options: QuakeDebugRecorderOptions): Qu
   }
 
   function updatePresentation(finished?: QuakeDebugRecording): void {
+    options.onStateChange?.(recording !== null);
     if (!options.statusElement) return;
     if (recording) {
       const duration = Math.max(0, performance.now() - startedAt) / 1000;
