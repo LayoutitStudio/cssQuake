@@ -2503,7 +2503,7 @@ body.quake-menu-unlocked #quake-weapon {
 }
 @media (any-pointer: coarse), (max-width: 960px) {
   body:not(.quake-loading):not(.quake-menu-open):not(.quake-dead):not(.quake-level-complete) #quake-mobile-controls {
-    display: block;
+    display: none !important;
   }
 }
 #quake-crosshair {
