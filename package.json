@@ -17,7 +17,7 @@
     "build": "vite build",
     "build:full": "pnpm prepare:quake && vite build",
     "preview": "vite preview",
-    "test": "node scripts/testContracts.mjs",
+    "test": "node test/runContracts.mjs",
     "test:asset-state": "node test/assets/checkAssetState.mjs",
     "test:assets": "node test/assets/runAssetIntegrity.mjs",
     "test:browser:smoke": "node test/browser/runBrowserSmoke.mjs",
