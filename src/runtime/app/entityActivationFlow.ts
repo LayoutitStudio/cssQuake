@@ -176,9 +176,31 @@ export function createQuakeEntityActivationFlow(
     if (!entity) return;
     if (options.targets.isDisabled(entity.index)) return;
     if (activateSolidGate(entity)) return;
-    if ((entity.classname === "func_door" || entity.classname === "func_door_secret") && !entity.properties.targetname) {
+    if (solidTouchActivatesMover(entity, touch)) {
       activateEntity(entity.index);
     }
+  }
+
+  function solidTouchActivatesMover(entity: QuakeEntity, touch: QuakeTouchedTrigger): boolean {
+    const mover = options.movers.get(entity.index);
+    if (!mover) return false;
+    if (mover.kind === "button") {
+      return mover.prebakedButton
+        ? Boolean(mover.prebakedButton.callbacks.touch)
+        : quakeEntityNumber(entity, "health", 0) <= 0;
+    }
+    if (mover.kind === "door") {
+      return mover.prebakedDoor
+        ? mover.prebakedDoor.spawnDoorTrigger
+        : !entity.properties.targetname && quakeEntityNumber(entity, "health", 0) <= 0;
+    }
+    if (mover.kind === "secret-door") {
+      return Boolean(mover.prebakedSecretDoor?.callbacks.touch);
+    }
+    if (mover.kind === "plat") {
+      return touch.contact === "plat-trigger" && Boolean(mover.prebakedPlat?.callbacks.centerTouch);
+    }
+    return false;
   }
 
   function fireTarget(targetname: string, sourceEntityIndex?: number): void {
