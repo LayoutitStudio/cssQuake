@@ -9,6 +9,7 @@ import { QUAKE_COLLISION_UNIT_SCALE, QUAKE_PLAYER_MINS_Z } from "../constants";
 import type { QuakePlayerDamageFeedback } from "../player";
 import type { QuakeUrlView } from "../routeState";
 import { normalizeQuakeUrlAngle } from "../routeState";
+import { quakeRuntimeViewportCenterCss, quakeRuntimeViewportSize } from "../viewport";
 import type { QuakeCameraFeedbackFlow, QuakeCameraOriginSyncMode } from "./cameraFeedbackFlow";
 import type { QuakeCssView } from "./routeFlow";
 
@@ -76,8 +77,8 @@ export function createQuakeCameraViewFlow(
   let cameraPerspectiveStyle = options.scene.camera.perspectiveStyle;
 
   function syncViewportProjection(): void {
-    const { width, height } = quakeViewportSize();
-    const perspective = quakeCameraPerspectiveForViewport(width, height, cameraConfig.zoom);
+    const viewport = quakeRuntimeViewportSize();
+    const perspective = quakeCameraPerspectiveForViewport(viewport.width, viewport.height, cameraConfig.zoom);
     cameraPerspectiveStyle = `${Number(perspective.toFixed(6))}px`;
     if (firstPersonControlsMounted) {
       options.host.style.setProperty("--polycss-fpv-perspective", cameraPerspectiveStyle);
@@ -85,8 +86,8 @@ export function createQuakeCameraViewFlow(
     } else {
       options.host.style.perspective = cameraPerspectiveStyle;
     }
-    const centerX = quakeViewportCenterCss(width);
-    const centerY = quakeViewportCenterCss(height);
+    const centerX = quakeRuntimeViewportCenterCss(viewport, "x");
+    const centerY = quakeRuntimeViewportCenterCss(viewport, "y");
     options.scene.cameraEl.style.perspectiveOrigin = `${centerX} ${centerY}`;
     options.sceneElement.style.left = centerX;
     options.sceneElement.style.top = centerY;
@@ -278,18 +279,11 @@ export function createQuakeCameraViewFlow(
 
 export function quakeInitialCameraViewConfig(renderSupersample: number): QuakeCameraViewConfig {
   const zoom = quakeCameraZoomFromUrl() ?? worldDistanceToPolyCss(0.65) / renderSupersample;
-  const { width, height } = quakeViewportSize();
+  const { width, height } = quakeRuntimeViewportSize();
   return {
     perspective: quakeCameraPerspectiveForViewport(width, height, zoom),
     zoom,
   };
-}
-
-function quakeViewportSize(): { width: number; height: number } {
-  const root = document.documentElement;
-  const width = window.innerWidth || root.clientWidth || 1;
-  const height = window.innerHeight || root.clientHeight || 1;
-  return { width: Math.max(1, width), height: Math.max(1, height) };
 }
 
 function quakeCameraPerspectiveForViewport(width: number, height: number, zoom: number): number {
@@ -319,8 +313,4 @@ function quakeCameraZoomFromUrl(): number | null {
   if (rawValue === null) return null;
   const value = Number(rawValue);
   return Number.isFinite(value) && value > 0 && value <= QUAKE_URL_ZOOM_MAX ? value : null;
-}
-
-function quakeViewportCenterCss(value: number): string {
-  return Math.round(value) % 2 === 0 ? "50%" : "calc(50% + 0.5px)";
 }

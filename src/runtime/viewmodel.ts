@@ -12,6 +12,7 @@ import type { QuakePreparedRenderBundle } from "../prepare/scene";
 import { COLLISION_EPSILON, QUAKE_COLLISION_UNIT_SCALE } from "./constants";
 import { crossVec3, normalizeVec3 } from "./math";
 import { mountQuakeRenderBundleMesh, stripPolyMeshMetadata } from "./renderBundleMesh";
+import { quakeRuntimeViewportSize, type QuakeRuntimeViewportSize } from "./viewport";
 
 export interface QuakeViewmodelController {
   mount(model: QuakeViewmodelModel): void;
@@ -575,16 +576,26 @@ export function createQuakeViewmodelController({
   function syncViewportLayer(): void {
     if (!layerViewportDirty || !layer || !stage) return;
     const currentTuning = activeTuning();
-    const layerScale = refreshWeaponLayerScale();
+    const viewport = viewmodelViewportSize();
+    const layerScale = refreshWeaponLayerScale(viewport);
     setStyleValue(
       layer,
       "left",
-      `calc(50% - ${QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX / 2}px + ${currentTuning.screenXOffsetPx * layerScale}px)`,
+      cssPx(
+        viewport.offsetLeft +
+          (viewport.width - QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX) / 2 +
+          currentTuning.screenXOffsetPx * layerScale,
+      ),
     );
     setStyleValue(
       layer,
       "top",
-      `calc(100% - ${QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX}px + ${currentTuning.screenYOffsetPx * layerScale}px)`,
+      cssPx(
+        viewport.offsetTop +
+          viewport.height -
+          QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX +
+          currentTuning.screenYOffsetPx * layerScale,
+      ),
     );
     setStyleValue(layer, "right", "auto");
     setStyleValue(layer, "bottom", "auto");
@@ -654,10 +665,9 @@ export function createQuakeViewmodelController({
     return QUAKE_WEAPON_REFERENCE_SCENE_PERSPECTIVE_PX * activeTuning().perspectiveScale;
   }
 
-  function refreshWeaponLayerScale(): number {
-    const hostRect = host.getBoundingClientRect();
-    const viewportWidth = hostRect.width || window.innerWidth;
-    const viewportHeight = hostRect.height || window.innerHeight;
+  function refreshWeaponLayerScale(viewport = viewmodelViewportSize()): number {
+    const viewportWidth = viewport.width;
+    const viewportHeight = viewport.height;
     const heightScale = viewportHeight / QUAKE_WEAPON_REFERENCE_VIEWPORT_HEIGHT_PX;
     if (viewportWidth <= viewportHeight || viewportHeight > QUAKE_WEAPON_SHORT_LANDSCAPE_MAX_HEIGHT_PX) {
       cachedLayerScale = heightScale;
@@ -665,6 +675,11 @@ export function createQuakeViewmodelController({
     }
     cachedLayerScale = Math.max(heightScale, viewportWidth / QUAKE_WEAPON_REFERENCE_VIEWPORT_WIDTH_PX);
     return cachedLayerScale;
+  }
+
+  function viewmodelViewportSize(): QuakeRuntimeViewportSize {
+    const hostRect = host.getBoundingClientRect();
+    return quakeRuntimeViewportSize({ width: hostRect.width, height: hostRect.height });
   }
 
   function weaponLayerTransform(scale: number): string {
@@ -784,6 +799,11 @@ function weaponTransformCss(weapon: QuakeViewmodelDebugSnapshot["weapon"]): stri
     Math.abs(rotZ) > 0.001 ? `rotateZ(${-rotZ}deg)` : "",
     `scale3d(${scaleX}, ${scaleY}, ${scaleZ})`,
   ].filter(Boolean).join(" ");
+}
+
+function cssPx(value: number): string {
+  const rounded = Math.round(value * 1000) / 1000;
+  return `${Object.is(rounded, -0) ? 0 : rounded}px`;
 }
 
 function elementDebugSnapshot(element: HTMLElement): QuakeViewmodelElementDebugSnapshot {
