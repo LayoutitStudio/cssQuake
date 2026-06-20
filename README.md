@@ -1,6 +1,6 @@
 # cssQuake 👹
 
-A port of id Software's [Quake](https://github.com/id-software/quake) that renders BSP worlds as real HTML/CSS 3D geometry through [PolyCSS](https://github.com/LayoutitStudio/polycss), without a WebGL or canvas world renderer. cssQuake preprocesses original Quake data into browser-ready JSON, image assets, and PolyCSS render bundles, then runs the game in TypeScript.
+A port of id Software's [Quake](https://github.com/id-software/quake) that renders BSP worlds as real HTML/CSS 3D geometry through [PolyCSS](https://github.com/LayoutitStudio/polycss), without a WebGL or canvas renderer. cssQuake preprocesses original Quake data into browser-ready JSON, image assets, and PolyCSS render bundles, then runs the game in TypeScript.
 
 Play the live version: [cssquake.com](https://cssquake.com) 🕹️
 
