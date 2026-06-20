@@ -530,7 +530,7 @@ async function writePlanarComponentImage(component, canvas, outputDir, publicPat
     representation: "alpha-rect",
     sourceFaceIndexes: component.sourceFaceIndexes,
     surfaceType: component.surfaceType,
-    tag: `<s data-planar-component="${component.id}" data-planar-surface="${component.surfaceType}" style="${style}"></s>`,
+    tag: `<s style="${style}"></s>`,
     texture: component.texture,
     url,
   };
@@ -563,7 +563,7 @@ async function writePlanarComponentRectCover(component, canvas, rectCover, outpu
       representation: "rect-cover",
       sourceFaceIndexes: component.sourceFaceIndexes,
       surfaceType: component.surfaceType,
-      tag: `<s data-planar-component="${childId}" data-planar-parent-component="${component.id}" data-planar-representation="rect-cover" data-planar-surface="${component.surfaceType}" style="${style}"></s>`,
+      tag: `<s style="${style}"></s>`,
       texture: component.texture,
       url,
     });

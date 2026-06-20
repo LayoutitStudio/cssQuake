@@ -7,6 +7,7 @@ import {
 
 import type { QuakePreparedRenderBundle, QuakeRenderBundleLeafFrameStyle } from "../types/quake";
 import { markQuakeTrace } from "./debug/traceMarks";
+import { resolveQuakeAssetUrl } from "./quakeAssetUrl";
 
 export interface QuakeRenderBundleFrameSetFrame {
   name: string;
@@ -688,7 +689,7 @@ function ensureQuakeRenderBundleStyles(
   if (renderBundle.styleUrl) {
     const link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = renderBundle.styleUrl;
+    link.href = resolveQuakeAssetUrl(renderBundle.styleUrl);
     document.head.append(link);
     renderBundleStyleCache.set(key, link);
     return link;
@@ -706,7 +707,7 @@ export async function preloadQuakeRenderBundleAssets(
   progress?: QuakeRenderBundlePreloadProgress,
   options: QuakeRenderBundlePreloadOptions = {},
 ): Promise<void> {
-  const leafFrameStylesUrl = renderBundle.leafFrameStylesUrl;
+  const leafFrameStylesUrl = resolveQuakeAssetUrl(renderBundle.leafFrameStylesUrl);
   const setupTasks: Promise<unknown>[] = [];
   if (leafFrameStylesUrl && !renderBundle.leafFrameStyles?.length) {
     const complete = renderBundleLeafFrameStylesLoadPromises.has(leafFrameStylesUrl)
@@ -1289,7 +1290,8 @@ function quakeRenderBundleUrlPath(url: string | undefined): string | undefined {
 }
 
 function quakeRenderBundleCssUrl(url: string): string {
-  return `url("${url.replace(/["\\\n\r\f]/g, "\\$&")}")`;
+  const resolvedUrl = resolveQuakeAssetUrl(url);
+  return `url('${resolvedUrl.replace(/['\\\n\r\f]/g, "\\$&")}')`;
 }
 
 export function quakeRenderBundlePreloadAssetUrls(renderBundle: QuakePreparedRenderBundle): string[] {
@@ -1298,7 +1300,8 @@ export function quakeRenderBundlePreloadAssetUrls(renderBundle: QuakePreparedRen
   }
   const urls = new Set<string>();
   for (const url of renderBundle.assetUrls) {
-    if (url) urls.add(url);
+    const resolvedUrl = resolveQuakeAssetUrl(url);
+    if (resolvedUrl) urls.add(resolvedUrl);
   }
   return [...urls];
 }
@@ -1319,7 +1322,8 @@ function collectQuakeRenderBundleInlineAssetUrls(
   if (!styleText) return;
   for (const match of styleText.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*?))\s*\)/g)) {
     const url = normalizeQuakeRenderBundleCssUrl(match[1] ?? match[2] ?? match[3] ?? "");
-    if (url) urls.add(url);
+    const resolvedUrl = resolveQuakeAssetUrl(url);
+    if (resolvedUrl) urls.add(resolvedUrl);
   }
   for (const match of styleText.matchAll(/var\(\s*(--bg\d+)\s*\)/g)) {
     const value = resolveVar(match[1] ?? "");
@@ -1330,10 +1334,10 @@ function collectQuakeRenderBundleInlineAssetUrls(
 function normalizeQuakeRenderBundleCssUrl(value: string): string {
   let url = value.trim();
   if (!url) return "";
-  if ((url.startsWith("&quot;") && url.endsWith("&quot;")) || (url.startsWith("&#34;") && url.endsWith("&#34;"))) {
-    url = url.slice(url.indexOf(";") + 1, url.lastIndexOf("&"));
-  }
-  return url.trim();
+  return url
+    .replace(/^(?:&quot;|&#34;|&#39;)/, "")
+    .replace(/(?:&quot;|&#34;|&#39;)$/, "")
+    .trim();
 }
 
 function quakeRenderBundleUrlBasename(url: string): string {
@@ -1367,7 +1371,7 @@ function preloadQuakeRenderBundleStyle(renderBundle: QuakePreparedRenderBundle):
 }
 
 async function loadQuakeRenderBundleLeafFrameStyles(renderBundle: QuakePreparedRenderBundle): Promise<void> {
-  const url = renderBundle.leafFrameStylesUrl;
+  const url = resolveQuakeAssetUrl(renderBundle.leafFrameStylesUrl);
   if (!url || renderBundle.leafFrameStyles?.length) return;
   let promise = renderBundleLeafFrameStylesLoadPromises.get(url);
   if (!promise) {
@@ -1743,7 +1747,7 @@ function quakeRenderBundleAtlasResidencyPageMap(
     if (!Number.isInteger(page.index) || !page.url || !page.varName) continue;
     pageByIndex.set(page.index, {
       index: page.index,
-      url: page.url,
+      url: resolveQuakeAssetUrl(page.url),
       varName: page.varName,
     });
   }
@@ -1773,10 +1777,34 @@ function quakeRenderBundleTemplate(renderBundle: QuakePreparedRenderBundle): HTM
   let template = renderBundleTemplateCache.get(renderBundle);
   if (template) return template;
   template = document.createElement("template");
-  template.innerHTML = renderBundle.meshHtml.trim();
+  template.innerHTML = resolveQuakeRenderBundleHtmlAssetUrls(renderBundle.meshHtml.trim());
   stripQuakeRenderBundleTemplateStylesheetOnlyProperties(template);
   renderBundleTemplateCache.set(renderBundle, template);
   return template;
+}
+
+function resolveQuakeRenderBundleHtmlAssetUrls(value: string): string {
+  return resolveQuakeRenderBundleCssAssetUrls(value).replace(
+    /=(["'])(\/q\/[^"'\s<>]*)\1/g,
+    (_match, quote: string, url: string) => `=${quote}${escapeQuakeRenderBundleHtmlAttribute(resolveQuakeAssetUrl(url))}${quote}`,
+  );
+}
+
+function resolveQuakeRenderBundleCssAssetUrls(value: string): string {
+  return value.replace(
+    /url\(\s*(?:(?:"|&quot;|&#34;)(\/q\/[^"&)\r\n]*)(?:"|&quot;|&#34;)|(?:'|&#39;)(\/q\/[^'&)\r\n]*)(?:'|&#39;)|(\/q\/[^)\s"'&\r\n]*))\s*\)/g,
+    (_match, doubleQuoted: string | undefined, singleQuoted: string | undefined, unquoted: string | undefined) =>
+      quakeRenderBundleCssUrl(doubleQuoted ?? singleQuoted ?? unquoted ?? ""),
+  );
+}
+
+function escapeQuakeRenderBundleHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function stripQuakeRenderBundleTemplateStylesheetOnlyProperties(template: HTMLTemplateElement): void {
@@ -1819,7 +1847,8 @@ async function preloadQuakeRenderBundleAssetUrls(urls: readonly string[]): Promi
 }
 
 function preloadQuakeRenderBundleAsset(url: string): Promise<void> {
-  const existing = renderBundleAssetPreloads.get(url);
+  const resolvedUrl = resolveQuakeAssetUrl(url);
+  const existing = renderBundleAssetPreloads.get(resolvedUrl);
   if (existing) return existing.promise;
   const image = new Image();
   image.decoding = "async";
@@ -1831,8 +1860,8 @@ function preloadQuakeRenderBundleAsset(url: string): Promise<void> {
     };
     image.onerror = () => resolve();
   });
-  renderBundleAssetPreloads.set(url, { image, promise });
-  image.src = url;
+  renderBundleAssetPreloads.set(resolvedUrl, { image, promise });
+  image.src = resolvedUrl;
   return promise;
 }
 
