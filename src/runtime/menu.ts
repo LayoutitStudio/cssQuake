@@ -883,11 +883,7 @@ export function createQuakeMenuController({
 
   function handleMainMenuClick(event: MouseEvent): void {
     const row = mainMenuPointerRow(event);
-    if (row === null) {
-      const target = event.target instanceof Node ? event.target : null;
-      if (!mainMenuItemFor(target)) hideMainMenu();
-      return;
-    }
+    if (row === null) return;
     if (!selectMainMenuRow(row)) return;
     activateMainMenuSelection();
   }
@@ -929,11 +925,6 @@ export function createQuakeMenuController({
       }
     }
     return null;
-  }
-
-  function mainMenuItemFor(target: EventTarget | null): HTMLElement | null {
-    const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
-    return element?.closest(".quake-main-menu-item") as HTMLElement | null;
   }
 
   function focusCurrent(): void {
