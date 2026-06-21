@@ -5,6 +5,7 @@ import { importTsModule } from "../importTsModule.mjs";
 
 const invite = await importTsModule("src/runtime/multiplayer/invite.ts");
 const region = await importTsModule("src/runtime/multiplayer/region.ts");
+const routeState = await importTsModule("src/runtime/routeState.ts");
 
 test("multiplayer regions normalize unknown values to auto", () => {
   assert.equal(region.normalizeQuakeMultiplayerRegion("sa"), "sa");
@@ -61,4 +62,19 @@ test("multiplayer room ids always include region", () => {
     invite.createQuakeMultiplayerRoomIdFromToken("e1m1", "bcdfghjk", "sa"),
     "cssquake-sa-e1m1-bcdfghjk",
   );
+});
+
+test("compact multiplayer invite routes use the encoded map after region suffixes", () => {
+  const route = routeState.parseQuakeUrlRouteFromLocation(
+    { search: "?room=06bcdfghjksa" },
+    {
+      compactMultiplayerInviteMapName: (inviteId) => inviteId === "06bcdfghjksa" ? "e1m7" : null,
+      mapExists: (mapName) => mapName === "e1m1" || mapName === "e1m7",
+      startMap: "e1m1",
+    },
+  );
+  assert.equal(route.mapName, "e1m7");
+  assert.equal(route.mapParamPresent, true);
+  assert.equal(route.mapParamValid, true);
+  assert.equal(route.compactMultiplayerInvitePresent, true);
 });
