@@ -257,7 +257,7 @@ const QUAKE_KNIGHT_SWORD_TRIANGLE_INDICES = new Set([
   11, 48, 64, 88, 91, 104, 105, 107, 110, 112, 114, 118, 134, 151, 164, 193, 197, 199, 201, 204,
 ]);
 const QUAKE_BACKPACK_STRAP_NO_MERGE_TRIANGLE_INDICES = new Set([89, 108]);
-const QUAKE_KNIGHT_SWORD_SUBDIVISION_LEVELS = 2;
+const QUAKE_KNIGHT_SWORD_SUBDIVISION_LEVELS = 0;
 const QUAKE_KNIGHT_STAND_SWORD_FORWARD_OFFSET = 8;
 const QUAKE_DEBUG_OUTLINE_WIDTH = 0.5;
 const QUAKE_DEBUG_OUTLINE_DEFAULT_ATLAS_SIZE = 64;
@@ -5064,7 +5064,7 @@ function quakeAliasNoMergeTriangleIndices(model, source = "") {
   if (source === QUAKE_BACKPACK_MODEL_PATH) return QUAKE_BACKPACK_STRAP_NO_MERGE_TRIANGLE_INDICES;
   if (source === QUAKE_LAVABALL_MODEL_PATH) return quakeAliasAllTriangleIndices(model);
   if (source !== QUAKE_KNIGHT_MODEL_PATH) return undefined;
-  return quakeAliasAllTriangleIndices(model);
+  return QUAKE_KNIGHT_SWORD_TRIANGLE_INDICES;
 }
 
 function quakeAliasAllTriangleIndices(model) {
