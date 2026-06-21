@@ -174,6 +174,12 @@ body.quake-menu-open #quake-hud {
   width: 100%;
   border-collapse: collapse;
 }
+.quake-multiplayer-scoreboard-spectators {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 5px;
+  opacity: 0.82;
+}
 .quake-multiplayer-scoreboard td {
   max-width: 180px;
   padding: 2px 5px;
@@ -189,6 +195,9 @@ body.quake-menu-open #quake-hud {
   overflow: hidden;
   gap: 0 var(--quake-bitmap-space-size);
   filter: drop-shadow(1px 1px 0 #000000);
+}
+.quake-multiplayer-scoreboard-spectators .quake-bitmap-text {
+  justify-content: flex-end;
 }
 .quake-multiplayer-scoreboard td:first-child {
   border-left: 3px solid var(--quake-multiplayer-player-color, transparent);

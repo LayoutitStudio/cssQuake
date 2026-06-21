@@ -22,6 +22,7 @@ export interface QuakeMultiplayerRemoteVisualHandle {
 export interface QuakeMultiplayerRemotePlayerPresenterOptions {
   localClientId: string;
   createVisual(player: QuakeMultiplayerAuthoritativePlayerState): QuakeMultiplayerRemoteVisualHandle | null;
+  shouldRenderPlayer?: (player: QuakeMultiplayerAuthoritativePlayerState) => boolean;
   now?: () => number;
   requestFrame?: (callback: FrameRequestCallback) => number;
   cancelFrame?: (handle: number) => void;
@@ -85,6 +86,10 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
     const seen = new Set<string>();
     for (const player of snapshotPlayers) {
       if (player.clientId === options.localClientId) continue;
+      if (options.shouldRenderPlayer && !options.shouldRenderPlayer(player)) {
+        removeRemotePlayer(player.playerId);
+        continue;
+      }
       seen.add(player.playerId);
       syncRemotePlayer(player);
     }
