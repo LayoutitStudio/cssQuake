@@ -6,6 +6,7 @@ import { importTsModule } from "../importTsModule.mjs";
 export const authority = await importTsModule("src/runtime/multiplayer/authority.ts");
 export const loopback = await importTsModule("src/runtime/multiplayer/loopback.ts");
 export const partyRoomModule = await importTsModule("src/runtime/multiplayer/partyRoom.ts");
+export const presenceRoomModule = await importTsModule("src/runtime/multiplayer/presenceRoom.ts");
 export const protocol = await importTsModule("src/runtime/multiplayer/protocol.ts");
 export const reconciliation = await importTsModule("src/runtime/multiplayer/reconciliation.ts");
 export const simulation = await importTsModule("src/runtime/multiplayer/simulation.ts");

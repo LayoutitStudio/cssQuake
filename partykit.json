@@ -1,6 +1,9 @@
 {
   "name": "cssquake",
   "main": "src/runtime/multiplayer/partyRoom.ts",
+  "parties": {
+    "presence": "src/runtime/multiplayer/presenceRoom.ts"
+  },
   "port": 1999,
   "compatibilityDate": "2026-06-11"
 }

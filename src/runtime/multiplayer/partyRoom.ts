@@ -110,6 +110,10 @@ import {
   queueQuakeMultiplayerRoomInput,
   type QuakeMultiplayerRoomPlayerSimulationState,
 } from "./simulation";
+import {
+  CSSQUAKE_PRESENCE_ROOM_ID,
+  createCssQuakePresenceUpdatePayload,
+} from "./presenceRoom";
 import type { QuakePreparedCollision } from "../../types/quake";
 
 type CssQuakeConnectionRole = "player" | "spectator";
@@ -286,6 +290,9 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       roomId: this.room.id,
       protocolVersion: QUAKE_MULTIPLAYER_PROTOCOL_VERSION,
       players: this.players.size,
+      activePlayers: this.activePlayerCount(),
+      spectators: this.spectatorCount(),
+      connections: this.connectionPlayers.size,
       mapName: this.roomKey?.mapName ?? null,
       gameplayFactsHash: this.gameplayFacts?.factsHash ?? null,
     });
@@ -465,6 +472,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     this.startSimulationTicker();
     this.startSnapshotTicker();
     this.startHeartbeatTicker();
+    this.reportPresence();
     if (existingPlayer) {
       this.broadcastRoomEvent({
         eventType: "player.presence",
@@ -502,6 +510,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     sender.setState(state);
     this.startSnapshotTicker();
     this.startHeartbeatTicker();
+    this.reportPresence();
   }
 
   private acceptGameplayFacts(
@@ -1858,6 +1867,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     if (!state?.playerId) return;
     if (this.playerHasActiveConnection(state.playerId)) return;
     this.pausePlayerSimulation(state.playerId);
+    this.reportPresence();
     this.broadcastRoomEvent({
       eventType: "player.presence",
       eventId: `disconnecting-${connection.id}-${Date.now()}`,
@@ -1921,6 +1931,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     this.playerSimulationStates.delete(playerId);
     const existed = this.players.delete(playerId);
     if (!existed) return;
+    this.reportPresence();
     this.broadcastRoomEvent({
       eventType: "player.left",
       eventId: `left-${playerId}-${Date.now()}`,
@@ -2095,6 +2106,37 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       if (state.role === "spectator") count += 1;
     }
     return count;
+  }
+
+  private activePlayerCount(): number {
+    const playerIds = new Set<string>();
+    for (const state of this.connectionPlayers.values()) {
+      if (state.role === "player" && state.playerId) playerIds.add(state.playerId);
+    }
+    return playerIds.size;
+  }
+
+  private reportPresence(): void {
+    const presenceParty = this.room.context?.parties?.presence;
+    if (!presenceParty) return;
+    const update = createCssQuakePresenceUpdatePayload({
+      roomId: this.room.id,
+      mapName: this.roomKey?.mapName ?? null,
+      gameplayFactsHash: this.gameplayFacts?.factsHash ?? null,
+      activePlayers: this.activePlayerCount(),
+      roomPlayers: this.players.size,
+      spectators: this.spectatorCount(),
+      connections: this.connectionPlayers.size,
+    });
+    try {
+      void presenceParty.get(CSSQUAKE_PRESENCE_ROOM_ID).fetch({
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(update),
+      }).catch(() => {});
+    } catch {
+      // Presence is best-effort; room simulation must not depend on the global counter.
+    }
   }
 
   private requestSnapshot(): void {
