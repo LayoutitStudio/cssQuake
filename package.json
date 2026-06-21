@@ -14,7 +14,7 @@
     "prepare:quake:model": "node src/prepare/target.mjs model",
     "prepare:quake-logic": "node src/prepare/quakecLogic.mjs",
     "prepare:quake-model-facts": "node src/prepare/modelRenderCostFacts.mjs",
-    "deploy:upload-r2-assets": "node tools/upload-r2-assets.mjs",
+    "deploy:upload-r2-assets": "node .github/scripts/upload-r2-assets.mjs",
     "build": "vite build",
     "build:full": "pnpm prepare:quake && vite build",
     "preview": "vite preview",

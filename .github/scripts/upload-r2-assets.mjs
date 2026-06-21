@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_GENERATED_PUBLIC_DIR = path.join(PROJECT_ROOT, "build/generated/public");
 const DEFAULT_BUCKET = "cssquake-assets";
 const DEFAULT_CONCURRENCY = 8;
