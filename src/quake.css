@@ -243,7 +243,7 @@ body.quake-menu-open #quake-hud {
 #quake-impact-particles {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 1;
   overflow: hidden;
   pointer-events: none;
   contain: layout paint style;
@@ -259,6 +259,19 @@ body.quake-menu-open #quake-hud {
   opacity: 0;
   pointer-events: none;
   transform: translate3d(0, 0, 0) scale(1);
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+.quake-effect-sprite {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  image-rendering: pixelated;
+  opacity: 0;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  transform: translate3d(-50%, -50%, 0) scale(1);
   transform-origin: center;
   will-change: transform, opacity;
 }

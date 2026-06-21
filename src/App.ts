@@ -88,6 +88,10 @@ import {
 import { createQuakeAppInputController } from "./runtime/app/input";
 import { createQuakeGameplayInputFlow } from "./runtime/app/gameplayInputFlow";
 import {
+  createQuakeEffectSpriteFlow,
+  type QuakeEffectSpriteFlow,
+} from "./runtime/app/effectSpriteFlow";
+import {
   createQuakeImpactParticleFlow,
   type QuakeImpactParticleFlow,
 } from "./runtime/app/impactParticleFlow";
@@ -1687,7 +1691,22 @@ const quakeImpactParticleFlow: QuakeImpactParticleFlow = impactParticlesLayer
       }),
     })
   : createNoopQuakeImpactParticleFlow();
+const quakeEffectSpriteFlow: QuakeEffectSpriteFlow = impactParticlesLayer
+  ? createQuakeEffectSpriteFlow({
+      cameraPerspectiveStyle: () => quakeCameraView.cameraPerspectiveStyle(),
+      canShow: canShowQuakeImpactParticles,
+      effectSpritesUrl: () => quakeAssetCatalog.manifest().assets.effectSpritesUrl,
+      isGameplayPaused: isQuakeGamePaused,
+      layer: impactParticlesLayer,
+      viewOrigin: () => controls.getOrigin(),
+      viewRotation: () => ({
+        rotX: scene.camera.state.rotX ?? 90,
+        rotY: scene.camera.state.rotY ?? 270,
+      }),
+    })
+  : createNoopQuakeEffectSpriteFlow();
 quakeImpactParticleFlow.setEnabled(quakeImpactParticles);
+quakeEffectSpriteFlow.setEnabled(quakeImpactParticles);
 const quakeOptions = createQuakeOptionsFlow({
   alwaysRun: () => quakeAlwaysRun,
   alwaysRunOption,
@@ -1799,8 +1818,7 @@ const shootables = createQuakeShootablesController({
     if (entity.classname.startsWith("monster_")) quakeLevelStats.markMonsterKilled(entity.index);
   },
   onExplosion: (event) => {
-    quakeImpactParticleFlow.spawnExplosion({
-      flavor: event.flavor,
+    quakeEffectSpriteFlow.spawnExplosion({
       origin: event.origin,
       radiusUnits: event.radiusUnits,
     });
@@ -1940,8 +1958,7 @@ const weapons = createQuakeWeaponsController({
     });
   },
   onExplosionImpact: (event) => {
-    quakeImpactParticleFlow.spawnExplosion({
-      flavor: event.flavor,
+    quakeEffectSpriteFlow.spawnExplosion({
       origin: event.origin,
       radiusUnits: event.radiusUnits,
     });
@@ -2552,6 +2569,7 @@ function setQuakeDynamicLighting(enabled: boolean): void {
 function setQuakeImpactParticles(enabled: boolean): void {
   quakeImpactParticles = enabled;
   quakeImpactParticleFlow.setEnabled(enabled);
+  quakeEffectSpriteFlow.setEnabled(enabled);
   quakeOptions.syncImpactParticlesOption();
 }
 
@@ -2581,6 +2599,16 @@ function createNoopQuakeImpactParticleFlow(): QuakeImpactParticleFlow {
     spawnBlood: () => undefined,
     spawnExplosion: () => undefined,
     spawnWallImpact: () => undefined,
+  };
+}
+
+function createNoopQuakeEffectSpriteFlow(): QuakeEffectSpriteFlow {
+  return {
+    clear: () => undefined,
+    dispose: () => undefined,
+    preload: async () => false,
+    setEnabled: () => undefined,
+    spawnExplosion: () => undefined,
   };
 }
 
@@ -4437,6 +4465,12 @@ async function completeQuakeSceneReadiness(
   modelPromise = quakeViewmodelAssets.preload(),
   progress?: QuakeLoadingProgressTracker,
 ): Promise<void> {
+  const completeEffectSpritesTask = progress?.startTask("Effect sprites");
+  try {
+    await quakeEffectSpriteFlow.preload();
+  } finally {
+    completeEffectSpritesTask?.();
+  }
   const completeWorldTexturesTask = progress?.startTask("World textures");
   try {
     await world.waitForVisibleTextures();
@@ -4559,6 +4593,7 @@ function disposeQuakeApp(): void {
   quakePointerGameplay.clearAttackInput();
   quakeDebugFly.dispose();
   quakeCameraFeedback.dispose();
+  quakeEffectSpriteFlow.dispose();
   quakeImpactParticleFlow.dispose();
   quakeHudFlow.dispose();
   quakeCrosshairInteraction?.dispose();

@@ -30,6 +30,7 @@ export interface QuakeAssetManifest {
     weaponModelUrls?: Record<string, string>;
     pickupModelsUrl: string;
     programMetadataUrl: string;
+    effectSpritesUrl?: string;
     soundManifestUrl?: string;
   };
 }
@@ -148,6 +149,7 @@ export const FALLBACK_QUAKE_ASSET_MANIFEST: QuakeAssetManifest = {
     },
     pickupModelsUrl: `${QUAKE_ASSET_ROOT}/pickups.json`,
     programMetadataUrl: `${QUAKE_ASSET_ROOT}/progs.json`,
+    effectSpritesUrl: `${QUAKE_ASSET_ROOT}/effects.json`,
     soundManifestUrl: `${QUAKE_ASSET_ROOT}/sounds.json`,
   },
 };
@@ -319,6 +321,7 @@ function normalizeQuakeAssetManifestAssets(value: unknown): QuakeAssetManifest["
     weaponModelUrls,
     pickupModelsUrl: typeof value.pickupModelsUrl === "string" ? value.pickupModelsUrl : fallback.pickupModelsUrl,
     programMetadataUrl: typeof value.programMetadataUrl === "string" ? value.programMetadataUrl : fallback.programMetadataUrl,
+    effectSpritesUrl: typeof value.effectSpritesUrl === "string" ? value.effectSpritesUrl : fallback.effectSpritesUrl,
     soundManifestUrl: typeof value.soundManifestUrl === "string" ? value.soundManifestUrl : fallback.soundManifestUrl,
   };
 }

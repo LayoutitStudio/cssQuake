@@ -103,7 +103,7 @@ test("destroying explobox emits one explosion presentation event", () => {
   assert.equal(explosions[0].classname, "misc_explobox");
   assert.equal(explosions[0].entityIndex, 1);
   assert.equal(explosions[0].flavor, "explobox");
-  assert.deepEqual(explosions[0].origin, [0, 0, -0.25]);
+  assert.deepEqual(explosions[0].origin, [0, 0, 32 * QUAKE_COLLISION_UNIT_SCALE]);
   assert.equal(explosions[0].radiusUnits, 200);
 });
 

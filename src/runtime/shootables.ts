@@ -387,6 +387,7 @@ const QUAKE_SHOOTABLE_PREWARM_TIMEOUT_MS = 250;
 const QUAKE_SHOOTABLE_VISIBILITY_GRACE_MS = 300;
 const QUAKE_SHOOTABLE_ENEMY_PREWARM_VIEW_DOT_MIN = -0.35;
 const QUAKE_SHOOTABLE_ANIMATION_FRAME_POOL_SIZE = 3;
+const QUAKE_EXPLOBOX_BECOME_EXPLOSION_Z_OFFSET = 32 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_ENEMY_TICK_MS = 1000 / 60;
 const QUAKE_ENEMY_DT_CLAMP = 0.05;
 const QUAKE_WALKMONSTER_VIEW_Z = 25 * QUAKE_COLLISION_UNIT_SCALE;
@@ -1289,9 +1290,21 @@ export function createQuakeShootablesController({
       classname: shootable.entity.classname,
       entityIndex: shootable.entity.index,
       flavor: "explobox",
-      origin: shootableFloorOrigin(shootable),
+      origin: shootableDeathExplosionOrigin(shootable),
       radiusUnits: radiusDamage.radiusUnits,
     });
+  }
+
+  function shootableDeathExplosionOrigin(shootable: QuakeShootableState): Vec3 {
+    if (shootable.entity.classname === "misc_explobox" || shootable.entity.classname === "misc_explobox2") {
+      // QuakeC barrel_explode raises self.origin_z by 32 before BecomeExplosion.
+      return [
+        shootable.origin[0],
+        shootable.origin[1],
+        shootable.origin[2] + QUAKE_EXPLOBOX_BECOME_EXPLOSION_Z_OFFSET,
+      ];
+    }
+    return shootableFloorOrigin(shootable);
   }
 
   function shootableFloorOrigin(shootable: QuakeShootableState): Vec3 {
