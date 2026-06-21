@@ -1,6 +1,6 @@
 import {
+  QUAKE_MULTIPLAYER_DEFAULT_REGION,
   quakeMultiplayerRegionFromInviteCode,
-  quakeMultiplayerRegionInviteCode,
   type QuakeMultiplayerRegionId,
 } from "./region";
 
@@ -37,22 +37,20 @@ export function parseQuakeMultiplayerCompactInviteParts(
 export function createQuakeMultiplayerCompactInviteValue(
   mapCode: string,
   token: string,
-  region: QuakeMultiplayerRegionId,
 ): string | null {
   const safeMapCode = mapCode.trim().toLowerCase();
   const safeToken = token.trim().toLowerCase();
   if (!QUAKE_MULTIPLAYER_COMPACT_MAP_CODE_PATTERN.test(safeMapCode)) return null;
   if (!QUAKE_MULTIPLAYER_ROOM_TOKEN_PATTERN.test(safeToken)) return null;
-  return `${safeMapCode}${safeToken}${quakeMultiplayerRegionInviteCode(region)}`;
+  return `${safeMapCode}${safeToken}au`;
 }
 
 export function createQuakeMultiplayerRoomIdFromToken(
   mapName: string,
   token: string,
-  region: QuakeMultiplayerRegionId,
 ): string | null {
   const safeMapName = mapName.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
   const safeToken = token.trim().toLowerCase();
   if (!safeMapName || !QUAKE_MULTIPLAYER_ROOM_TOKEN_PATTERN.test(safeToken)) return null;
-  return `cssquake-${region}-${safeMapName}-${safeToken}`;
+  return `cssquake-${QUAKE_MULTIPLAYER_DEFAULT_REGION}-${safeMapName}-${safeToken}`;
 }

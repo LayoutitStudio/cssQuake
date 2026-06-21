@@ -228,7 +228,8 @@ async function driveClients(clients, { durationMs, fireEnabled }) {
 async function readClientSnapshot(client) {
   return await client.page.evaluate(() => {
     const stats = window.__cssQuakeDebug?.stats?.() ?? null;
-    const trace = window.__cssQuakeMpTrace ?? { sent: [], received: [], events: [], rejects: [], snapshots: 0 };
+    const trace = window.__cssQuakeMpTrace ??
+      { connections: [], sent: [], received: [], events: [], rejects: [], snapshots: 0 };
     const remotePlayers = Array.from(document.querySelectorAll("[data-player-id][data-client-id]"))
       .map((element) => ({
         playerId: element.dataset.playerId ?? null,
@@ -248,6 +249,7 @@ async function readClientSnapshot(client) {
       scoreboardRows: Array.from(document.querySelectorAll("#quake-multiplayer-scoreboard tbody tr"))
         .map((row) => Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent?.trim() ?? "")),
       mpTrace: {
+        connections: trace.connections,
         sent: trace.sent,
         received: trace.received,
         events: trace.events,
@@ -260,6 +262,7 @@ async function readClientSnapshot(client) {
 
 function installWebSocketTrace() {
   const trace = {
+    connections: [],
     events: [],
     received: [],
     rejects: [],
@@ -305,6 +308,8 @@ function installWebSocketTrace() {
   }
 
   function WrappedWebSocket(...socketArgs) {
+    trace.connections.push(String(socketArgs[0] ?? ""));
+    if (trace.connections.length > 20) trace.connections.shift();
     const socket = new NativeWebSocket(...socketArgs);
     const nativeSend = socket.send;
     socket.send = function send(data) {
@@ -397,6 +402,18 @@ function validateReport(report) {
   if (report.aggregate.websocket.rejects.length) failures.push(`Room rejected ${report.aggregate.websocket.rejects.length} message(s).`);
   if (report.aggregate.errors.page) failures.push(`${report.aggregate.errors.page} page error(s) were reported.`);
   if (report.aggregate.errors.request) failures.push(`${report.aggregate.errors.request} request failure(s) were reported.`);
+  for (const client of report.clients) {
+    const multiplayer = client.after.stats?.multiplayer;
+    if (multiplayer?.roomId !== report.target.room) {
+      failures.push(`Client ${client.index} joined room ${String(multiplayer?.roomId)} instead of ${report.target.room}.`);
+    }
+    if (multiplayer?.partyHost !== report.target.partyHost) {
+      failures.push(`Client ${client.index} used party host ${String(multiplayer?.partyHost)} instead of ${report.target.partyHost}.`);
+    }
+    if (!client.after.mpTrace.connections.some((url) => socketUrlMatchesTarget(url, report.target))) {
+      failures.push(`Client ${client.index} did not open a WebSocket for ${report.target.room}.`);
+    }
+  }
   return failures;
 }
 
@@ -446,6 +463,17 @@ function createCompactInvite(manifest, mapName) {
     value: `${mapCode}${token}au`,
     internalRoom: `cssquake-auto-${mapName}-${token}`,
   };
+}
+
+function socketUrlMatchesTarget(value, target) {
+  try {
+    const url = new URL(value);
+    return url.host === target.partyHost &&
+      url.pathname === `/parties/main/${target.room}` &&
+      !url.searchParams.has("region");
+  } catch {
+    return false;
+  }
 }
 
 function createRoomToken(length = 8) {
