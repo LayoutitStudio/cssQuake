@@ -687,6 +687,11 @@ function sanitizeQuakeMultiplayerDisplayName(value: string | null | undefined): 
   return name || "Player";
 }
 
+function defaultQuakeMultiplayerDisplayName(clientId: string): string {
+  const suffix = clientId.replace(/^client-/i, "").replace(/[^a-z0-9]/gi, "").slice(-4).toUpperCase();
+  return suffix ? `Player ${suffix}` : "Player";
+}
+
 function sanitizeQuakeMultiplayerRoomId(value: string | null | undefined): string {
   const roomId = (value ?? "").trim().replace(/[^a-z0-9_-]/gi, "").slice(0, 32);
   return /^cssquake-[a-z0-9]+$/i.test(roomId) ? "" : roomId;
@@ -779,7 +784,9 @@ const QUAKE_MULTIPLAYER_LOCAL_CLIENT_ID = QUAKE_MULTIPLAYER_ENABLED
   ? createQuakeMultiplayerLocalClientId()
   : "local";
 const QUAKE_MULTIPLAYER_LOCAL_DISPLAY_NAME = sanitizeQuakeMultiplayerDisplayName(
-  quakeStartupUrlParams.get("player") ?? quakeStorageValue("cssquake.multiplayer.name"),
+  quakeStartupUrlParams.get("player") ??
+    quakeStorageValue("cssquake.multiplayer.name") ??
+    defaultQuakeMultiplayerDisplayName(QUAKE_MULTIPLAYER_LOCAL_CLIENT_ID),
 );
 const QUAKE_MULTIPLAYER_LOCAL_COLOR = sanitizeQuakeMultiplayerColor(
   quakeStartupUrlParams.get("color") ?? quakeStorageValue("cssquake.multiplayer.color"),
