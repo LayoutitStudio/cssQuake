@@ -31,7 +31,7 @@ export type QuakeMultiplayerClientAuthorityResult =
 
 export const QUAKE_MULTIPLAYER_DEFAULT_CLIENT_MESSAGE_INTERVAL_MS = {
   "client.hello": 250,
-  "client.presence": 100,
+  "client.presence": 0,
   "client.input": 10,
   "client.fire": 25,
   "client.damage": 100,

@@ -2,10 +2,6 @@ export const QUAKE_MULTIPLAYER_DEFAULT_REGION = "auto" as const;
 
 export const QUAKE_MULTIPLAYER_REGIONS = [
   { id: QUAKE_MULTIPLAYER_DEFAULT_REGION, label: "Auto", inviteCode: "au" },
-  { id: "na", label: "North America", inviteCode: "na" },
-  { id: "eu", label: "Europe", inviteCode: "eu" },
-  { id: "sa", label: "South America", inviteCode: "sa" },
-  { id: "apac", label: "Asia-Pacific", inviteCode: "ap" },
 ] as const;
 
 export type QuakeMultiplayerRegionId = typeof QUAKE_MULTIPLAYER_REGIONS[number]["id"];

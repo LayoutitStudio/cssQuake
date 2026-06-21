@@ -150,20 +150,19 @@ import {
   createQuakeMultiplayerRemotePlayerPresenter,
   createQuakeNoopMultiplayerSession,
   decideQuakeMultiplayerLocalCorrection,
-  normalizeQuakeMultiplayerRegion,
   normalizeQuakePartySocketHost,
   parseQuakeMultiplayerCompactInviteParts,
   QUAKE_MULTIPLAYER_COMPACT_MAP_CODE_CAPACITY,
   QUAKE_MULTIPLAYER_COMPACT_MAP_CODE_LENGTH,
-  QUAKE_MULTIPLAYER_REGIONS,
+  QUAKE_MULTIPLAYER_DEFAULT_CLIENT_MESSAGE_INTERVAL_MS,
+  QUAKE_MULTIPLAYER_DEFAULT_REGION,
   QUAKE_MULTIPLAYER_ROOM_TOKEN_ALPHABET,
   QUAKE_MULTIPLAYER_ROOM_TOKEN_LENGTH,
   QUAKE_MULTIPLAYER_ROOM_TOKEN_PATTERN,
   QUAKE_MULTIPLAYER_MAX_PLAYERS_CAP,
   quakeMultiplayerDeathmatchSpawnOrder,
   quakeMultiplayerGameplayDefinitionsFromScene,
-  quakeMultiplayerRegionInviteCode,
-  quakeMultiplayerRegionLabel,
+  quakeMultiplayerPlayerFacesTrigger,
   quakeMultiplayerWorldDefinitionsFromScene,
   type QuakeMultiplayerAuthoritativePickupState,
   type QuakeMultiplayerAuthoritativePlayerState,
@@ -177,8 +176,8 @@ import {
   type QuakeMultiplayerRoomEnvelope,
   type QuakeMultiplayerRoomMatchState,
   type QuakeMultiplayerRoomRejectPayload,
-  type QuakeMultiplayerRegionId,
   type QuakeMultiplayerSharedWorldEvent,
+  type QuakeMultiplayerWorldDefinition,
   type QuakeMultiplayerWorldIntent,
 } from "./runtime/multiplayer";
 import { createQuakeMenuController } from "./runtime/menu";
@@ -270,7 +269,6 @@ const {
   multiplayerNameInput,
   multiplayerColorInput,
   multiplayerMapSelect,
-  multiplayerRegionSelect,
   multiplayerFragLimitInput,
   multiplayerMaxPlayersInput,
   levelPanel,
@@ -776,8 +774,7 @@ const QUAKE_MULTIPLAYER_TRANSPORT =
     : "party";
 const quakeMultiplayerPartyHostOverride = normalizeQuakePartySocketHost(quakeStartupUrlParams.get("partyHost"));
 const QUAKE_MULTIPLAYER_PARTY_HOST = quakeMultiplayerPartyHostOverride ?? defaultQuakeMultiplayerPartyHost();
-const QUAKE_MULTIPLAYER_REGION = quakeMultiplayerCompactInvite?.region ??
-  normalizeQuakeMultiplayerRegion(quakeStorageValue("cssquake.multiplayer.region"));
+const QUAKE_MULTIPLAYER_REGION = QUAKE_MULTIPLAYER_DEFAULT_REGION;
 const QUAKE_MULTIPLAYER_ROOM_ID = quakeMultiplayerCompactInvite?.roomId ??
   (QUAKE_MULTIPLAYER_DEBUG_REQUESTED ? sanitizeQuakeMultiplayerRoomId(quakeStartupUrlParams.get("room")) : "");
 const QUAKE_MULTIPLAYER_LOCAL_CLIENT_ID = QUAKE_MULTIPLAYER_ENABLED
@@ -806,6 +803,10 @@ const QUAKE_MULTIPLAYER_MAX_PLAYERS = sanitizeQuakeMultiplayerInteger(
 const QUAKE_MULTIPLAYER_LOOPBACK_REMOTE_CLIENT_ID = "loopback-remote";
 const QUAKE_MULTIPLAYER_LOOPBACK_REMOTE_PLAYER_ID = "loopback:remote";
 const QUAKE_MULTIPLAYER_INPUT_SAMPLE_MS = 50;
+const QUAKE_MULTIPLAYER_INPUT_MIN_SEND_MS = Math.max(
+  QUAKE_MULTIPLAYER_INPUT_SAMPLE_MS,
+  QUAKE_MULTIPLAYER_DEFAULT_CLIENT_MESSAGE_INTERVAL_MS["client.input"] ?? 0,
+);
 const QUAKE_MULTIPLAYER_POSE_SAMPLE_MS = 50;
 const QUAKE_MULTIPLAYER_HARD_CORRECTION_DISTANCE = 4096 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MULTIPLAYER_SOFT_CORRECTION_DISTANCE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
@@ -901,15 +902,12 @@ async function copyCurrentQuakeViewUrl(): Promise<string> {
 function setQuakeAssetManifest(manifest: QuakeAssetManifest): void {
   quakeAssetCatalog.setManifest(manifest, { renderBitmapText: true });
   mountQuakeMultiplayerMapSelector();
-  mountQuakeMultiplayerRegionSelector();
   syncQuakeMultiplayerControlGlyph(multiplayerMapSelect);
-  syncQuakeMultiplayerControlGlyph(multiplayerRegionSelect);
   menu.setCurrentLevel(currentMapName);
 }
 
 interface QuakeMultiplayerMenuState {
   mapName: string;
-  region: QuakeMultiplayerRegionId;
   roomId: string;
   displayName: string;
   color: string;
@@ -946,26 +944,11 @@ function mountQuakeMultiplayerMapSelector(): void {
   multiplayerMapSelect.value = quakeAssetCatalog.sceneUrl(selectedMapName) ? selectedMapName : currentMapName;
 }
 
-function mountQuakeMultiplayerRegionSelector(): void {
-  if (!multiplayerRegionSelect) return;
-  const selectedRegion = normalizeQuakeMultiplayerRegion(multiplayerRegionSelect.value || QUAKE_MULTIPLAYER_REGION);
-  multiplayerRegionSelect.replaceChildren();
-  for (const region of QUAKE_MULTIPLAYER_REGIONS) {
-    const option = document.createElement("option");
-    option.value = region.id;
-    option.textContent = region.label;
-    multiplayerRegionSelect.append(option);
-  }
-  multiplayerRegionSelect.value = selectedRegion;
-}
-
 function syncQuakeMultiplayerMenu(): void {
   mountQuakeMultiplayerMapSelector();
-  mountQuakeMultiplayerRegionSelector();
   if (multiplayerNameInput) multiplayerNameInput.value = QUAKE_MULTIPLAYER_LOCAL_DISPLAY_NAME;
   if (multiplayerColorInput) multiplayerColorInput.value = QUAKE_MULTIPLAYER_LOCAL_COLOR;
   if (multiplayerMapSelect) multiplayerMapSelect.value = currentMapName;
-  if (multiplayerRegionSelect) multiplayerRegionSelect.value = QUAKE_MULTIPLAYER_REGION;
   if (multiplayerFragLimitInput) multiplayerFragLimitInput.value = String(QUAKE_MULTIPLAYER_FRAG_LIMIT);
   if (multiplayerMaxPlayersInput) multiplayerMaxPlayersInput.value = String(QUAKE_MULTIPLAYER_MAX_PLAYERS);
   syncQuakeMultiplayerControlGlyphs();
@@ -973,43 +956,37 @@ function syncQuakeMultiplayerMenu(): void {
 
 let quakeMultiplayerGeneratedMenuRoom: {
   mapName: string;
-  region: QuakeMultiplayerRegionId;
   roomId: string;
 } | null = null;
 
 function quakeMultiplayerMenuRoomId(
   mapName: string,
-  region: QuakeMultiplayerRegionId,
   forceNew: boolean,
 ): string {
   if (
     !forceNew &&
     QUAKE_MULTIPLAYER_ROOM_ID &&
-    mapName === currentMapName &&
-    region === QUAKE_MULTIPLAYER_REGION
+    mapName === currentMapName
   ) {
     return QUAKE_MULTIPLAYER_ROOM_ID;
   }
   if (
     !forceNew &&
-    quakeMultiplayerGeneratedMenuRoom?.mapName === mapName &&
-    quakeMultiplayerGeneratedMenuRoom.region === region
+    quakeMultiplayerGeneratedMenuRoom?.mapName === mapName
   ) {
     return quakeMultiplayerGeneratedMenuRoom.roomId;
   }
-  const roomId = createQuakeMultiplayerRoomSlug(mapName, region);
-  quakeMultiplayerGeneratedMenuRoom = { mapName, region, roomId };
+  const roomId = createQuakeMultiplayerRoomSlug(mapName);
+  quakeMultiplayerGeneratedMenuRoom = { mapName, roomId };
   return roomId;
 }
 
 function readQuakeMultiplayerMenuState(createRoom: boolean): QuakeMultiplayerMenuState {
   const selectedMapName = multiplayerMapSelect?.value.trim().toLowerCase() ?? "";
   const mapName = selectedMapName && quakeAssetCatalog.mapExists(selectedMapName) ? selectedMapName : currentMapName;
-  const region = normalizeQuakeMultiplayerRegion(multiplayerRegionSelect?.value ?? QUAKE_MULTIPLAYER_REGION);
-  const roomId = quakeMultiplayerMenuRoomId(mapName, region, createRoom);
+  const roomId = quakeMultiplayerMenuRoomId(mapName, createRoom);
   return {
     mapName,
-    region,
     roomId,
     displayName: sanitizeQuakeMultiplayerDisplayName(multiplayerNameInput?.value),
     color: sanitizeQuakeMultiplayerColor(multiplayerColorInput?.value),
@@ -1028,12 +1005,9 @@ function readQuakeMultiplayerMenuState(createRoom: boolean): QuakeMultiplayerMen
   };
 }
 
-function createQuakeMultiplayerRoomSlug(
-  mapName: string,
-  region: QuakeMultiplayerRegionId = QUAKE_MULTIPLAYER_REGION,
-): string {
+function createQuakeMultiplayerRoomSlug(mapName: string): string {
   const suffix = createQuakeMultiplayerRoomToken(QUAKE_MULTIPLAYER_ROOM_TOKEN_LENGTH);
-  return sanitizeQuakeMultiplayerRoomId(createQuakeMultiplayerRoomIdFromToken(mapName, suffix, region)) ||
+  return sanitizeQuakeMultiplayerRoomId(createQuakeMultiplayerRoomIdFromToken(mapName, suffix)) ||
     `cssquake-${createQuakeMultiplayerRoomToken(QUAKE_MULTIPLAYER_ROOM_TOKEN_LENGTH + 2)}`;
 }
 
@@ -1061,21 +1035,16 @@ function createQuakeMultiplayerRoomToken(length: number): string {
 
 const quakeMultiplayerFallbackRoomIds = new Map<string, string>();
 
-function quakeMultiplayerFallbackRoomId(
-  mapName: string,
-  region: QuakeMultiplayerRegionId = QUAKE_MULTIPLAYER_REGION,
-): string {
-  const key = `${region}:${mapName}`;
-  const cached = quakeMultiplayerFallbackRoomIds.get(key);
+function quakeMultiplayerFallbackRoomId(mapName: string): string {
+  const cached = quakeMultiplayerFallbackRoomIds.get(mapName);
   if (cached) return cached;
-  const roomId = createQuakeMultiplayerRoomSlug(mapName, region);
-  quakeMultiplayerFallbackRoomIds.set(key, roomId);
+  const roomId = createQuakeMultiplayerRoomSlug(mapName);
+  quakeMultiplayerFallbackRoomIds.set(mapName, roomId);
   return roomId;
 }
 
 interface QuakeMultiplayerCompactInvite {
   mapName: string;
-  region: QuakeMultiplayerRegionId;
   roomId: string;
   token: string;
 }
@@ -1088,11 +1057,10 @@ function parseQuakeMultiplayerCompactInvite(
   if (!invite) return null;
   const mapName = mapNameForInvite(invite.mapCode);
   if (!mapName || !quakeAssetCatalog.mapExists(mapName)) return null;
-  const roomId = createQuakeMultiplayerRoomIdFromToken(mapName, invite.token, invite.region);
+  const roomId = createQuakeMultiplayerRoomIdFromToken(mapName, invite.token);
   if (!roomId) return null;
   return {
     mapName,
-    region: invite.region,
     roomId,
     token: invite.token,
   };
@@ -1132,13 +1100,13 @@ function quakeMultiplayerMapNameForCompactInvite(inviteId: string): string | nul
 
 function quakeMultiplayerCompactInviteForMenuState(state: QuakeMultiplayerMenuState): string {
   const mapCode = quakeMultiplayerMapCodeForMapName(state.mapName) ?? "00";
-  const prefix = `cssquake-${state.region}-${state.mapName}-`;
+  const prefix = `cssquake-${QUAKE_MULTIPLAYER_REGION}-${state.mapName}-`;
   const token = state.roomId.startsWith(prefix) ? state.roomId.slice(prefix.length) : state.roomId;
   const safeToken = QUAKE_MULTIPLAYER_ROOM_TOKEN_PATTERN.test(token)
     ? token.toLowerCase()
     : createQuakeMultiplayerRoomToken(QUAKE_MULTIPLAYER_ROOM_TOKEN_LENGTH);
-  return createQuakeMultiplayerCompactInviteValue(mapCode, safeToken, state.region) ??
-    `${mapCode}${safeToken}${quakeMultiplayerRegionInviteCode(state.region)}`;
+  return createQuakeMultiplayerCompactInviteValue(mapCode, safeToken) ??
+    `${mapCode}${safeToken}au`;
 }
 
 function quakeMultiplayerUrlForMenuState(state: QuakeMultiplayerMenuState): URL {
@@ -1152,7 +1120,6 @@ function quakeMultiplayerUrlForMenuState(state: QuakeMultiplayerMenuState): URL 
 function persistQuakeMultiplayerMenuState(state: QuakeMultiplayerMenuState): void {
   setQuakeStorageValue("cssquake.multiplayer.name", state.displayName);
   setQuakeStorageValue("cssquake.multiplayer.color", state.color);
-  setQuakeStorageValue("cssquake.multiplayer.region", state.region);
 }
 
 function startQuakeMultiplayerFromMenu(): void {
@@ -1169,7 +1136,6 @@ function quakeMultiplayerGlyphControls(): QuakeMultiplayerGlyphControl[] {
   return [
     multiplayerNameInput,
     multiplayerMapSelect,
-    multiplayerRegionSelect,
     multiplayerFragLimitInput,
     multiplayerMaxPlayersInput,
   ].filter((control): control is QuakeMultiplayerGlyphControl => Boolean(control));
@@ -1306,9 +1272,6 @@ const quakeMultiplayerSession = QUAKE_MULTIPLAYER_ENABLED
       host: QUAKE_MULTIPLAYER_PARTY_HOST,
       roomId: ({ roomKey }) => quakeMultiplayerRoomId(roomKey),
       now: () => Date.now(),
-      query: {
-        region: QUAKE_MULTIPLAYER_REGION,
-      },
     })
     : createQuakeLoopbackMultiplayerSession({
         now: () => Date.now(),
@@ -2107,6 +2070,8 @@ let currentPickupModelLibrary: QuakePickupModelLibrary | null = null;
 let currentProgramMetadata: QuakeProgramMetadata | null = null;
 let currentCollisionWorld: QuakeCollisionWorld | null = null;
 let currentResult: QuakeScene | null = null;
+let quakeMultiplayerWorldIntentDefinitionsScene: QuakeScene | null = null;
+let quakeMultiplayerWorldIntentDefinitions: readonly QuakeMultiplayerWorldDefinition[] = [];
 let quakeGameplayStarted = false;
 let quakeClickToPlayCenterPrintVisible = false;
 let entityByIndex = new Map<number, QuakeEntity>();
@@ -2121,6 +2086,7 @@ let quakeMultiplayerInputSequence = 0;
 let quakeMultiplayerPoseSequence = 0;
 let quakeMultiplayerPoseFrame = 0;
 let quakeMultiplayerLastInputAt = 0;
+let quakeMultiplayerLastInputSentAt = 0;
 let quakeMultiplayerLastPoseAt = 0;
 let quakeMultiplayerHelloAccepted = false;
 let quakeMultiplayerLocalSpawnId: string | null = null;
@@ -2381,6 +2347,7 @@ let quakeGamePausedAt = 0;
 let quakeMenuPauseActive = false;
 let quakeClickToPlayPauseActive = false;
 let quakeMultiplayerInputPaused = QUAKE_MULTIPLAYER_DEBUG_INPUT_PAUSED;
+let quakeMultiplayerLastPresenceStatusSent: QuakeMultiplayerPlayerPresenceStatus | null = null;
 
 function setQuakeGameplayStarted(started: boolean): void {
   quakeGameplayStarted = started;
@@ -2451,6 +2418,7 @@ function syncQuakePauseState(): void {
 
 function setQuakeMultiplayerInputPaused(paused: boolean): void {
   if (quakeMultiplayerInputPaused === paused) {
+    syncQuakeMultiplayerPresenceStatus(paused);
     syncQuakeInteractionPresentation();
     return;
   }
@@ -2469,7 +2437,15 @@ function setQuakeMultiplayerInputPaused(paused: boolean): void {
     controls.update({ moveEnabled: true });
     syncQuakeCrosshairTarget();
   }
-  sendQuakeMultiplayerPresence(paused ? "input-paused" : "active");
+  syncQuakeMultiplayerPresenceStatus(paused);
+}
+
+function syncQuakeMultiplayerPresenceStatus(paused: boolean): void {
+  const status = paused ? "input-paused" : "active";
+  if (quakeMultiplayerLastPresenceStatusSent === status) return;
+  if (sendQuakeMultiplayerPresence(status)) {
+    quakeMultiplayerLastPresenceStatusSent = status;
+  }
 }
 
 function setQuakeGamePaused(paused: boolean): void {
@@ -2686,12 +2662,13 @@ function syncQuakeInteractionPresentation(): void {
     pointerUnlocked &&
     !mobileControlsAvailable &&
     !intermissionActive;
+  const gameplayPointerPauseActive = !QUAKE_MULTIPLAYER_ENABLED && gameplayPointerUnlocked;
   const debugPointerUnlocked = quakeDebugPanelFlow.isModeEnabled() && pointerUnlocked;
-  const clickToPlayVisible = gameplayPointerUnlocked && !menuSurfaceOpen && !quakeMultiplayerSpectating;
+  const clickToPlayVisible = gameplayPointerPauseActive && !menuSurfaceOpen && !quakeMultiplayerSpectating;
   setQuakeClickToPlayPauseState(clickToPlayVisible);
   setQuakeBodyClass("quake-debug-active", quakeDebugPanelFlow.isModeEnabled());
   setQuakeBodyClass("quake-debug-pointer-unlocked", debugPointerUnlocked);
-  setQuakeBodyClass("quake-menu-unlocked", menuSurfaceOpen || gameplayPointerUnlocked || debugPointerUnlocked);
+  setQuakeBodyClass("quake-menu-unlocked", menuSurfaceOpen || gameplayPointerPauseActive || debugPointerUnlocked);
   syncQuakeClickToPlayCenterPrint(clickToPlayVisible);
 }
 
@@ -3193,8 +3170,6 @@ function quakeMultiplayerDebugSnapshot(): Record<string, unknown> {
     enabled: QUAKE_MULTIPLAYER_ENABLED,
     transport: QUAKE_MULTIPLAYER_TRANSPORT,
     partyHost: QUAKE_MULTIPLAYER_TRANSPORT === "party" ? QUAKE_MULTIPLAYER_PARTY_HOST : null,
-    region: QUAKE_MULTIPLAYER_REGION,
-    regionLabel: quakeMultiplayerRegionLabel(QUAKE_MULTIPLAYER_REGION),
     clientId: QUAKE_MULTIPLAYER_LOCAL_CLIENT_ID,
     roomId: QUAKE_MULTIPLAYER_ROOM_ID || quakeMultiplayerFallbackRoomId(currentMapName),
     localPingMs: quakeMultiplayerLocalPingMs,
@@ -3266,7 +3241,9 @@ function stopQuakeMultiplayerScene(
     quakeMultiplayerPoseFrame = 0;
   }
   quakeMultiplayerLastInputAt = 0;
+  quakeMultiplayerLastInputSentAt = 0;
   quakeMultiplayerLastPoseAt = 0;
+  quakeMultiplayerLastPresenceStatusSent = null;
   quakeMultiplayerHelloAccepted = false;
   quakeMultiplayerSpectatorCount = 0;
   setQuakeMultiplayerSpectating(false);
@@ -3938,6 +3915,9 @@ function requestQuakeMultiplayerTouchIntent(entityIndex: number, intentType: "to
   if (sentAt - lastRequestedAt < 250) return true;
   quakeMultiplayerWorldRequestAt.set(requestKey, sentAt);
   const origin = getPlayer().currentOrigin();
+  if (intentType === "touch" && !quakeMultiplayerTouchIntentFacesTrustedDefinition(entityIndex)) {
+    return true;
+  }
   if (intentType === "teleport") {
     sendQuakeMultiplayerWorldIntent(roomKey, {
       intentType: "teleport",
@@ -3957,6 +3937,25 @@ function requestQuakeMultiplayerTouchIntent(entityIndex: number, intentType: "to
     origin,
   }, sentAt);
   return true;
+}
+
+function quakeMultiplayerTouchIntentFacesTrustedDefinition(entityIndex: number): boolean {
+  const definition = currentQuakeMultiplayerWorldIntentDefinitions()
+    .find((candidate) => candidate.entityIndex === entityIndex);
+  if (!definition || definition.kind !== "trigger") return true;
+  return quakeMultiplayerPlayerFacesTrigger({ rotY: normalizeQuakeUrlAngle(scene.camera.state.rotY ?? 270) }, definition);
+}
+
+function currentQuakeMultiplayerWorldIntentDefinitions(): readonly QuakeMultiplayerWorldDefinition[] {
+  if (!currentResult) return [];
+  if (quakeMultiplayerWorldIntentDefinitionsScene !== currentResult) {
+    quakeMultiplayerWorldIntentDefinitionsScene = currentResult;
+    quakeMultiplayerWorldIntentDefinitions = quakeMultiplayerWorldDefinitionsFromScene(currentResult, {
+      pointToRoom: quakeCameraView.pointToPoly,
+      playerEyeHeight: getPlayer().eyeHeight(),
+    });
+  }
+  return quakeMultiplayerWorldIntentDefinitions;
 }
 
 function requestQuakeMultiplayerTriggerTouch(entity: QuakeEntity): boolean {
@@ -3986,16 +3985,16 @@ function requestQuakeMultiplayerLevelTransitionIntent(entity: QuakeEntity): bool
   return true;
 }
 
-function sendQuakeMultiplayerPresence(status: QuakeMultiplayerPlayerPresenceStatus): void {
+function sendQuakeMultiplayerPresence(status: QuakeMultiplayerPlayerPresenceStatus): boolean {
   if (
     !QUAKE_MULTIPLAYER_ENABLED ||
     quakeMultiplayerSpectating ||
     quakeMultiplayerSession.status().state !== "connected"
   ) {
-    return;
+    return false;
   }
   const roomKey = currentQuakeMultiplayerRoomKey();
-  if (!roomKey) return;
+  if (!roomKey) return false;
   quakeMultiplayerSession.send(createQuakeMultiplayerEnvelope({
     direction: "client",
     type: "client.presence",
@@ -4007,6 +4006,7 @@ function sendQuakeMultiplayerPresence(status: QuakeMultiplayerPlayerPresenceStat
       status,
     },
   }));
+  return true;
 }
 
 function sendQuakeMultiplayerPong(payload: Extract<QuakeMultiplayerRoomEnvelope, { type: "room.ping" }>["payload"]): void {
@@ -4158,8 +4158,15 @@ function sendQuakeMultiplayerInput(roomKey: QuakeMultiplayerRoomCompatibilityKey
     return;
   }
   const sentAt = Date.now();
+  if (
+    quakeMultiplayerLastInputSentAt > 0 &&
+    sentAt - quakeMultiplayerLastInputSentAt < QUAKE_MULTIPLAYER_INPUT_MIN_SEND_MS
+  ) {
+    return;
+  }
   const input = quakeMultiplayerLocalInputIntent(sampleNow, sentAt);
   quakeMultiplayerLastInputAt = sampleNow;
+  quakeMultiplayerLastInputSentAt = sentAt;
   quakeMultiplayerSession.send(createQuakeMultiplayerEnvelope({
     direction: "client",
     type: "client.input",

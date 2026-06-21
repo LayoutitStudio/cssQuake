@@ -7,6 +7,7 @@ Use `package.json` as the canonical command menu. Local files under ignored `scr
 | Code-only TS/CSS/runtime change | `pnpm test:dev && pnpm build` | no shared asset prepare |
 | Generated asset or manifest concern | `pnpm test:assets` | requires ready prepared assets |
 | Browser startup/link concern | `pnpm test:browser:smoke` | requires ready prepared assets |
+| Browser multiplayer concern | `pnpm test:browser:multiplayer` | starts local Vite + PartyKit; requires ready prepared assets |
 | Browser gameplay fixture concern | `pnpm test:browser` | heavier; requires ready prepared assets |
 | Unsure which gate applies | `pnpm test:harness` | dry-run planner from current changed files |
 | Perf claim or monster-render work | `pnpm test:perf`, then an explicit ignored local perf harness command if needed | read `notes/monster-render-spike.md` first when present; package gates do not run ignored scripts |
@@ -18,6 +19,7 @@ Use `package.json` as the canonical command menu. Local files under ignored `scr
 - `pnpm test:asset-state`: manifest/status/process preflight for prepared assets.
 - `pnpm test:assets`: manifest and prepared scene integrity.
 - `pnpm test:browser:smoke`: fast URL/API browser smoke.
+- `pnpm test:browser:multiplayer`: local PartyKit plus isolated browser clients; validates compact invite routing, full scoreboard, remote player DOM, remote movement, and zero room rejects.
 - `pnpm test:browser`: explicit browser gameplay fixtures from committed fixture definitions. Use `pnpm test:browser -- --list`, `pnpm test:browser -- --family <name>`, or `pnpm test:browser -- --fixture <id>` for focused runs.
 - `pnpm test:harness`: dry-run changed-file planner that prints exact recommended committed gates.
 - `pnpm test:perf`: no-asset preflight for the committed perf command surface and harness guidance.

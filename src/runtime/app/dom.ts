@@ -13,7 +13,6 @@ export interface QuakeAppDomElements {
   multiplayerColorInput: HTMLInputElement | null;
   multiplayerRoomInput: HTMLInputElement | null;
   multiplayerMapSelect: HTMLSelectElement | null;
-  multiplayerRegionSelect: HTMLSelectElement | null;
   multiplayerFragLimitInput: HTMLInputElement | null;
   multiplayerMaxPlayersInput: HTMLInputElement | null;
   levelPanel: HTMLElement | null;
@@ -81,7 +80,6 @@ export function queryQuakeAppDom(): QuakeAppDomElements {
     multiplayerColorInput: quakeElement("quake-multiplayer-color"),
     multiplayerRoomInput: quakeElement("quake-multiplayer-room"),
     multiplayerMapSelect: quakeElement("quake-multiplayer-map"),
-    multiplayerRegionSelect: quakeElement("quake-multiplayer-region"),
     multiplayerFragLimitInput: quakeElement("quake-multiplayer-fraglimit"),
     multiplayerMaxPlayersInput: quakeElement("quake-multiplayer-maxplayers"),
     levelPanel: quakeElement("quake-level-panel"),

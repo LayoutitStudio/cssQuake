@@ -80,6 +80,7 @@ function planHarnessCommands(files) {
   let needsDev = false;
   let needsBuild = false;
   let needsAssetIntegrity = false;
+  let needsBrowserMultiplayer = false;
   let needsBrowserSmoke = false;
   let needsPerfPreflight = false;
 
@@ -90,6 +91,7 @@ function planHarnessCommands(files) {
     needsDev ||= route.needsDev;
     needsBuild ||= route.needsBuild;
     needsAssetIntegrity ||= route.needsAssetIntegrity;
+    needsBrowserMultiplayer ||= route.needsBrowserMultiplayer;
     needsBrowserSmoke ||= route.needsBrowserSmoke;
     needsPerfPreflight ||= route.needsPerfPreflight;
   }
@@ -97,6 +99,7 @@ function planHarnessCommands(files) {
   if (needsDev) commands.push("pnpm test:dev");
   if (needsAssetIntegrity) commands.push("pnpm test:assets");
   if (needsBrowserSmoke) commands.push("pnpm test:browser:smoke");
+  if (needsBrowserMultiplayer) commands.push("pnpm test:browser:multiplayer");
   if (browserFamilies.size) {
     commands.push(`pnpm test:browser -- --family ${[...browserFamilies].sort().join(",")}`);
   }
@@ -116,6 +119,7 @@ function routeFile(file) {
   const route = {
     browserFamilies: [],
     needsAssetIntegrity: false,
+    needsBrowserMultiplayer: false,
     needsBrowserSmoke: false,
     needsBuild: false,
     needsDev: false,
@@ -126,9 +130,14 @@ function routeFile(file) {
 
   if (BROWSER_SMOKE_FILES.has(file)) {
     route.needsBrowserSmoke = true;
+    route.needsBrowserMultiplayer ||= file === "test/browser/browserHarnessSupport.mjs";
     route.reason = file === "test/browser/runBrowserSmoke.mjs"
       ? "browser smoke runner"
       : "shared browser harness support";
+  }
+  if (file === "test/browser/runMultiplayerBrowserSmoke.mjs") {
+    route.needsBrowserMultiplayer = true;
+    route.reason ||= "browser multiplayer runner";
   }
   if (isHarnessCommandSurfaceFile(file)) {
     route.needsDev = true;
@@ -141,8 +150,13 @@ function routeFile(file) {
   }
   if (sourceFile && (file.startsWith("src/App") || file.includes("/app/") || file.includes("/debug/"))) {
     route.needsBrowserSmoke = true;
+    if (file.startsWith("src/App")) route.needsBrowserMultiplayer = true;
     addBrowserFamilies(route, ["combat", "map-logic", "projectile"]);
     route.reason ||= "debug/app browser surface";
+  }
+  if (sourceFile && file.startsWith("src/runtime/multiplayer/")) {
+    route.needsBrowserMultiplayer = true;
+    route.reason ||= "multiplayer runtime";
   }
   if (sourceFile && (file.includes("/shootables") || file.includes("/weapons") || file.includes("/player"))) {
     addBrowserFamilies(route, ["combat", "projectile"]);
