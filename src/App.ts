@@ -2263,7 +2263,10 @@ quakeEntityActivation = createQuakeEntityActivationFlow({
   entities: () => entityByIndex,
   getOrigin: () => controls.getOrigin(),
   intermission: {
-    show: () => quakeIntermission.show(quakeLevelStats.freeze()),
+    show: () => {
+      quakeIntermission.show(quakeLevelStats.freeze());
+      syncQuakeInteractionPresentation();
+    },
     syncCamera: syncQuakeIntermissionCamera,
   },
   loadMap: loadQuakeMap,
@@ -2634,7 +2637,11 @@ function syncQuakeInteractionPresentation(): void {
   const menuSurfaceOpen = menu.isMainMenuOpen() || menu.isMenuPanelOpen();
   const pointerUnlocked = document.pointerLockElement !== host;
   const mobileControlsAvailable = quakePointerGameplay.isMobileAvailable();
-  const gameplayPointerUnlocked = quakeGameplayStarted && pointerUnlocked && !mobileControlsAvailable;
+  const intermissionActive = quakeIntermission.active();
+  const gameplayPointerUnlocked = quakeGameplayStarted &&
+    pointerUnlocked &&
+    !mobileControlsAvailable &&
+    !intermissionActive;
   const debugPointerUnlocked = quakeDebugPanelFlow.isModeEnabled() && pointerUnlocked;
   const clickToPlayVisible = gameplayPointerUnlocked && !menuSurfaceOpen;
   setQuakeClickToPlayPauseState(clickToPlayVisible);
@@ -2709,6 +2716,7 @@ function clearQuakeLevelLoadTimer(): void {
 function clearQuakeLevelComplete(): void {
   quakeIntermission.clear();
   quakePlayerLifecycle.clearLevelComplete();
+  syncQuakeInteractionPresentation();
 }
 
 function requestQuakeIntermissionAdvance(): boolean {

@@ -26,7 +26,7 @@ import type { QuakeTriggersController } from "../triggers";
 import type { QuakeViewmodelController } from "../viewmodel";
 import type { QuakeWorldController } from "../world";
 
-const QUAKE_INTERMISSION_AUTO_ADVANCE_MS = 3000;
+const QUAKE_INTERMISSION_AUTO_ADVANCE_MS = 5000;
 const QUAKE_INTERMISSION_MIN_ADVANCE_MS = 1000;
 const QUAKE_SHAREWARE_REGISTERED = false;
 const QUAKE_TRAP_SPIKE_RANGE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
