@@ -383,6 +383,7 @@ export function createQuakeLoopbackMultiplayerSession(
         handleMatchIntent(message);
         break;
       case "client.world":
+        advanceLoopbackSimulation(now());
         handleWorldIntent(message);
         break;
       case "client.pose":

@@ -155,6 +155,7 @@ import {
   parseQuakeMultiplayerCompactInviteParts,
   QUAKE_MULTIPLAYER_COMPACT_MAP_CODE_CAPACITY,
   QUAKE_MULTIPLAYER_COMPACT_MAP_CODE_LENGTH,
+  QUAKE_MULTIPLAYER_DEFAULT_CLIENT_MESSAGE_INTERVAL_MS,
   QUAKE_MULTIPLAYER_REGIONS,
   QUAKE_MULTIPLAYER_ROOM_TOKEN_ALPHABET,
   QUAKE_MULTIPLAYER_ROOM_TOKEN_LENGTH,
@@ -162,6 +163,7 @@ import {
   QUAKE_MULTIPLAYER_MAX_PLAYERS_CAP,
   quakeMultiplayerDeathmatchSpawnOrder,
   quakeMultiplayerGameplayDefinitionsFromScene,
+  quakeMultiplayerPlayerFacesTrigger,
   quakeMultiplayerRegionInviteCode,
   quakeMultiplayerRegionLabel,
   quakeMultiplayerWorldDefinitionsFromScene,
@@ -179,6 +181,7 @@ import {
   type QuakeMultiplayerRoomRejectPayload,
   type QuakeMultiplayerRegionId,
   type QuakeMultiplayerSharedWorldEvent,
+  type QuakeMultiplayerWorldDefinition,
   type QuakeMultiplayerWorldIntent,
 } from "./runtime/multiplayer";
 import { createQuakeMenuController } from "./runtime/menu";
@@ -806,6 +809,10 @@ const QUAKE_MULTIPLAYER_MAX_PLAYERS = sanitizeQuakeMultiplayerInteger(
 const QUAKE_MULTIPLAYER_LOOPBACK_REMOTE_CLIENT_ID = "loopback-remote";
 const QUAKE_MULTIPLAYER_LOOPBACK_REMOTE_PLAYER_ID = "loopback:remote";
 const QUAKE_MULTIPLAYER_INPUT_SAMPLE_MS = 50;
+const QUAKE_MULTIPLAYER_INPUT_MIN_SEND_MS = Math.max(
+  QUAKE_MULTIPLAYER_INPUT_SAMPLE_MS,
+  QUAKE_MULTIPLAYER_DEFAULT_CLIENT_MESSAGE_INTERVAL_MS["client.input"] ?? 0,
+);
 const QUAKE_MULTIPLAYER_POSE_SAMPLE_MS = 50;
 const QUAKE_MULTIPLAYER_HARD_CORRECTION_DISTANCE = 4096 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MULTIPLAYER_SOFT_CORRECTION_DISTANCE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
@@ -2107,6 +2114,8 @@ let currentPickupModelLibrary: QuakePickupModelLibrary | null = null;
 let currentProgramMetadata: QuakeProgramMetadata | null = null;
 let currentCollisionWorld: QuakeCollisionWorld | null = null;
 let currentResult: QuakeScene | null = null;
+let quakeMultiplayerWorldIntentDefinitionsScene: QuakeScene | null = null;
+let quakeMultiplayerWorldIntentDefinitions: readonly QuakeMultiplayerWorldDefinition[] = [];
 let quakeGameplayStarted = false;
 let quakeClickToPlayCenterPrintVisible = false;
 let entityByIndex = new Map<number, QuakeEntity>();
@@ -2121,6 +2130,7 @@ let quakeMultiplayerInputSequence = 0;
 let quakeMultiplayerPoseSequence = 0;
 let quakeMultiplayerPoseFrame = 0;
 let quakeMultiplayerLastInputAt = 0;
+let quakeMultiplayerLastInputSentAt = 0;
 let quakeMultiplayerLastPoseAt = 0;
 let quakeMultiplayerHelloAccepted = false;
 let quakeMultiplayerLocalSpawnId: string | null = null;
@@ -2696,12 +2706,13 @@ function syncQuakeInteractionPresentation(): void {
     pointerUnlocked &&
     !mobileControlsAvailable &&
     !intermissionActive;
+  const gameplayPointerPauseActive = !QUAKE_MULTIPLAYER_ENABLED && gameplayPointerUnlocked;
   const debugPointerUnlocked = quakeDebugPanelFlow.isModeEnabled() && pointerUnlocked;
-  const clickToPlayVisible = gameplayPointerUnlocked && !menuSurfaceOpen && !quakeMultiplayerSpectating;
+  const clickToPlayVisible = gameplayPointerPauseActive && !menuSurfaceOpen && !quakeMultiplayerSpectating;
   setQuakeClickToPlayPauseState(clickToPlayVisible);
   setQuakeBodyClass("quake-debug-active", quakeDebugPanelFlow.isModeEnabled());
   setQuakeBodyClass("quake-debug-pointer-unlocked", debugPointerUnlocked);
-  setQuakeBodyClass("quake-menu-unlocked", menuSurfaceOpen || gameplayPointerUnlocked || debugPointerUnlocked);
+  setQuakeBodyClass("quake-menu-unlocked", menuSurfaceOpen || gameplayPointerPauseActive || debugPointerUnlocked);
   syncQuakeClickToPlayCenterPrint(clickToPlayVisible);
 }
 
@@ -3276,6 +3287,7 @@ function stopQuakeMultiplayerScene(
     quakeMultiplayerPoseFrame = 0;
   }
   quakeMultiplayerLastInputAt = 0;
+  quakeMultiplayerLastInputSentAt = 0;
   quakeMultiplayerLastPoseAt = 0;
   quakeMultiplayerLastPresenceStatusSent = null;
   quakeMultiplayerHelloAccepted = false;
@@ -3949,6 +3961,9 @@ function requestQuakeMultiplayerTouchIntent(entityIndex: number, intentType: "to
   if (sentAt - lastRequestedAt < 250) return true;
   quakeMultiplayerWorldRequestAt.set(requestKey, sentAt);
   const origin = getPlayer().currentOrigin();
+  if (intentType === "touch" && !quakeMultiplayerTouchIntentFacesTrustedDefinition(entityIndex)) {
+    return true;
+  }
   if (intentType === "teleport") {
     sendQuakeMultiplayerWorldIntent(roomKey, {
       intentType: "teleport",
@@ -3968,6 +3983,25 @@ function requestQuakeMultiplayerTouchIntent(entityIndex: number, intentType: "to
     origin,
   }, sentAt);
   return true;
+}
+
+function quakeMultiplayerTouchIntentFacesTrustedDefinition(entityIndex: number): boolean {
+  const definition = currentQuakeMultiplayerWorldIntentDefinitions()
+    .find((candidate) => candidate.entityIndex === entityIndex);
+  if (!definition || definition.kind !== "trigger") return true;
+  return quakeMultiplayerPlayerFacesTrigger({ rotY: normalizeQuakeUrlAngle(scene.camera.state.rotY ?? 270) }, definition);
+}
+
+function currentQuakeMultiplayerWorldIntentDefinitions(): readonly QuakeMultiplayerWorldDefinition[] {
+  if (!currentResult) return [];
+  if (quakeMultiplayerWorldIntentDefinitionsScene !== currentResult) {
+    quakeMultiplayerWorldIntentDefinitionsScene = currentResult;
+    quakeMultiplayerWorldIntentDefinitions = quakeMultiplayerWorldDefinitionsFromScene(currentResult, {
+      pointToRoom: quakeCameraView.pointToPoly,
+      playerEyeHeight: getPlayer().eyeHeight(),
+    });
+  }
+  return quakeMultiplayerWorldIntentDefinitions;
 }
 
 function requestQuakeMultiplayerTriggerTouch(entity: QuakeEntity): boolean {
@@ -4170,8 +4204,15 @@ function sendQuakeMultiplayerInput(roomKey: QuakeMultiplayerRoomCompatibilityKey
     return;
   }
   const sentAt = Date.now();
+  if (
+    quakeMultiplayerLastInputSentAt > 0 &&
+    sentAt - quakeMultiplayerLastInputSentAt < QUAKE_MULTIPLAYER_INPUT_MIN_SEND_MS
+  ) {
+    return;
+  }
   const input = quakeMultiplayerLocalInputIntent(sampleNow, sentAt);
   quakeMultiplayerLastInputAt = sampleNow;
+  quakeMultiplayerLastInputSentAt = sentAt;
   quakeMultiplayerSession.send(createQuakeMultiplayerEnvelope({
     direction: "client",
     type: "client.input",

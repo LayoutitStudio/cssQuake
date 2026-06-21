@@ -11,6 +11,7 @@ const requiredScripts = [
   "test:asset-state",
   "test:assets",
   "test:browser:smoke",
+  "test:browser:multiplayer",
   "test:browser",
   "test:harness",
   "test:perf",

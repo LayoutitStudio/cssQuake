@@ -151,7 +151,7 @@ export function createQuakeLoadingFlow(options: QuakeLoadingFlowOptions): QuakeL
         view: startup.routeIsDirect(startupRoute) ? startupRoute.view : null,
       });
       if (options.isDisposed()) return;
-      startup.syncRoutePresentation(startupRoute, { preferMenu: true });
+      startup.syncRoutePresentation(startupRoute, { preferMenu: shouldPrimeInvalidMapFallback });
       return;
     }
     loadingConsole.queueLine(startup.initializedLine);

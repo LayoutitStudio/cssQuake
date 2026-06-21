@@ -331,6 +331,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
         break;
       case "client.world":
         this.updateConnectionAuthority(sender, authority, receivedAt);
+        this.advanceRoomSimulation(Date.now());
         this.handleWorldEvent(message, sender);
         break;
       case "client.pose":

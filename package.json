@@ -22,6 +22,7 @@
     "test:asset-state": "node test/assets/checkAssetState.mjs",
     "test:assets": "node test/assets/runAssetIntegrity.mjs",
     "test:browser:smoke": "node test/browser/runBrowserSmoke.mjs",
+    "test:browser:multiplayer": "node test/browser/runMultiplayerBrowserSmoke.mjs",
     "test:browser": "node test/browser/runBrowserFixtures.mjs",
     "test:harness": "node test/runHarnessPlan.mjs",
     "test:perf": "node test/perf/runPerfPreflight.mjs",
