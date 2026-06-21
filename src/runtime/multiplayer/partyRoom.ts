@@ -5,6 +5,7 @@ import {
   type QuakeCollisionWorld,
 } from "../collision";
 import {
+  clampQuakeMultiplayerMatchSettings,
   createQuakeMultiplayerEnvelope,
   createQuakeMultiplayerRoomCompatibilityKey,
   QUAKE_MULTIPLAYER_PROTOCOL_VERSION,
@@ -383,7 +384,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       this.closeDuplicatePlayerConnections(sender, playerId);
     }
     if (!Object.keys(this.matchSettings).length && message.payload.matchSettings) {
-      this.matchSettings = message.payload.matchSettings;
+      this.matchSettings = clampQuakeMultiplayerMatchSettings(message.payload.matchSettings);
     }
     const maxPlayers = this.matchSettings.maxPlayers;
     if (maxPlayers !== undefined && !this.players.has(playerId) && this.players.size >= maxPlayers) {

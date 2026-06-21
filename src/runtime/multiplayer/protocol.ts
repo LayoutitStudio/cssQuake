@@ -437,11 +437,24 @@ export type QuakeMultiplayerPlayerPresenceStatus =
   | "backgrounded"
   | "disconnecting";
 
+export const QUAKE_MULTIPLAYER_MAX_PLAYERS_CAP = 4;
+
 export interface QuakeMultiplayerMatchSettings {
   fragLimit?: number;
   timeLimitMs?: number;
   maxPlayers?: number;
   restartDelayMs?: number;
+}
+
+export function clampQuakeMultiplayerMatchSettings(
+  settings: QuakeMultiplayerMatchSettings,
+): QuakeMultiplayerMatchSettings {
+  const maxPlayers = settings.maxPlayers;
+  if (maxPlayers === undefined) return settings;
+  return {
+    ...settings,
+    maxPlayers: Math.min(QUAKE_MULTIPLAYER_MAX_PLAYERS_CAP, maxPlayers),
+  };
 }
 
 export type QuakeMultiplayerSharedWorldEvent =

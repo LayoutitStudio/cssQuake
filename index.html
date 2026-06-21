@@ -797,7 +797,7 @@
               <label class="quake-multiplayer-field">
                 <span class="quake-multiplayer-field-label quake-bm-label">Max Players</span>
                 <span class="quake-multiplayer-control-shell">
-                  <input id="quake-multiplayer-maxplayers" type="number" min="2" max="16" step="1" value="8" />
+                  <input id="quake-multiplayer-maxplayers" type="number" min="2" max="4" step="1" value="4" />
                   <span class="quake-multiplayer-control-glyph quake-bm-label quake-bm-alt" aria-hidden="true"></span>
                 </span>
               </label>
@@ -805,8 +805,11 @@
                 <button id="quake-multiplayer-create" class="quake-bm-label" type="submit">Create Room</button>
               </div>
             </form>
+            <div id="quake-multiplayer-failure" class="quake-multiplayer-failure" aria-live="polite">
+              <p id="quake-multiplayer-failure-title" class="quake-multiplayer-failure-title quake-bm-title quake-bm-alt">ROOM FULL</p>
+            </div>
             <nav id="quake-multiplayer-panel-actions" class="quake-menu-actions" aria-label="Multiplayer actions">
-              <button id="quake-multiplayer-back" class="quake-bm-label quake-bm-alt" type="button">Back</button>
+              <button id="quake-multiplayer-back" class="quake-bm-label quake-bm-alt" type="button">GO BACK</button>
             </nav>
           </div>
         </section>

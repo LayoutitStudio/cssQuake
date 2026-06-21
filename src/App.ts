@@ -155,6 +155,7 @@ import {
   QUAKE_MULTIPLAYER_ROOM_TOKEN_ALPHABET,
   QUAKE_MULTIPLAYER_ROOM_TOKEN_LENGTH,
   QUAKE_MULTIPLAYER_ROOM_TOKEN_PATTERN,
+  QUAKE_MULTIPLAYER_MAX_PLAYERS_CAP,
   quakeMultiplayerDeathmatchSpawnOrder,
   quakeMultiplayerGameplayDefinitionsFromScene,
   quakeMultiplayerRegionInviteCode,
@@ -758,7 +759,7 @@ const QUAKE_MULTIPLAYER_DEBUG_POSE_ONLY = QUAKE_MULTIPLAYER_DEBUG_REQUESTED &&
 const QUAKE_MULTIPLAYER_DEBUG_INPUT_PAUSED = QUAKE_MULTIPLAYER_DEBUG_REQUESTED &&
   quakeUrlBoolean("debugMultiplayerInputPaused");
 const QUAKE_MULTIPLAYER_DEFAULT_FRAG_LIMIT = 20;
-const QUAKE_MULTIPLAYER_DEFAULT_MAX_PLAYERS = 8;
+const QUAKE_MULTIPLAYER_DEFAULT_MAX_PLAYERS = QUAKE_MULTIPLAYER_MAX_PLAYERS_CAP;
 const QUAKE_MULTIPLAYER_TRANSPORT =
   quakeMultiplayerMode === "loopback" ||
     (quakeMultiplayerMode === null && QUAKE_MULTIPLAYER_DEBUG_REQUESTED && quakeDebugMultiplayerMode !== "party")
@@ -789,7 +790,7 @@ const QUAKE_MULTIPLAYER_MAX_PLAYERS = sanitizeQuakeMultiplayerInteger(
   quakeStartupUrlParams.get("maxPlayers"),
   QUAKE_MULTIPLAYER_DEFAULT_MAX_PLAYERS,
   2,
-  16,
+  QUAKE_MULTIPLAYER_MAX_PLAYERS_CAP,
 );
 const QUAKE_MULTIPLAYER_LOOPBACK_REMOTE_CLIENT_ID = "loopback-remote";
 const QUAKE_MULTIPLAYER_LOOPBACK_REMOTE_PLAYER_ID = "loopback:remote";
@@ -1007,7 +1008,7 @@ function readQuakeMultiplayerMenuState(createRoom: boolean): QuakeMultiplayerMen
       multiplayerMaxPlayersInput?.value,
       QUAKE_MULTIPLAYER_DEFAULT_MAX_PLAYERS,
       2,
-      16,
+      QUAKE_MULTIPLAYER_MAX_PLAYERS_CAP,
     ),
   };
 }
@@ -3185,7 +3186,10 @@ function startQuakeMultiplayerScene(): void {
   });
 }
 
-function stopQuakeMultiplayerScene(reason: string): void {
+function stopQuakeMultiplayerScene(
+  reason: string,
+  options: { preserveLastReject?: boolean } = {},
+): void {
   quakeMultiplayerSceneSerial++;
   if (quakeMultiplayerPoseFrame) {
     window.cancelAnimationFrame(quakeMultiplayerPoseFrame);
@@ -3209,7 +3213,7 @@ function stopQuakeMultiplayerScene(reason: string): void {
   quakeMultiplayerLastPickupEvent = null;
   quakeMultiplayerLastMatchState = null;
   quakeMultiplayerLastMatchEvent = null;
-  quakeMultiplayerLastReject = null;
+  if (!options.preserveLastReject) quakeMultiplayerLastReject = null;
   quakeMultiplayerLastError = null;
   quakeMultiplayerSession.disconnect(reason);
   quakeRemotePlayers.clear();
@@ -3288,6 +3292,13 @@ function handleQuakeMultiplayerRoomReject(payload: QuakeMultiplayerRoomRejectPay
     ...(payload.details ? { details: payload.details } : {}),
   };
   const label = quakeMultiplayerRejectLabel(payload.code);
+  const fatalTitle = payload.recoverable ? null : quakeMultiplayerFatalRejectTitle(payload.code);
+  if (fatalTitle) {
+    stopQuakeMultiplayerScene(`reject:${payload.code}`, { preserveLastReject: true });
+    quakeTextPresentation.clear();
+    menu.showMultiplayerFailure(fatalTitle);
+    return;
+  }
   if (!payload.recoverable && payload.code !== "unsupported") {
     quakeTextPresentation.notify(`Multiplayer rejected: ${label}`);
   }
@@ -3317,6 +3328,21 @@ function quakeMultiplayerRejectLabel(code: QuakeMultiplayerRoomRejectPayload["co
       return "not authorized";
     default:
       return code;
+  }
+}
+
+function quakeMultiplayerFatalRejectTitle(code: QuakeMultiplayerRoomRejectPayload["code"]): string | null {
+  switch (code) {
+    case "room-full":
+      return "ROOM FULL";
+    case "wrong-map":
+      return "WRONG MAP";
+    case "wrong-protocol":
+      return "WRONG VERSION";
+    case "not-authorized":
+      return "NOT AUTHORIZED";
+    default:
+      return null;
   }
 }
 
