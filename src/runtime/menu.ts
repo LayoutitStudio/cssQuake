@@ -10,6 +10,7 @@ interface QuakeMenuControls {
 export interface QuakeMenuController {
   showMainMenu(): void;
   hideMainMenu(): void;
+  showMultiplayerFailure(title: string): void;
   isMainMenuOpen(): boolean;
   isMenuPanelOpen(): boolean;
   setCurrentLevel(mapName: string): void;
@@ -62,6 +63,8 @@ const QUAKE_BITMAP_LABEL_CLASS = "quake-bm-label";
 const QUAKE_BITMAP_ALT_CLASS = "quake-bm-alt";
 const QUAKE_MAIN_MENU_PENDING_CLASS = "quake-main-menu-pending";
 const QUAKE_MAIN_MENU_DEFERRED_CLASS = "quake-main-menu-deferred";
+const QUAKE_MULTIPLAYER_PANEL_STATE_ATTRIBUTE = "data-quake-multiplayer-state";
+const QUAKE_MULTIPLAYER_FAILURE_STATE = "failure";
 
 export function createQuakeMenuController({
   enabled,
@@ -98,12 +101,27 @@ export function createQuakeMenuController({
   let savingGame = false;
   let loadingLevelMap: string | null = null;
 
+  function setMultiplayerPanelState(state: string | null): void {
+    if (!multiplayerPanel) return;
+    if (state) {
+      multiplayerPanel.setAttribute(QUAKE_MULTIPLAYER_PANEL_STATE_ATTRIBUTE, state);
+    } else {
+      multiplayerPanel.removeAttribute(QUAKE_MULTIPLAYER_PANEL_STATE_ATTRIBUTE);
+    }
+  }
+
+  function isMultiplayerFailurePanelOpen(): boolean {
+    return isMultiplayerPanelOpen() &&
+      multiplayerPanel?.getAttribute(QUAKE_MULTIPLAYER_PANEL_STATE_ATTRIBUTE) === QUAKE_MULTIPLAYER_FAILURE_STATE;
+  }
+
   function showMainMenu(): void {
     if (!mainMenu) return;
     if (!enabled) {
       hideMainMenu();
       return;
     }
+    setMultiplayerPanelState(null);
     controls.update({ moveEnabled: false });
     updateMainMenuCursor();
     singlePlayerPanel?.setAttribute("hidden", "");
@@ -122,6 +140,7 @@ export function createQuakeMenuController({
   function hideMainMenu(): void {
     if (!mainMenu) return;
     controls.update({ moveEnabled: true });
+    setMultiplayerPanelState(null);
     clearPendingMainMenu();
     mainMenu.hidden = true;
     singlePlayerPanel?.setAttribute("hidden", "");
@@ -273,9 +292,25 @@ export function createQuakeMenuController({
       startFromMainMenu();
       return;
     }
+    setMultiplayerPanelState(null);
     showMenuPanel(multiplayerPanel);
     onShowMultiplayer?.();
     firstMultiplayerControl()?.focus({ preventScroll: true });
+  }
+
+  function showMultiplayerFailure(title: string): void {
+    if (!enabled || !multiplayerPanel) {
+      showMainMenu();
+      return;
+    }
+    const failureTitle = multiplayerFailureTitle();
+    if (failureTitle) {
+      failureTitle.textContent = title;
+      mountQuakeBitmapText(failureTitle);
+    }
+    setMultiplayerPanelState(QUAKE_MULTIPLAYER_FAILURE_STATE);
+    showMenuPanel(multiplayerPanel);
+    multiplayerBackButton()?.focus({ preventScroll: true });
   }
 
   function showLevelPanel(): void {
@@ -346,8 +381,17 @@ export function createQuakeMenuController({
 
   function multiplayerControls(): HTMLElement[] {
     if (!multiplayerPanel) return [];
+    if (isMultiplayerFailurePanelOpen()) return multiplayerBackButton() ? [multiplayerBackButton()] : [];
     return Array.from(multiplayerPanel.querySelectorAll<HTMLElement>("input, select, button"))
       .filter((element) => !(element instanceof HTMLButtonElement && element.disabled));
+  }
+
+  function multiplayerFailureTitle(): HTMLElement | null {
+    return multiplayerPanel?.querySelector<HTMLElement>("#quake-multiplayer-failure-title") ?? null;
+  }
+
+  function multiplayerBackButton(): HTMLButtonElement | null {
+    return multiplayerPanel?.querySelector<HTMLButtonElement>("#quake-multiplayer-back") ?? null;
   }
 
   function firstMultiplayerControl(): HTMLElement | null {
@@ -931,7 +975,10 @@ export function createQuakeMenuController({
     if (isSinglePlayerPanelOpen()) {
       (currentSinglePlayerButton() ?? firstSinglePlayerButton() ?? singlePlayerPanel)?.focus({ preventScroll: true });
     } else if (isMultiplayerPanelOpen()) {
-      (currentMultiplayerControl() ?? multiplayerPanel)?.focus({ preventScroll: true });
+      (isMultiplayerFailurePanelOpen()
+        ? multiplayerBackButton()
+        : currentMultiplayerControl() ?? multiplayerPanel
+      )?.focus({ preventScroll: true });
     } else if (isLevelPanelOpen()) {
       (currentLevelButton() ?? firstLevelButton() ?? levelPanel)?.focus({ preventScroll: true });
     } else if (isAboutPanelOpen()) {
@@ -983,6 +1030,7 @@ export function createQuakeMenuController({
   return {
     showMainMenu,
     hideMainMenu,
+    showMultiplayerFailure,
     isMainMenuOpen,
     isMenuPanelOpen,
     setCurrentLevel,

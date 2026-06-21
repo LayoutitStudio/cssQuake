@@ -9,6 +9,9 @@ const {
 const {
   createQuakeShootablesController,
 } = await importTsModule("src/runtime/shootables.ts");
+const {
+  QUAKE_COLLISION_UNIT_SCALE,
+} = await importTsModule("src/runtime/constants.ts");
 
 function createShootable(index, origin = [0, 0, 0]) {
   return {
@@ -175,6 +178,7 @@ test("projectile direct hit on explobox emits explobox explosion through shootab
   assert.equal(shootablesHarness.explosions[0].classname, "misc_explobox");
   assert.equal(shootablesHarness.explosions[0].entityIndex, explobox.index);
   assert.equal(shootablesHarness.explosions[0].flavor, "explobox");
+  assert.deepEqual(shootablesHarness.explosions[0].origin, [0, 0, 32 * QUAKE_COLLISION_UNIT_SCALE]);
   assert.equal(shootablesHarness.explosions[0].radiusUnits, 200);
 });
 

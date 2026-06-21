@@ -12,12 +12,65 @@ import {
   inputEnvelope,
   latestMessage,
   matchEnvelope,
+  partyRoomModule,
   pickupEnvelope,
   presenceEnvelope,
   protocol,
   validation,
   worldEnvelope,
 } from "./harness.mjs";
+
+class FakePartyConnection {
+  constructor(id) {
+    this.id = id;
+    this.messages = [];
+    this.closed = [];
+    this.state = null;
+  }
+
+  send(message) {
+    this.messages.push(JSON.parse(message));
+  }
+
+  setState(state) {
+    this.state = state;
+  }
+
+  close(code, reason) {
+    this.closed.push({ code, reason });
+  }
+}
+
+function createFakePartyRoom(id = "test-room") {
+  const connections = [];
+  return {
+    room: {
+      id,
+      context: {},
+      broadcast(message, without = []) {
+        const payload = JSON.parse(message);
+        for (const connection of connections) {
+          if (without.includes(connection.id)) continue;
+          connection.messages.push(payload);
+        }
+      },
+      getConnections() {
+        return connections;
+      },
+    },
+    createConnection(connectionId) {
+      const connection = new FakePartyConnection(connectionId);
+      connections.push(connection);
+      return connection;
+    },
+  };
+}
+
+function latestConnectionMessage(connection, type) {
+  const message = connection.messages.findLast((candidate) => candidate.type === type);
+  assert.ok(message, `expected ${type} message on ${connection.id}`);
+  return message;
+}
 
 test("multiplayer room compatibility keys normalize map names and compare full asset identity", () => {
   const normalized = protocol.createQuakeMultiplayerRoomCompatibilityKey(ROOM_KEY);
@@ -51,6 +104,121 @@ test("client hello validates and establishes authority state before other client
   assert.equal(authorityResult.ok, true);
   assert.equal(authorityResult.state.clientId, "client-a");
   assert.equal(authorityResult.state.lastEnvelopeSequence, 1);
+});
+
+test("multiplayer match settings clamp max players to launch cap", () => {
+  assert.equal(protocol.QUAKE_MULTIPLAYER_MAX_PLAYERS_CAP, 4);
+  assert.deepEqual(
+    protocol.clampQuakeMultiplayerMatchSettings({ fragLimit: 20, maxPlayers: 8 }),
+    { fragLimit: 20, maxPlayers: 4 },
+  );
+  assert.deepEqual(
+    protocol.clampQuakeMultiplayerMatchSettings({ fragLimit: 20, maxPlayers: 3 }),
+    { fragLimit: 20, maxPlayers: 3 },
+  );
+});
+
+test("party room accepts a fifth capped player as a spectator", () => {
+  const { room, createConnection } = createFakePartyRoom();
+  const RoomClass = partyRoomModule.default;
+  const partyRoom = new RoomClass(room);
+  assert.equal(partyRoomModule.CSSQUAKE_PARTY_MAX_SPECTATORS_PER_ROOM, 8);
+
+  for (let index = 1; index <= 4; index += 1) {
+    const connection = createConnection(`connection-${index}`);
+    partyRoom.onConnect(connection);
+    partyRoom.onMessage(JSON.stringify(helloEnvelope({
+      clientId: `client-${index}`,
+      displayName: `Player ${index}`,
+      messageId: `hello-${index}`,
+      sequence: 1,
+      sentAt: Date.now(),
+      matchSettings: { maxPlayers: 8 },
+    })), connection);
+    const snapshot = latestConnectionMessage(connection, "room.snapshot");
+    assert.equal(snapshot.payload.match.maxPlayers, 4);
+  }
+
+  const spectator = createConnection("connection-5");
+  partyRoom.onConnect(spectator);
+  partyRoom.onMessage(JSON.stringify(helloEnvelope({
+    clientId: "client-5",
+    displayName: "Player 5",
+    messageId: "hello-5",
+    sequence: 1,
+    sentAt: Date.now(),
+    matchSettings: { maxPlayers: 8 },
+  })), spectator);
+
+  const snapshot = latestConnectionMessage(spectator, "room.snapshot");
+  assert.equal(snapshot.payload.players.length, 4);
+  assert.deepEqual(snapshot.payload.spectators, [{
+    clientId: "client-5",
+    displayName: "Player 5",
+  }]);
+  assert.equal(spectator.state.role, "spectator");
+  assert.equal(spectator.state.playerId, undefined);
+  assert.equal(spectator.messages.filter((message) => message.type === "room.reject").length, 0);
+  assert.equal(spectator.closed.length, 0);
+
+  for (let index = 6; index < 6 + partyRoomModule.CSSQUAKE_PARTY_MAX_SPECTATORS_PER_ROOM - 1; index += 1) {
+    const extraSpectator = createConnection(`connection-${index}`);
+    partyRoom.onConnect(extraSpectator);
+    partyRoom.onMessage(JSON.stringify(helloEnvelope({
+      clientId: `client-${index}`,
+      displayName: `Player ${index}`,
+      messageId: `hello-${index}`,
+      sequence: 1,
+      sentAt: Date.now(),
+      matchSettings: { maxPlayers: 8 },
+    })), extraSpectator);
+    assert.equal(extraSpectator.state.role, "spectator");
+    assert.equal(extraSpectator.closed.length, 0);
+  }
+
+  const overflow = createConnection("connection-overflow");
+  partyRoom.onConnect(overflow);
+  partyRoom.onMessage(JSON.stringify(helloEnvelope({
+    clientId: "client-overflow",
+    displayName: "Overflow",
+    messageId: "hello-overflow",
+    sequence: 1,
+    sentAt: Date.now(),
+    matchSettings: { maxPlayers: 8 },
+  })), overflow);
+  const reject = latestConnectionMessage(overflow, "room.reject");
+  assert.equal(reject.payload.code, "room-full");
+  assert.equal(reject.payload.recoverable, false);
+  assert.deepEqual(overflow.closed.at(-1), { code: 1008, reason: "reject:room-full" });
+});
+
+test("party room closes a connection after repeated recoverable rejects", () => {
+  const { room, createConnection } = createFakePartyRoom();
+  const RoomClass = partyRoomModule.default;
+  const partyRoom = new RoomClass(room);
+  const connection = createConnection("noisy-connection");
+
+  partyRoom.onConnect(connection);
+  partyRoom.onMessage(JSON.stringify(helloEnvelope({
+    messageId: "hello-noisy",
+    sequence: 1,
+    sentAt: Date.now(),
+  })), connection);
+
+  for (let index = 0; index < partyRoomModule.CSSQUAKE_PARTY_MAX_REJECTS_PER_CONNECTION; index += 1) {
+    partyRoom.onMessage(JSON.stringify(inputEnvelope({
+      messageId: `stale-input-${index}`,
+      sequence: 1,
+      inputSequence: 1,
+      sentAt: Date.now(),
+    })), connection);
+  }
+
+  const rejects = connection.messages.filter((message) => message.type === "room.reject");
+  assert.equal(rejects.length, partyRoomModule.CSSQUAKE_PARTY_MAX_REJECTS_PER_CONNECTION);
+  assert.equal(rejects.at(-1).payload.code, "stale");
+  assert.equal(rejects.at(-1).payload.recoverable, true);
+  assert.deepEqual(connection.closed.at(-1), { code: 1008, reason: "too-many-rejects" });
 });
 
 test("client authority rejects non-hello first messages and client id swaps", () => {

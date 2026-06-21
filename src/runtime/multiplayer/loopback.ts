@@ -1,4 +1,5 @@
 import {
+  clampQuakeMultiplayerMatchSettings,
   createQuakeMultiplayerEnvelope,
   createQuakeMultiplayerRoomCompatibilityKey,
 } from "./protocol";
@@ -313,7 +314,9 @@ export function createQuakeLoopbackMultiplayerSession(
         clientId = message.payload.clientId;
         displayName = message.payload.displayName;
         playerColor = message.payload.color;
-        matchSettings = message.payload.matchSettings ?? matchSettings;
+        matchSettings = message.payload.matchSettings
+          ? clampQuakeMultiplayerMatchSettings(message.payload.matchSettings)
+          : matchSettings;
         presenceStatus = "active";
         const trustedDefinitions = trustedGameplayDefinitionsForRoom();
         const initialSpawn = quakeLoopbackInitialSpawnPoint(

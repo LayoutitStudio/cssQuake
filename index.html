@@ -600,6 +600,8 @@
       <div id="quake-scene"></div>
       <!-- weapon -->
       <div id="quake-weapon"></div>
+      <!-- screen effects -->
+      <div id="quake-impact-particles" aria-hidden="true"></div>
       <!-- menu -->
       <div id="quake-menu">
         <img class="cssquake-logo" src="/src/assets/cssquake-logo.png" width="1343" height="262" alt="cssQuake" fetchpriority="high" loading="eager" decoding="sync" draggable="false" />
@@ -609,7 +611,6 @@
         <!-- screen effects -->
         <div id="quake-bonus-overlay" aria-hidden="true"></div>
         <div id="quake-damage-overlay" aria-hidden="true"></div>
-        <div id="quake-impact-particles" aria-hidden="true"></div>
         <!-- messages -->
         <div id="quake-notify" role="log" aria-live="polite" hidden></div>
         <div id="quake-centerprint" role="status" aria-live="polite" hidden></div>
@@ -763,53 +764,53 @@
             </header>
             <form id="quake-multiplayer-form" class="quake-multiplayer-form" autocomplete="off">
               <label class="quake-multiplayer-field">
-                <span class="quake-multiplayer-field-label quake-bm-label quake-bm-alt">Name</span>
+                <span class="quake-multiplayer-field-label quake-bm-label">Name</span>
                 <span class="quake-multiplayer-control-shell">
                   <input id="quake-multiplayer-name" type="text" maxlength="16" spellcheck="false" autocomplete="nickname" />
                   <span class="quake-multiplayer-control-glyph quake-bm-label quake-bm-alt" aria-hidden="true"></span>
                 </span>
               </label>
               <label class="quake-multiplayer-field quake-multiplayer-color-field">
-                <span class="quake-multiplayer-field-label quake-bm-label quake-bm-alt">Color</span>
+                <span class="quake-multiplayer-field-label quake-bm-label">Color</span>
                 <input id="quake-multiplayer-color" type="color" value="#d8893f" />
               </label>
               <label class="quake-multiplayer-field">
-                <span class="quake-multiplayer-field-label quake-bm-label quake-bm-alt">Map</span>
+                <span class="quake-multiplayer-field-label quake-bm-label">Map</span>
                 <span class="quake-multiplayer-control-shell">
                   <select id="quake-multiplayer-map"></select>
                   <span class="quake-multiplayer-control-glyph quake-bm-label quake-bm-alt" aria-hidden="true"></span>
                 </span>
               </label>
               <label class="quake-multiplayer-field">
-                <span class="quake-multiplayer-field-label quake-bm-label quake-bm-alt">Fraglimit</span>
+                <span class="quake-multiplayer-field-label quake-bm-label">Region</span>
+                <span class="quake-multiplayer-control-shell">
+                  <select id="quake-multiplayer-region"></select>
+                  <span class="quake-multiplayer-control-glyph quake-bm-label quake-bm-alt" aria-hidden="true"></span>
+                </span>
+              </label>
+              <label class="quake-multiplayer-field">
+                <span class="quake-multiplayer-field-label quake-bm-label">Fraglimit</span>
                 <span class="quake-multiplayer-control-shell">
                   <input id="quake-multiplayer-fraglimit" type="number" min="1" max="100" step="1" value="20" />
                   <span class="quake-multiplayer-control-glyph quake-bm-label quake-bm-alt" aria-hidden="true"></span>
                 </span>
               </label>
               <label class="quake-multiplayer-field">
-                <span class="quake-multiplayer-field-label quake-bm-label quake-bm-alt">Timelimit</span>
+                <span class="quake-multiplayer-field-label quake-bm-label">Max Players</span>
                 <span class="quake-multiplayer-control-shell">
-                  <input id="quake-multiplayer-timelimit" type="number" min="0" max="120" step="5" value="0" />
-                  <span class="quake-multiplayer-control-glyph quake-bm-label quake-bm-alt" aria-hidden="true"></span>
-                </span>
-              </label>
-              <label class="quake-multiplayer-field">
-                <span class="quake-multiplayer-field-label quake-bm-label quake-bm-alt">Max Players</span>
-                <span class="quake-multiplayer-control-shell">
-                  <input id="quake-multiplayer-maxplayers" type="number" min="2" max="16" step="1" value="8" />
+                  <input id="quake-multiplayer-maxplayers" type="number" min="2" max="4" step="1" value="4" />
                   <span class="quake-multiplayer-control-glyph quake-bm-label quake-bm-alt" aria-hidden="true"></span>
                 </span>
               </label>
               <div class="quake-multiplayer-actions">
-                <button id="quake-multiplayer-create" class="quake-bm-label quake-bm-alt" type="button">Create</button>
-                <button id="quake-multiplayer-join" class="quake-bm-label quake-bm-alt" type="submit">Join</button>
-                <button id="quake-multiplayer-copy" class="quake-bm-label quake-bm-alt" type="button">Copy Link</button>
+                <button id="quake-multiplayer-create" class="quake-bm-label" type="submit">Create Room</button>
               </div>
-              <p id="quake-multiplayer-status" class="quake-multiplayer-status quake-bm-label quake-bm-alt" role="status" aria-live="polite"></p>
             </form>
+            <div id="quake-multiplayer-failure" class="quake-multiplayer-failure" aria-live="polite">
+              <p id="quake-multiplayer-failure-title" class="quake-multiplayer-failure-title quake-bm-title quake-bm-alt">ROOM FULL</p>
+            </div>
             <nav id="quake-multiplayer-panel-actions" class="quake-menu-actions" aria-label="Multiplayer actions">
-              <button id="quake-multiplayer-back" class="quake-bm-label quake-bm-alt" type="button">Back</button>
+              <button id="quake-multiplayer-back" class="quake-bm-label quake-bm-alt" type="button">GO BACK</button>
             </nav>
           </div>
         </section>

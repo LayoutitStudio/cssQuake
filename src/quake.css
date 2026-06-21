@@ -174,6 +174,12 @@ body.quake-menu-open #quake-hud {
   width: 100%;
   border-collapse: collapse;
 }
+.quake-multiplayer-scoreboard-spectators {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 5px;
+  opacity: 0.82;
+}
 .quake-multiplayer-scoreboard td {
   max-width: 180px;
   padding: 2px 5px;
@@ -189,6 +195,9 @@ body.quake-menu-open #quake-hud {
   overflow: hidden;
   gap: 0 var(--quake-bitmap-space-size);
   filter: drop-shadow(1px 1px 0 #000000);
+}
+.quake-multiplayer-scoreboard-spectators .quake-bitmap-text {
+  justify-content: flex-end;
 }
 .quake-multiplayer-scoreboard td:first-child {
   border-left: 3px solid var(--quake-multiplayer-player-color, transparent);
@@ -243,7 +252,7 @@ body.quake-menu-open #quake-hud {
 #quake-impact-particles {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 1;
   overflow: hidden;
   pointer-events: none;
   contain: layout paint style;
@@ -259,6 +268,19 @@ body.quake-menu-open #quake-hud {
   opacity: 0;
   pointer-events: none;
   transform: translate3d(0, 0, 0) scale(1);
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+.quake-effect-sprite {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  image-rendering: pixelated;
+  opacity: 0;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  transform: translate3d(-50%, -50%, 0) scale(1);
   transform-origin: center;
   will-change: transform, opacity;
 }
@@ -1531,12 +1553,27 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   --quake-menu-row-text-size: calc(8 * var(--quake-menu-px));
   position: absolute;
   top: 12cqw;
-  left: 18cqw;
+  left: 22.5cqw;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: calc(3 * var(--quake-menu-px));
-  width: 74cqw;
+  width: 68cqw;
   margin: 0;
+}
+#quake-multiplayer-panel[data-quake-multiplayer-state="failure"] {
+  background: rgba(0, 0, 0, 0.86);
+}
+#quake-multiplayer-panel[data-quake-multiplayer-state="failure"] .quake-menu-card {
+  --quake-menu-offset-y: 0%;
+  width: min(640px, calc(100vw - 64px), calc(136dvh - 52px));
+  filter: brightness(1.28) saturate(0.92) contrast(0.96);
+}
+#quake-multiplayer-panel[data-quake-multiplayer-state="failure"] .quake-menu-card::before,
+#quake-multiplayer-panel[data-quake-multiplayer-state="failure"] .quake-menu-panel-header {
+  display: none;
+}
+#quake-multiplayer-panel[data-quake-multiplayer-state="failure"] .quake-multiplayer-form {
+  display: none;
 }
 .quake-multiplayer-field {
   --quake-multiplayer-row-brightness: 0.94;
@@ -1586,15 +1623,11 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   min-width: 0;
   min-height: var(--quake-menu-row-text-size);
 }
-.quake-multiplayer-field-label .quake-bitmap-text,
-.quake-multiplayer-status .quake-bitmap-text {
+.quake-multiplayer-field-label .quake-bitmap-text {
   --quake-bitmap-glyph-size: var(--quake-menu-row-text-size);
   --quake-bitmap-sheet-size: calc(16 * var(--quake-menu-row-text-size));
   --quake-bitmap-space-size: var(--quake-menu-row-text-size);
   gap: 0 var(--quake-bitmap-space-size);
-}
-.quake-multiplayer-field-label .quake-bitmap-text {
-  filter: brightness(var(--quake-multiplayer-row-brightness));
 }
 .quake-multiplayer-control-shell {
   position: relative;
@@ -1659,26 +1692,35 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   --quake-menu-row-text-size: calc(8 * var(--quake-menu-px));
   display: grid;
   grid-template-columns: max-content;
-  gap: 0;
+  gap: calc(1 * var(--quake-menu-px));
   align-items: center;
   margin-top: calc(3 * var(--quake-menu-px));
+  padding-left: calc(2 * var(--quake-menu-px));
 }
 .quake-multiplayer-actions button {
   --quake-multiplayer-action-brightness: 0.94;
+  --quake-multiplayer-action-bg: rgba(0, 0, 0, 0.42);
+  --quake-multiplayer-action-border: rgba(246, 241, 223, 0.68);
   position: relative;
-  min-height: var(--quake-menu-row-text-size);
-  padding: 0;
-  border: 0;
-  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  min-height: calc(14 * var(--quake-menu-px));
+  width: fit-content;
+  padding: calc(2 * var(--quake-menu-px)) calc(4 * var(--quake-menu-px));
+  border: calc(1 * var(--quake-menu-px)) solid var(--quake-multiplayer-action-border);
+  border-radius: 0;
+  appearance: none;
+  background: var(--quake-multiplayer-action-bg);
   color: #f6f1df;
   font: inherit;
+  white-space: nowrap;
   cursor: pointer;
 }
 .quake-multiplayer-actions button::before {
   content: "";
   position: absolute;
-  top: 0;
-  left: calc(-12 * var(--quake-menu-px));
+  top: 50%;
+  left: calc(-14 * var(--quake-menu-px));
   width: var(--quake-menu-row-text-size);
   height: var(--quake-menu-row-text-size);
   background-image: url("/q/conchars.png");
@@ -1686,17 +1728,21 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   background-size: calc(16 * var(--quake-menu-row-text-size)) calc(16 * var(--quake-menu-row-text-size));
   image-rendering: pixelated;
   opacity: 0;
+  transform: translateY(-50%);
   animation: quake-menu-option-cursor-frame 500ms steps(1, end) infinite;
   pointer-events: none;
 }
 .quake-multiplayer-actions button:hover,
 .quake-multiplayer-actions button:focus-visible {
   --quake-multiplayer-action-brightness: 1.34;
-  color: #f0ad5c;
+  --quake-multiplayer-action-bg: rgba(8, 4, 2, 0.66);
+  --quake-multiplayer-action-border: #f6f1df;
+  color: #f6f1df;
   outline: none;
 }
 .quake-multiplayer-actions button:active {
   --quake-multiplayer-action-brightness: 1.14;
+  --quake-multiplayer-action-bg: rgba(20, 10, 5, 0.74);
   opacity: 0.86;
 }
 .quake-multiplayer-actions button:hover::before,
@@ -1710,20 +1756,54 @@ body.quake-menu-open:not(.quake-gameplay-started) .quake-menu-panel {
   --quake-bitmap-glyph-size: var(--quake-menu-row-text-size);
   --quake-bitmap-sheet-size: calc(16 * var(--quake-menu-row-text-size));
   --quake-bitmap-space-size: var(--quake-menu-row-text-size);
+  flex-wrap: nowrap;
   gap: 0 var(--quake-bitmap-space-size);
   filter: brightness(var(--quake-multiplayer-action-brightness));
+}
+.quake-multiplayer-failure {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  width: 100%;
+  margin: 0;
+  transform: translateY(calc(-12 * var(--quake-menu-px)));
+}
+#quake-multiplayer-panel:not([data-quake-multiplayer-state="failure"]) .quake-multiplayer-failure {
+  display: none;
+}
+.quake-multiplayer-failure-title {
+  margin: 0;
+  color: #f6f1df;
+}
+.quake-multiplayer-failure-title .quake-bitmap-text {
+  --quake-bitmap-glyph-size: calc(14 * var(--quake-menu-px));
+  --quake-bitmap-sheet-size: calc(224 * var(--quake-menu-px));
+  --quake-bitmap-space-size: calc(10 * var(--quake-menu-px));
+  flex-wrap: nowrap;
+  gap: 0 var(--quake-bitmap-space-size);
+  filter: brightness(1.24);
 }
 #quake-multiplayer-panel-actions {
   bottom: 4cqw;
 }
-.quake-multiplayer-status {
-  grid-column: 1 / -1;
-  min-height: var(--quake-menu-row-text-size);
-  margin: 0;
-  color: #d8893f;
+#quake-multiplayer-panel[data-quake-multiplayer-state="failure"] #quake-multiplayer-panel-actions {
+  left: 50%;
+  right: auto;
+  top: 38cqw;
+  bottom: auto;
+  gap: 0;
+  transform: translateX(-50%);
 }
-.quake-multiplayer-status:empty {
-  display: none;
+#quake-multiplayer-panel[data-quake-multiplayer-state="failure"] #quake-multiplayer-panel-actions button {
+  padding: 0;
+  border: 0;
+  color: #f6f1df;
+}
+#quake-multiplayer-panel[data-quake-multiplayer-state="failure"] #quake-multiplayer-panel-actions button:hover,
+#quake-multiplayer-panel[data-quake-multiplayer-state="failure"] #quake-multiplayer-panel-actions button:focus-visible {
+  outline: none;
 }
 .quake-level-list {
   position: absolute;

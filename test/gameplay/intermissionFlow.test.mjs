@@ -250,7 +250,7 @@ test("level intermission input advance is gated by a minimum dwell", async () =>
     assert.equal(shown, 1);
     assert.equal(syncedCamera, 1);
     assert.equal(timers.size, 1);
-    assert.equal([...timers.values()][0].ms, 3000);
+    assert.equal([...timers.values()][0].ms, 5000);
     assert.deepEqual(loaded, []);
 
     assert.equal(flow.requestIntermissionAdvance(), true);
