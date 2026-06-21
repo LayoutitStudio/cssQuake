@@ -281,6 +281,29 @@ test("client authority rejects replayed envelope and intent sequences independen
   assert.match(replayedIntentResult.reject.message, /input sequence/);
 });
 
+test("client authority accepts immediate presence transitions", () => {
+  const helloResult = authority.validateQuakeMultiplayerClientAuthority(
+    helloEnvelope({ sequence: 1, sentAt: 100 }),
+    null,
+    { now: 100 },
+  );
+  assert.equal(helloResult.ok, true);
+
+  const pausedResult = authority.validateQuakeMultiplayerClientAuthority(
+    presenceEnvelope("input-paused", { sequence: 2, messageId: "presence-paused", sentAt: 120 }),
+    helloResult.state,
+    { now: 120 },
+  );
+  assert.equal(pausedResult.ok, true);
+
+  const activeResult = authority.validateQuakeMultiplayerClientAuthority(
+    presenceEnvelope("active", { sequence: 3, messageId: "presence-active", sentAt: 121 }),
+    pausedResult.state,
+    { now: 121 },
+  );
+  assert.equal(activeResult.ok, true);
+});
+
 test("room wrong-map rejects validate even when their room key differs", () => {
   const reject = protocol.createQuakeMultiplayerEnvelope({
     direction: "room",

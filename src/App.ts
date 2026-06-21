@@ -2381,6 +2381,7 @@ let quakeGamePausedAt = 0;
 let quakeMenuPauseActive = false;
 let quakeClickToPlayPauseActive = false;
 let quakeMultiplayerInputPaused = QUAKE_MULTIPLAYER_DEBUG_INPUT_PAUSED;
+let quakeMultiplayerLastPresenceStatusSent: QuakeMultiplayerPlayerPresenceStatus | null = null;
 
 function setQuakeGameplayStarted(started: boolean): void {
   quakeGameplayStarted = started;
@@ -2451,6 +2452,7 @@ function syncQuakePauseState(): void {
 
 function setQuakeMultiplayerInputPaused(paused: boolean): void {
   if (quakeMultiplayerInputPaused === paused) {
+    syncQuakeMultiplayerPresenceStatus(paused);
     syncQuakeInteractionPresentation();
     return;
   }
@@ -2469,7 +2471,15 @@ function setQuakeMultiplayerInputPaused(paused: boolean): void {
     controls.update({ moveEnabled: true });
     syncQuakeCrosshairTarget();
   }
-  sendQuakeMultiplayerPresence(paused ? "input-paused" : "active");
+  syncQuakeMultiplayerPresenceStatus(paused);
+}
+
+function syncQuakeMultiplayerPresenceStatus(paused: boolean): void {
+  const status = paused ? "input-paused" : "active";
+  if (quakeMultiplayerLastPresenceStatusSent === status) return;
+  if (sendQuakeMultiplayerPresence(status)) {
+    quakeMultiplayerLastPresenceStatusSent = status;
+  }
 }
 
 function setQuakeGamePaused(paused: boolean): void {
@@ -3267,6 +3277,7 @@ function stopQuakeMultiplayerScene(
   }
   quakeMultiplayerLastInputAt = 0;
   quakeMultiplayerLastPoseAt = 0;
+  quakeMultiplayerLastPresenceStatusSent = null;
   quakeMultiplayerHelloAccepted = false;
   quakeMultiplayerSpectatorCount = 0;
   setQuakeMultiplayerSpectating(false);
@@ -3986,16 +3997,16 @@ function requestQuakeMultiplayerLevelTransitionIntent(entity: QuakeEntity): bool
   return true;
 }
 
-function sendQuakeMultiplayerPresence(status: QuakeMultiplayerPlayerPresenceStatus): void {
+function sendQuakeMultiplayerPresence(status: QuakeMultiplayerPlayerPresenceStatus): boolean {
   if (
     !QUAKE_MULTIPLAYER_ENABLED ||
     quakeMultiplayerSpectating ||
     quakeMultiplayerSession.status().state !== "connected"
   ) {
-    return;
+    return false;
   }
   const roomKey = currentQuakeMultiplayerRoomKey();
-  if (!roomKey) return;
+  if (!roomKey) return false;
   quakeMultiplayerSession.send(createQuakeMultiplayerEnvelope({
     direction: "client",
     type: "client.presence",
@@ -4007,6 +4018,7 @@ function sendQuakeMultiplayerPresence(status: QuakeMultiplayerPlayerPresenceStat
       status,
     },
   }));
+  return true;
 }
 
 function sendQuakeMultiplayerPong(payload: Extract<QuakeMultiplayerRoomEnvelope, { type: "room.ping" }>["payload"]): void {
