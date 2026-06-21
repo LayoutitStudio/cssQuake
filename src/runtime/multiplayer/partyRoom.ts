@@ -157,6 +157,8 @@ interface CssQuakeMoverCollisionMotion {
 
 const CSSQUAKE_PARTY_MAX_MESSAGE_AGE_MS = 60_000;
 const CSSQUAKE_PARTY_MAX_MESSAGE_BYTES = 64 * 1024;
+export const CSSQUAKE_PARTY_MAX_REJECTS_PER_CONNECTION = 8;
+const CSSQUAKE_PARTY_REJECT_CLOSE_CODE = 1008;
 const CSSQUAKE_PARTY_RECONNECT_GRACE_MS = 15_000;
 
 export default class CssQuakeMultiplayerRoom implements Party.Server {
@@ -185,6 +187,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
   private readonly moverCollisionOffsets = new Map<number, QuakeMultiplayerVec3>();
   private readonly moverShootHealth = new Map<number, number>();
   private readonly disconnectRemovalTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly connectionRejectCounts = new Map<string, number>();
   private matchRestartTimer: ReturnType<typeof setTimeout> | null = null;
   private roomSequence = 0;
   private tick = 0;
@@ -250,6 +253,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       this.reject(sender, authority.reject, roomKey);
       return;
     }
+    this.clearConnectionRejects(sender);
     if (!this.roomKey) this.roomKey = roomKey;
     if (validation.envelope.type === "client.hello") {
       const trustedDefinitionsReady = this.ensureTrustedGameplayDefinitions(validation.envelope, sender, roomKey);
@@ -1816,6 +1820,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
   private removeConnection(connection: Party.Connection, reason: string): void {
     const state = this.connectionState(connection);
     this.connectionPlayers.delete(connection.id);
+    this.clearConnectionRejects(connection);
     connection.setState(null);
     if (!state?.playerId) return;
     if (this.playerHasActiveConnection(state.playerId)) return;
@@ -1904,6 +1909,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     this.players.clear();
     this.playerSimulationStates.clear();
     this.connectionPlayers.clear();
+    this.connectionRejectCounts.clear();
     this.spawnPoints = [];
     this.pickupDefinitions.clear();
     this.pickupStates.clear();
@@ -1990,6 +1996,25 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       return;
     }
     this.send(sender, "room.reject", payload, roomKey);
+    if (!payload.recoverable || this.noteConnectionReject(sender) >= CSSQUAKE_PARTY_MAX_REJECTS_PER_CONNECTION) {
+      this.closeRejectedConnection(sender, payload);
+    }
+  }
+
+  private noteConnectionReject(connection: Party.Connection): number {
+    const count = (this.connectionRejectCounts.get(connection.id) ?? 0) + 1;
+    this.connectionRejectCounts.set(connection.id, count);
+    return count;
+  }
+
+  private clearConnectionRejects(connection: Party.Connection): void {
+    this.connectionRejectCounts.delete(connection.id);
+  }
+
+  private closeRejectedConnection(connection: Party.Connection, payload: QuakeMultiplayerRoomRejectPayload): void {
+    const reason = payload.recoverable ? "too-many-rejects" : `reject:${payload.code}`;
+    connection.close(CSSQUAKE_PARTY_REJECT_CLOSE_CODE, reason.slice(0, 120));
+    this.removeConnection(connection, reason);
   }
 
   private broadcastSnapshot(without?: string[]): void {

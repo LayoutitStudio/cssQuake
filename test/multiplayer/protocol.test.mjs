@@ -153,7 +153,36 @@ test("party room rejects a fifth player when client asks for more than launch ca
   assert.equal(reject.payload.code, "room-full");
   assert.equal(reject.payload.recoverable, false);
   assert.equal(reject.payload.rejectedMessageId, "hello-5");
-  assert.equal(rejected.closed.length, 0);
+  assert.deepEqual(rejected.closed.at(-1), { code: 1008, reason: "reject:room-full" });
+});
+
+test("party room closes a connection after repeated recoverable rejects", () => {
+  const { room, createConnection } = createFakePartyRoom();
+  const RoomClass = partyRoomModule.default;
+  const partyRoom = new RoomClass(room);
+  const connection = createConnection("noisy-connection");
+
+  partyRoom.onConnect(connection);
+  partyRoom.onMessage(JSON.stringify(helloEnvelope({
+    messageId: "hello-noisy",
+    sequence: 1,
+    sentAt: Date.now(),
+  })), connection);
+
+  for (let index = 0; index < partyRoomModule.CSSQUAKE_PARTY_MAX_REJECTS_PER_CONNECTION; index += 1) {
+    partyRoom.onMessage(JSON.stringify(inputEnvelope({
+      messageId: `stale-input-${index}`,
+      sequence: 1,
+      inputSequence: 1,
+      sentAt: Date.now(),
+    })), connection);
+  }
+
+  const rejects = connection.messages.filter((message) => message.type === "room.reject");
+  assert.equal(rejects.length, partyRoomModule.CSSQUAKE_PARTY_MAX_REJECTS_PER_CONNECTION);
+  assert.equal(rejects.at(-1).payload.code, "stale");
+  assert.equal(rejects.at(-1).payload.recoverable, true);
+  assert.deepEqual(connection.closed.at(-1), { code: 1008, reason: "too-many-rejects" });
 });
 
 test("client authority rejects non-hello first messages and client id swaps", () => {
