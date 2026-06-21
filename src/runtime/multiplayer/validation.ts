@@ -30,6 +30,7 @@ import type {
   QuakeMultiplayerRoomEnvelope,
   QuakeMultiplayerRoomMatchState,
   QuakeMultiplayerRoomMessageType,
+  QuakeMultiplayerRoomSpectatorState,
   QuakeMultiplayerSpawnPoint,
   QuakeMultiplayerSharedWorldEvent,
   QuakeMultiplayerVec3,
@@ -300,6 +301,8 @@ function isRoomPayload(type: QuakeMultiplayerMessageType, payload: unknown): boo
         isRoomMatchState(payload.match) &&
         Array.isArray(payload.players) &&
         payload.players.every(isAuthoritativePlayerState) &&
+        (payload.spectators === undefined ||
+          (Array.isArray(payload.spectators) && payload.spectators.every(isRoomSpectatorState))) &&
         (payload.pickups === undefined ||
           (Array.isArray(payload.pickups) && payload.pickups.every(isAuthoritativePickupState))) &&
         isNonNegativeInteger(payload.lastWorldEventSequence);
@@ -584,6 +587,13 @@ function isRoomMatchState(value: unknown): value is QuakeMultiplayerRoomMatchSta
     (value.timeLimitMs === undefined || isNonNegativeFiniteNumber(value.timeLimitMs)) &&
     (value.maxPlayers === undefined || isNonNegativeFiniteNumber(value.maxPlayers)) &&
     (value.restartDelayMs === undefined || isNonNegativeFiniteNumber(value.restartDelayMs));
+}
+
+function isRoomSpectatorState(value: unknown): value is QuakeMultiplayerRoomSpectatorState {
+  if (!isRecord(value)) return false;
+  return isNonEmptyString(value.clientId) &&
+    isNonEmptyString(value.displayName) &&
+    (value.pingMs === undefined || isNonNegativeFiniteNumber(value.pingMs));
 }
 
 function isMatchSettings(value: unknown): boolean {

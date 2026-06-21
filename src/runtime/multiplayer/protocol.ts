@@ -737,12 +737,19 @@ export interface QuakeMultiplayerRoomMatchState {
   restartDelayMs?: number;
 }
 
+export interface QuakeMultiplayerRoomSpectatorState {
+  clientId: string;
+  displayName: string;
+  pingMs?: number;
+}
+
 export interface QuakeMultiplayerRoomSnapshotPayload {
   roomId: string;
   tick: number;
   roomTime: number;
   match: QuakeMultiplayerRoomMatchState;
   players: QuakeMultiplayerAuthoritativePlayerState[];
+  spectators?: QuakeMultiplayerRoomSpectatorState[];
   pickups?: QuakeMultiplayerAuthoritativePickupState[];
   lastWorldEventSequence: number;
 }

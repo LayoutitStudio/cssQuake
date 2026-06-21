@@ -25,6 +25,7 @@ import {
   type QuakeMultiplayerRoomEventPayload,
   type QuakeMultiplayerRoomMatchState,
   type QuakeMultiplayerRoomRejectPayload,
+  type QuakeMultiplayerRoomSpectatorState,
   type QuakeMultiplayerSpawnPoint,
   type QuakeMultiplayerVec3,
   type QuakeMultiplayerWorldDefinition,
@@ -111,15 +112,19 @@ import {
 } from "./simulation";
 import type { QuakePreparedCollision } from "../../types/quake";
 
+type CssQuakeConnectionRole = "player" | "spectator";
+
 interface CssQuakeConnectionState {
   authority: QuakeMultiplayerClientAuthorityState;
   clientId: string;
+  displayName: string;
   lastRoomPingAt?: number;
   lastRoomPingId?: string;
   lastSeenAt: number;
-  playerId: string;
+  playerId?: string;
   pingMs?: number;
   presenceStatus: QuakeMultiplayerPlayerPresenceStatus;
+  role: CssQuakeConnectionRole;
 }
 
 export interface CssQuakeMultiplayerRoomOptions {
@@ -158,6 +163,7 @@ interface CssQuakeMoverCollisionMotion {
 const CSSQUAKE_PARTY_MAX_MESSAGE_AGE_MS = 60_000;
 const CSSQUAKE_PARTY_MAX_MESSAGE_BYTES = 64 * 1024;
 export const CSSQUAKE_PARTY_MAX_REJECTS_PER_CONNECTION = 8;
+export const CSSQUAKE_PARTY_MAX_SPECTATORS_PER_ROOM = 8;
 const CSSQUAKE_PARTY_REJECT_CLOSE_CODE = 1008;
 const CSSQUAKE_PARTY_RECONNECT_GRACE_MS = 15_000;
 
@@ -392,13 +398,17 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     }
     const maxPlayers = this.matchSettings.maxPlayers;
     if (maxPlayers !== undefined && !this.players.has(playerId) && this.players.size >= maxPlayers) {
-      this.reject(sender, {
-        code: "room-full",
-        message: "Multiplayer room is full.",
-        recoverable: false,
-        rejectedMessageId: message.messageId,
-      });
-      return false;
+      if (this.spectatorCount() >= CSSQUAKE_PARTY_MAX_SPECTATORS_PER_ROOM) {
+        this.reject(sender, {
+          code: "room-full",
+          message: "Multiplayer room is full.",
+          recoverable: false,
+          rejectedMessageId: message.messageId,
+        });
+        return false;
+      }
+      this.registerSpectator(sender, message, authority, receivedAt);
+      return true;
     }
     const spawn = existingPlayer ? null : this.nextSpawnPoint();
     const inventory = createQuakeMultiplayerInitialInventory();
@@ -443,9 +453,11 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     const state = {
       authority,
       clientId: message.payload.clientId,
+      displayName: message.payload.displayName,
       lastSeenAt: receivedAt,
       playerId,
       presenceStatus: "active" as const,
+      role: "player" as const,
     };
     this.connectionPlayers.set(sender.id, state);
     sender.setState(state);
@@ -469,6 +481,26 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       }, [sender.id]);
     }
     return true;
+  }
+
+  private registerSpectator(
+    sender: Party.Connection,
+    message: Extract<QuakeMultiplayerClientEnvelope, { type: "client.hello" }>,
+    authority: QuakeMultiplayerClientAuthorityState,
+    receivedAt: number,
+  ): void {
+    const state = {
+      authority,
+      clientId: message.payload.clientId,
+      displayName: message.payload.displayName,
+      lastSeenAt: receivedAt,
+      presenceStatus: "active" as const,
+      role: "spectator" as const,
+    };
+    this.connectionPlayers.set(sender.id, state);
+    sender.setState(state);
+    this.startSnapshotTicker();
+    this.startHeartbeatTicker();
   }
 
   private acceptGameplayFacts(
@@ -1976,6 +2008,10 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     const next = { ...state, pingMs };
     this.connectionPlayers.set(sender.id, next);
     sender.setState(next);
+    if (!state.playerId) {
+      this.requestSnapshot();
+      return;
+    }
     const player = this.players.get(state.playerId);
     if (!player) return;
     this.players.set(state.playerId, {
@@ -2033,9 +2069,31 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
         ...this.matchSettings,
       },
       players: [...this.players.values()],
+      spectators: this.spectatorStates(),
       pickups: [...this.pickupStates.values()],
       lastWorldEventSequence: this.worldEventSequence,
     }, without);
+  }
+
+  private spectatorStates(): QuakeMultiplayerRoomSpectatorState[] {
+    const spectators: QuakeMultiplayerRoomSpectatorState[] = [];
+    for (const state of this.connectionPlayers.values()) {
+      if (state.role !== "spectator") continue;
+      spectators.push({
+        clientId: state.clientId,
+        displayName: state.displayName,
+        ...(state.pingMs !== undefined ? { pingMs: state.pingMs } : {}),
+      });
+    }
+    return spectators;
+  }
+
+  private spectatorCount(): number {
+    let count = 0;
+    for (const state of this.connectionPlayers.values()) {
+      if (state.role === "spectator") count += 1;
+    }
+    return count;
   }
 
   private requestSnapshot(): void {
@@ -2101,7 +2159,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
         )) {
           continue;
         }
-        const pingId = `party-ping-${state.playerId}-${timestamp}`;
+        const pingId = `party-ping-${state.clientId}-${timestamp}`;
         const next = {
           ...state,
           lastRoomPingAt: timestamp,
