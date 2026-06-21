@@ -13,13 +13,9 @@ export interface QuakeAppDomElements {
   multiplayerColorInput: HTMLInputElement | null;
   multiplayerRoomInput: HTMLInputElement | null;
   multiplayerMapSelect: HTMLSelectElement | null;
+  multiplayerRegionSelect: HTMLSelectElement | null;
   multiplayerFragLimitInput: HTMLInputElement | null;
-  multiplayerTimeLimitInput: HTMLInputElement | null;
   multiplayerMaxPlayersInput: HTMLInputElement | null;
-  multiplayerCreateButton: HTMLButtonElement | null;
-  multiplayerJoinButton: HTMLButtonElement | null;
-  multiplayerCopyButton: HTMLButtonElement | null;
-  multiplayerStatus: HTMLElement | null;
   levelPanel: HTMLElement | null;
   levelList: HTMLElement | null;
   aboutPanel: HTMLElement | null;
@@ -85,13 +81,9 @@ export function queryQuakeAppDom(): QuakeAppDomElements {
     multiplayerColorInput: quakeElement("quake-multiplayer-color"),
     multiplayerRoomInput: quakeElement("quake-multiplayer-room"),
     multiplayerMapSelect: quakeElement("quake-multiplayer-map"),
+    multiplayerRegionSelect: quakeElement("quake-multiplayer-region"),
     multiplayerFragLimitInput: quakeElement("quake-multiplayer-fraglimit"),
-    multiplayerTimeLimitInput: quakeElement("quake-multiplayer-timelimit"),
     multiplayerMaxPlayersInput: quakeElement("quake-multiplayer-maxplayers"),
-    multiplayerCreateButton: quakeElement("quake-multiplayer-create"),
-    multiplayerJoinButton: quakeElement("quake-multiplayer-join"),
-    multiplayerCopyButton: quakeElement("quake-multiplayer-copy"),
-    multiplayerStatus: quakeElement("quake-multiplayer-status"),
     levelPanel: quakeElement("quake-level-panel"),
     levelList: quakeElement("quake-level-list"),
     aboutPanel: quakeElement("quake-about-panel"),

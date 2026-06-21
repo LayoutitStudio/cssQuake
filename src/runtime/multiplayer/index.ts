@@ -9,6 +9,8 @@ export * from "./world";
 export * from "./session";
 export * from "./loopback";
 export * from "./partysocket";
+export * from "./region";
+export * from "./invite";
 export * from "./deathmatch";
 export * from "./items";
 export * from "./movement";
