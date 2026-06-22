@@ -13,6 +13,11 @@ const QUAKE_MULTIPLAYER_REMOTE_RENDER_DELAY_MS = 100;
 const QUAKE_MULTIPLAYER_REMOTE_STALE_MS = 1_000;
 const QUAKE_MULTIPLAYER_REMOTE_SAMPLE_LIMIT = 12;
 
+type QuakeMultiplayerPlayerDamagedEvent = Extract<
+  QuakeMultiplayerSharedWorldEvent,
+  { eventType: "player.damaged" }
+>;
+
 export interface QuakeMultiplayerRemoteVisualHandle {
   element?: HTMLElement;
   setState(state: QuakeMultiplayerRemoteInterpolationState): void;
@@ -23,6 +28,10 @@ export interface QuakeMultiplayerRemotePlayerPresenterOptions {
   localClientId: string;
   createVisual(player: QuakeMultiplayerAuthoritativePlayerState): QuakeMultiplayerRemoteVisualHandle | null;
   shouldRenderPlayer?: (player: QuakeMultiplayerAuthoritativePlayerState) => boolean;
+  onPlayerDamaged?: (
+    event: QuakeMultiplayerPlayerDamagedEvent,
+    player: QuakeMultiplayerAuthoritativePlayerState,
+  ) => void;
   now?: () => number;
   requestFrame?: (callback: FrameRequestCallback) => number;
   cancelFrame?: (handle: number) => void;
@@ -137,7 +146,7 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
     if (event.eventType === "player.left") {
       removeRemotePlayer(event.playerId);
     } else if (event.eventType === "player.damaged") {
-      markRemotePlayerPain(event.victimPlayerId);
+      markRemotePlayerPain(event);
     } else if (event.eventType === "player.killed") {
       markRemotePlayerDeath(event.victimPlayerId);
     } else if (event.eventType === "player.respawned") {
@@ -146,10 +155,11 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
     }
   }
 
-  function markRemotePlayerPain(playerId: string): void {
-    const entry = players.get(playerId);
+  function markRemotePlayerPain(event: QuakeMultiplayerPlayerDamagedEvent): void {
+    const entry = players.get(event.victimPlayerId);
     if (!entry || entry.player.clientId === options.localClientId || !entry.player.alive) return;
     entry.lastPainAt = now();
+    options.onPlayerDamaged?.(event, entry.player);
     scheduleFrame();
   }
 
