@@ -87,6 +87,7 @@ import {
   quakeMultiplayerShootableWorldHit,
   quakeMultiplayerTriggerCounterMessage,
   quakeMultiplayerTriggerUsesMultiTrigger,
+  quakeMultiplayerWorldIntentRejectionIsIgnorableTouchMiss,
   rejectQuakeMultiplayerClientWorldEvent,
   resolveQuakeMultiplayerWorldIntent,
 } from "./world";
@@ -1169,7 +1170,6 @@ export function createQuakeLoopbackMultiplayerSession(
     const definition = pickupDefinitions.get(message.payload.pickup.entityIndex);
     const state = pickupStates.get(message.payload.pickup.entityIndex);
     if (!definition || !state) {
-      emitPickupRejected(message, undefined, "unknown-pickup");
       return;
     }
     const ownerPlayerIds = new Set(state.ownerPlayerIds ?? []);
@@ -1177,7 +1177,7 @@ export function createQuakeLoopbackMultiplayerSession(
       emitPickupRejected(message, definition, "unavailable");
       return;
     }
-    if (!quakeMultiplayerPlayerCanReachPickup(playerState, definition)) {
+    if (!quakeMultiplayerPlayerCanReachPickup(playerState, definition, undefined, message.payload.pickup.origin)) {
       emitPickupRejected(message, definition, "too-far");
       return;
     }
@@ -1293,12 +1293,15 @@ export function createQuakeLoopbackMultiplayerSession(
       now(),
     );
     if (!resolution.ok) {
+      if (quakeMultiplayerWorldIntentRejectionIsIgnorableTouchMiss(message.payload.intent, resolution.reason)) {
+        return;
+      }
       emitReject({
         code: "unsupported",
         message: resolution.message,
         recoverable: true,
         rejectedMessageId: message.messageId,
-        details: { reason: resolution.reason },
+        details: { reason: resolution.reason, ...(resolution.details ?? {}) },
       });
       return;
     }

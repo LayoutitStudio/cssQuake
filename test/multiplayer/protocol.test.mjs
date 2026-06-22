@@ -19,6 +19,9 @@ import {
   validation,
   worldEnvelope,
 } from "./harness.mjs";
+import { importTsModule } from "../importTsModule.mjs";
+
+const facts = await importTsModule("src/runtime/multiplayer/facts.ts");
 
 class FakePartyConnection {
   constructor(id) {
@@ -70,6 +73,127 @@ function latestConnectionMessage(connection, type) {
   const message = connection.messages.findLast((candidate) => candidate.type === type);
   assert.ok(message, `expected ${type} message on ${connection.id}`);
   return message;
+}
+
+function roomEvents(connection, eventType) {
+  return connection.messages
+    .filter((message) => message.type === "room.event" && message.payload.event.eventType === eventType)
+    .map((message) => message.payload.event);
+}
+
+function latestSnapshotPlayerForClient(connection, clientId) {
+  const snapshot = latestConnectionMessage(connection, "room.snapshot");
+  const player = snapshot.payload.players.find((candidate) => candidate.clientId === clientId);
+  assert.ok(player, `expected snapshot player for ${clientId}`);
+  return player;
+}
+
+const weaponPickupFlags = {
+  axe: 4096,
+  supershotgun: 2,
+  nailgun: 4,
+  supernailgun: 8,
+  grenadelauncher: 16,
+  rocketlauncher: 32,
+  lightning: 64,
+};
+
+const weaponPickupAmmo = {
+  axe: { shells: 0 },
+  supershotgun: { shells: 10 },
+  nailgun: { nails: 25 },
+  supernailgun: { nails: 25 },
+  grenadelauncher: { rockets: 5 },
+  rocketlauncher: { rockets: 5 },
+  lightning: { cells: 25 },
+};
+
+function weaponPickupDefinition(weapon) {
+  return {
+    pickupId: `weapon-${weapon}`,
+    entityIndex: 1000 + Object.keys(weaponPickupFlags).indexOf(weapon),
+    classname: `weapon_${weapon}`,
+    origin: [0, 0, 0],
+    effect: {
+      ...(weaponPickupAmmo[weapon] ?? {}),
+      weapon: {
+        id: weapon,
+        itemFlag: weaponPickupFlags[weapon] ?? 0,
+        select: true,
+      },
+    },
+  };
+}
+
+function connectDuelRoom({ id, pickupDefinitions = [], spawnDistance = 4 }) {
+  const deathmatchSpawns = [
+    {
+      spawnId: "spawn-a",
+      classname: "info_player_deathmatch",
+      origin: [0, 0, 0],
+      rotX: -78,
+      rotY: 0,
+    },
+    {
+      spawnId: "spawn-b",
+      classname: "info_player_deathmatch",
+      origin: [spawnDistance, 0, 0],
+      rotX: -78,
+      rotY: 180,
+    },
+  ];
+  const gameplayDefinitions = facts.createQuakeMultiplayerGameplayDefinitions({
+    deathmatchSpawns,
+    pickupDefinitions,
+  });
+  const { room, createConnection } = createFakePartyRoom(id);
+  const RoomClass = partyRoomModule.default;
+  const partyRoom = new RoomClass(room, { trustedGameplayDefinitions: gameplayDefinitions });
+  const alice = createConnection("alice");
+  const bob = createConnection("bob");
+  partyRoom.onConnect(alice);
+  partyRoom.onConnect(bob);
+  partyRoom.onMessage(JSON.stringify(helloEnvelope({
+    clientId: "client-a",
+    displayName: "Alice",
+    messageId: `hello-a-${id}`,
+    sequence: 1,
+    sentAt: Date.now(),
+    matchSettings: { fragLimit: 1 },
+  })), alice);
+  partyRoom.onMessage(JSON.stringify(helloEnvelope({
+    clientId: "client-b",
+    displayName: "Bob",
+    messageId: `hello-b-${id}`,
+    sequence: 1,
+    sentAt: Date.now(),
+    matchSettings: { fragLimit: 1 },
+  })), bob);
+  return { alice, bob, partyRoom };
+}
+
+function cleanupDuelRoom(partyRoom, alice, bob) {
+  partyRoom.onClose(alice);
+  partyRoom.onClose(bob);
+}
+
+function pickupWeapon(partyRoom, connection, { clientId, sequence, weapon }) {
+  const definition = weaponPickupDefinition(weapon);
+  partyRoom.onMessage(JSON.stringify(pickupEnvelope({
+    clientId,
+    messageId: `pickup-${weapon}-${clientId}`,
+    sequence,
+    pickupSequence: 1,
+    sentAt: Date.now(),
+    pickup: {
+      entityIndex: definition.entityIndex,
+      origin: [0, 0, 0],
+    },
+  })), connection);
+  const event = roomEvents(connection, "pickup.taken")
+    .find((candidate) => candidate.entityIndex === definition.entityIndex);
+  assert.ok(event, `expected ${clientId} to pick up ${weapon}`);
+  return event;
 }
 
 test("multiplayer room compatibility keys normalize map names and compare full asset identity", () => {
@@ -219,6 +343,154 @@ test("party room closes a connection after repeated recoverable rejects", () => 
   assert.equal(rejects.at(-1).payload.code, "stale");
   assert.equal(rejects.at(-1).payload.recoverable, true);
   assert.deepEqual(connection.closed.at(-1), { code: 1008, reason: "too-many-rejects" });
+});
+
+test("party room applies authoritative fire damage in both player directions", () => {
+  const deathmatchSpawns = [
+    {
+      spawnId: "spawn-a",
+      classname: "info_player_deathmatch",
+      origin: [0, 0, 0],
+      rotX: -78,
+      rotY: 0,
+    },
+    {
+      spawnId: "spawn-b",
+      classname: "info_player_deathmatch",
+      origin: [4, 0, 0],
+      rotX: -78,
+      rotY: 180,
+    },
+  ];
+  const gameplayDefinitions = facts.createQuakeMultiplayerGameplayDefinitions({
+    deathmatchSpawns,
+    pickupDefinitions: [],
+  });
+  const { room, createConnection } = createFakePartyRoom("fire-damage-room");
+  const RoomClass = partyRoomModule.default;
+  const partyRoom = new RoomClass(room, { trustedGameplayDefinitions: gameplayDefinitions });
+  const alice = createConnection("alice");
+  const bob = createConnection("bob");
+  partyRoom.onConnect(alice);
+  partyRoom.onConnect(bob);
+
+  partyRoom.onMessage(JSON.stringify(helloEnvelope({
+    clientId: "client-a",
+    displayName: "Alice",
+    messageId: "hello-a",
+    sequence: 1,
+    sentAt: Date.now(),
+  })), alice);
+  partyRoom.onMessage(JSON.stringify(helloEnvelope({
+    clientId: "client-b",
+    displayName: "Bob",
+    messageId: "hello-b",
+    sequence: 1,
+    sentAt: Date.now(),
+  })), bob);
+
+  partyRoom.onMessage(JSON.stringify(fireEnvelope({
+    clientId: "client-a",
+    messageId: "fire-a",
+    sequence: 2,
+    fireSequence: 1,
+    sentAt: Date.now(),
+  })), alice);
+  const damageAtoB = roomEvents(alice, "player.damaged")
+    .find((event) => event.attackerPlayerId === "party:client-a" && event.victimPlayerId === "party:client-b");
+  assert.ok(damageAtoB, "expected client-a to damage client-b");
+  assert.equal(damageAtoB.damage, 24);
+  assert.equal(damageAtoB.health, 76);
+  assert.equal(damageAtoB.damageSource, "shotgun");
+
+  partyRoom.onMessage(JSON.stringify(fireEnvelope({
+    clientId: "client-b",
+    messageId: "fire-b",
+    sequence: 2,
+    fireSequence: 1,
+    sentAt: Date.now(),
+  })), bob);
+  const damageBtoA = roomEvents(alice, "player.damaged")
+    .find((event) => event.attackerPlayerId === "party:client-b" && event.victimPlayerId === "party:client-a");
+  assert.ok(damageBtoA, "expected client-b to damage client-a");
+  assert.equal(damageBtoA.damage, 24);
+  assert.equal(damageBtoA.health, 76);
+  assert.equal(damageBtoA.damageSource, "shotgun");
+  assert.equal(alice.messages.filter((message) => message.type === "room.reject").length, 0);
+  assert.equal(bob.messages.filter((message) => message.type === "room.reject").length, 0);
+});
+
+test("party room applies authoritative weapon damage after weapon pickups", () => {
+  const cases = [
+    { weapon: "axe", damage: 20, pickup: true, spawnDistance: 1.2, eventType: "player.damaged", health: 80 },
+    { weapon: "shotgun", damage: 24, pickup: false, spawnDistance: 4, eventType: "player.damaged", health: 76 },
+    { weapon: "supershotgun", damage: 56, pickup: true, spawnDistance: 4, eventType: "player.damaged", health: 44 },
+    { weapon: "nailgun", damage: 9, pickup: true, spawnDistance: 4, eventType: "player.damaged", health: 91 },
+    { weapon: "supernailgun", damage: 18, pickup: true, spawnDistance: 4, eventType: "player.damaged", health: 82 },
+    { weapon: "lightning", damage: 30, pickup: true, spawnDistance: 4, eventType: "player.damaged", health: 70 },
+    { weapon: "grenadelauncher", pickup: true, spawnDistance: 4, eventType: "player.killed" },
+    { weapon: "rocketlauncher", pickup: true, spawnDistance: 4, eventType: "player.killed" },
+  ];
+
+  for (const spec of cases) {
+    const pickupDefinitions = spec.pickup ? [weaponPickupDefinition(spec.weapon)] : [];
+    const { alice, bob, partyRoom } = connectDuelRoom({
+      id: `weapon-${spec.weapon}`,
+      pickupDefinitions,
+      spawnDistance: spec.spawnDistance,
+    });
+    try {
+      if (spec.pickup) {
+        pickupWeapon(partyRoom, alice, {
+          clientId: "client-a",
+          sequence: 2,
+          weapon: spec.weapon,
+        });
+        const player = latestSnapshotPlayerForClient(alice, "client-a");
+        assert.equal(player.inventory.activeWeapon, spec.weapon, `${spec.weapon} should become active after pickup`);
+        assert.ok(player.inventory.weapons.includes(spec.weapon), `${spec.weapon} should be in authoritative inventory`);
+      } else {
+        partyRoom.onMessage(JSON.stringify(inputEnvelope({
+          clientId: "client-a",
+          messageId: `select-${spec.weapon}`,
+          sequence: 2,
+          inputSequence: 1,
+          sentAt: Date.now(),
+          input: { activeWeapon: spec.weapon },
+        })), alice);
+      }
+
+      partyRoom.onMessage(JSON.stringify(fireEnvelope({
+        clientId: "client-a",
+        messageId: `fire-${spec.weapon}`,
+        sequence: 3,
+        fireSequence: 1,
+        sentAt: Date.now(),
+        fire: { weapon: spec.weapon },
+      })), alice);
+
+      const event = roomEvents(alice, spec.eventType)
+        .find((candidate) =>
+          candidate.attackerPlayerId === "party:client-a" &&
+          candidate.victimPlayerId === "party:client-b" &&
+          candidate.damageSource === spec.weapon
+        );
+      assert.ok(event, `expected ${spec.eventType} for ${spec.weapon}`);
+      if (spec.eventType === "player.damaged") {
+        assert.equal(event.damage, spec.damage, `${spec.weapon} damage`);
+        assert.equal(event.health, spec.health, `${spec.weapon} victim health`);
+      }
+      if (spec.eventType === "player.killed") {
+        const victim = latestSnapshotPlayerForClient(alice, "client-b");
+        assert.equal(victim.alive, false, `${spec.weapon} should kill the victim`);
+        assert.equal(victim.health, 0, `${spec.weapon} should leave victim at zero health`);
+      }
+      assert.equal(alice.messages.filter((message) => message.type === "room.reject").length, 0, `${spec.weapon} alice rejects`);
+      assert.equal(bob.messages.filter((message) => message.type === "room.reject").length, 0, `${spec.weapon} bob rejects`);
+    } finally {
+      cleanupDuelRoom(partyRoom, alice, bob);
+    }
+  }
 });
 
 test("client authority rejects non-hello first messages and client id swaps", () => {
@@ -483,6 +755,167 @@ test("loopback session rejects paused mutation intents", async () => {
     assert.equal(
       messages.slice(firstMutationMessageCount).filter((message) => message.type === "room.event").length,
       0,
+    );
+  } finally {
+    harness.disconnect();
+  }
+});
+
+test("loopback pickup intent accepts bounded local origin hints during vertical drift", async () => {
+  const pickupDefinition = {
+    pickupId: "item-shells",
+    entityIndex: 20,
+    classname: "item_shells",
+    origin: [2, 0, 1],
+    effect: { shells: 20 },
+  };
+  const deathmatchSpawns = [{
+    spawnId: "spawn-high",
+    classname: "info_player_deathmatch",
+    origin: [2.2, 0, 6],
+    rotX: 0,
+    rotY: 0,
+  }];
+  const gameplayDefinitions = facts.createQuakeMultiplayerGameplayDefinitions({
+    deathmatchSpawns,
+    pickupDefinitions: [pickupDefinition],
+  });
+  const harness = await createLoopbackHarness({
+    now: 3000,
+    sessionOptions: {
+      trustedGameplayDefinitions: gameplayDefinitions,
+    },
+  });
+  const { messages, session } = harness;
+  try {
+    session.send(helloEnvelope({
+      messageId: "hello-pickup-drift",
+      sequence: 1,
+      sentAt: harness.now(),
+    }));
+
+    harness.advanceNow(120);
+    session.send(pickupEnvelope({
+      messageId: "pickup-drift",
+      sequence: 2,
+      pickupSequence: 1,
+      sentAt: harness.now(),
+      pickup: {
+        entityIndex: pickupDefinition.entityIndex,
+        origin: [2.2, 0, 1],
+      },
+    }));
+
+    const event = latestMessage(messages, "room.event").payload.event;
+    assert.equal(event.eventType, "pickup.taken");
+    assert.equal(event.entityIndex, pickupDefinition.entityIndex);
+    assert.equal(messages.some((message) => message.type === "room.reject"), false);
+  } finally {
+    harness.disconnect();
+  }
+});
+
+test("loopback ignores unknown pickup intents without broadcast noise", async () => {
+  const harness = await createLoopbackHarness({ now: 3500 });
+  const { messages, session } = harness;
+  try {
+    session.send(helloEnvelope({
+      messageId: "hello-unknown-pickup",
+      sequence: 1,
+      sentAt: harness.now(),
+    }));
+
+    harness.advanceNow(120);
+    const beforeCount = messages.length;
+    session.send(pickupEnvelope({
+      messageId: "pickup-unknown",
+      sequence: 2,
+      pickupSequence: 1,
+      sentAt: harness.now(),
+      pickup: {
+        entityIndex: 999,
+        origin: [0, 0, 1],
+      },
+    }));
+
+    assert.equal(messages.length, beforeCount);
+    assert.equal(messages.some((message) => message.type === "room.reject"), false);
+    assert.equal(
+      messages.some((message) =>
+        message.type === "room.event" && message.payload.event.eventType === "pickup.rejected"
+      ),
+      false,
+    );
+  } finally {
+    harness.disconnect();
+  }
+});
+
+test("loopback ignores touch prediction misses without room rejects", async () => {
+  const moverDefinition = {
+    kind: "mover",
+    entityIndex: 88,
+    classname: "func_button",
+    bounds: {
+      mins: [9.8, -0.5, 0],
+      maxs: [10.2, 0.5, 1.2],
+    },
+    touchActivates: true,
+    useActivates: false,
+    shootActivates: false,
+    speed: 40,
+    moveMs: 150,
+    delayMs: 0,
+    fromOrigin: [0, 0, 0],
+    toOrigin: [0, 0, -0.12],
+    targetEntityIndexes: [],
+  };
+  const deathmatchSpawns = [{
+    spawnId: "spawn-far",
+    classname: "info_player_deathmatch",
+    origin: [0, 0, 1],
+    rotX: 0,
+    rotY: 0,
+  }];
+  const gameplayDefinitions = facts.createQuakeMultiplayerGameplayDefinitions({
+    deathmatchSpawns,
+    pickupDefinitions: [],
+  });
+  const harness = await createLoopbackHarness({
+    now: 4000,
+    sessionOptions: {
+      trustedGameplayDefinitions: gameplayDefinitions,
+      trustedWorldDefinitions: [moverDefinition],
+    },
+  });
+  const { messages, session } = harness;
+  try {
+    session.send(helloEnvelope({
+      messageId: "hello-world-touch-miss",
+      sequence: 1,
+      sentAt: harness.now(),
+    }));
+
+    harness.advanceNow(120);
+    const beforeCount = messages.length;
+    session.send(worldEnvelope({
+      messageId: "world-touch-miss",
+      sequence: 2,
+      worldSequence: 1,
+      sentAt: harness.now(),
+      intent: {
+        entityIndex: moverDefinition.entityIndex,
+        origin: [10, 0, 1],
+      },
+    }));
+
+    assert.equal(messages.length, beforeCount);
+    assert.equal(messages.some((message) => message.type === "room.reject"), false);
+    assert.equal(
+      messages.some((message) =>
+        message.type === "room.event" && message.payload.event.eventType === "world.mover"
+      ),
+      false,
     );
   } finally {
     harness.disconnect();

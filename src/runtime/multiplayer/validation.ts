@@ -412,7 +412,8 @@ function isPickupIntent(value: unknown): value is QuakeMultiplayerPickupIntent {
   if (!isRecord(value)) return false;
   return isNonNegativeInteger(value.pickupSequence) &&
     Number.isFinite(value.requestedAt) &&
-    isNonNegativeInteger(value.entityIndex);
+    isNonNegativeInteger(value.entityIndex) &&
+    (value.origin === undefined || isVec3(value.origin));
 }
 
 function isMatchIntent(value: unknown): value is QuakeMultiplayerMatchIntent {
