@@ -20,6 +20,8 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_VIEWPORT = "960x540";
 const DEFAULT_DURATION_MS = 6_000;
 const DEFAULT_JSON_OUT = "bench/results/quake/multiplayer-browser-smoke.json";
+const DEFAULT_MAX_REMOTE_HIDDEN_GAP_MS = 500;
+const REMOTE_FRAME_TRACE_LIMIT = 6_000;
 const ROOM_TOKEN_ALPHABET = "bcdfghjkmnpqrstvwxyz23456789";
 
 const args = process.argv.slice(2);
@@ -37,41 +39,53 @@ const common = parseCommonBrowserArgs(args, {
 const clientsCount = Math.max(2, Math.min(4, Math.round(numberOption(args, "clients", 2))));
 const durationMs = Math.max(1_000, Math.round(numberOption(args, "duration-ms", DEFAULT_DURATION_MS)));
 const fireEnabled = hasFlag(args, "fire");
+const maxRemoteHiddenGapMs = Math.max(0, Math.round(numberOption(args, "max-remote-hidden-gap-ms", DEFAULT_MAX_REMOTE_HIDDEN_GAP_MS)));
 const mapName = optionValue(args, "map", "e1m1").trim().toLowerCase();
 const preferredPartyPort = Math.max(1, Math.round(numberOption(args, "party-port", DEFAULT_PARTY_PORT)));
+const externalAppUrl = normalizeAppUrl(common.explicitUrl);
+const requestedPartyHost = optionValue(args, "party-host", "");
+const externalPartyHost = normalizePartyHost(requestedPartyHost || (externalAppUrl ? process.env.VITE_CSSQUAKE_PARTY_HOST ?? "" : ""));
 
 console.log("Multiplayer browser smoke gate");
-console.log("validates: PartyKit room join, compact invite route, isolated browser clients, remote player movement, zero rejects");
-console.log(`requires prepared assets: yes, map ${mapName}`);
+console.log("validates: PartyKit room join, compact invite route, isolated browser clients, remote player movement, remote player continuity, zero rejects");
 console.log("classification: multiplayer acceptance");
-assertAssetState({ requiredMaps: [mapName], requireRenderBundle: true, requireGameLogic: true });
+if (externalAppUrl) {
+  if (!externalPartyHost) throw new Error("--party-host <host> is required when --url is used.");
+  console.log(`requires prepared assets: deployed app manifest, map ${mapName}`);
+} else {
+  if (externalPartyHost) throw new Error("--party-host is only supported with --url.");
+  console.log(`requires prepared assets: yes, map ${mapName}`);
+  assertAssetState({ requiredMaps: [mapName], requireRenderBundle: true, requireGameLogic: true });
+}
 
-const manifest = readAssetManifest();
+const manifest = externalAppUrl ? await readRemoteAssetManifest(externalAppUrl, common.timeoutMs) : readAssetManifest();
 const invite = createCompactInvite(manifest, mapName);
-const vitePort = await findFreePort(common.port);
-const partyPort = await findFreePort(preferredPartyPort, new Set([vitePort]));
-const appUrl = `http://127.0.0.1:${vitePort}/`;
-const partyHost = `127.0.0.1:${partyPort}`;
+const vitePort = externalAppUrl ? null : await findFreePort(common.port);
+const partyPort = externalAppUrl ? null : await findFreePort(preferredPartyPort, new Set([vitePort]));
+const appUrl = externalAppUrl || `http://127.0.0.1:${vitePort}/`;
+const partyHost = externalPartyHost || `127.0.0.1:${partyPort}`;
 const servers = [];
 let browser = null;
 
 try {
-  servers.push(await startManagedServer({
-    name: "vite",
-    command: "pnpm",
-    args: ["exec", "vite", "--host", "127.0.0.1", "--port", String(vitePort), "--strictPort"],
-    ready: /Local:\s+http:\/\/127\.0\.0\.1:|ready in/i,
-    timeoutMs: common.timeoutMs,
-  }));
-  servers.push(await startManagedServer({
-    name: "partykit",
-    command: "pnpm",
-    args: ["exec", "partykit", "dev", "--port", String(partyPort), "--serve", "build/generated/public"],
-    ready: /Ready on|Updated and ready/i,
-    timeoutMs: common.timeoutMs,
-  }));
+  if (!externalAppUrl) {
+    servers.push(await startManagedServer({
+      name: "vite",
+      command: "pnpm",
+      args: ["exec", "vite", "--host", "127.0.0.1", "--port", String(vitePort), "--strictPort"],
+      ready: /Local:\s+http:\/\/127\.0\.0\.1:|ready in/i,
+      timeoutMs: common.timeoutMs,
+    }));
+    servers.push(await startManagedServer({
+      name: "partykit",
+      command: "pnpm",
+      args: ["exec", "partykit", "dev", "--port", String(partyPort), "--serve", "build/generated/public"],
+      ready: /Ready on|Updated and ready/i,
+      timeoutMs: common.timeoutMs,
+    }));
+  }
   await assertHttpReady(appUrl, common.timeoutMs);
-  await assertHttpReady(`http://${partyHost}/parties/main/${encodeURIComponent(invite.internalRoom)}`, common.timeoutMs);
+  await assertHttpReady(partyRoomUrl(partyHost, invite.internalRoom), common.timeoutMs);
 
   const chromium = await loadChromium();
   browser = await chromium.launch({ headless: !common.headed });
@@ -103,6 +117,7 @@ try {
     fireEnabled,
     invite,
     mapName,
+    maxRemoteHiddenGapMs,
     partyHost,
   });
   await writeJsonArtifact(common.jsonOut, report);
@@ -122,6 +137,10 @@ Options:
   --clients <n>         Active browser players, 2-4. Default: 2
   --duration-ms <ms>    Input-driving duration. Default: ${DEFAULT_DURATION_MS}
   --fire                Also trigger debug weapon fire while moving.
+  --max-remote-hidden-gap-ms <ms>
+                        Fail if an expected remote player is hidden/missing for longer than this. Default: ${DEFAULT_MAX_REMOTE_HIDDEN_GAP_MS}
+  --url <url>           Use an already deployed app instead of starting local Vite.
+  --party-host <host>   PartyKit host for --url, without protocol.
   --port <port>         Preferred Vite port. Default: ${DEFAULT_PORT}
   --party-port <port>   Preferred PartyKit port. Default: ${DEFAULT_PARTY_PORT}
   --headed              Run Chromium headed.
@@ -142,6 +161,7 @@ async function openClient(browser, options) {
   });
   const requestFailures = [];
   page.on("requestfailed", (request) => {
+    if (ignoreRequestFailure(request.url())) return;
     const failure = request.failure();
     requestFailures.push({
       url: request.url(),
@@ -215,6 +235,7 @@ async function driveClients(clients, { durationMs, fireEnabled }) {
       await client.page.keyboard.down(key);
       await client.page.waitForTimeout(120);
       if (fireEnabled && tick % 4 === 0) await client.page.evaluate(() => window.__cssQuakeDebug?.fire?.());
+      await sampleRemotePlayerAnimation(client);
       await client.page.keyboard.up(key);
     }));
     tick += 1;
@@ -225,15 +246,61 @@ async function driveClients(clients, { durationMs, fireEnabled }) {
   }));
 }
 
+async function sampleRemotePlayerAnimation(client) {
+  await client.page.evaluate((remoteFrameTraceLimit) => {
+    const trace = window.__cssQuakeMpTrace;
+    if (!trace?.remoteFrames) return;
+    const stats = window.__cssQuakeDebug?.stats?.();
+    const localClientId = stats?.multiplayer?.clientId ?? null;
+    const expectedRemotes = new Map();
+    for (const player of trace.lastSnapshotPlayers ?? []) {
+      if (!player?.clientId || player.clientId === localClientId) continue;
+      expectedRemotes.set(player.clientId, player);
+    }
+    const elementsByClient = new Map();
+    for (const element of document.querySelectorAll("[data-player-id][data-client-id]")) {
+      const clientId = element.dataset.clientId ?? null;
+      if (!clientId || clientId === localClientId) continue;
+      elementsByClient.set(clientId, element);
+      if (!expectedRemotes.has(clientId)) {
+        expectedRemotes.set(clientId, {
+          clientId,
+          playerId: element.dataset.playerId ?? null,
+        });
+      }
+    }
+    for (const [clientId, expected] of expectedRemotes) {
+      const element = elementsByClient.get(clientId) ?? null;
+      trace.remoteFrames.push({
+        sampledAt: performance.now(),
+        playerId: element?.dataset.playerId ?? expected.playerId ?? null,
+        clientId,
+        missing: !element,
+        hidden: element instanceof HTMLElement ? element.hidden : true,
+        frameIndex: element?.dataset.remoteFrameIndex ?? null,
+        frameName: element?.dataset.remoteFrameName ?? null,
+        transform: element instanceof HTMLElement ? element.style.transform : "",
+        computedTransform: element instanceof HTMLElement ? getComputedStyle(element).transform : "",
+      });
+    }
+    if (trace.remoteFrames.length > remoteFrameTraceLimit) {
+      trace.remoteFrames.splice(0, trace.remoteFrames.length - remoteFrameTraceLimit);
+    }
+  }, REMOTE_FRAME_TRACE_LIMIT);
+}
+
 async function readClientSnapshot(client) {
   return await client.page.evaluate(() => {
     const stats = window.__cssQuakeDebug?.stats?.() ?? null;
     const trace = window.__cssQuakeMpTrace ??
-      { connections: [], sent: [], received: [], events: [], rejects: [], snapshots: 0 };
+      { connections: [], sent: [], sentDetails: [], received: [], events: [], lastSnapshotPlayers: [], rejects: [], snapshots: 0, remoteFrames: [] };
     const remotePlayers = Array.from(document.querySelectorAll("[data-player-id][data-client-id]"))
       .map((element) => ({
         playerId: element.dataset.playerId ?? null,
         clientId: element.dataset.clientId ?? null,
+        color: element.dataset.playerColor ?? null,
+        frameIndex: element.dataset.remoteFrameIndex ?? null,
+        frameName: element.dataset.remoteFrameName ?? null,
         hidden: element instanceof HTMLElement ? element.hidden : false,
         transform: element instanceof HTMLElement ? element.style.transform : "",
         computedTransform: element instanceof HTMLElement ? getComputedStyle(element).transform : "",
@@ -251,10 +318,13 @@ async function readClientSnapshot(client) {
       mpTrace: {
         connections: trace.connections,
         sent: trace.sent,
+        sentDetails: trace.sentDetails,
         received: trace.received,
         events: trace.events,
+        lastSnapshotPlayers: trace.lastSnapshotPlayers,
         rejects: trace.rejects,
         snapshots: trace.snapshots,
+        remoteFrames: trace.remoteFrames,
       },
     };
   });
@@ -266,7 +336,10 @@ function installWebSocketTrace() {
     events: [],
     received: [],
     rejects: [],
+    remoteFrames: [],
     sent: [],
+    sentDetails: [],
+    lastSnapshotPlayers: [],
     snapshots: 0,
   };
   Object.defineProperty(window, "__cssQuakeMpTrace", {
@@ -283,11 +356,19 @@ function installWebSocketTrace() {
       if (bucket === "sent") {
         trace.sent.push(message.type);
         if (trace.sent.length > 500) trace.sent.shift();
+        const detail = compactSentMessage(message);
+        if (detail) {
+          trace.sentDetails.push(detail);
+          if (trace.sentDetails.length > 100) trace.sentDetails.shift();
+        }
         return;
       }
       trace.received.push(message.type);
       if (trace.received.length > 500) trace.received.shift();
-      if (message.type === "room.snapshot") trace.snapshots += 1;
+      if (message.type === "room.snapshot") {
+        trace.snapshots += 1;
+        trace.lastSnapshotPlayers = compactSnapshotPlayers(message.payload?.players);
+      }
       if (message.type === "room.event" && message.payload?.event?.eventType) {
         trace.events.push(message.payload.event.eventType);
         if (trace.events.length > 500) trace.events.shift();
@@ -299,6 +380,7 @@ function installWebSocketTrace() {
           recoverable: Boolean(message.payload?.recoverable),
           rejectedMessageId: message.payload?.rejectedMessageId ?? null,
           retryAfterMs: message.payload?.retryAfterMs ?? null,
+          details: message.payload?.details ?? null,
         });
         if (trace.rejects.length > 50) trace.rejects.shift();
       }
@@ -322,9 +404,71 @@ function installWebSocketTrace() {
   WrappedWebSocket.prototype = NativeWebSocket.prototype;
   Object.setPrototypeOf(WrappedWebSocket, NativeWebSocket);
   window.WebSocket = WrappedWebSocket;
+
+  function compactSentMessage(message) {
+    if (!message || typeof message !== "object") return null;
+    if (message.type !== "client.world" && message.type !== "client.fire" && message.type !== "client.pickup") {
+      return null;
+    }
+    const base = {
+      messageId: message.messageId ?? null,
+      sentAt: message.sentAt ?? null,
+      type: message.type,
+    };
+    if (message.type === "client.fire") {
+      const fire = message.payload?.fire ?? {};
+      return {
+        ...base,
+        fire: {
+          fireKind: fire.fireKind ?? null,
+          weapon: fire.weapon ?? null,
+          origin: fire.origin ?? null,
+          direction: fire.direction ?? null,
+          range: fire.range ?? null,
+        },
+      };
+    }
+    if (message.type === "client.pickup") {
+      const pickup = message.payload?.pickup ?? {};
+      return {
+        ...base,
+        pickup: {
+          pickupSequence: pickup.pickupSequence ?? null,
+          requestedAt: pickup.requestedAt ?? null,
+          entityIndex: pickup.entityIndex ?? null,
+          origin: pickup.origin ?? null,
+        },
+      };
+    }
+    const intent = message.payload?.intent ?? {};
+    return {
+      ...base,
+      intent: {
+        intentType: intent.intentType ?? null,
+        worldSequence: intent.worldSequence ?? null,
+        requestedAt: intent.requestedAt ?? null,
+        entityIndex: intent.entityIndex ?? null,
+        origin: intent.origin ?? null,
+      },
+    };
+  }
+
+  function compactSnapshotPlayers(players) {
+    if (!Array.isArray(players)) return [];
+    return players
+      .filter((player) => player && typeof player === "object")
+      .map((player) => ({
+        playerId: player.playerId ?? null,
+        clientId: player.clientId ?? null,
+        name: player.name ?? null,
+        alive: player.alive ?? null,
+        health: player.health ?? null,
+      }))
+      .filter((player) => player.clientId || player.playerId);
+  }
 }
 
-function buildReport({ after, appUrl, before, clients, clientsCount, durationMs, fireEnabled, invite, mapName, partyHost }) {
+function buildReport({ after, appUrl, before, clients, clientsCount, durationMs, fireEnabled, invite, mapName, maxRemoteHiddenGapMs, partyHost }) {
   const clientReports = clients.map((client, index) => ({
     index,
     url: client.url,
@@ -332,6 +476,10 @@ function buildReport({ after, appUrl, before, clients, clientsCount, durationMs,
     after: after[index],
     pageErrors: client.pageErrors,
     requestFailures: client.requestFailures,
+  }));
+  const remoteVisibilityByClient = clientReports.map((client) => ({
+    index: client.index,
+    ...remoteVisibilitySummary(client.after.mpTrace.remoteFrames),
   }));
   const aggregate = {
     clients: clientsCount,
@@ -344,6 +492,24 @@ function buildReport({ after, appUrl, before, clients, clientsCount, durationMs,
     remotePlayersMoved: clientReports.filter((client) =>
       remotePlayersMoved(client.before.remotePlayers, client.after.remotePlayers)
     ).length,
+    remotePlayersAnimated: clientReports.filter((client) =>
+      remotePlayerAnimationObserved(client.after.mpTrace.remoteFrames)
+    ).length,
+    remoteAnimationFrameNames: countAll(clientReports.flatMap((client) =>
+      (client.after.mpTrace.remoteFrames ?? [])
+        .filter((sample) => !sample.hidden && sample.frameName)
+        .map((sample) => sample.frameName)
+    )),
+    remoteAnimationSamples: clientReports.reduce((total, client) =>
+      total + (client.after.mpTrace.remoteFrames?.length ?? 0),
+      0,
+    ),
+    remoteVisibility: {
+      maxHiddenGapMs: Math.max(0, ...remoteVisibilityByClient.map((client) => client.maxHiddenGapMs)),
+      missingSamples: remoteVisibilityByClient.reduce((total, client) => total + client.missingSamples, 0),
+      hiddenSamples: remoteVisibilityByClient.reduce((total, client) => total + client.hiddenSamples, 0),
+      byClient: remoteVisibilityByClient,
+    },
     presentationReady: clientReports.filter((client) =>
       client.after.presentation.menuOpen === false &&
       client.after.presentation.menuUnlocked === false &&
@@ -379,6 +545,7 @@ function buildReport({ after, appUrl, before, clients, clientsCount, durationMs,
       clients: clientsCount,
       durationMs,
       fireEnabled,
+      maxRemoteHiddenGapMs,
     },
     aggregate,
     clients: clientReports,
@@ -398,6 +565,13 @@ function validateReport(report) {
   if (report.aggregate.presentationReady !== clients) failures.push(`Only ${report.aggregate.presentationReady}/${clients} clients entered active play presentation.`);
   if (report.aggregate.moved !== clients) failures.push(`Only ${report.aggregate.moved}/${clients} clients moved locally.`);
   if (report.aggregate.remotePlayersMoved !== clients) failures.push(`Only ${report.aggregate.remotePlayersMoved}/${clients} clients saw remote player movement.`);
+  if (report.aggregate.remotePlayersAnimated !== clients) failures.push(`Only ${report.aggregate.remotePlayersAnimated}/${clients} clients saw remote player frame animation.`);
+  if (report.aggregate.remoteVisibility.maxHiddenGapMs > report.options.maxRemoteHiddenGapMs) {
+    failures.push(
+      `Remote players were hidden/missing for up to ${report.aggregate.remoteVisibility.maxHiddenGapMs}ms ` +
+      `(limit ${report.options.maxRemoteHiddenGapMs}ms).`,
+    );
+  }
   if (report.aggregate.websocket.snapshots === 0) failures.push("No room snapshots were observed.");
   if (report.aggregate.websocket.rejects.length) failures.push(`Room rejected ${report.aggregate.websocket.rejects.length} message(s).`);
   if (report.aggregate.errors.page) failures.push(`${report.aggregate.errors.page} page error(s) were reported.`);
@@ -420,10 +594,12 @@ function validateReport(report) {
 function printSummary(report, artifact) {
   console.log(`target: app=${report.target.appUrl}, party=${report.target.partyHost}, room=${report.target.room}, invite=${report.target.invite}`);
   console.log(`clients: loaded ${report.aggregate.loaded}/${report.options.clients}, scoreboard ${report.aggregate.scoreboardReady}/${report.options.clients}, remote DOM ${report.aggregate.remotePlayersReady}/${report.options.clients}, visible ${report.aggregate.remotePlayersVisible}/${report.options.clients}`);
-  console.log(`play: moved ${report.aggregate.moved}/${report.options.clients}, remote movement ${report.aggregate.remotePlayersMoved}/${report.options.clients}, snapshots ${report.aggregate.websocket.snapshots}, rejects ${report.aggregate.websocket.rejects.length}`);
+  console.log(`play: moved ${report.aggregate.moved}/${report.options.clients}, remote movement ${report.aggregate.remotePlayersMoved}/${report.options.clients}, remote animation ${report.aggregate.remotePlayersAnimated}/${report.options.clients}, snapshots ${report.aggregate.websocket.snapshots}, rejects ${report.aggregate.websocket.rejects.length}`);
   console.log(`messages sent: ${compactCounts(report.aggregate.websocket.sentByType)}`);
   console.log(`messages received: ${compactCounts(report.aggregate.websocket.receivedByType)}`);
   console.log(`events: ${compactCounts(report.aggregate.websocket.events)}`);
+  console.log(`remote frames: samples ${report.aggregate.remoteAnimationSamples}, names ${compactCounts(report.aggregate.remoteAnimationFrameNames)}`);
+  console.log(`remote visibility: max hidden/missing gap ${report.aggregate.remoteVisibility.maxHiddenGapMs}ms, missing samples ${report.aggregate.remoteVisibility.missingSamples}, hidden samples ${report.aggregate.remoteVisibility.hiddenSamples}`);
   console.log(`failures: ${report.failures.length ? report.failures.join(" | ") : "none"}`);
   if (artifact) console.log(`artifact: ${artifact}`);
 }
@@ -438,6 +614,125 @@ function remotePlayersMoved(before, after) {
     if (player.computedTransform !== previous.computedTransform) return true;
   }
   return false;
+}
+
+function remotePlayerAnimationObserved(samples) {
+  const frameKeysByRemote = new Map();
+  for (const sample of samples ?? []) {
+    if (!sample?.clientId || sample.hidden) continue;
+    const frameKey = `${sample.frameIndex ?? ""}:${sample.frameName ?? ""}`;
+    if (frameKey === ":") continue;
+    let frameKeys = frameKeysByRemote.get(sample.clientId);
+    if (!frameKeys) {
+      frameKeys = new Set();
+      frameKeysByRemote.set(sample.clientId, frameKeys);
+    }
+    frameKeys.add(frameKey);
+    if (frameKeys.size >= 2) return true;
+  }
+  return false;
+}
+
+function remoteVisibilitySummary(samples) {
+  const byRemote = new Map();
+  for (const sample of samples ?? []) {
+    if (!sample?.clientId) continue;
+    let list = byRemote.get(sample.clientId);
+    if (!list) {
+      list = [];
+      byRemote.set(sample.clientId, list);
+    }
+    list.push(sample);
+  }
+
+  const remotes = [];
+  let maxHiddenGapMs = 0;
+  let hiddenSamples = 0;
+  let missingSamples = 0;
+  for (const [clientId, list] of byRemote) {
+    list.sort((a, b) => Number(a.sampledAt ?? 0) - Number(b.sampledAt ?? 0));
+    let hiddenSince = null;
+    let remoteMaxHiddenGapMs = 0;
+    let remoteHiddenSamples = 0;
+    let remoteMissingSamples = 0;
+    for (const sample of list) {
+      const sampledAt = Number(sample.sampledAt ?? 0);
+      const unavailable = Boolean(sample.missing || sample.hidden);
+      if (sample.missing) {
+        remoteMissingSamples += 1;
+        missingSamples += 1;
+      }
+      if (sample.hidden) {
+        remoteHiddenSamples += 1;
+        hiddenSamples += 1;
+      }
+      if (unavailable) {
+        if (hiddenSince === null) hiddenSince = sampledAt;
+        remoteMaxHiddenGapMs = Math.max(remoteMaxHiddenGapMs, Math.round(sampledAt - hiddenSince));
+        continue;
+      }
+      if (hiddenSince !== null) {
+        remoteMaxHiddenGapMs = Math.max(remoteMaxHiddenGapMs, Math.round(sampledAt - hiddenSince));
+        hiddenSince = null;
+      }
+    }
+    maxHiddenGapMs = Math.max(maxHiddenGapMs, remoteMaxHiddenGapMs);
+    remotes.push({
+      clientId,
+      hiddenSamples: remoteHiddenSamples,
+      maxHiddenGapMs: remoteMaxHiddenGapMs,
+      missingSamples: remoteMissingSamples,
+      samples: list.length,
+    });
+  }
+  remotes.sort((a, b) => String(a.clientId).localeCompare(String(b.clientId)));
+  return { hiddenSamples, maxHiddenGapMs, missingSamples, remotes };
+}
+
+async function readRemoteAssetManifest(appUrl, timeoutMs) {
+  const manifestUrl = new URL("/q/manifest.json", appUrl).toString();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(manifestUrl, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (response.status === 404) {
+      console.warn(`${manifestUrl} returned 404; using the local generated manifest for invite encoding only.`);
+      return readAssetManifest();
+    }
+    if (!response.ok) throw new Error(`${manifestUrl} returned HTTP ${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function normalizeAppUrl(value) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return "";
+  const url = new URL(trimmed);
+  return url.toString();
+}
+
+function normalizePartyHost(value) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return "";
+  try {
+    return new URL(trimmed).host;
+  } catch {
+    return trimmed.replace(/^wss?:\/\//i, "").replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  }
+}
+
+function partyRoomUrl(host, room) {
+  const protocol = isLocalPartyHost(host) ? "http" : "https";
+  return `${protocol}://${host}/parties/main/${encodeURIComponent(room)}`;
+}
+
+function isLocalPartyHost(host) {
+  return /^(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/i.test(host);
 }
 
 function distance3(a, b) {
@@ -471,6 +766,15 @@ function socketUrlMatchesTarget(value, target) {
     return url.host === target.partyHost &&
       url.pathname === `/parties/main/${target.room}` &&
       !url.searchParams.has("region");
+  } catch {
+    return false;
+  }
+}
+
+function ignoreRequestFailure(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "www.google-analytics.com" && parsed.pathname === "/g/collect";
   } catch {
     return false;
   }

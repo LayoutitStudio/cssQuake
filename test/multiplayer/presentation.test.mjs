@@ -10,6 +10,7 @@ function createRemotePresenterHarness() {
   let now = 1_000;
   const callbacks = new Map();
   const damageEvents = [];
+  const killEvents = [];
   const visualStates = [];
   const removed = [];
   const presenter = presentation.createQuakeMultiplayerRemotePlayerPresenter({
@@ -19,6 +20,7 @@ function createRemotePresenterHarness() {
       remove: () => removed.push(player.playerId),
     }),
     onPlayerDamaged: (event, player) => damageEvents.push({ event, player }),
+    onPlayerKilled: (event, player) => killEvents.push({ event, player }),
     now: () => now,
     renderDelayMs: 0,
     requestFrame: (callback) => {
@@ -33,6 +35,7 @@ function createRemotePresenterHarness() {
 
   return {
     damageEvents,
+    killEvents,
     presenter,
     removed,
     visualStates,
@@ -117,4 +120,35 @@ test("remote presenter ignores local player damage for remote visuals", () => {
   }));
 
   assert.equal(harness.damageEvents.length, 0);
+});
+
+test("remote presenter reports remote player kills before death state is applied", () => {
+  const harness = createRemotePresenterHarness();
+  const remotePlayer = createPlayer({
+    playerId: "remote-player",
+    clientId: "remote-client",
+    updatedAt: 1_000,
+    origin: [10, 20, 30],
+  });
+
+  harness.presenter.handleRoomMessage(roomSnapshot([remotePlayer]));
+  harness.flushFrame();
+
+  harness.setNow(1_200);
+  harness.presenter.handleRoomMessage(roomEvent({
+    eventType: "player.killed",
+    eventId: "kill-1",
+    roomTime: 1_200,
+    victimPlayerId: "remote-player",
+    attackerPlayerId: "local-player",
+    damageSource: "shotgun",
+  }));
+  harness.flushFrame();
+
+  assert.equal(harness.killEvents.length, 1);
+  assert.equal(harness.killEvents[0].event.damageSource, "shotgun");
+  assert.equal(harness.killEvents[0].player.playerId, "remote-player");
+  assert.equal(harness.killEvents[0].player.alive, true);
+  assert.equal(harness.visualStates.at(-1).state.alive, false);
+  assert.equal(harness.visualStates.at(-1).state.deathAt, 1_200);
 });

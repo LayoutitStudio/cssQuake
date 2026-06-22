@@ -17,6 +17,10 @@ type QuakeMultiplayerPlayerDamagedEvent = Extract<
   QuakeMultiplayerSharedWorldEvent,
   { eventType: "player.damaged" }
 >;
+type QuakeMultiplayerPlayerKilledEvent = Extract<
+  QuakeMultiplayerSharedWorldEvent,
+  { eventType: "player.killed" }
+>;
 
 export interface QuakeMultiplayerRemoteVisualHandle {
   element?: HTMLElement;
@@ -30,6 +34,10 @@ export interface QuakeMultiplayerRemotePlayerPresenterOptions {
   shouldRenderPlayer?: (player: QuakeMultiplayerAuthoritativePlayerState) => boolean;
   onPlayerDamaged?: (
     event: QuakeMultiplayerPlayerDamagedEvent,
+    player: QuakeMultiplayerAuthoritativePlayerState,
+  ) => void;
+  onPlayerKilled?: (
+    event: QuakeMultiplayerPlayerKilledEvent,
     player: QuakeMultiplayerAuthoritativePlayerState,
   ) => void;
   now?: () => number;
@@ -148,7 +156,7 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
     } else if (event.eventType === "player.damaged") {
       markRemotePlayerPain(event);
     } else if (event.eventType === "player.killed") {
-      markRemotePlayerDeath(event.victimPlayerId);
+      markRemotePlayerDeath(event);
     } else if (event.eventType === "player.respawned") {
       if (event.player.clientId === options.localClientId) return;
       syncRemotePlayer(event.player);
@@ -163,11 +171,12 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
     scheduleFrame();
   }
 
-  function markRemotePlayerDeath(playerId: string): void {
-    const entry = players.get(playerId);
+  function markRemotePlayerDeath(event: QuakeMultiplayerPlayerKilledEvent): void {
+    const entry = players.get(event.victimPlayerId);
     if (!entry || entry.player.clientId === options.localClientId) return;
     entry.lastPainAt = undefined;
     entry.deathAt = now();
+    options.onPlayerKilled?.(event, entry.player);
     entry.player = {
       ...entry.player,
       alive: false,

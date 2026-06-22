@@ -292,6 +292,7 @@ export interface QuakeMultiplayerPickupIntent {
   pickupSequence: number;
   requestedAt: number;
   entityIndex: number;
+  origin?: QuakeMultiplayerVec3;
 }
 
 export interface QuakeMultiplayerMatchIntent {

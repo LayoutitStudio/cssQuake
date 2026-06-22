@@ -31,6 +31,8 @@ import {
 } from "./sceneFacts";
 
 const QUAKE_MULTIPLAYER_WORLD_TOUCH_TOLERANCE = 1;
+const QUAKE_MULTIPLAYER_WORLD_TOUCH_ORIGIN_HINT_MAX_HORIZONTAL_DRIFT = 3;
+const QUAKE_MULTIPLAYER_WORLD_TOUCH_ORIGIN_HINT_MAX_VERTICAL_DRIFT = 8;
 export const QUAKE_MULTIPLAYER_TELEPORT_EXIT_SPEED = 300 * QUAKE_COLLISION_UNIT_SCALE;
 export const QUAKE_MULTIPLAYER_TELEPORT_TARGET_ACTIVATION_WINDOW_MS = 200;
 export const QUAKE_MULTIPLAYER_TELEFRAG_DAMAGE = 50000;
@@ -110,6 +112,7 @@ export type QuakeMultiplayerWorldIntentResolution =
       ok: false;
       reason: string;
       message: string;
+      details?: Record<string, QuakeMultiplayerJson>;
     };
 
 export function quakeMultiplayerWorldDefinitionsFromScene(
@@ -287,11 +290,12 @@ export function resolveQuakeMultiplayerWorldIntent(
       message: "Multiplayer world intent targets an unknown shared world entity.",
     };
   }
-  if (!quakeMultiplayerPlayerTouchesWorldDefinition(player, definition)) {
+  if (!quakeMultiplayerWorldIntentTouchesDefinition(player, intent, definition)) {
     return {
       ok: false,
       reason: "too-far",
       message: "Multiplayer world intent is too far from the authoritative player position.",
+      details: quakeMultiplayerWorldIntentTouchRejectDetails(player, intent, definition),
     };
   }
   if (intent.intentType === "teleport" && definition.kind !== "teleport") {
@@ -400,6 +404,13 @@ export function resolveQuakeMultiplayerWorldIntent(
     kind: "changelevel",
     definition,
   };
+}
+
+export function quakeMultiplayerWorldIntentRejectionIsIgnorableTouchMiss(
+  intent: QuakeMultiplayerWorldIntent,
+  reason: string,
+): boolean {
+  return intent.intentType === "touch" && (reason === "too-far" || reason === "not-alive");
 }
 
 export function rejectQuakeMultiplayerClientWorldEvent(
@@ -615,8 +626,58 @@ function quakeMultiplayerWorldBoundsFromLogic(
   };
 }
 
-function quakeMultiplayerPlayerTouchesWorldDefinition(
+function quakeMultiplayerWorldIntentTouchesDefinition(
   player: QuakeMultiplayerAuthoritativePlayerState,
+  intent: QuakeMultiplayerWorldIntent,
+  definition: QuakeMultiplayerWorldDefinition,
+): boolean {
+  if (quakeMultiplayerPlayerTouchesWorldDefinition(player, definition)) return true;
+  const origin = "origin" in intent ? intent.origin : undefined;
+  if (!origin) return false;
+  if (!quakeMultiplayerTouchOriginHintWithinDrift(player.origin, origin)) {
+    return false;
+  }
+  return quakeMultiplayerPlayerTouchesWorldDefinition({ origin }, definition);
+}
+
+function quakeMultiplayerWorldIntentTouchRejectDetails(
+  player: QuakeMultiplayerAuthoritativePlayerState,
+  intent: QuakeMultiplayerWorldIntent,
+  definition: QuakeMultiplayerWorldDefinition,
+): Record<string, QuakeMultiplayerJson> {
+  const origin = "origin" in intent ? intent.origin : undefined;
+  const horizontalDrift = origin
+    ? Math.hypot(player.origin[0] - origin[0], player.origin[1] - origin[1])
+    : null;
+  const verticalDrift = origin ? Math.abs(player.origin[2] - origin[2]) : null;
+  return {
+    authoritativeOrigin: player.origin,
+    authoritativeTouches: quakeMultiplayerPlayerTouchesWorldDefinition(player, definition),
+    definitionKind: definition.kind,
+    entityIndex: definition.entityIndex,
+    hintOrigin: origin ?? null,
+    hintTouches: origin ? quakeMultiplayerPlayerTouchesWorldDefinition({ origin }, definition) : false,
+    horizontalDrift,
+    hintWithinDrift: origin ? quakeMultiplayerTouchOriginHintWithinDrift(player.origin, origin) : false,
+    verticalDrift,
+  };
+}
+
+function quakeMultiplayerTouchOriginHintWithinDrift(
+  authoritativeOrigin: QuakeMultiplayerVec3,
+  hintOrigin: QuakeMultiplayerVec3,
+): boolean {
+  const horizontalDrift = Math.hypot(
+    authoritativeOrigin[0] - hintOrigin[0],
+    authoritativeOrigin[1] - hintOrigin[1],
+  );
+  const verticalDrift = Math.abs(authoritativeOrigin[2] - hintOrigin[2]);
+  return horizontalDrift <= QUAKE_MULTIPLAYER_WORLD_TOUCH_ORIGIN_HINT_MAX_HORIZONTAL_DRIFT &&
+    verticalDrift <= QUAKE_MULTIPLAYER_WORLD_TOUCH_ORIGIN_HINT_MAX_VERTICAL_DRIFT;
+}
+
+function quakeMultiplayerPlayerTouchesWorldDefinition(
+  player: Pick<QuakeMultiplayerAuthoritativePlayerState, "origin">,
   definition: QuakeMultiplayerWorldDefinition,
 ): boolean {
   if (!definition.bounds) return true;

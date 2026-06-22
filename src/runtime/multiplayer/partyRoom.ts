@@ -98,6 +98,7 @@ import {
   sameQuakeMultiplayerMoverOffset,
   quakeMultiplayerTriggerUsesMultiTrigger,
   quakeMultiplayerWorldDefinitionsFromScene,
+  quakeMultiplayerWorldIntentRejectionIsIgnorableTouchMiss,
   rejectQuakeMultiplayerClientWorldEvent,
   resolveQuakeMultiplayerWorldIntent,
 } from "./world";
@@ -1086,7 +1087,6 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     const definition = this.pickupDefinitions.get(message.payload.pickup.entityIndex);
     const state = this.pickupStates.get(message.payload.pickup.entityIndex);
     if (!definition || !state) {
-      this.broadcastPickupRejected(player.playerId, message, undefined, "unknown-pickup");
       return;
     }
     const ownerPlayerIds = new Set(state.ownerPlayerIds ?? []);
@@ -1094,7 +1094,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       this.broadcastPickupRejected(player.playerId, message, definition, "unavailable");
       return;
     }
-    if (!quakeMultiplayerPlayerCanReachPickup(player, definition)) {
+    if (!quakeMultiplayerPlayerCanReachPickup(player, definition, undefined, message.payload.pickup.origin)) {
       this.broadcastPickupRejected(player.playerId, message, definition, "too-far");
       return;
     }
@@ -1183,12 +1183,15 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       Date.now(),
     );
     if (!resolution.ok) {
+      if (quakeMultiplayerWorldIntentRejectionIsIgnorableTouchMiss(message.payload.intent, resolution.reason)) {
+        return;
+      }
       this.reject(sender, {
         code: "unsupported",
         message: resolution.message,
         recoverable: true,
         rejectedMessageId: message.messageId,
-        details: { reason: resolution.reason },
+        details: { reason: resolution.reason, ...(resolution.details ?? {}) },
       });
       return;
     }

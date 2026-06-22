@@ -4,6 +4,7 @@ import type {
   QuakeMultiplayerInventoryState,
   QuakeMultiplayerPickupEffect,
   QuakeMultiplayerPickupDefinition,
+  QuakeMultiplayerVec3,
 } from "./protocol";
 
 const QUAKE_MULTIPLAYER_MAX_AMMO = {
@@ -20,6 +21,8 @@ const QUAKE_MULTIPLAYER_DEFAULT_WEAPON_FLAGS = {
 
 const QUAKE_MULTIPLAYER_ARMOR_FLAGS = 8192 | 16384 | 32768;
 const QUAKE_MULTIPLAYER_PICKUP_REACH_DISTANCE = 3.5;
+const QUAKE_MULTIPLAYER_PICKUP_ORIGIN_HINT_MAX_HORIZONTAL_DRIFT = 3;
+const QUAKE_MULTIPLAYER_PICKUP_ORIGIN_HINT_MAX_VERTICAL_DRIFT = 8;
 
 export interface QuakeMultiplayerDamageOptions {
   applyHealth?: boolean;
@@ -75,12 +78,39 @@ export function quakeMultiplayerPlayerCanReachPickup(
   player: QuakeMultiplayerAuthoritativePlayerState,
   pickup: QuakeMultiplayerPickupDefinition,
   maxDistance = QUAKE_MULTIPLAYER_PICKUP_REACH_DISTANCE,
+  originHint?: QuakeMultiplayerVec3,
 ): boolean {
   if (!player.alive) return false;
-  const dx = player.origin[0] - pickup.origin[0];
-  const dy = player.origin[1] - pickup.origin[1];
-  const dz = player.origin[2] - pickup.origin[2];
+  if (quakeMultiplayerOriginCanReachPickup(player.origin, pickup, maxDistance)) return true;
+  return Boolean(
+    originHint &&
+      quakeMultiplayerPickupOriginHintWithinDrift(player.origin, originHint) &&
+      quakeMultiplayerOriginCanReachPickup(originHint, pickup, maxDistance)
+  );
+}
+
+function quakeMultiplayerOriginCanReachPickup(
+  origin: QuakeMultiplayerVec3,
+  pickup: QuakeMultiplayerPickupDefinition,
+  maxDistance: number,
+): boolean {
+  const dx = origin[0] - pickup.origin[0];
+  const dy = origin[1] - pickup.origin[1];
+  const dz = origin[2] - pickup.origin[2];
   return Math.hypot(dx, dy, dz) <= maxDistance;
+}
+
+function quakeMultiplayerPickupOriginHintWithinDrift(
+  authoritativeOrigin: QuakeMultiplayerVec3,
+  hintOrigin: QuakeMultiplayerVec3,
+): boolean {
+  const horizontalDrift = Math.hypot(
+    authoritativeOrigin[0] - hintOrigin[0],
+    authoritativeOrigin[1] - hintOrigin[1],
+  );
+  const verticalDrift = Math.abs(authoritativeOrigin[2] - hintOrigin[2]);
+  return horizontalDrift <= QUAKE_MULTIPLAYER_PICKUP_ORIGIN_HINT_MAX_HORIZONTAL_DRIFT &&
+    verticalDrift <= QUAKE_MULTIPLAYER_PICKUP_ORIGIN_HINT_MAX_VERTICAL_DRIFT;
 }
 
 export function quakeMultiplayerPickupStateWithoutOwner(
