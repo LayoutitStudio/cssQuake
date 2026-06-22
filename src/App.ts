@@ -1250,6 +1250,14 @@ const quakeRemotePlayers = createQuakeMultiplayerRemotePlayerPresenter({
   localClientId: QUAKE_MULTIPLAYER_LOCAL_CLIENT_ID,
   createVisual: createQuakeRemotePlayerVisual,
   shouldRenderPlayer: (playerState) => playerState.playerId !== quakeMultiplayerSpectatorFollowedPlayerId,
+  onPlayerDamaged: (event, playerState) => {
+    if (!quakeMultiplayerRemoteDamageFromLocalPlayer(event)) return;
+    quakeImpactParticleFlow.spawnBlood({
+      damage: event.damage,
+      directionHint: quakeMultiplayerRemoteDamageDirectionHint(event, playerState),
+      origin: quakeMultiplayerRemoteDamageOrigin(playerState),
+    });
+  },
   now: () => Date.now(),
 });
 const quakeLoopbackTrustedSceneMovement = {
@@ -2909,7 +2917,7 @@ function syncQuakeRemotePlayerVisual(
   state: QuakeMultiplayerRemoteInterpolationState,
 ): void {
   const { handle } = remote;
-  handle.element.hidden = state.stale;
+  handle.element.hidden = false;
   setQuakeRenderBundleFrameSetHandleFrame(handle, quakeRemotePlayerVisualFrameIndex(remote, state));
   const rotY = quakeRemotePlayerVisualRotY(state);
   handle.setTransform({
@@ -3733,6 +3741,33 @@ function handleQuakeMultiplayerPlayerDamaged(
   syncQuakeHud();
   quakeHudFlow.flashDamageFeedback({ amount: event.damage });
   if (event.health <= 0 && !quakePlayerDead) showQuakePlayerDeath();
+}
+
+function quakeMultiplayerRemoteDamageOrigin(playerState: QuakeMultiplayerAuthoritativePlayerState): Vec3 {
+  return [
+    playerState.origin[0],
+    playerState.origin[1],
+    playerState.origin[2] + QUAKE_MULTIPLAYER_REMOTE_PLAYER_EYE_HEIGHT * 0.5,
+  ];
+}
+
+function quakeMultiplayerRemoteDamageDirectionHint(
+  event: Extract<QuakeMultiplayerSharedWorldEvent, { eventType: "player.damaged" }>,
+  playerState: QuakeMultiplayerAuthoritativePlayerState,
+): Vec3 | undefined {
+  if (!quakeMultiplayerRemoteDamageFromLocalPlayer(event)) return undefined;
+  const origin = getPlayer().currentOrigin();
+  return [
+    playerState.origin[0] - origin[0],
+    playerState.origin[1] - origin[1],
+    playerState.origin[2] - origin[2],
+  ];
+}
+
+function quakeMultiplayerRemoteDamageFromLocalPlayer(
+  event: Extract<QuakeMultiplayerSharedWorldEvent, { eventType: "player.damaged" }>,
+): boolean {
+  return event.attackerPlayerId === quakeMultiplayerPlayerIdForClient(QUAKE_MULTIPLAYER_LOCAL_CLIENT_ID);
 }
 
 function handleQuakeMultiplayerPlayerKilled(
