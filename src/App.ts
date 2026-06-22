@@ -812,6 +812,7 @@ const QUAKE_MULTIPLAYER_HARD_CORRECTION_DISTANCE = 4096 * QUAKE_COLLISION_UNIT_S
 const QUAKE_MULTIPLAYER_SOFT_CORRECTION_DISTANCE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MULTIPLAYER_MAX_BLEND_CORRECTION_DISTANCE = 64 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MULTIPLAYER_REMOTE_MODEL_PATHS = ["progs/player.mdl"] as const;
+const QUAKE_MULTIPLAYER_DEFAULT_CREATE_MAP = "e1m7";
 const QUAKE_MULTIPLAYER_REMOTE_DEFAULT_FRAME = "stand1";
 const QUAKE_MULTIPLAYER_REMOTE_RUN_FRAME_PREFIX = "rockrun";
 const QUAKE_MULTIPLAYER_REMOTE_PAIN_FRAME_PREFIX = "pain";
@@ -821,6 +822,7 @@ const QUAKE_MULTIPLAYER_REMOTE_PAIN_FPS = 10;
 const QUAKE_MULTIPLAYER_REMOTE_DEATH_FPS = 10;
 const QUAKE_MULTIPLAYER_REMOTE_RUN_SPEED_THRESHOLD = QUAKE_PMOVE_FORWARD_SPEED * 0.1;
 const QUAKE_MULTIPLAYER_REMOTE_PLAYER_EYE_HEIGHT = QUAKE_PLAYER_VIEW_Z - QUAKE_PLAYER_MINS_Z;
+const QUAKE_MULTIPLAYER_REMOTE_MODEL_ROT_Y_OFFSET = 0;
 const QUAKE_MULTIPLAYER_REMOTE_FALLBACK_ROT_Y_OFFSET = 45;
 const quakeMultiplayerScoreboard = QUAKE_MULTIPLAYER_ENABLED && quakeHud
   ? mountQuakeMultiplayerScoreboard(quakeHud)
@@ -944,11 +946,17 @@ function mountQuakeMultiplayerMapSelector(): void {
   multiplayerMapSelect.value = quakeAssetCatalog.sceneUrl(selectedMapName) ? selectedMapName : currentMapName;
 }
 
+function quakeMultiplayerDefaultCreateMapName(): string {
+  return quakeAssetCatalog.sceneUrl(QUAKE_MULTIPLAYER_DEFAULT_CREATE_MAP)
+    ? QUAKE_MULTIPLAYER_DEFAULT_CREATE_MAP
+    : currentMapName;
+}
+
 function syncQuakeMultiplayerMenu(): void {
   mountQuakeMultiplayerMapSelector();
   if (multiplayerNameInput) multiplayerNameInput.value = QUAKE_MULTIPLAYER_LOCAL_DISPLAY_NAME;
   if (multiplayerColorInput) multiplayerColorInput.value = QUAKE_MULTIPLAYER_LOCAL_COLOR;
-  if (multiplayerMapSelect) multiplayerMapSelect.value = currentMapName;
+  if (multiplayerMapSelect) multiplayerMapSelect.value = quakeMultiplayerDefaultCreateMapName();
   if (multiplayerFragLimitInput) multiplayerFragLimitInput.value = String(QUAKE_MULTIPLAYER_FRAG_LIMIT);
   if (multiplayerMaxPlayersInput) multiplayerMaxPlayersInput.value = String(QUAKE_MULTIPLAYER_MAX_PLAYERS);
   syncQuakeMultiplayerControlGlyphs();
@@ -3010,7 +3018,7 @@ function quakeRemotePlayerHorizontalSpeed(state: QuakeMultiplayerRemoteInterpola
 function quakeRemotePlayerVisualRotYOffset(element: HTMLElement): number {
   return element.classList.contains("remote-player-fallback")
     ? QUAKE_MULTIPLAYER_REMOTE_FALLBACK_ROT_Y_OFFSET
-    : QUAKE_ALIAS_MODEL_RENDER_YAW_OFFSET;
+    : QUAKE_MULTIPLAYER_REMOTE_MODEL_ROT_Y_OFFSET;
 }
 
 function addQuakeProceduralRemotePlayerMesh(): PolyMeshHandle | null {
@@ -3989,6 +3997,7 @@ function sendQuakeMultiplayerPresence(status: QuakeMultiplayerPlayerPresenceStat
   if (
     !QUAKE_MULTIPLAYER_ENABLED ||
     quakeMultiplayerSpectating ||
+    !quakeMultiplayerHelloAccepted ||
     quakeMultiplayerSession.status().state !== "connected"
   ) {
     return false;
