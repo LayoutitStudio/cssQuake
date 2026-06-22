@@ -19,6 +19,7 @@ jobs:
       CSSQUAKE_R2_BUCKET: ${{ vars.CSSQUAKE_R2_BUCKET || secrets.CSSQUAKE_R2_BUCKET || 'cssquake-assets' }}
       QUAKE_RENDER_BUNDLE_AVIF_EFFORT: "0"
       QUAKE_SHAREWARE_URL: ${{ secrets.QUAKE_SHAREWARE_URL }}
+      VITE_CSSQUAKE_PARTY_HOST: ${{ vars.VITE_CSSQUAKE_PARTY_HOST }}
       VITE_QUAKE_ASSET_ROOT: ${{ vars.VITE_QUAKE_ASSET_ROOT || secrets.VITE_QUAKE_ASSET_ROOT }}
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +43,7 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CSSQUAKE_R2_BUCKET"
+          test -n "$VITE_CSSQUAKE_PARTY_HOST"
           test -n "$VITE_QUAKE_ASSET_ROOT"
 
       - name: Set versioned asset root
