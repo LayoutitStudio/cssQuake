@@ -17,6 +17,7 @@ import {
   deterministicAtlasDebugSourceImagesSymbol,
   replaceQuakeRenderBundleWorldAtlas,
 } from "./deterministicAtlas.mjs";
+import { prepareQuakeEffectSprites } from "./effectSprites.mjs";
 import { applyQuakeWorldPlanarComponents } from "./worldPlanarComponents.mjs";
 import { QUAKE_UNIT_SCALE } from "../quakeScale.js";
 
@@ -120,11 +121,13 @@ const weaponModelOutputDir = path.join(quakeOutputDir, "w");
 const pickupOutputPath = path.join(quakeOutputDir, "pickups.json");
 const progsOutputPath = path.join(quakeOutputDir, "progs.json");
 const soundManifestOutputPath = path.join(quakeOutputDir, "sounds.json");
+const effectSpritesOutputPath = path.join(quakeOutputDir, "effects.json");
 const sourceProgramFactsInputPath = path.join(projectRoot, "src/generated/quakeProgramFacts.json");
 const QUAKE_DEFAULT_WEAPON_VIEWMODEL_PATH = "progs/v_shot.mdl";
 const sourcePath = path.join(projectRoot, "src/prepare/scene.ts");
 const textureOutputDir = path.join(quakeAssetOutputDir, "t");
 const soundOutputDir = path.join(quakeOutputDir, "s");
+const effectSpritesOutputDir = path.join(quakeAssetOutputDir, "e");
 const renderBundleOutputDir = path.join(quakeAssetOutputDir, "b");
 const quakeRenderBundleAvifQuality = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_AVIF_QUALITY ?? "70", 10);
 const quakeRenderBundleAvifEffort = Number.parseInt(process.env.QUAKE_RENDER_BUNDLE_AVIF_EFFORT ?? "4", 10);
@@ -609,6 +612,7 @@ try {
     await rm(path.join(quakeOutputDir, "t"), { recursive: true, force: true });
     await rm(path.join(quakeOutputDir, "b"), { recursive: true, force: true });
     await rm(path.join(quakeOutputDir, "p"), { recursive: true, force: true });
+    await rm(path.join(quakeOutputDir, "e"), { recursive: true, force: true });
     await copyStaticPublicAssets();
   }
 
@@ -931,12 +935,20 @@ try {
     await writeFile(pickupOutputPath, JSON.stringify(pickupModels));
     const soundManifest = await runPrepareStep("sounds", () => exportQuakeSounds(pak, parseQuakePakDirectory));
     await writeFile(soundManifestOutputPath, JSON.stringify(soundManifest));
+    const effectSprites = await runPrepareStep("effect sprites", () => prepareQuakeEffectSprites({
+      outputDir: effectSpritesOutputDir,
+      pak,
+      parsePakDirectory: parseQuakePakDirectory,
+      publicUrlForOutputPath: generatedPublicUrl,
+    }));
+    await writeFile(effectSpritesOutputPath, JSON.stringify(effectSprites));
     await writeFileAtomic(manifestOutputPath, JSON.stringify(buildQuakeAssetManifest(
       preparedMaps,
       programMetadata,
       pickupModels,
       soundManifest,
       sourceProgramFacts,
+      effectSprites,
     )));
     await pruneUnreferencedTextureFiles([
       ...preparedMaps.map((item) => item.outputPath),
@@ -979,6 +991,7 @@ try {
     console.log(`Wrote ${path.relative(projectRoot, progsOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, pickupOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, soundManifestOutputPath)} (${Object.keys(soundManifest.sounds).length} sounds)`);
+    console.log(`Wrote ${path.relative(projectRoot, effectSpritesOutputPath)} (${Object.keys(effectSprites.sprites).length} sprites)`);
     console.log(`Wrote ${path.relative(projectRoot, manifestOutputPath)}`);
   }
   }
@@ -2358,7 +2371,14 @@ async function loadQuakeSourceProgramFacts() {
   }
 }
 
-function buildQuakeAssetManifest(preparedMaps, programMetadata, pickupModels, soundManifest, sourceProgramFacts = null) {
+function buildQuakeAssetManifest(
+  preparedMaps,
+  programMetadata,
+  pickupModels,
+  soundManifest,
+  sourceProgramFacts = null,
+  effectSprites = null,
+) {
   const preparedModelPaths = new Set(Object.keys(pickupModels?.models ?? {}));
   const preparedSoundPaths = new Set(Object.keys(soundManifest?.sounds ?? {}));
   const maps = preparedMaps.map(({ mapName, mapPath, outputPath, prepared }) => {
@@ -2384,18 +2404,20 @@ function buildQuakeAssetManifest(preparedMaps, programMetadata, pickupModels, so
     };
   });
   const mapNames = new Set(maps.map((map) => map.mapName));
+  const assets = {
+    weaponModelUrl: generatedPublicUrl(weaponOutputPath),
+    weaponModelUrls: quakeWeaponModelUrlMap(sourceProgramFacts),
+    pickupModelsUrl: generatedPublicUrl(pickupOutputPath),
+    programMetadataUrl: generatedPublicUrl(progsOutputPath),
+    soundManifestUrl: generatedPublicUrl(soundManifestOutputPath),
+    ...(effectSprites ? { effectSpritesUrl: generatedPublicUrl(effectSpritesOutputPath) } : {}),
+  };
   return {
     version: 1,
     assetRoot: quakePublicPath,
     startMap: mapNames.has(quakeStartMap) ? quakeStartMap : maps[0]?.mapName ?? quakeStartMap,
     maps,
-    assets: {
-      weaponModelUrl: generatedPublicUrl(weaponOutputPath),
-      weaponModelUrls: quakeWeaponModelUrlMap(sourceProgramFacts),
-      pickupModelsUrl: generatedPublicUrl(pickupOutputPath),
-      programMetadataUrl: generatedPublicUrl(progsOutputPath),
-      soundManifestUrl: generatedPublicUrl(soundManifestOutputPath),
-    },
+    assets,
   };
 }
 
@@ -2405,10 +2427,11 @@ function quakeMultiplayerPlayerModelPathsFromPreparedModels(preparedModelPaths) 
 }
 
 async function writeQuakeAssetManifestFromGeneratedFiles() {
-  const [programMetadata, pickupModels, soundManifest] = await Promise.all([
+  const [programMetadata, pickupModels, soundManifest, effectSprites] = await Promise.all([
     readQuakeGeneratedJson(progsOutputPath, "program metadata"),
     readQuakeGeneratedJson(pickupOutputPath, "pickup models"),
     readQuakeGeneratedJson(soundManifestOutputPath, "sound manifest"),
+    readOptionalQuakeGeneratedJson(effectSpritesOutputPath, "effect sprites"),
   ]);
   const sourceProgramFacts = await loadQuakeSourceProgramFacts();
   const preparedMaps = [];
@@ -2426,8 +2449,18 @@ async function writeQuakeAssetManifestFromGeneratedFiles() {
     pickupModels,
     soundManifest,
     sourceProgramFacts,
+    effectSprites,
   )));
   console.log(`Wrote ${path.relative(projectRoot, manifestOutputPath)} from existing generated assets`);
+}
+
+async function readOptionalQuakeGeneratedJson(outputPath, label) {
+  try {
+    return await readQuakeGeneratedJson(outputPath, label);
+  } catch (error) {
+    if (error?.message?.startsWith?.(`Missing generated ${label} `)) return null;
+    throw error;
+  }
 }
 
 async function readQuakeGeneratedJson(outputPath, label) {

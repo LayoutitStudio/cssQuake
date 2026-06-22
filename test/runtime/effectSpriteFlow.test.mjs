@@ -36,6 +36,52 @@ const EFFECTS_MANIFEST = {
   },
 };
 
+test("effect sprite flow skips optional preload when no manifest URL is configured", async () => {
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+  const previousWindow = globalThis.window;
+  const window = new Window();
+  let fetchCalls = 0;
+
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: window.document,
+  });
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    value: async () => {
+      fetchCalls += 1;
+      throw new Error("Effect sprite preload should not fetch without a manifest URL.");
+    },
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: window,
+  });
+
+  try {
+    const layer = document.createElement("div");
+    const flow = createQuakeEffectSpriteFlow({
+      cameraPerspectiveStyle: () => "400px",
+      canShow: () => true,
+      effectSpritesUrl: () => undefined,
+      isGameplayPaused: () => false,
+      layer,
+      now: () => 1000,
+      viewOrigin: () => [0, 0, 0],
+      viewRotation: () => ({ rotX: 90, rotY: 270 }),
+    });
+
+    assert.equal(await flow.preload(), false);
+    assert.equal(fetchCalls, 0);
+    flow.dispose();
+  } finally {
+    restoreGlobal("document", previousDocument);
+    restoreGlobal("fetch", previousFetch);
+    restoreGlobal("window", previousWindow);
+  }
+});
+
 test("effect sprite flow preloads and animates the prepared s_explod sheet", async () => {
   const previousCancelAnimationFrame = globalThis.cancelAnimationFrame;
   const previousDocument = globalThis.document;
@@ -161,53 +207,22 @@ test("effect sprite flow preloads and animates the prepared s_explod sheet", asy
     flow.dispose();
     assert.equal(layer.children.length, 0);
   } finally {
-    if (previousCancelAnimationFrame === undefined) {
-      delete globalThis.cancelAnimationFrame;
-    } else {
-      Object.defineProperty(globalThis, "cancelAnimationFrame", {
-        configurable: true,
-        value: previousCancelAnimationFrame,
-      });
-    }
-    if (previousDocument === undefined) {
-      delete globalThis.document;
-    } else {
-      Object.defineProperty(globalThis, "document", {
-        configurable: true,
-        value: previousDocument,
-      });
-    }
-    if (previousFetch === undefined) {
-      delete globalThis.fetch;
-    } else {
-      Object.defineProperty(globalThis, "fetch", {
-        configurable: true,
-        value: previousFetch,
-      });
-    }
-    if (previousPerformance === undefined) {
-      delete globalThis.performance;
-    } else {
-      Object.defineProperty(globalThis, "performance", {
-        configurable: true,
-        value: previousPerformance,
-      });
-    }
-    if (previousRequestAnimationFrame === undefined) {
-      delete globalThis.requestAnimationFrame;
-    } else {
-      Object.defineProperty(globalThis, "requestAnimationFrame", {
-        configurable: true,
-        value: previousRequestAnimationFrame,
-      });
-    }
-    if (previousWindow === undefined) {
-      delete globalThis.window;
-    } else {
-      Object.defineProperty(globalThis, "window", {
-        configurable: true,
-        value: previousWindow,
-      });
-    }
+    restoreGlobal("cancelAnimationFrame", previousCancelAnimationFrame);
+    restoreGlobal("document", previousDocument);
+    restoreGlobal("fetch", previousFetch);
+    restoreGlobal("performance", previousPerformance);
+    restoreGlobal("requestAnimationFrame", previousRequestAnimationFrame);
+    restoreGlobal("window", previousWindow);
   }
 });
+
+function restoreGlobal(name, value) {
+  if (value === undefined) {
+    delete globalThis[name];
+    return;
+  }
+  Object.defineProperty(globalThis, name, {
+    configurable: true,
+    value,
+  });
+}
