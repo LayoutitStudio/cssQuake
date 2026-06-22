@@ -304,6 +304,53 @@ test("client authority accepts immediate presence transitions", () => {
   assert.equal(activeResult.ok, true);
 });
 
+test("party room keeps hello authority while trusted gameplay definitions are pending", async () => {
+  const { room, createConnection } = createFakePartyRoom();
+  const RoomClass = partyRoomModule.default;
+  let resolveTrustedDefinitions;
+  const trustedDefinitions = new Promise((resolve) => {
+    resolveTrustedDefinitions = resolve;
+  });
+  const partyRoom = new RoomClass(room, {
+    trustedGameplayDefinitionsFetcher: () => trustedDefinitions,
+  });
+  const connection = createConnection("pending-hello-connection");
+
+  partyRoom.onConnect(connection);
+  const helloResult = partyRoom.onMessage(JSON.stringify(helloEnvelope({
+    messageId: "pending-hello",
+    sequence: 1,
+    sentAt: Date.now(),
+  })), connection);
+  partyRoom.onMessage(JSON.stringify(presenceEnvelope("active", {
+    messageId: "presence-while-hello-pending",
+    sequence: 2,
+    sentAt: Date.now(),
+  })), connection);
+
+  assert.equal(connection.closed.length, 0);
+  assert.equal(connection.messages.some((message) =>
+    message.type === "room.reject" &&
+    message.payload.code === "not-authorized"
+  ), false);
+  assert.equal(connection.state.authority.lastEnvelopeSequence, 2);
+
+  resolveTrustedDefinitions({
+    gameplayFacts: {
+      factsVersion: 1,
+      factsHash: "0000000000000000",
+      deathmatchSpawnCount: 0,
+      pickupCount: 0,
+    },
+    deathmatchSpawns: [],
+    pickupDefinitions: [],
+  });
+  await Promise.resolve(helloResult);
+
+  assert.equal(connection.state.playerId, "party:client-a");
+  assert.equal(connection.state.authority.lastEnvelopeSequence, 2);
+});
+
 test("room wrong-map rejects validate even when their room key differs", () => {
   const reject = protocol.createQuakeMultiplayerEnvelope({
     direction: "room",

@@ -266,6 +266,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     this.clearConnectionRejects(sender);
     if (!this.roomKey) this.roomKey = roomKey;
     if (validation.envelope.type === "client.hello") {
+      this.seedPendingHelloAuthority(sender, validation.envelope, authority.state, receivedAt);
       const trustedDefinitionsReady = this.ensureTrustedGameplayDefinitions(validation.envelope, sender, roomKey);
       if (isPromiseLike(trustedDefinitionsReady)) {
         return trustedDefinitionsReady.then((ok) => {
@@ -458,8 +459,9 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
         lastAcceptedInputSequence: nextPlayer.lastInputSequence,
       }));
     }
+    const latestAuthority = this.latestConnectionAuthority(sender, message.payload.clientId, authority);
     const state = {
-      authority,
+      authority: latestAuthority,
       clientId: message.payload.clientId,
       displayName: message.payload.displayName,
       lastSeenAt: receivedAt,
@@ -498,8 +500,9 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     authority: QuakeMultiplayerClientAuthorityState,
     receivedAt: number,
   ): void {
+    const latestAuthority = this.latestConnectionAuthority(sender, message.payload.clientId, authority);
     const state = {
-      authority,
+      authority: latestAuthority,
       clientId: message.payload.clientId,
       displayName: message.payload.displayName,
       lastSeenAt: receivedAt,
@@ -1997,6 +2000,29 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     return this.connectionPlayers.get(connection.id) ?? (connection.state as CssQuakeConnectionState | null);
   }
 
+  private seedPendingHelloAuthority(
+    connection: Party.Connection,
+    message: Extract<QuakeMultiplayerClientEnvelope, { type: "client.hello" }>,
+    authority: QuakeMultiplayerClientAuthorityState,
+    lastSeenAt: number,
+  ): void {
+    const state = this.connectionState(connection);
+    if (state) {
+      this.updateConnectionAuthority(connection, authority, lastSeenAt);
+      return;
+    }
+    const next = {
+      authority,
+      clientId: message.payload.clientId,
+      displayName: message.payload.displayName,
+      lastSeenAt,
+      presenceStatus: "active" as const,
+      role: "player" as const,
+    };
+    this.connectionPlayers.set(connection.id, next);
+    connection.setState(next);
+  }
+
   private updateConnectionAuthority(
     connection: Party.Connection,
     authority: QuakeMultiplayerClientAuthorityState,
@@ -2007,6 +2033,21 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     const next = { ...state, authority, lastSeenAt };
     this.connectionPlayers.set(connection.id, next);
     connection.setState(next);
+  }
+
+  private latestConnectionAuthority(
+    connection: Party.Connection,
+    clientId: string,
+    fallback: QuakeMultiplayerClientAuthorityState,
+  ): QuakeMultiplayerClientAuthorityState {
+    const current = this.connectionState(connection)?.authority;
+    if (
+      current?.clientId === clientId &&
+      (current.lastEnvelopeSequence ?? -1) >= (fallback.lastEnvelopeSequence ?? -1)
+    ) {
+      return current;
+    }
+    return fallback;
   }
 
   private handleClientPong(
