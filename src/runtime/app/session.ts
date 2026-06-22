@@ -316,14 +316,17 @@ function normalizeQuakeAssetManifestAssets(value: unknown): QuakeAssetManifest["
       if (normalizedModelUrl) weaponModelUrls[normalizedModelPath] = normalizedModelUrl;
     }
   }
-  return {
+  const assets: QuakeAssetManifest["assets"] = {
     weaponModelUrl,
     weaponModelUrls,
     pickupModelsUrl: typeof value.pickupModelsUrl === "string" ? value.pickupModelsUrl : fallback.pickupModelsUrl,
     programMetadataUrl: typeof value.programMetadataUrl === "string" ? value.programMetadataUrl : fallback.programMetadataUrl,
-    effectSpritesUrl: typeof value.effectSpritesUrl === "string" ? value.effectSpritesUrl : fallback.effectSpritesUrl,
     soundManifestUrl: typeof value.soundManifestUrl === "string" ? value.soundManifestUrl : fallback.soundManifestUrl,
   };
+  if (typeof value.effectSpritesUrl === "string" && value.effectSpritesUrl.trim()) {
+    assets.effectSpritesUrl = value.effectSpritesUrl;
+  }
+  return assets;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
