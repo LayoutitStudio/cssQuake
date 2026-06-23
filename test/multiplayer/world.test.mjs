@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -94,9 +94,16 @@ function touchIntent(overrides = {}) {
   };
 }
 
+function preparedScenePath(mapName) {
+  return path.join(projectRoot, "build/generated/public/q", `${mapName}.json`);
+}
+
+function hasPreparedSharewareScenes() {
+  return PREPARED_SHAREWARE_MAPS.every((mapName) => existsSync(preparedScenePath(mapName)));
+}
+
 function readPreparedScene(mapName) {
-  const scenePath = path.join(projectRoot, "build/generated/public/q", `${mapName}.json`);
-  return JSON.parse(readFileSync(scenePath, "utf8"));
+  return JSON.parse(readFileSync(preparedScenePath(mapName), "utf8"));
 }
 
 function assertFiniteVec3(value, label) {
@@ -107,7 +114,11 @@ function assertFiniteVec3(value, label) {
   }
 }
 
-test("prepared shareware maps derive trusted multiplayer world definitions without shared-target holes", () => {
+test("prepared shareware maps derive trusted multiplayer world definitions without shared-target holes", (t) => {
+  if (!hasPreparedSharewareScenes()) {
+    t.skip("requires generated shareware scene JSON; run pnpm prepare:quake first");
+    return;
+  }
   const failures = [];
   for (const mapName of PREPARED_SHAREWARE_MAPS) {
     const scene = readPreparedScene(mapName);
