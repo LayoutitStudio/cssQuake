@@ -20,6 +20,8 @@ export interface QuakeAssetWarmupFlowOptions {
   isDisposed(): boolean;
   onPickupModelLibrary(library: QuakePickupModelLibrary): void;
   onProgramMetadata(metadata: QuakeProgramMetadata): void;
+  shouldSpawnPickup?(entity: QuakeEntity): boolean;
+  shouldSpawnShootable?(entity: QuakeEntity): boolean;
 }
 
 export interface QuakeAssetWarmupFlow {
@@ -95,13 +97,13 @@ export function createQuakeAssetWarmupFlow(options: QuakeAssetWarmupFlowOptions)
     const entitiesByIndex = new Map(scene.entities.map((entity) => [entity.index, entity]));
     const pickupEntities = sceneEntitiesForIndexes(entitiesByIndex, runtime.pickupEntityIndexes);
     for (const entity of pickupEntities) {
-      if (!shouldSpawnQuakeEntityForCurrentGame(entity)) continue;
+      if (!shouldSpawnPickup(entity)) continue;
       const modelPath = quakePickupModelPath(entity, currentProgramMetadata, scene.gameLogic);
       if (modelPath) pickupModelPaths.add(modelPath);
     }
     const shootableEntities = sceneEntitiesForIndexes(entitiesByIndex, runtime.shootableEntityIndexes);
     for (const entity of shootableEntities) {
-      if (!shouldSpawnQuakeEntityForCurrentGame(entity)) continue;
+      if (!shouldSpawnShootable(entity)) continue;
       const modelPath = quakeShootableModelPath(entity, currentProgramMetadata);
       if (modelPath) monsterModelPaths.add(modelPath);
     }
@@ -119,6 +121,14 @@ export function createQuakeAssetWarmupFlow(options: QuakeAssetWarmupFlowOptions)
         quakeLoadingProgressGroup(progress, "Monster models"),
       ),
     ]);
+  }
+
+  function shouldSpawnPickup(entity: QuakeEntity): boolean {
+    return options.shouldSpawnPickup?.(entity) ?? shouldSpawnQuakeEntityForCurrentGame(entity);
+  }
+
+  function shouldSpawnShootable(entity: QuakeEntity): boolean {
+    return options.shouldSpawnShootable?.(entity) ?? shouldSpawnQuakeEntityForCurrentGame(entity);
   }
 
   return {

@@ -21,6 +21,10 @@ type QuakeMultiplayerPlayerKilledEvent = Extract<
   QuakeMultiplayerSharedWorldEvent,
   { eventType: "player.killed" }
 >;
+type QuakeMultiplayerPlayerFiredEvent = Extract<
+  QuakeMultiplayerSharedWorldEvent,
+  { eventType: "player.fired" }
+>;
 
 export interface QuakeMultiplayerRemoteVisualHandle {
   element?: HTMLElement;
@@ -51,8 +55,11 @@ interface QuakeMultiplayerRemotePlayerEntry {
   player: QuakeMultiplayerAuthoritativePlayerState;
   samples: QuakeMultiplayerRemoteInterpolationSample[];
   visual: QuakeMultiplayerRemoteVisualHandle | null;
+  lastAttackAt?: number;
+  lastAttackWeapon?: string;
   lastPainAt?: number;
   deathAt?: number;
+  missingSince?: number;
 }
 
 export interface QuakeMultiplayerRemotePlayerPresenter {
@@ -111,7 +118,7 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
       syncRemotePlayer(player);
     }
     for (const playerId of [...players.keys()]) {
-      if (!seen.has(playerId)) removeRemotePlayer(playerId);
+      if (!seen.has(playerId)) markRemotePlayerMissing(playerId);
     }
     scheduleFrame();
   }
@@ -127,6 +134,7 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
       };
       players.set(player.playerId, entry);
     }
+    entry.missingSince = undefined;
     entry.player = player;
     entry.samples.push({
       playerId: player.playerId,
@@ -139,10 +147,14 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
     });
     if (player.alive) {
       if (!wasAlive || entry.deathAt !== undefined) {
+        entry.lastAttackAt = undefined;
+        entry.lastAttackWeapon = undefined;
         entry.lastPainAt = undefined;
         entry.deathAt = undefined;
       }
     } else if (wasAlive || entry.deathAt === undefined) {
+      entry.lastAttackAt = undefined;
+      entry.lastAttackWeapon = undefined;
       entry.lastPainAt = undefined;
       entry.deathAt = now();
     }
@@ -153,6 +165,8 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
   function handleRoomEvent(event: QuakeMultiplayerSharedWorldEvent): void {
     if (event.eventType === "player.left") {
       removeRemotePlayer(event.playerId);
+    } else if (event.eventType === "player.fired") {
+      markRemotePlayerAttack(event);
     } else if (event.eventType === "player.damaged") {
       markRemotePlayerPain(event);
     } else if (event.eventType === "player.killed") {
@@ -161,6 +175,14 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
       if (event.player.clientId === options.localClientId) return;
       syncRemotePlayer(event.player);
     }
+  }
+
+  function markRemotePlayerAttack(event: QuakeMultiplayerPlayerFiredEvent): void {
+    const entry = players.get(event.playerId);
+    if (!entry || entry.player.clientId === options.localClientId || !entry.player.alive) return;
+    entry.lastAttackAt = now();
+    entry.lastAttackWeapon = event.weapon;
+    scheduleFrame();
   }
 
   function markRemotePlayerPain(event: QuakeMultiplayerPlayerDamagedEvent): void {
@@ -174,6 +196,8 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
   function markRemotePlayerDeath(event: QuakeMultiplayerPlayerKilledEvent): void {
     const entry = players.get(event.victimPlayerId);
     if (!entry || entry.player.clientId === options.localClientId) return;
+    entry.lastAttackAt = undefined;
+    entry.lastAttackWeapon = undefined;
     entry.lastPainAt = undefined;
     entry.deathAt = now();
     options.onPlayerKilled?.(event, entry.player);
@@ -199,7 +223,16 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
         if (!entry.visual) continue;
       }
       const state = interpolateQuakeMultiplayerRemoteState(playerId, entry.samples, renderAt, staleAfterMs);
-      if (!state) continue;
+      if (!state) {
+        if (entry.missingSince !== undefined && now() - entry.missingSince > staleAfterMs) {
+          removeRemotePlayer(playerId);
+        }
+        continue;
+      }
+      if (entry.missingSince !== undefined && state.stale && now() - entry.missingSince > staleAfterMs) {
+        removeRemotePlayer(playerId);
+        continue;
+      }
       entry.visual.setState(quakeMultiplayerRemoteStateWithEvents(entry, state));
     }
     if (players.size) scheduleFrame();
@@ -216,13 +249,18 @@ export function createQuakeMultiplayerRemotePlayerPresenter(
         deathAt: entry.deathAt,
       };
     }
-    if (entry.lastPainAt !== undefined) {
-      return {
-        ...state,
-        lastPainAt: entry.lastPainAt,
-      };
-    }
-    return state;
+    return {
+      ...state,
+      ...(entry.lastPainAt !== undefined ? { lastPainAt: entry.lastPainAt } : {}),
+      ...(entry.lastAttackAt !== undefined ? { lastAttackAt: entry.lastAttackAt } : {}),
+      ...(entry.lastAttackWeapon ? { lastAttackWeapon: entry.lastAttackWeapon } : {}),
+    };
+  }
+
+  function markRemotePlayerMissing(playerId: string): void {
+    const entry = players.get(playerId);
+    if (!entry) return;
+    entry.missingSince ??= now();
   }
 
   function removeRemotePlayer(playerId: string): void {

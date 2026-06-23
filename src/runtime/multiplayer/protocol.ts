@@ -1,4 +1,5 @@
 export const QUAKE_MULTIPLAYER_PROTOCOL_VERSION = 1 as const;
+export const QUAKE_MULTIPLAYER_MAX_INPUT_BATCH_SIZE = 4;
 
 export type QuakeMultiplayerProtocolVersion = typeof QUAKE_MULTIPLAYER_PROTOCOL_VERSION;
 export type QuakeMultiplayerVec3 = readonly [number, number, number];
@@ -66,6 +67,9 @@ export interface QuakeMultiplayerPickupDefinition {
   effect: QuakeMultiplayerPickupEffect;
   lifecycle?: QuakeMultiplayerPickupLifecycle;
   feedback?: QuakeMultiplayerPickupFeedback;
+  modelPath?: string;
+  removeAt?: number;
+  runtime?: boolean;
   targetEntityIndexes?: readonly number[];
   killtargetEntityIndexes?: readonly number[];
   delayMs?: number;
@@ -97,7 +101,11 @@ export type QuakeMultiplayerTriggerActivationClassname =
   | "trigger_counter"
   | "trigger_relay";
 
-export type QuakeMultiplayerMoverClassname = "func_button";
+export type QuakeMultiplayerMoverClassname =
+  | "func_button"
+  | "func_door"
+  | "func_door_secret"
+  | "func_plat";
 export type QuakeMultiplayerMoverActivation = "touch" | "target" | "shoot";
 export type QuakeMultiplayerMoverState = "moving-up" | "top" | "moving-down" | "bottom";
 
@@ -214,6 +222,7 @@ export type QuakeMultiplayerClientMessageType =
   | "client.hello"
   | "client.presence"
   | "client.input"
+  | "client.inputBatch"
   | "client.fire"
   | "client.damage"
   | "client.pickup"
@@ -281,11 +290,53 @@ export interface QuakeMultiplayerFireIntent {
   range: number;
 }
 
+export type QuakeMultiplayerFireDecisionOutcome =
+  | "discharge"
+  | "hit-player"
+  | "hit-world"
+  | "miss"
+  | "projectile-spawned"
+  | "world-splash";
+
+export type QuakeMultiplayerFireDecisionReason =
+  | "line-of-sight-blocked"
+  | "lightning-discharge"
+  | "no-candidate"
+  | "no-world-impact"
+  | "player-direct"
+  | "server-projectile-spawned"
+  | "projectile-world-splash"
+  | "world-before-player";
+
+export interface QuakeMultiplayerFireDecision {
+  outcome: QuakeMultiplayerFireDecisionOutcome;
+  reason: QuakeMultiplayerFireDecisionReason;
+  candidateCount?: number;
+  blockedCandidateCount?: number;
+  playerDamageCount?: number;
+  targetEntityIndex?: number;
+  targetPlayerId?: string;
+  targetRewindMs?: number;
+  worldHitDistance?: number;
+}
+
 export interface QuakeMultiplayerDamageIntent {
   damageSequence: number;
   damagedAt: number;
   amount: number;
   source: string;
+}
+
+export interface QuakeMultiplayerProjectileState {
+  projectileId: string;
+  ownerPlayerId: string;
+  weapon: string;
+  origin: QuakeMultiplayerVec3;
+  direction: QuakeMultiplayerVec3;
+  speed: number;
+  spawnedAt: number;
+  updatedAt: number;
+  expiresAt: number;
 }
 
 export interface QuakeMultiplayerPickupIntent {
@@ -417,6 +468,8 @@ export interface QuakeMultiplayerRemoteInterpolationState {
   renderRotX: number;
   renderRotY: number;
   alive: boolean;
+  lastAttackAt?: number;
+  lastAttackWeapon?: string;
   lastPainAt?: number;
   deathAt?: number;
   previous?: QuakeMultiplayerRemoteInterpolationSample;
@@ -494,6 +547,25 @@ export type QuakeMultiplayerSharedWorldEvent =
       fireKind: QuakeMultiplayerFireKind;
       origin: QuakeMultiplayerVec3;
       direction: QuakeMultiplayerVec3;
+      decision?: QuakeMultiplayerFireDecision;
+    }
+  | {
+      eventType: "projectile.spawned";
+      eventId: string;
+      roomTime: number;
+      projectile: QuakeMultiplayerProjectileState;
+    }
+  | {
+      eventType: "projectile.impacted";
+      eventId: string;
+      roomTime: number;
+      projectileId: string;
+      ownerPlayerId: string;
+      weapon: string;
+      origin: QuakeMultiplayerVec3;
+      impactKind: "player" | "world";
+      playerDamageCount: number;
+      targetPlayerId?: string;
     }
   | {
       eventType: "player.damaged";
@@ -546,6 +618,21 @@ export type QuakeMultiplayerSharedWorldEvent =
       eventId: string;
       roomTime: number;
       pickup: QuakeMultiplayerAuthoritativePickupState;
+    }
+  | {
+      eventType: "pickup.dropped";
+      eventId: string;
+      roomTime: number;
+      sourcePlayerId: string;
+      definition: QuakeMultiplayerPickupDefinition;
+      pickup: QuakeMultiplayerAuthoritativePickupState;
+    }
+  | {
+      eventType: "pickup.expired";
+      eventId: string;
+      roomTime: number;
+      pickupId: string;
+      entityIndex: number;
     }
   | {
       eventType: "world.use";
@@ -679,6 +766,11 @@ export interface QuakeMultiplayerClientInputPayload {
   input: QuakeMultiplayerLocalInputIntent;
 }
 
+export interface QuakeMultiplayerClientInputBatchPayload {
+  clientId: string;
+  inputs: readonly QuakeMultiplayerLocalInputIntent[];
+}
+
 export interface QuakeMultiplayerClientFirePayload {
   clientId: string;
   fire: QuakeMultiplayerFireIntent;
@@ -751,7 +843,9 @@ export interface QuakeMultiplayerRoomSnapshotPayload {
   match: QuakeMultiplayerRoomMatchState;
   players: QuakeMultiplayerAuthoritativePlayerState[];
   spectators?: QuakeMultiplayerRoomSpectatorState[];
+  dynamicPickups?: QuakeMultiplayerPickupDefinition[];
   pickups?: QuakeMultiplayerAuthoritativePickupState[];
+  projectiles?: QuakeMultiplayerProjectileState[];
   lastWorldEventSequence: number;
 }
 
@@ -801,6 +895,11 @@ export type QuakeMultiplayerClientInputEnvelope = QuakeMultiplayerEnvelope<
   "client",
   "client.input",
   QuakeMultiplayerClientInputPayload
+>;
+export type QuakeMultiplayerClientInputBatchEnvelope = QuakeMultiplayerEnvelope<
+  "client",
+  "client.inputBatch",
+  QuakeMultiplayerClientInputBatchPayload
 >;
 export type QuakeMultiplayerClientFireEnvelope = QuakeMultiplayerEnvelope<
   "client",
@@ -878,6 +977,7 @@ export type QuakeMultiplayerClientEnvelope =
   | QuakeMultiplayerClientHelloEnvelope
   | QuakeMultiplayerClientPresenceEnvelope
   | QuakeMultiplayerClientInputEnvelope
+  | QuakeMultiplayerClientInputBatchEnvelope
   | QuakeMultiplayerClientFireEnvelope
   | QuakeMultiplayerClientDamageEnvelope
   | QuakeMultiplayerClientPickupEnvelope

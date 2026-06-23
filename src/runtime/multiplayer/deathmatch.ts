@@ -1,6 +1,9 @@
 import type { QuakeEntity, QuakeScene } from "../../types/quake";
 import type { QuakeCollisionWorld } from "../collision";
 import {
+  COLLISION_EPSILON,
+  PLAYER_HEIGHT,
+  PLAYER_RADIUS,
   QUAKE_COLLISION_UNIT_SCALE,
   QUAKE_PLAYER_MINS_Z,
   QUAKE_PLAYER_VIEW_Z,
@@ -9,6 +12,7 @@ import { quakePlayerWaterLevel } from "../hazards";
 import type {
   QuakeMultiplayerAuthoritativePlayerState,
   QuakeMultiplayerClientDamageEnvelope,
+  QuakeMultiplayerFireDecisionReason,
   QuakeMultiplayerFireIntent,
   QuakeMultiplayerRoomRejectPayload,
   QuakeMultiplayerSpawnPoint,
@@ -29,22 +33,35 @@ const QUAKE_MULTIPLAYER_DEATHMATCH_RADIUS_DAMAGE_EXTRA_RANGE = 40;
 const QUAKE_MULTIPLAYER_DEATHMATCH_SHOTGUN_COOLDOWN_MS = 500;
 const QUAKE_MULTIPLAYER_DEATHMATCH_SUPER_SHOTGUN_COOLDOWN_MS = 700;
 const QUAKE_MULTIPLAYER_DEATHMATCH_AXE_COOLDOWN_MS = 500;
-const QUAKE_MULTIPLAYER_DEATHMATCH_NAIL_COOLDOWN_MS = 100;
-const QUAKE_MULTIPLAYER_DEATHMATCH_EXPLOSIVE_COOLDOWN_MS = 800;
-const QUAKE_MULTIPLAYER_DEATHMATCH_LIGHTNING_COOLDOWN_MS = 100;
+const QUAKE_MULTIPLAYER_DEATHMATCH_NAIL_COOLDOWN_MS = 200;
+const QUAKE_MULTIPLAYER_DEATHMATCH_GRENADE_COOLDOWN_MS = 600;
+const QUAKE_MULTIPLAYER_DEATHMATCH_ROCKET_COOLDOWN_MS = 800;
+const QUAKE_MULTIPLAYER_DEATHMATCH_LIGHTNING_COOLDOWN_MS = 200;
 const QUAKE_MULTIPLAYER_DEATHMATCH_HIT_RADIUS = 0.7;
 const QUAKE_MULTIPLAYER_DEATHMATCH_PROJECTILE_HIT_RADIUS = 0.95;
-const QUAKE_MULTIPLAYER_DEATHMATCH_HIT_HEIGHT = 1.7;
-const QUAKE_MULTIPLAYER_DEATHMATCH_MAX_HITSCAN_RANGE = 64;
+const QUAKE_MULTIPLAYER_DEATHMATCH_HITSCAN_RANGE = 2048 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_MULTIPLAYER_DEATHMATCH_NAIL_RANGE = 1000 * 6 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_MULTIPLAYER_DEATHMATCH_GRENADE_RANGE = 600 * 2.5 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_MULTIPLAYER_DEATHMATCH_ROCKET_RANGE = 1000 * 5 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_MULTIPLAYER_DEATHMATCH_LIGHTNING_RANGE = 600 * QUAKE_COLLISION_UNIT_SCALE;
 const QUAKE_MULTIPLAYER_DEATHMATCH_MELEE_RANGE = 2.1;
-const QUAKE_MULTIPLAYER_DEATHMATCH_SPLASH_RADIUS = 4.2;
 const QUAKE_MULTIPLAYER_DEATHMATCH_MIN_FIRE_DIRECTION_LENGTH = 0.5;
 const QUAKE_MULTIPLAYER_DEATHMATCH_CAN_DAMAGE_OFFSET = 15 * QUAKE_COLLISION_UNIT_SCALE;
+const QUAKE_MULTIPLAYER_DEATHMATCH_TARGET_LOS_MIN_TRACE_FRACTION = 0.95;
+const QUAKE_MULTIPLAYER_DEATHMATCH_FIRE_ORIGIN_HINT_MAX_HORIZONTAL_DRIFT = 3;
+const QUAKE_MULTIPLAYER_DEATHMATCH_FIRE_ORIGIN_HINT_MAX_VERTICAL_DRIFT = 8;
+const QUAKE_MULTIPLAYER_DEATHMATCH_REMOTE_RENDER_REWIND_MS = 100;
+const QUAKE_MULTIPLAYER_DEATHMATCH_MAX_REWIND_MS = 250;
+const QUAKE_MULTIPLAYER_DEATHMATCH_SPAWN_CLEAR_RADIUS = 84 * QUAKE_COLLISION_UNIT_SCALE;
 
 export interface QuakeMultiplayerDeathmatchSpawnOptions {
   pointToPoly(point: { x: number; y: number; z: number }): QuakeMultiplayerVec3;
   playerEyeHeight: number;
   playerMinsZ: number;
+}
+
+export interface QuakeMultiplayerDeathmatchHitOptions {
+  targetRewindMs?: number;
 }
 
 export interface QuakeMultiplayerDeathmatchHit {
@@ -55,8 +72,20 @@ export interface QuakeMultiplayerDeathmatchHit {
   lateralMiss: number;
 }
 
+export interface QuakeMultiplayerDeathmatchVisibleHitDecision {
+  blockedCandidateCount: number;
+  candidateCount: number;
+  hit: QuakeMultiplayerDeathmatchHit | null;
+  reason: Extract<QuakeMultiplayerFireDecisionReason, "line-of-sight-blocked" | "no-candidate" | "player-direct">;
+}
+
 export interface QuakeMultiplayerDeathmatchSplashHit extends QuakeMultiplayerDeathmatchHit {
   direct: boolean;
+}
+
+export interface QuakeMultiplayerDeathmatchProjectileImpact {
+  distance: number;
+  origin: QuakeMultiplayerVec3;
 }
 
 export interface QuakeMultiplayerDeathmatchLightningDischargeHit {
@@ -78,6 +107,15 @@ export interface QuakeMultiplayerDeathmatchDamageMomentumOptions {
   damage: number;
   inflictorOrigin?: QuakeMultiplayerVec3 | null;
   player: QuakeMultiplayerAuthoritativePlayerState;
+}
+
+export interface QuakeMultiplayerDeathmatchSpawnSelection {
+  nextCursor: number;
+  spawn: QuakeMultiplayerSpawnPoint;
+}
+
+export interface QuakeMultiplayerDeathmatchSpawnSelectionOptions {
+  random?: () => number;
 }
 
 export function quakeMultiplayerDeathmatchSpawnsFromScene(
@@ -102,6 +140,25 @@ export function quakeMultiplayerDeathmatchSpawnOrder(
   spawns: readonly QuakeMultiplayerSpawnPoint[],
 ): QuakeMultiplayerSpawnPoint[] {
   return [...spawns];
+}
+
+export function quakeMultiplayerDeathmatchSelectSpawnPoint(
+  spawns: readonly QuakeMultiplayerSpawnPoint[],
+  players: Iterable<Pick<QuakeMultiplayerAuthoritativePlayerState, "origin">>,
+  cursorOrOptions: number | QuakeMultiplayerDeathmatchSpawnSelectionOptions = {},
+): QuakeMultiplayerDeathmatchSpawnSelection | null {
+  if (!spawns.length) return null;
+  const playerList = [...players];
+  const options = typeof cursorOrOptions === "number" ? {} : cursorOrOptions;
+  const random = options.random ?? Math.random;
+  const clearSpawns: QuakeMultiplayerSpawnPoint[] = [];
+  for (const spawn of spawns) {
+    if (quakeMultiplayerDeathmatchSpawnIsClear(spawn, playerList)) clearSpawns.unshift(spawn);
+  }
+  const candidates = clearSpawns.length ? clearSpawns : [...spawns];
+  const spawn = candidates[quakeMultiplayerDeathmatchRandomSpawnIndex(candidates.length, random)] ?? candidates[0];
+  const sourceIndex = Math.max(0, spawns.indexOf(spawn));
+  return { spawn, nextCursor: sourceIndex + 1 };
 }
 
 function quakeMultiplayerSpawnPointFromEntity(
@@ -132,6 +189,22 @@ function quakeMultiplayerSpawnYaw(entity: QuakeEntity): number {
   return (180 + angle + 360) % 360;
 }
 
+function quakeMultiplayerDeathmatchSpawnIsClear(
+  spawn: QuakeMultiplayerSpawnPoint,
+  players: readonly Pick<QuakeMultiplayerAuthoritativePlayerState, "origin">[],
+): boolean {
+  return players.every((player) =>
+    distance3(spawn.origin, player.origin) > QUAKE_MULTIPLAYER_DEATHMATCH_SPAWN_CLEAR_RADIUS
+  );
+}
+
+function quakeMultiplayerDeathmatchRandomSpawnIndex(count: number, random: () => number): number {
+  if (count <= 1) return 0;
+  const value = random();
+  const normalized = Number.isFinite(value) ? Math.max(0, Math.min(0.999999, value)) : 0;
+  return Math.max(0, Math.min(count - 1, Math.round(normalized * (count - 1))));
+}
+
 export function quakeMultiplayerDeathmatchWeaponDamage(weapon: string): number {
   const normalized = weapon.trim().toLowerCase();
   if (normalized === "axe") return QUAKE_MULTIPLAYER_DEATHMATCH_AXE_DAMAGE;
@@ -144,13 +217,26 @@ export function quakeMultiplayerDeathmatchWeaponDamage(weapon: string): number {
   return 0;
 }
 
+export function quakeMultiplayerDeathmatchLagCompensationMs(
+  attacker: Pick<QuakeMultiplayerAuthoritativePlayerState, "pingMs">,
+): number {
+  const pingMs = Number.isFinite(attacker.pingMs) && attacker.pingMs !== undefined
+    ? Math.max(0, attacker.pingMs)
+    : 0;
+  return Math.min(
+    QUAKE_MULTIPLAYER_DEATHMATCH_MAX_REWIND_MS,
+    QUAKE_MULTIPLAYER_DEATHMATCH_REMOTE_RENDER_REWIND_MS + pingMs * 0.5,
+  );
+}
+
 export function quakeMultiplayerDeathmatchWeaponCooldownMs(weapon: string): number {
   const normalized = weapon.trim().toLowerCase();
   if (normalized === "axe") return QUAKE_MULTIPLAYER_DEATHMATCH_AXE_COOLDOWN_MS;
   if (normalized === "shotgun") return QUAKE_MULTIPLAYER_DEATHMATCH_SHOTGUN_COOLDOWN_MS;
   if (normalized === "supershotgun") return QUAKE_MULTIPLAYER_DEATHMATCH_SUPER_SHOTGUN_COOLDOWN_MS;
   if (normalized === "nailgun" || normalized === "supernailgun") return QUAKE_MULTIPLAYER_DEATHMATCH_NAIL_COOLDOWN_MS;
-  if (normalized === "grenadelauncher" || normalized === "rocketlauncher") return QUAKE_MULTIPLAYER_DEATHMATCH_EXPLOSIVE_COOLDOWN_MS;
+  if (normalized === "grenadelauncher") return QUAKE_MULTIPLAYER_DEATHMATCH_GRENADE_COOLDOWN_MS;
+  if (normalized === "rocketlauncher") return QUAKE_MULTIPLAYER_DEATHMATCH_ROCKET_COOLDOWN_MS;
   if (normalized === "lightning") return QUAKE_MULTIPLAYER_DEATHMATCH_LIGHTNING_COOLDOWN_MS;
   return Infinity;
 }
@@ -159,7 +245,7 @@ export function quakeMultiplayerDeathmatchFragDeltaForKill(input: {
   attackerPlayerId?: string;
   victimPlayerId: string;
 }): number {
-  if (!input.attackerPlayerId) return 0;
+  if (!input.attackerPlayerId) return -1;
   return input.attackerPlayerId === input.victimPlayerId ? -1 : 1;
 }
 
@@ -168,13 +254,15 @@ export function quakeMultiplayerDeathmatchFireFromPlayer(
   fire: QuakeMultiplayerFireIntent,
 ): QuakeMultiplayerFireIntent {
   const weapon = player.inventory?.activeWeapon ?? player.activeWeapon;
+  const direction = normalizedFireDirection(fire.direction) ??
+    quakeMultiplayerDeathmatchForwardDirection(player.rotX, player.rotY);
   return {
     ...fire,
     weapon,
     fireKind: quakeMultiplayerDeathmatchFireKindForWeapon(weapon),
     range: quakeMultiplayerDeathmatchFireRangeForWeapon(weapon),
-    origin: player.origin,
-    direction: quakeMultiplayerDeathmatchForwardDirection(player.rotX, player.rotY),
+    origin: quakeMultiplayerDeathmatchFireOrigin(player.origin, fire.origin),
+    direction,
   };
 }
 
@@ -183,15 +271,24 @@ export function quakeMultiplayerDeathmatchFireKindForWeapon(
 ): QuakeMultiplayerFireIntent["fireKind"] {
   const normalized = weapon.trim().toLowerCase();
   if (normalized === "axe") return "melee";
-  if (normalized === "grenadelauncher" || normalized === "rocketlauncher") return "projectile";
+  if (
+    normalized === "nailgun" ||
+    normalized === "supernailgun" ||
+    normalized === "grenadelauncher" ||
+    normalized === "rocketlauncher"
+  ) return "projectile";
   if (normalized === "lightning") return "beam";
   return "hitscan";
 }
 
 export function quakeMultiplayerDeathmatchFireRangeForWeapon(weapon: string): number {
-  const kind = quakeMultiplayerDeathmatchFireKindForWeapon(weapon);
-  if (kind === "melee") return QUAKE_MULTIPLAYER_DEATHMATCH_MELEE_RANGE;
-  return QUAKE_MULTIPLAYER_DEATHMATCH_MAX_HITSCAN_RANGE;
+  const normalized = weapon.trim().toLowerCase();
+  if (normalized === "axe") return QUAKE_MULTIPLAYER_DEATHMATCH_MELEE_RANGE;
+  if (normalized === "nailgun" || normalized === "supernailgun") return QUAKE_MULTIPLAYER_DEATHMATCH_NAIL_RANGE;
+  if (normalized === "grenadelauncher") return QUAKE_MULTIPLAYER_DEATHMATCH_GRENADE_RANGE;
+  if (normalized === "rocketlauncher") return QUAKE_MULTIPLAYER_DEATHMATCH_ROCKET_RANGE;
+  if (normalized === "lightning") return QUAKE_MULTIPLAYER_DEATHMATCH_LIGHTNING_RANGE;
+  return QUAKE_MULTIPLAYER_DEATHMATCH_HITSCAN_RANGE;
 }
 
 export function rejectQuakeMultiplayerClientDamageIntent(
@@ -210,28 +307,84 @@ export function quakeMultiplayerDeathmatchHitscanHit(
   players: Iterable<QuakeMultiplayerAuthoritativePlayerState>,
   attackerPlayerId: string,
 ): QuakeMultiplayerDeathmatchHit | null {
+  return quakeMultiplayerDeathmatchHitscanHits(fire, players, attackerPlayerId)[0] ?? null;
+}
+
+export function quakeMultiplayerDeathmatchVisibleHit(
+  fire: QuakeMultiplayerFireIntent,
+  players: Iterable<QuakeMultiplayerAuthoritativePlayerState>,
+  attackerPlayerId: string,
+  collisionWorld: Pick<QuakeCollisionWorld, "traceUse"> | null | undefined,
+  options: QuakeMultiplayerDeathmatchHitOptions = {},
+): QuakeMultiplayerDeathmatchHit | null {
+  return quakeMultiplayerDeathmatchVisibleHitDecision(fire, players, attackerPlayerId, collisionWorld, options).hit;
+}
+
+export function quakeMultiplayerDeathmatchVisibleHitDecision(
+  fire: QuakeMultiplayerFireIntent,
+  players: Iterable<QuakeMultiplayerAuthoritativePlayerState>,
+  attackerPlayerId: string,
+  collisionWorld: Pick<QuakeCollisionWorld, "traceUse"> | null | undefined,
+  options: QuakeMultiplayerDeathmatchHitOptions = {},
+): QuakeMultiplayerDeathmatchVisibleHitDecision {
+  const hits = quakeMultiplayerDeathmatchHitscanHits(fire, players, attackerPlayerId, options);
+  let blockedCandidateCount = 0;
+  for (const hit of hits) {
+    if (quakeMultiplayerDeathmatchHitHasLineOfSight(fire, hit, collisionWorld)) {
+      return {
+        blockedCandidateCount,
+        candidateCount: hits.length,
+        hit,
+        reason: "player-direct",
+      };
+    }
+    blockedCandidateCount += 1;
+  }
+  return {
+    blockedCandidateCount,
+    candidateCount: hits.length,
+    hit: null,
+    reason: hits.length > 0 ? "line-of-sight-blocked" : "no-candidate",
+  };
+}
+
+export function quakeMultiplayerDeathmatchHitscanHits(
+  fire: QuakeMultiplayerFireIntent,
+  players: Iterable<QuakeMultiplayerAuthoritativePlayerState>,
+  attackerPlayerId: string,
+  options: QuakeMultiplayerDeathmatchHitOptions = {},
+): QuakeMultiplayerDeathmatchHit[] {
   if (
     fire.fireKind !== "hitscan" &&
     fire.fireKind !== "projectile" &&
     fire.fireKind !== "beam" &&
     fire.fireKind !== "melee"
-  ) return null;
+  ) return [];
   const damage = quakeMultiplayerDeathmatchWeaponDamage(fire.weapon);
-  if (damage <= 0) return null;
+  if (damage <= 0) return [];
   const direction = normalizedFireDirection(fire.direction);
-  if (!direction) return null;
+  if (!direction) return [];
   const maxRange = quakeMultiplayerDeathmatchFireRange(fire);
   const hitRadius = fire.fireKind === "projectile"
     ? QUAKE_MULTIPLAYER_DEATHMATCH_PROJECTILE_HIT_RADIUS
     : QUAKE_MULTIPLAYER_DEATHMATCH_HIT_RADIUS;
-  let best: QuakeMultiplayerDeathmatchHit | null = null;
+  const hits: QuakeMultiplayerDeathmatchHit[] = [];
   for (const player of players) {
     if (player.playerId === attackerPlayerId || !player.alive) continue;
-    const hit = quakeMultiplayerDeathmatchPlayerHit(fire.origin, direction, maxRange, player, damage, hitRadius);
+    const hit = quakeMultiplayerDeathmatchPlayerHit(
+      fire.origin,
+      direction,
+      maxRange,
+      player,
+      damage,
+      hitRadius,
+      options.targetRewindMs,
+    );
     if (!hit) continue;
-    if (!best || hit.distance < best.distance) best = hit;
+    hits.push(hit);
   }
-  return best;
+  hits.sort((left, right) => left.distance - right.distance);
+  return hits;
 }
 
 export function quakeMultiplayerDeathmatchSplashHits(
@@ -239,27 +392,125 @@ export function quakeMultiplayerDeathmatchSplashHits(
   directHit: QuakeMultiplayerDeathmatchHit,
   players: Iterable<QuakeMultiplayerAuthoritativePlayerState>,
   attackerPlayerId: string,
+  collisionWorld?: Pick<QuakeCollisionWorld, "traceUse"> | null,
+  options: QuakeMultiplayerDeathmatchHitOptions = {},
 ): QuakeMultiplayerDeathmatchSplashHit[] {
   if (fire.fireKind !== "projectile") return [{ ...directHit, direct: true }];
   if (!quakeMultiplayerDeathmatchWeaponHasSplash(fire.weapon)) return [{ ...directHit, direct: true }];
-  const hits: QuakeMultiplayerDeathmatchSplashHit[] = [{ ...directHit, direct: true }];
+  const splashOrigin = directHit.impact;
+  if (fire.weapon.trim().toLowerCase() === "grenadelauncher") {
+    return quakeMultiplayerDeathmatchProjectileSplashHitsAtImpact(
+      fire,
+      splashOrigin,
+      players,
+      attackerPlayerId,
+      collisionWorld,
+      undefined,
+      options,
+    );
+  }
+  return [
+    { ...directHit, damage: quakeMultiplayerDeathmatchDirectHitDamage(fire), direct: true },
+    ...quakeMultiplayerDeathmatchProjectileSplashHitsAtImpact(
+      fire,
+      splashOrigin,
+      players,
+      attackerPlayerId,
+      collisionWorld,
+      directHit.target.playerId,
+      options,
+    ),
+  ];
+}
+
+export function quakeMultiplayerDeathmatchProjectileWorldSplashHits(
+  fire: QuakeMultiplayerFireIntent,
+  players: Iterable<QuakeMultiplayerAuthoritativePlayerState>,
+  attackerPlayerId: string,
+  collisionWorld?: Pick<QuakeCollisionWorld, "traceUse"> | null,
+  options: QuakeMultiplayerDeathmatchHitOptions = {},
+): QuakeMultiplayerDeathmatchSplashHit[] {
+  const impact = quakeMultiplayerDeathmatchProjectileWorldImpact(fire, collisionWorld);
+  if (!impact) return [];
+  return quakeMultiplayerDeathmatchProjectileSplashHitsAtImpact(
+    fire,
+    impact.origin,
+    players,
+    attackerPlayerId,
+    collisionWorld,
+    undefined,
+    options,
+  );
+}
+
+export function quakeMultiplayerDeathmatchProjectileSplashHitsAtImpact(
+  fire: QuakeMultiplayerFireIntent,
+  splashOrigin: QuakeMultiplayerVec3,
+  players: Iterable<QuakeMultiplayerAuthoritativePlayerState>,
+  attackerPlayerId: string,
+  collisionWorld?: Pick<QuakeCollisionWorld, "traceUse"> | null,
+  ignoredPlayerId?: string,
+  options: QuakeMultiplayerDeathmatchHitOptions = {},
+): QuakeMultiplayerDeathmatchSplashHit[] {
+  if (fire.fireKind !== "projectile") return [];
+  if (!quakeMultiplayerDeathmatchWeaponHasSplash(fire.weapon)) return [];
+  const baseDamage = quakeMultiplayerDeathmatchWeaponDamage(fire.weapon);
+  if (baseDamage <= 0) return [];
+  const splashRadius = quakeMultiplayerDeathmatchSplashRadius(baseDamage);
+  const hits: QuakeMultiplayerDeathmatchSplashHit[] = [];
   for (const player of players) {
-    if (player.playerId === directHit.target.playerId || !player.alive) continue;
-    const distance = distance3(player.origin, directHit.target.origin);
-    if (distance > QUAKE_MULTIPLAYER_DEATHMATCH_SPLASH_RADIUS) continue;
-    const damageScale = Math.max(0, 1 - distance / QUAKE_MULTIPLAYER_DEATHMATCH_SPLASH_RADIUS);
-    const damage = Math.round(directHit.damage * damageScale);
+    if (player.playerId === ignoredPlayerId || !player.alive) continue;
+    const target = {
+      ...player,
+      origin: quakeMultiplayerDeathmatchRewoundPlayerOrigin(player, options.targetRewindMs),
+    };
+    if (!quakeMultiplayerDeathmatchRadiusDamageHasLineOfSight(splashOrigin, target, collisionWorld)) continue;
+    const targetCenter = quakeMultiplayerDeathmatchPlayerDamageCenter(target);
+    const distance = distance3(targetCenter, splashOrigin);
+    if (distance > splashRadius) continue;
+    const damage = quakeMultiplayerDeathmatchSplashDamage(
+      baseDamage,
+      distance,
+      player.playerId,
+      attackerPlayerId,
+    );
     if (damage <= 0) continue;
     hits.push({
       target: player,
       damage,
       distance,
-      impact: player.origin,
+      impact: splashOrigin,
       lateralMiss: distance,
       direct: false,
     });
   }
   return hits;
+}
+
+export function quakeMultiplayerDeathmatchProjectileWorldImpact(
+  fire: QuakeMultiplayerFireIntent,
+  collisionWorld?: Pick<QuakeCollisionWorld, "traceUse"> | null,
+): QuakeMultiplayerDeathmatchProjectileImpact | null {
+  if (fire.fireKind !== "projectile") return null;
+  if (!quakeMultiplayerDeathmatchWeaponHasSplash(fire.weapon)) return null;
+  if (!collisionWorld?.traceUse) return null;
+  const direction = normalizedFireDirection(fire.direction);
+  if (!direction) return null;
+  const maxRange = quakeMultiplayerDeathmatchFireRange(fire);
+  if (maxRange <= 0) return null;
+  const end: QuakeMultiplayerVec3 = [
+    fire.origin[0] + direction[0] * maxRange,
+    fire.origin[1] + direction[1] * maxRange,
+    fire.origin[2] + direction[2] * maxRange,
+  ];
+  const trace = collisionWorld.traceUse(fire.origin, end);
+  if (!trace) return null;
+  const distance = distance3(fire.origin, trace.end);
+  if (!Number.isFinite(distance) || distance > maxRange + 1e-6) return null;
+  return {
+    distance,
+    origin: [trace.end[0], trace.end[1], trace.end[2]],
+  };
 }
 
 export function quakeMultiplayerDeathmatchHitHasLineOfSight(
@@ -268,7 +519,11 @@ export function quakeMultiplayerDeathmatchHitHasLineOfSight(
   collisionWorld: Pick<QuakeCollisionWorld, "traceUse"> | null | undefined,
 ): boolean {
   if (!collisionWorld?.traceUse) return true;
-  return collisionWorld.traceUse(fire.origin, hit.impact) === null;
+  const trace = collisionWorld.traceUse(fire.origin, hit.impact);
+  if (!trace) return true;
+  const targetSkin = quakeMultiplayerDeathmatchTargetLosSkin(fire);
+  return trace.fraction >= QUAKE_MULTIPLAYER_DEATHMATCH_TARGET_LOS_MIN_TRACE_FRACTION &&
+    distance3(trace.end, hit.impact) <= targetSkin;
 }
 
 export function quakeMultiplayerDeathmatchLightningDischarge(input: {
@@ -345,16 +600,75 @@ export function quakeMultiplayerDeathmatchPlayerWithDamageMomentum(
 }
 
 function quakeMultiplayerDeathmatchFireRange(fire: QuakeMultiplayerFireIntent): number {
-  if (fire.fireKind === "melee") return Math.min(QUAKE_MULTIPLAYER_DEATHMATCH_MELEE_RANGE, fire.range);
+  const maxRange = quakeMultiplayerDeathmatchFireRangeForWeapon(fire.weapon);
+  if (fire.fireKind === "melee") return Math.min(maxRange, fire.range);
   return Math.min(
-    QUAKE_MULTIPLAYER_DEATHMATCH_MAX_HITSCAN_RANGE,
-    Number.isFinite(fire.range) && fire.range > 0 ? fire.range : QUAKE_MULTIPLAYER_DEATHMATCH_MAX_HITSCAN_RANGE,
+    maxRange,
+    Number.isFinite(fire.range) && fire.range > 0 ? fire.range : maxRange,
   );
+}
+
+function quakeMultiplayerDeathmatchTargetLosSkin(fire: QuakeMultiplayerFireIntent): number {
+  return fire.fireKind === "projectile"
+    ? QUAKE_MULTIPLAYER_DEATHMATCH_PROJECTILE_HIT_RADIUS
+    : QUAKE_MULTIPLAYER_DEATHMATCH_HIT_RADIUS;
+}
+
+function quakeMultiplayerDeathmatchFireOrigin(
+  authoritativeOrigin: QuakeMultiplayerVec3,
+  originHint: QuakeMultiplayerVec3,
+): QuakeMultiplayerVec3 {
+  return quakeMultiplayerDeathmatchFireOriginHintWithinDrift(authoritativeOrigin, originHint)
+    ? originHint
+    : authoritativeOrigin;
+}
+
+function quakeMultiplayerDeathmatchFireOriginHintWithinDrift(
+  authoritativeOrigin: QuakeMultiplayerVec3,
+  originHint: QuakeMultiplayerVec3,
+): boolean {
+  const horizontalDrift = Math.hypot(
+    authoritativeOrigin[0] - originHint[0],
+    authoritativeOrigin[1] - originHint[1],
+  );
+  const verticalDrift = Math.abs(authoritativeOrigin[2] - originHint[2]);
+  return horizontalDrift <= QUAKE_MULTIPLAYER_DEATHMATCH_FIRE_ORIGIN_HINT_MAX_HORIZONTAL_DRIFT &&
+    verticalDrift <= QUAKE_MULTIPLAYER_DEATHMATCH_FIRE_ORIGIN_HINT_MAX_VERTICAL_DRIFT;
 }
 
 function quakeMultiplayerDeathmatchWeaponHasSplash(weapon: string): boolean {
   const normalized = weapon.trim().toLowerCase();
   return normalized === "grenadelauncher" || normalized === "rocketlauncher";
+}
+
+function quakeMultiplayerDeathmatchSplashDamage(
+  baseDamage: number,
+  distance: number,
+  playerId: string,
+  attackerPlayerId: string,
+): number {
+  const quakeDistance = Math.max(0, distance / QUAKE_COLLISION_UNIT_SCALE);
+  const points = Math.max(0, baseDamage - 0.5 * quakeDistance);
+  const selfDamageScale = playerId === attackerPlayerId ? 0.5 : 1;
+  return Math.round(points * selfDamageScale);
+}
+
+function quakeMultiplayerDeathmatchDirectHitDamage(fire: QuakeMultiplayerFireIntent): number {
+  const normalized = fire.weapon.trim().toLowerCase();
+  if (normalized !== "rocketlauncher") return quakeMultiplayerDeathmatchWeaponDamage(fire.weapon);
+  return 100 + quakeMultiplayerDeathmatchFireRandom01(fire) * 20;
+}
+
+function quakeMultiplayerDeathmatchFireRandom01(fire: QuakeMultiplayerFireIntent): number {
+  let value = Math.max(0, Math.floor(fire.fireSequence ?? 0)) || 1;
+  value = Math.imul(value ^ 0x9e3779b9, 0x85ebca6b);
+  value = Math.imul(value ^ (value >>> 13), 0xc2b2ae35);
+  return ((value ^ (value >>> 16)) >>> 0) / 0x100000000;
+}
+
+function quakeMultiplayerDeathmatchSplashRadius(baseDamage: number): number {
+  return Math.max(0, baseDamage + QUAKE_MULTIPLAYER_DEATHMATCH_RADIUS_DAMAGE_EXTRA_RANGE) *
+    QUAKE_COLLISION_UNIT_SCALE;
 }
 
 function normalizePlayerEyeHeight(value: number | undefined): number {
@@ -370,37 +684,63 @@ function quakeMultiplayerDeathmatchPlayerHit(
   target: QuakeMultiplayerAuthoritativePlayerState,
   damage: number,
   hitRadius: number,
+  rewindMs = 0,
 ): QuakeMultiplayerDeathmatchHit | null {
-  const targetCenter = quakeMultiplayerDeathmatchPlayerDamageCenter(target);
-  const delta: QuakeMultiplayerVec3 = [
-    targetCenter[0] - origin[0],
-    targetCenter[1] - origin[1],
-    targetCenter[2] - origin[2],
-  ];
-  const distanceAlongRay = dotVec3(delta, direction);
-  if (distanceAlongRay < 0 || distanceAlongRay > maxRange) return null;
-  const closest: QuakeMultiplayerVec3 = [
-    origin[0] + direction[0] * distanceAlongRay,
-    origin[1] + direction[1] * distanceAlongRay,
-    origin[2] + direction[2] * distanceAlongRay,
-  ];
-  const dx = targetCenter[0] - closest[0];
-  const dy = targetCenter[1] - closest[1];
-  const dz = targetCenter[2] - closest[2];
-  const lateralMiss = Math.hypot(dx, dy, dz);
-  return lateralMiss <= hitRadius
-    ? { target, damage, distance: distanceAlongRay, impact: closest, lateralMiss }
-    : null;
+  const targetOrigin = quakeMultiplayerDeathmatchRewoundPlayerOrigin(target, rewindMs);
+  const bounds = quakeMultiplayerDeathmatchPlayerHitBounds(targetOrigin, hitRadius);
+  const trace = rayAabbIntersection(origin, direction, maxRange, bounds.min, bounds.max);
+  if (!trace) return null;
+  const center = quakeMultiplayerDeathmatchPlayerDamageCenter({ ...target, origin: targetOrigin });
+  return {
+    target,
+    damage,
+    distance: trace.distance,
+    impact: trace.impact,
+    lateralMiss: distance3(trace.impact, center),
+  };
 }
 
 function quakeMultiplayerDeathmatchPlayerDamageCenter(
   player: QuakeMultiplayerAuthoritativePlayerState,
 ): QuakeMultiplayerVec3 {
+  const eyeHeight = normalizePlayerEyeHeight(undefined);
   return [
     player.origin[0],
     player.origin[1],
-    player.origin[2] - QUAKE_MULTIPLAYER_DEATHMATCH_HIT_HEIGHT * 0.5,
+    player.origin[2] - eyeHeight + PLAYER_HEIGHT * 0.5,
   ];
+}
+
+function quakeMultiplayerDeathmatchRewoundPlayerOrigin(
+  player: QuakeMultiplayerAuthoritativePlayerState,
+  rewindMs: number | undefined,
+): QuakeMultiplayerVec3 {
+  const clampedMs = Number.isFinite(rewindMs)
+    ? Math.max(0, Math.min(QUAKE_MULTIPLAYER_DEATHMATCH_MAX_REWIND_MS, rewindMs ?? 0))
+    : 0;
+  if (clampedMs <= 0) return player.origin;
+  const seconds = clampedMs / 1000;
+  return [
+    player.origin[0] - player.velocity[0] * seconds,
+    player.origin[1] - player.velocity[1] * seconds,
+    player.origin[2] - player.velocity[2] * seconds,
+  ];
+}
+
+function quakeMultiplayerDeathmatchPlayerHitBounds(
+  origin: QuakeMultiplayerVec3,
+  hitRadius: number,
+): { min: QuakeMultiplayerVec3; max: QuakeMultiplayerVec3 } {
+  const eyeHeight = normalizePlayerEyeHeight(undefined);
+  const horizontalSkin = Math.max(0, hitRadius - PLAYER_RADIUS);
+  const verticalSkin = Math.max(0, hitRadius - PLAYER_RADIUS);
+  const radius = PLAYER_RADIUS + horizontalSkin;
+  const minZ = origin[2] - eyeHeight - verticalSkin;
+  const maxZ = minZ + PLAYER_HEIGHT + verticalSkin * 2;
+  return {
+    min: [origin[0] - radius, origin[1] - radius, minZ],
+    max: [origin[0] + radius, origin[1] + radius, maxZ],
+  };
 }
 
 function quakeMultiplayerDeathmatchRadiusDamageHasLineOfSight(
@@ -448,10 +788,41 @@ function quakeMultiplayerDeathmatchForwardDirection(rotX: number, rotY: number):
   ];
 }
 
-function dotVec3(a: QuakeMultiplayerVec3, b: QuakeMultiplayerVec3): number {
-  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
 function distance3(a: QuakeMultiplayerVec3, b: QuakeMultiplayerVec3): number {
   return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
+function rayAabbIntersection(
+  origin: QuakeMultiplayerVec3,
+  direction: QuakeMultiplayerVec3,
+  maxRange: number,
+  min: QuakeMultiplayerVec3,
+  max: QuakeMultiplayerVec3,
+): { distance: number; impact: QuakeMultiplayerVec3 } | null {
+  let enter = 0;
+  let exit = maxRange;
+  for (let axis = 0; axis < 3; axis += 1) {
+    const rayOrigin = origin[axis];
+    const rayDirection = direction[axis];
+    if (Math.abs(rayDirection) <= COLLISION_EPSILON) {
+      if (rayOrigin < min[axis] || rayOrigin > max[axis]) return null;
+      continue;
+    }
+    let near = (min[axis] - rayOrigin) / rayDirection;
+    let far = (max[axis] - rayOrigin) / rayDirection;
+    if (near > far) [near, far] = [far, near];
+    enter = Math.max(enter, near);
+    exit = Math.min(exit, far);
+    if (enter > exit) return null;
+  }
+  if (exit < 0 || enter > maxRange) return null;
+  const distance = Math.max(0, enter);
+  return {
+    distance,
+    impact: [
+      origin[0] + direction[0] * distance,
+      origin[1] + direction[1] * distance,
+      origin[2] + direction[2] * distance,
+    ],
+  };
 }

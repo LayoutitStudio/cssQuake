@@ -3,6 +3,7 @@ import type { createPolyFirstPersonControls, createPolyScene } from "@layoutit/p
 import type { QuakeEntity, QuakeScene } from "../../types/quake";
 import type { QuakeCollisionWorld } from "../collision";
 import type { createQuakeSoundController } from "../audio";
+import type { QuakeDamageableBrushFlow } from "./damageableBrushFlow";
 import type { createQuakeMenuController } from "../menu";
 import type { createQuakeMoversController } from "../movers";
 import type { createQuakePickupController } from "../pickups";
@@ -34,6 +35,7 @@ export interface QuakeAppRuntimeContext {
   readonly sceneElement: HTMLElement;
   readonly controllers: {
     readonly audio: QuakeAppAudioController;
+    readonly damageableBrushes: QuakeDamageableBrushFlow;
     readonly menu: QuakeAppMenuController;
     readonly movers: QuakeAppMoversController;
     readonly pickups: () => QuakeAppPickupController;
@@ -56,6 +58,8 @@ export interface QuakeAppRuntimeContext {
   };
   readonly gameplay: {
     readonly isPaused: () => boolean;
+    readonly resumeForDebugInput: () => void;
+    readonly runWithDebugInput: <T>(callback: () => T) => T;
     readonly setPaused: (paused: boolean) => void;
     readonly isPlayerDead: () => boolean;
     readonly isStarted: () => boolean;

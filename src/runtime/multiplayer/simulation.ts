@@ -14,6 +14,7 @@ import { quakePlayerFallDamageFromVelocityZ } from "../playerPhysics";
 import { quakeMultiplayerAdvancePlayerWithInputResult } from "./movement";
 import type {
   QuakeMultiplayerAuthoritativePlayerState,
+  QuakeMultiplayerFireIntent,
   QuakeMultiplayerLocalInputIntent,
   QuakeMultiplayerVec3,
 } from "./protocol";
@@ -21,7 +22,9 @@ import type {
 export const QUAKE_MULTIPLAYER_ROOM_SIMULATION_TICK_MS = 50;
 export const QUAKE_MULTIPLAYER_MAX_ROOM_SIMULATION_CATCHUP_TICKS = 4;
 export const QUAKE_MULTIPLAYER_MAX_QUEUED_INPUTS = 8;
+export const QUAKE_MULTIPLAYER_ACCEPTED_INPUT_HISTORY_LIMIT = 32;
 export const QUAKE_MULTIPLAYER_INPUT_HOLD_MS = 250;
+export const QUAKE_MULTIPLAYER_FIRE_INPUT_HISTORY_TOLERANCE_MS = QUAKE_MULTIPLAYER_INPUT_HOLD_MS + 100;
 export const QUAKE_MULTIPLAYER_TELEPORT_BACKPEDAL_LOCK_MS = 700;
 export const QUAKE_MULTIPLAYER_DROWN_AIR_MS = 12_000;
 export const QUAKE_MULTIPLAYER_DROWN_DAMAGE_INTERVAL_MS = 1_000;
@@ -39,6 +42,7 @@ export interface QuakeMultiplayerRoomPlayerSimulationState {
   grounded: boolean;
   floorZ?: number;
   fallVelocityZ?: number;
+  acceptedInputHistory: readonly QuakeMultiplayerLocalInputIntent[];
   lastAcceptedInput?: QuakeMultiplayerLocalInputIntent;
   lastAcceptedInputSequence: number;
   lastSimulatedAt: number;
@@ -70,6 +74,26 @@ export interface QuakeMultiplayerRoomInputQueueResult {
   state: QuakeMultiplayerRoomPlayerSimulationState;
 }
 
+export type QuakeMultiplayerRoomFireInputHistoryRejectReason =
+  | "fire-after-input-history"
+  | "fire-before-input-history"
+  | "fire-between-input-history-gap";
+
+export type QuakeMultiplayerRoomFireInputHistoryValidation =
+  | {
+      ok: true;
+      closestInputSequence?: number;
+      deltaMs?: number;
+      historySize: number;
+    }
+  | {
+      ok: false;
+      closestInputSequence?: number;
+      deltaMs?: number;
+      historySize: number;
+      reason: QuakeMultiplayerRoomFireInputHistoryRejectReason;
+    };
+
 export interface QuakeMultiplayerRoomSimulationAdvanceResult {
   advancedTicks: number;
   consumedInputSequences: number[];
@@ -99,6 +123,7 @@ export function createQuakeMultiplayerRoomPlayerSimulationState(input: {
     lastAcceptedInputSequence: input.lastAcceptedInputSequence ?? 0,
     lastSimulatedAt: input.now,
     lastSimulatedTick: input.lastSimulatedTick ?? 0,
+    acceptedInputHistory: [],
     pendingInputs: [],
   };
 }
@@ -120,9 +145,77 @@ export function queueQuakeMultiplayerRoomInput(
     accepted: true,
     state: {
       ...state,
+      acceptedInputHistory: appendQuakeMultiplayerAcceptedInputHistory(state.acceptedInputHistory, input),
       pendingInputs: pending.slice(-QUAKE_MULTIPLAYER_MAX_QUEUED_INPUTS),
     },
   };
+}
+
+export function validateQuakeMultiplayerRoomFireInputHistory(
+  state: QuakeMultiplayerRoomPlayerSimulationState | null | undefined,
+  fire: QuakeMultiplayerFireIntent,
+  options: {
+    toleranceMs?: number;
+  } = {},
+): QuakeMultiplayerRoomFireInputHistoryValidation {
+  const history = quakeMultiplayerAcceptedInputHistoryForValidation(state);
+  if (history.length <= 0) return { ok: true, historySize: 0 };
+  const toleranceMs = normalizePositiveNumber(
+    options.toleranceMs,
+    QUAKE_MULTIPLAYER_FIRE_INPUT_HISTORY_TOLERANCE_MS,
+  );
+  const firedAt = fire.firedAt;
+  let closest = history[0];
+  let closestDelta = Math.abs(firedAt - closest.sampledAt);
+  let earliest = history[0];
+  let latest = history[0];
+  for (const input of history.slice(1)) {
+    const delta = Math.abs(firedAt - input.sampledAt);
+    if (delta < closestDelta) {
+      closest = input;
+      closestDelta = delta;
+    }
+    if (input.sampledAt < earliest.sampledAt) earliest = input;
+    if (input.sampledAt > latest.sampledAt) latest = input;
+  }
+  if (closestDelta <= toleranceMs) {
+    return {
+      ok: true,
+      closestInputSequence: closest.inputSequence,
+      deltaMs: closestDelta,
+      historySize: history.length,
+    };
+  }
+  const reason: QuakeMultiplayerRoomFireInputHistoryRejectReason = firedAt < earliest.sampledAt
+    ? "fire-before-input-history"
+    : firedAt > latest.sampledAt
+      ? "fire-after-input-history"
+      : "fire-between-input-history-gap";
+  return {
+    ok: false,
+    closestInputSequence: closest.inputSequence,
+    deltaMs: closestDelta,
+    historySize: history.length,
+    reason,
+  };
+}
+
+function quakeMultiplayerAcceptedInputHistoryForValidation(
+  state: QuakeMultiplayerRoomPlayerSimulationState | null | undefined,
+): QuakeMultiplayerLocalInputIntent[] {
+  if (!state) return [];
+  const bySequence = new Map<number, QuakeMultiplayerLocalInputIntent>();
+  for (const input of state.acceptedInputHistory) bySequence.set(input.inputSequence, input);
+  if (state.lastAcceptedInput) bySequence.set(state.lastAcceptedInput.inputSequence, state.lastAcceptedInput);
+  return [...bySequence.values()].sort((left, right) => left.sampledAt - right.sampledAt);
+}
+
+function appendQuakeMultiplayerAcceptedInputHistory(
+  history: readonly QuakeMultiplayerLocalInputIntent[],
+  input: QuakeMultiplayerLocalInputIntent,
+): readonly QuakeMultiplayerLocalInputIntent[] {
+  const withoutReplacement = history.filter((candidate) => candidate.inputSequence !== input.inputSequence);
+  return [...withoutReplacement, input].slice(-QUAKE_MULTIPLAYER_ACCEPTED_INPUT_HISTORY_LIMIT);
 }
 
 export function pauseQuakeMultiplayerRoomPlayerSimulation(

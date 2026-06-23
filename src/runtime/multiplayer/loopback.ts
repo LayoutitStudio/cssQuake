@@ -8,10 +8,13 @@ import type {
   QuakeMultiplayerAuthoritativePickupState,
   QuakeMultiplayerAuthoritativePlayerState,
   QuakeMultiplayerClientEnvelope,
+  QuakeMultiplayerFireDecision,
   QuakeMultiplayerGameplayDefinitions,
+  QuakeMultiplayerLocalInputIntent,
   QuakeMultiplayerMapGameplayFacts,
   QuakeMultiplayerMatchSettings,
   QuakeMultiplayerPickupDefinition,
+  QuakeMultiplayerProjectileState,
   QuakeMultiplayerPlayerPresenceStatus,
   QuakeMultiplayerRoomCompatibilityKey,
   QuakeMultiplayerRoomEnvelope,
@@ -28,11 +31,15 @@ import {
   QUAKE_MULTIPLAYER_DEATHMATCH_RESPAWN_DELAY_MS,
   quakeMultiplayerDeathmatchFireFromPlayer,
   quakeMultiplayerDeathmatchFragDeltaForKill,
-  quakeMultiplayerDeathmatchHitscanHit,
+  quakeMultiplayerDeathmatchLagCompensationMs,
   quakeMultiplayerDeathmatchLightningDischarge,
-  quakeMultiplayerDeathmatchSpawnOrder,
   quakeMultiplayerDeathmatchPlayerWithDamageMomentum,
+  quakeMultiplayerDeathmatchProjectileSplashHitsAtImpact,
+  quakeMultiplayerDeathmatchProjectileWorldSplashHits,
+  quakeMultiplayerDeathmatchSelectSpawnPoint,
+  quakeMultiplayerDeathmatchSpawnOrder,
   quakeMultiplayerDeathmatchSplashHits,
+  quakeMultiplayerDeathmatchVisibleHitDecision,
   quakeMultiplayerDeathmatchWeaponCooldownMs,
   quakeMultiplayerDeathmatchWeaponDamage,
   rejectQuakeMultiplayerClientDamageIntent,
@@ -44,7 +51,12 @@ import {
   quakeMultiplayerConsumeLightningDischargeCells,
   quakeMultiplayerConsumeWeaponAmmo,
   quakeMultiplayerDamageMultiplierForInventory,
+  quakeMultiplayerDroppedBackpackDefinition,
   quakeMultiplayerInventoryCanAcceptPickupEffect,
+  quakeMultiplayerInventoryWithBestWeaponIfCurrentAmmoEmpty,
+  quakeMultiplayerInventoryWithoutDeathPowerups,
+  quakeMultiplayerInventoryWithoutPowerup,
+  quakeMultiplayerPickupAlwaysAcceptsTouch,
   quakeMultiplayerPlayerCanReachPickup,
   quakeMultiplayerPlayerInventory,
   quakeMultiplayerPlayerPowerupActive,
@@ -98,12 +110,25 @@ import {
   createQuakeMultiplayerRoomPlayerSimulationState,
   pauseQuakeMultiplayerRoomPlayerSimulation,
   queueQuakeMultiplayerRoomInput,
+  validateQuakeMultiplayerRoomFireInputHistory,
   type QuakeMultiplayerRoomPlayerSimulationState,
 } from "./simulation";
+import {
+  quakeMultiplayerHistoricalCombatPlayers,
+  recordQuakeMultiplayerSnapshotHistory,
+  type QuakeMultiplayerSnapshotHistory,
+} from "./history";
+import {
+  advanceQuakeMultiplayerServerProjectile,
+  createQuakeMultiplayerServerProjectile,
+  quakeMultiplayerServerProjectileWeaponSupported,
+  type QuakeMultiplayerServerProjectile,
+} from "./projectileAuthority";
 
 export interface QuakeLoopbackMultiplayerSessionOptions {
   roomId?: string;
   now?: () => number;
+  random?: () => number;
   asyncDispatch?: boolean;
   maxMessageAgeMs?: number;
   maxFutureSkewMs?: number;
@@ -141,6 +166,7 @@ export function createQuakeLoopbackMultiplayerSession(
 ): QuakeMultiplayerSessionAdapter {
   const roomId = options.roomId ?? "loopback";
   const now = options.now ?? (() => Date.now());
+  const random = options.random ?? Math.random;
   const snapshotIntervalMs = options.snapshotIntervalMs ?? QUAKE_MULTIPLAYER_ROOM_SNAPSHOT_INTERVAL_MS;
   const simulationTickMs = options.simulationTickMs ?? QUAKE_MULTIPLAYER_ROOM_SIMULATION_TICK_MS;
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? QUAKE_MULTIPLAYER_ROOM_HEARTBEAT_INTERVAL_MS;
@@ -158,9 +184,12 @@ export function createQuakeLoopbackMultiplayerSession(
   let gameplayFacts: QuakeMultiplayerMapGameplayFacts | null = null;
   let playerState: QuakeMultiplayerAuthoritativePlayerState | null = null;
   let playerSimulationState: QuakeMultiplayerRoomPlayerSimulationState | null = null;
+  let spawnPoints: QuakeMultiplayerSpawnPoint[] = [];
+  let spawnCursor = 0;
   let pickupDefinitions = new Map<number, QuakeMultiplayerPickupDefinition>();
   let pickupStates = new Map<number, QuakeMultiplayerAuthoritativePickupState>();
   let worldDefinitions = new Map<number, QuakeMultiplayerWorldDefinition>();
+  let serverProjectiles = new Map<string, QuakeMultiplayerServerProjectile>();
   let lastFireAt = -Infinity;
   let clientAuthorityState: QuakeMultiplayerClientAuthorityState | null = null;
   let roomReady = false;
@@ -172,12 +201,15 @@ export function createQuakeLoopbackMultiplayerSession(
   let lastSeenAt = -Infinity;
   let lastRoomPingAt: number | undefined;
   let lastRoomPingId: string | undefined;
+  let projectileSequence = 0;
+  let dynamicPickupSequence = 1_000_000;
   let currentStatus: QuakeMultiplayerSessionStatus = {
     state: "closed",
     mode: "loopback",
   };
   const respawnTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const pickupRespawnTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  const pickupRemovalTimers = new Map<number, ReturnType<typeof setTimeout>>();
   const targetDispatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const moverStateTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const moverStates = new Map<number, QuakeMultiplayerLoopbackMoverState>();
@@ -188,6 +220,7 @@ export function createQuakeLoopbackMultiplayerSession(
   const triggerNextTouchAt = new Map<number, number>();
   const triggerCounterRemaining = new Map<number, number>();
   const triggerShootHealth = new Map<number, number>();
+  let snapshotHistory: QuakeMultiplayerSnapshotHistory = [];
 
   const adapter: QuakeMultiplayerSessionAdapter = {
     mode: "loopback",
@@ -204,6 +237,8 @@ export function createQuakeLoopbackMultiplayerSession(
       matchStatus = "active";
       presenceStatus = "active";
       gameplayFacts = null;
+      spawnPoints = [];
+      spawnCursor = 0;
       playerState = createLoopbackPlayerState(roomKey, clientId, displayName, playerColor, now());
       playerSimulationState = createQuakeMultiplayerRoomPlayerSimulationState({
         playerId: playerState.playerId,
@@ -212,6 +247,10 @@ export function createQuakeLoopbackMultiplayerSession(
       pickupDefinitions = new Map();
       pickupStates = new Map();
       worldDefinitions = new Map();
+      serverProjectiles = new Map();
+      clearTimers(respawnTimers);
+      clearTimers(pickupRespawnTimers);
+      clearTimers(pickupRemovalTimers);
       clearTimers(targetDispatchTimers);
       clearTimers(moverStateTimers);
       moverStates.clear();
@@ -222,6 +261,7 @@ export function createQuakeLoopbackMultiplayerSession(
       triggerNextTouchAt.clear();
       triggerCounterRemaining.clear();
       triggerShootHealth.clear();
+      snapshotHistory = [];
       lastFireAt = -Infinity;
       clientAuthorityState = null;
       roomReady = false;
@@ -229,6 +269,8 @@ export function createQuakeLoopbackMultiplayerSession(
       lastSeenAt = -Infinity;
       lastRoomPingAt = undefined;
       lastRoomPingId = undefined;
+      projectileSequence = 0;
+      dynamicPickupSequence = 1_000_000;
       currentStatus = {
         state: "connected",
         mode: "loopback",
@@ -249,9 +291,12 @@ export function createQuakeLoopbackMultiplayerSession(
       gameplayFacts = null;
       playerState = null;
       playerSimulationState = null;
+      spawnPoints = [];
+      spawnCursor = 0;
       pickupDefinitions = new Map();
       pickupStates = new Map();
       worldDefinitions = new Map();
+      serverProjectiles = new Map();
       clientAuthorityState = null;
       roomReady = false;
       stopSnapshotTicker();
@@ -260,6 +305,7 @@ export function createQuakeLoopbackMultiplayerSession(
       clearMatchRestartTimer();
       clearTimers(respawnTimers);
       clearTimers(pickupRespawnTimers);
+      clearTimers(pickupRemovalTimers);
       clearTimers(targetDispatchTimers);
       clearTimers(moverStateTimers);
       moverStates.clear();
@@ -320,9 +366,12 @@ export function createQuakeLoopbackMultiplayerSession(
           : matchSettings;
         presenceStatus = "active";
         const trustedDefinitions = trustedGameplayDefinitionsForRoom();
-        const initialSpawn = quakeLoopbackInitialSpawnPoint(
-          trustedDefinitions?.deathmatchSpawns ?? message.payload.deathmatchSpawns,
+        spawnPoints = quakeMultiplayerDeathmatchSpawnOrder(
+          trustedDefinitions?.deathmatchSpawns ?? message.payload.deathmatchSpawns ?? [],
         );
+        spawnCursor = 0;
+        playerState = null;
+        const initialSpawn = nextLoopbackSpawnPoint();
         playerState = createLoopbackPlayerState(roomKey, clientId, displayName, playerColor, now(), initialSpawn);
         playerSimulationState = createQuakeMultiplayerRoomPlayerSimulationState({
           playerId: playerState.playerId,
@@ -359,15 +408,10 @@ export function createQuakeLoopbackMultiplayerSession(
         });
         break;
       case "client.input":
-        if (!quakeMultiplayerPresenceAcceptsInput(presenceStatus)) {
-          pauseLoopbackPlayerSimulation();
-          return;
-        }
-        if (playerState && playerSimulationState) {
-          const result = queueQuakeMultiplayerRoomInput(playerSimulationState, message.payload.input);
-          playerSimulationState = result.state;
-          if (result.accepted) startSimulationTicker();
-        }
+        queueLoopbackPlayerInputs([message.payload.input]);
+        break;
+      case "client.inputBatch":
+        queueLoopbackPlayerInputs(message.payload.inputs);
         break;
       case "client.fire":
         advanceLoopbackSimulation(now());
@@ -555,20 +599,38 @@ export function createQuakeLoopbackMultiplayerSession(
     if (!roomKey) return;
     enterIntermissionIfTimeLimitReached("snapshot");
     pruneExpiredPowerups();
-    lastScheduledSnapshotAt = now();
+    const sampledAt = now();
+    lastScheduledSnapshotAt = sampledAt;
     tick += 1;
+    const roomTime = currentRoomTime();
+    const players = loopbackSnapshotPlayers();
+    recordSnapshotHistory(sampledAt, players);
     emitRoomEnvelope("room.snapshot", {
       roomId,
       tick,
-      roomTime: currentRoomTime(),
+      roomTime,
       match: {
         status: matchStatus,
-        clockMs: currentRoomTime(),
+        clockMs: roomTime,
         ...matchSettings,
       },
-      players: loopbackSnapshotPlayers(),
+      players,
+      dynamicPickups: dynamicPickupDefinitions(),
       pickups: [...pickupStates.values()],
+      projectiles: [...serverProjectiles.values()].map(quakeMultiplayerProjectileStateFromServer),
       lastWorldEventSequence: worldEventSequence,
+    });
+  }
+
+  function recordSnapshotHistory(
+    sampledAt: number,
+    players = loopbackSnapshotPlayers(),
+  ): void {
+    snapshotHistory = recordQuakeMultiplayerSnapshotHistory(snapshotHistory, {
+      sampledAt,
+      roomTime: currentRoomTime(),
+      tick,
+      players,
     });
   }
 
@@ -616,9 +678,90 @@ export function createQuakeLoopbackMultiplayerSession(
         damage: hazard.damage,
         damageSource: hazard.kind,
         eventId: `hazard-${hazard.kind}-${hazard.damagedAt}`,
+        now: hazard.damagedAt,
       }) || appliedHazardDamage;
     }
-    return result.advancedTicks > 0 || appliedHazardDamage;
+    const advancedProjectiles = advanceLoopbackServerProjectiles(timestamp);
+    const changed = result.advancedTicks > 0 || appliedHazardDamage || advancedProjectiles;
+    if (changed) recordSnapshotHistory(timestamp);
+    return changed;
+  }
+
+  function advanceLoopbackServerProjectiles(timestamp: number): boolean {
+    if (!serverProjectiles.size) return false;
+    let advanced = false;
+    for (const [projectileId, projectile] of [...serverProjectiles]) {
+      const result = advanceQuakeMultiplayerServerProjectile(projectile, {
+        collisionWorld: options.trustedSceneMovement?.collisionWorld,
+        now: timestamp,
+        players: loopbackSnapshotPlayers(),
+      });
+      if (result.type === "active") {
+        serverProjectiles.set(projectileId, result.projectile);
+        advanced = true;
+        continue;
+      }
+      serverProjectiles.delete(projectileId);
+      advanced = true;
+      if (result.type === "expired") {
+        emitRoomEvent({
+          eventType: "projectile.impacted",
+          eventId: `projectile-expired-${projectileId}`,
+          roomTime: currentRoomTime(timestamp),
+          projectileId,
+          ownerPlayerId: result.projectile.ownerPlayerId,
+          weapon: result.projectile.weapon,
+          origin: result.projectile.origin,
+          impactKind: "world",
+          playerDamageCount: 0,
+        });
+        continue;
+      }
+      emitRoomEvent({
+        eventType: "projectile.impacted",
+        eventId: `projectile-impacted-${projectileId}`,
+        roomTime: currentRoomTime(timestamp),
+        projectileId,
+        ownerPlayerId: result.projectile.ownerPlayerId,
+        weapon: result.projectile.weapon,
+        origin: result.impact.origin,
+        impactKind: result.impact.kind,
+        playerDamageCount: result.impact.damageHits.length,
+        ...(result.impact.targetPlayerId ? { targetPlayerId: result.impact.targetPlayerId } : {}),
+      });
+      const owner = loopbackSnapshotPlayers()
+        .find((player) => player.playerId === result.projectile.ownerPlayerId);
+      const ownerInventory = owner
+        ? quakeMultiplayerPruneExpiredPowerups(quakeMultiplayerPlayerInventory(owner), timestamp)
+        : null;
+      const damageMultiplier = ownerInventory
+        ? quakeMultiplayerDamageMultiplierForInventory(ownerInventory, timestamp)
+        : 1;
+      for (const damageHit of result.impact.damageHits) {
+        const target = loopbackCurrentPlayerForDamage(damageHit.target);
+        const damage = damageHit.damage * damageMultiplier;
+        if (target.playerId === playerState?.playerId) {
+          applyLocalRoomDamage({
+            attackerPlayerId: result.projectile.ownerPlayerId,
+            damage,
+            damageSource: result.projectile.weapon,
+            eventId: `${projectileId}-${target.playerId}`,
+            inflictorOrigin: result.impact.origin,
+            now: timestamp,
+          });
+        } else {
+          applySimulatedRoomDamage(target, {
+            attackerPlayerId: result.projectile.ownerPlayerId,
+            damage,
+            damageSource: result.projectile.weapon,
+            eventId: `${projectileId}-${target.playerId}`,
+            inflictorOrigin: result.impact.origin,
+            now: timestamp,
+          });
+        }
+      }
+    }
+    return advanced;
   }
 
   function startSimulationTicker(): void {
@@ -714,6 +857,33 @@ export function createQuakeLoopbackMultiplayerSession(
     return [...players.values()];
   }
 
+  function nextLoopbackSpawnPoint(): QuakeMultiplayerSpawnPoint | undefined {
+    const selection = quakeMultiplayerDeathmatchSelectSpawnPoint(
+      spawnPoints,
+      loopbackSnapshotPlayers(),
+      { random },
+    );
+    if (!selection) return undefined;
+    spawnCursor = selection.nextCursor;
+    return selection.spawn;
+  }
+
+  function loopbackCombatPlayersForFire(
+    attackerPlayerId: string,
+    targetTime: number,
+  ): QuakeMultiplayerAuthoritativePlayerState[] {
+    return quakeMultiplayerHistoricalCombatPlayers(snapshotHistory, loopbackSnapshotPlayers(), {
+      attackerPlayerId,
+      targetTime,
+    });
+  }
+
+  function loopbackCurrentPlayerForDamage(
+    target: QuakeMultiplayerAuthoritativePlayerState,
+  ): QuakeMultiplayerAuthoritativePlayerState {
+    return loopbackSnapshotPlayers().find((player) => player.playerId === target.playerId) ?? target;
+  }
+
   function registerPickupDefinitions(definitions: readonly QuakeMultiplayerPickupDefinition[]): void {
     for (const definition of definitions) {
       if (pickupDefinitions.has(definition.entityIndex)) continue;
@@ -724,6 +894,53 @@ export function createQuakeLoopbackMultiplayerSession(
         available: true,
         updatedAt: now(),
       });
+    }
+  }
+
+  function dynamicPickupDefinitions(): QuakeMultiplayerPickupDefinition[] {
+    return [...pickupDefinitions.values()].filter((definition) => definition.runtime === true);
+  }
+
+  function dropPlayerBackpack(player: QuakeMultiplayerAuthoritativePlayerState, timestamp: number): void {
+    const definition = quakeMultiplayerDroppedBackpackDefinition({
+      player,
+      entityIndex: dynamicPickupSequence++,
+      now: timestamp,
+    });
+    if (!definition) return;
+    const pickup: QuakeMultiplayerAuthoritativePickupState = {
+      pickupId: definition.pickupId,
+      entityIndex: definition.entityIndex,
+      available: true,
+      updatedAt: timestamp,
+    };
+    pickupDefinitions.set(definition.entityIndex, definition);
+    pickupStates.set(definition.entityIndex, pickup);
+    emitRoomEvent({
+      eventType: "pickup.dropped",
+      eventId: `pickup-drop-${definition.entityIndex}-${timestamp}`,
+      roomTime: currentRoomTime(timestamp),
+      sourcePlayerId: player.playerId,
+      definition,
+      pickup,
+    });
+    if (definition.removeAt !== undefined) schedulePickupRemoval(definition.entityIndex, definition.removeAt);
+  }
+
+  function removePickupDefinition(entityIndex: number): void {
+    pickupDefinitions.delete(entityIndex);
+    pickupStates.delete(entityIndex);
+    const removalTimer = pickupRemovalTimers.get(entityIndex);
+    if (removalTimer) clearTimeout(removalTimer);
+    pickupRemovalTimers.delete(entityIndex);
+    const respawnTimer = pickupRespawnTimers.get(entityIndex);
+    if (respawnTimer) clearTimeout(respawnTimer);
+    pickupRespawnTimers.delete(entityIndex);
+  }
+
+  function clearRuntimePickupDefinitions(): void {
+    for (const definition of dynamicPickupDefinitions()) {
+      removePickupDefinition(definition.entityIndex);
     }
   }
 
@@ -739,9 +956,11 @@ export function createQuakeLoopbackMultiplayerSession(
     if (!acceptActivePresenceIntent(message.messageId)) return;
     if (!acceptActiveMatchIntent(message.messageId)) return;
     const timestamp = now();
-    const attackerInventory = quakeMultiplayerPruneExpiredPowerups(
-      quakeMultiplayerPlayerInventory(playerState),
-      timestamp,
+    const attackerInventory = quakeMultiplayerInventoryWithBestWeaponIfCurrentAmmoEmpty(
+      quakeMultiplayerPruneExpiredPowerups(
+        quakeMultiplayerPlayerInventory(playerState),
+        timestamp,
+      ),
     );
     const authoritativeFire = quakeMultiplayerDeathmatchFireFromPlayer(
       quakeMultiplayerPlayerWithInventory(playerState, attackerInventory),
@@ -752,6 +971,19 @@ export function createQuakeLoopbackMultiplayerSession(
       emitReject({
         code: "unsupported",
         message: `Weapon ${authoritativeFire.weapon} is not enabled for multiplayer damage yet.`,
+        recoverable: true,
+        rejectedMessageId: message.messageId,
+      });
+      return;
+    }
+    const inputHistoryValidation = validateQuakeMultiplayerRoomFireInputHistory(
+      playerSimulationState,
+      authoritativeFire,
+    );
+    if (!inputHistoryValidation.ok) {
+      emitReject({
+        code: "stale",
+        message: `Multiplayer fire timestamp is outside accepted input history (${inputHistoryValidation.reason}).`,
         recoverable: true,
         rejectedMessageId: message.messageId,
       });
@@ -775,8 +1007,8 @@ export function createQuakeLoopbackMultiplayerSession(
       players: loopbackSnapshotPlayers(),
     });
     if (lightningDischarge) {
-      const inventory = quakeMultiplayerConsumeLightningDischargeCells(attackerInventory);
-      if (!inventory) {
+      const consumedInventory = quakeMultiplayerConsumeLightningDischargeCells(attackerInventory);
+      if (!consumedInventory) {
         emitReject({
           code: "unsupported",
           message: `Not enough ammo for ${authoritativeFire.weapon}.`,
@@ -785,6 +1017,7 @@ export function createQuakeLoopbackMultiplayerSession(
         });
         return;
       }
+      const inventory = quakeMultiplayerInventoryWithBestWeaponIfCurrentAmmoEmpty(consumedInventory);
       lastFireAt = timestamp;
       playerState = {
         ...quakeMultiplayerPlayerWithInventory(playerState, inventory),
@@ -799,6 +1032,12 @@ export function createQuakeLoopbackMultiplayerSession(
         fireKind: authoritativeFire.fireKind,
         origin: authoritativeFire.origin,
         direction: authoritativeFire.direction,
+        decision: {
+          outcome: "discharge",
+          playerDamageCount: lightningDischarge.hits.length,
+          reason: "lightning-discharge",
+          targetRewindMs: 0,
+        },
       });
       const damageMultiplier = quakeMultiplayerDamageMultiplierForInventory(inventory, timestamp);
       for (const hit of lightningDischarge.hits) {
@@ -822,11 +1061,11 @@ export function createQuakeLoopbackMultiplayerSession(
       emitSnapshot();
       return;
     }
-    const inventory = quakeMultiplayerConsumeWeaponAmmo(
+    const consumedInventory = quakeMultiplayerConsumeWeaponAmmo(
       attackerInventory,
       authoritativeFire.weapon,
     );
-    if (!inventory) {
+    if (!consumedInventory) {
       emitReject({
         code: "unsupported",
         message: `Not enough ammo for ${authoritativeFire.weapon}.`,
@@ -835,30 +1074,83 @@ export function createQuakeLoopbackMultiplayerSession(
       });
       return;
     }
+    const inventory = quakeMultiplayerInventoryWithBestWeaponIfCurrentAmmoEmpty(consumedInventory);
     lastFireAt = timestamp;
     playerState = {
       ...quakeMultiplayerPlayerWithInventory(playerState, inventory),
       updatedAt: timestamp,
     };
-    emitRoomEvent({
-      eventType: "player.fired",
-      eventId: `fire-${message.messageId}`,
-      roomTime: currentRoomTime(),
-      playerId: playerState.playerId,
-      weapon: authoritativeFire.weapon,
-      fireKind: authoritativeFire.fireKind,
-      origin: authoritativeFire.origin,
-      direction: authoritativeFire.direction,
-    });
-    const hit = quakeMultiplayerDeathmatchHitscanHit(
+    const damageMultiplier = quakeMultiplayerDamageMultiplierForInventory(inventory, timestamp);
+    const broadcastFired = (decision: QuakeMultiplayerFireDecision): void => {
+      if (!playerState) return;
+      emitRoomEvent({
+        eventType: "player.fired",
+        eventId: `fire-${message.messageId}`,
+        roomTime: currentRoomTime(),
+        playerId: playerState.playerId,
+        weapon: authoritativeFire.weapon,
+        fireKind: authoritativeFire.fireKind,
+        origin: authoritativeFire.origin,
+        direction: authoritativeFire.direction,
+        decision,
+      });
+    };
+    if (quakeMultiplayerServerProjectileWeaponSupported(authoritativeFire.weapon)) {
+      const projectile = createQuakeMultiplayerServerProjectile({
+        fire: authoritativeFire,
+        now: timestamp,
+        ownerPlayerId: playerState.playerId,
+        projectileId: `projectile-${message.messageId}-${++projectileSequence}`,
+      });
+      if (projectile) {
+        serverProjectiles.set(projectile.projectileId, projectile);
+        broadcastFired({
+          outcome: "projectile-spawned",
+          playerDamageCount: 0,
+          reason: "server-projectile-spawned",
+          targetRewindMs: 0,
+        });
+        emitRoomEvent({
+          eventType: "projectile.spawned",
+          eventId: `projectile-spawned-${projectile.projectileId}`,
+          roomTime: currentRoomTime(),
+          projectile: quakeMultiplayerProjectileStateFromServer(projectile),
+        });
+        startSimulationTicker();
+        emitSnapshot();
+        return;
+      }
+    }
+    const targetRewindMs = quakeMultiplayerDeathmatchLagCompensationMs(playerState);
+    const combatPlayers = loopbackCombatPlayersForFire(playerState.playerId, timestamp - targetRewindMs);
+    const hitDecision = quakeMultiplayerDeathmatchVisibleHitDecision(
       authoritativeFire,
-      loopbackSnapshotPlayers(),
+      combatPlayers,
       playerState.playerId,
+      options.trustedSceneMovement?.collisionWorld,
     );
+    const hit = hitDecision.hit;
     const worldHit = quakeMultiplayerShootableWorldHit(authoritativeFire, worldDefinitions.values());
     if (worldHit && (!hit || worldHit.distance <= hit.distance)) {
-      const damage = quakeMultiplayerDeathmatchWeaponDamage(authoritativeFire.weapon) *
-        quakeMultiplayerDamageMultiplierForInventory(inventory, timestamp);
+      const worldSplashHits = quakeMultiplayerDeathmatchProjectileSplashHitsAtImpact(
+        authoritativeFire,
+        worldHit.impact,
+        combatPlayers,
+        playerState.playerId,
+        options.trustedSceneMovement?.collisionWorld,
+        undefined,
+      );
+      broadcastFired({
+        blockedCandidateCount: hitDecision.blockedCandidateCount,
+        candidateCount: hitDecision.candidateCount,
+        outcome: "hit-world",
+        playerDamageCount: worldSplashHits.length,
+        reason: "world-before-player",
+        targetEntityIndex: worldHit.definition.entityIndex,
+        targetRewindMs,
+        worldHitDistance: worldHit.distance,
+      });
+      const damage = quakeMultiplayerDeathmatchWeaponDamage(authoritativeFire.weapon) * damageMultiplier;
       if (worldHit.definition.kind === "mover") {
         applyShootableMoverDamage(
           worldHit.definition,
@@ -874,18 +1166,48 @@ export function createQuakeLoopbackMultiplayerSession(
           damage,
         );
       }
+      for (const damageHit of worldSplashHits) {
+        const target = loopbackCurrentPlayerForDamage(damageHit.target);
+        if (target.playerId === playerState.playerId) {
+          applyLocalPlayerDamage(
+            damageHit.damage * damageMultiplier,
+            message,
+            authoritativeFire.weapon,
+            damageHit.impact,
+          );
+        } else {
+          applySimulatedPlayerDamage(
+            target,
+            damageHit.damage * damageMultiplier,
+            message,
+            authoritativeFire.weapon,
+            damageHit.impact,
+          );
+        }
+      }
       emitSnapshot();
       return;
     }
     if (hit) {
-      const damageMultiplier = quakeMultiplayerDamageMultiplierForInventory(inventory, timestamp);
-      for (const damageHit of quakeMultiplayerDeathmatchSplashHits(
+      const splashHits = quakeMultiplayerDeathmatchSplashHits(
         authoritativeFire,
         hit,
-        loopbackSnapshotPlayers(),
+        combatPlayers,
         playerState.playerId,
-      )) {
-        if (damageHit.target.playerId === playerState.playerId) {
+        options.trustedSceneMovement?.collisionWorld,
+      );
+      broadcastFired({
+        blockedCandidateCount: hitDecision.blockedCandidateCount,
+        candidateCount: hitDecision.candidateCount,
+        outcome: "hit-player",
+        playerDamageCount: splashHits.length,
+        reason: "player-direct",
+        targetPlayerId: hit.target.playerId,
+        targetRewindMs,
+      });
+      for (const damageHit of splashHits) {
+        const target = loopbackCurrentPlayerForDamage(damageHit.target);
+        if (target.playerId === playerState.playerId) {
           applyLocalPlayerDamage(
             damageHit.damage * damageMultiplier,
             message,
@@ -894,11 +1216,49 @@ export function createQuakeLoopbackMultiplayerSession(
           );
         } else {
           applySimulatedPlayerDamage(
-            damageHit.target,
+            target,
             damageHit.damage * damageMultiplier,
             message,
             authoritativeFire.weapon,
             authoritativeFire.fireKind === "projectile" ? damageHit.impact : playerState.origin,
+          );
+        }
+      }
+    } else {
+      const worldSplashHits = quakeMultiplayerDeathmatchProjectileWorldSplashHits(
+        authoritativeFire,
+        combatPlayers,
+        playerState.playerId,
+        options.trustedSceneMovement?.collisionWorld,
+      );
+      broadcastFired({
+        blockedCandidateCount: hitDecision.blockedCandidateCount,
+        candidateCount: hitDecision.candidateCount,
+        outcome: worldSplashHits.length > 0 ? "world-splash" : "miss",
+        playerDamageCount: worldSplashHits.length,
+        reason: worldSplashHits.length > 0
+          ? "projectile-world-splash"
+          : authoritativeFire.fireKind === "projectile" && hitDecision.candidateCount === 0
+            ? "no-world-impact"
+            : hitDecision.reason,
+        targetRewindMs,
+      });
+      for (const damageHit of worldSplashHits) {
+        const target = loopbackCurrentPlayerForDamage(damageHit.target);
+        if (target.playerId === playerState.playerId) {
+          applyLocalPlayerDamage(
+            damageHit.damage * damageMultiplier,
+            message,
+            authoritativeFire.weapon,
+            damageHit.impact,
+          );
+        } else {
+          applySimulatedPlayerDamage(
+            target,
+            damageHit.damage * damageMultiplier,
+            message,
+            authoritativeFire.weapon,
+            damageHit.impact,
           );
         }
       }
@@ -928,11 +1288,12 @@ export function createQuakeLoopbackMultiplayerSession(
     damageSource: string;
     eventId: string;
     inflictorOrigin?: QuakeMultiplayerVec3 | null;
+    now?: number;
   }): boolean {
     if (!playerState || !playerState.alive) return false;
     const damage = Math.max(0, input.damage);
     if (damage <= 0) return false;
-    const timestamp = now();
+    const timestamp = input.now ?? now();
     const playerInventory = quakeMultiplayerPruneExpiredPowerups(quakeMultiplayerPlayerInventory(playerState), timestamp);
     const invulnerable = quakeMultiplayerPlayerPowerupActive(playerState, "invincible_finished", timestamp);
     const inventory = quakeMultiplayerApplyDamageToInventory(
@@ -940,15 +1301,18 @@ export function createQuakeLoopbackMultiplayerSession(
       damage,
       { applyHealth: !invulnerable },
     );
-    const died = inventory.health <= 0;
-    const fragDelta = died && input.attackerPlayerId
-      ? quakeMultiplayerDeathmatchFragDeltaForKill({
+    const died = !invulnerable && inventory.health <= 0;
+    const resolvedInventory = died
+      ? quakeMultiplayerInventoryWithoutDeathPowerups(inventory)
+      : inventory;
+    const fragDelta = died
+      ? Math.min(0, quakeMultiplayerDeathmatchFragDeltaForKill({
           attackerPlayerId: input.attackerPlayerId,
           victimPlayerId: playerState.playerId,
-        })
+        }))
       : 0;
     const damagedPlayer = quakeMultiplayerDeathmatchPlayerWithDamageMomentum({
-      player: quakeMultiplayerPlayerWithInventory(playerState, inventory),
+      player: quakeMultiplayerPlayerWithInventory(playerState, resolvedInventory),
       damage,
       inflictorOrigin: input.inflictorOrigin,
     });
@@ -960,7 +1324,12 @@ export function createQuakeLoopbackMultiplayerSession(
       updatedAt: timestamp,
       ...(died ? { respawnAt: timestamp + QUAKE_MULTIPLAYER_DEATHMATCH_RESPAWN_DELAY_MS } : {}),
     };
+    if (invulnerable) {
+      emitSnapshot();
+      return false;
+    }
     if (died) {
+      dropPlayerBackpack(playerState, timestamp);
       clearPickupOwnership(playerState.playerId, timestamp);
       if (playerSimulationState) {
         playerSimulationState = pauseQuakeMultiplayerRoomPlayerSimulation(playerSimulationState, timestamp);
@@ -968,17 +1337,17 @@ export function createQuakeLoopbackMultiplayerSession(
       emitRoomEvent({
         eventType: "player.killed",
         eventId: `kill-${input.eventId}`,
-        roomTime: currentRoomTime(),
+        roomTime: currentRoomTime(timestamp),
         victimPlayerId: playerState.playerId,
         ...(input.attackerPlayerId ? { attackerPlayerId: input.attackerPlayerId } : {}),
         damageSource: input.damageSource,
       });
-      scheduleLocalRespawn(playerState.respawnAt ?? timestamp);
+      scheduleLocalRespawn(playerState.respawnAt ?? timestamp, timestamp);
     } else {
       emitRoomEvent({
         eventType: "player.damaged",
         eventId: `damage-${input.eventId}`,
-        roomTime: currentRoomTime(),
+        roomTime: currentRoomTime(timestamp),
         victimPlayerId: playerState.playerId,
         ...(input.attackerPlayerId ? { attackerPlayerId: input.attackerPlayerId } : {}),
         damage,
@@ -1014,9 +1383,10 @@ export function createQuakeLoopbackMultiplayerSession(
       damageSource: string;
       eventId: string;
       inflictorOrigin?: QuakeMultiplayerVec3 | null;
+      now?: number;
     },
   ): void {
-    const timestamp = now();
+    const timestamp = input.now ?? now();
     const damage = Math.max(0, input.damage);
     if (damage <= 0) return;
     const targetInventory = quakeMultiplayerPruneExpiredPowerups(quakeMultiplayerPlayerInventory(target), timestamp);
@@ -1026,20 +1396,31 @@ export function createQuakeLoopbackMultiplayerSession(
       damage,
       { applyHealth: !invulnerable },
     );
-    const died = inventory.health <= 0;
+    const died = !invulnerable && inventory.health <= 0;
+    const resolvedInventory = died
+      ? quakeMultiplayerInventoryWithoutDeathPowerups(inventory)
+      : inventory;
+    const targetFragDelta = died
+      ? Math.min(0, quakeMultiplayerDeathmatchFragDeltaForKill({
+          attackerPlayerId: input.attackerPlayerId,
+          victimPlayerId: target.playerId,
+        }))
+      : 0;
     const damagedTarget = quakeMultiplayerDeathmatchPlayerWithDamageMomentum({
-      player: quakeMultiplayerPlayerWithInventory(target, inventory),
+      player: quakeMultiplayerPlayerWithInventory(target, resolvedInventory),
       damage,
       inflictorOrigin: input.inflictorOrigin,
     });
     const updatedTarget = {
       ...damagedTarget,
       alive: !died,
+      frags: target.frags + targetFragDelta,
       deaths: died ? target.deaths + 1 : target.deaths,
       updatedAt: timestamp,
       ...(died ? { respawnAt: timestamp + QUAKE_MULTIPLAYER_DEATHMATCH_RESPAWN_DELAY_MS } : {}),
     };
     simulatedPlayerOverrides.set(target.playerId, updatedTarget);
+    if (invulnerable) return;
     if (died) {
       if (playerState && input.attackerPlayerId === playerState.playerId) {
         const fragDelta = quakeMultiplayerDeathmatchFragDeltaForKill({
@@ -1052,11 +1433,12 @@ export function createQuakeLoopbackMultiplayerSession(
           updatedAt: timestamp,
         };
       }
+      dropPlayerBackpack(target, timestamp);
       clearPickupOwnership(target.playerId, timestamp);
       emitRoomEvent({
         eventType: "player.killed",
         eventId: `kill-${input.eventId}`,
-        roomTime: currentRoomTime(),
+        roomTime: currentRoomTime(timestamp),
         victimPlayerId: target.playerId,
         ...(input.attackerPlayerId ? { attackerPlayerId: input.attackerPlayerId } : {}),
         damageSource: input.damageSource,
@@ -1064,12 +1446,12 @@ export function createQuakeLoopbackMultiplayerSession(
       const matchEnded = playerState && input.attackerPlayerId === playerState.playerId
         ? enterIntermissionIfFragLimitReached(playerState, input.eventId)
         : false;
-      if (!matchEnded) scheduleSimulatedRespawn(target.playerId, updatedTarget.respawnAt ?? timestamp);
+      if (!matchEnded) scheduleSimulatedRespawn(target.playerId, updatedTarget.respawnAt ?? timestamp, timestamp);
     } else {
       emitRoomEvent({
         eventType: "player.damaged",
         eventId: `damage-${input.eventId}`,
-        roomTime: currentRoomTime(),
+        roomTime: currentRoomTime(timestamp),
         victimPlayerId: target.playerId,
         ...(input.attackerPlayerId ? { attackerPlayerId: input.attackerPlayerId } : {}),
         damage,
@@ -1086,12 +1468,33 @@ export function createQuakeLoopbackMultiplayerSession(
     for (const victim of loopbackSnapshotPlayers()) {
       if (victim.playerId === ownerPlayerId) continue;
       if (!quakeMultiplayerPlayerIntersectsTelefragVolume(victim, destinationOrigin)) continue;
-      if (quakeMultiplayerPlayerPowerupActive(victim, "invincible_finished", timestamp)) {
+      const victimInvulnerable = quakeMultiplayerPlayerPowerupActive(victim, "invincible_finished", timestamp);
+      const ownerInvulnerable = quakeMultiplayerPlayerPowerupActive(playerState, "invincible_finished", timestamp);
+      if (victimInvulnerable && ownerInvulnerable) {
+        const clearedVictim = quakeMultiplayerPlayerWithoutPowerup(victim, "invincible_finished");
+        simulatedPlayerOverrides.set(victim.playerId, clearedVictim);
+        playerState = quakeMultiplayerPlayerWithoutPowerup(playerState, "invincible_finished");
+        applySimulatedRoomDamage(clearedVictim, {
+          damage: QUAKE_MULTIPLAYER_TELEFRAG_DAMAGE,
+          damageSource: "teledeath3",
+          eventId: `telefrag-double-${eventId}-${victim.playerId}`,
+          now: timestamp,
+        });
+        applyLocalRoomDamage({
+          damage: QUAKE_MULTIPLAYER_TELEFRAG_DAMAGE,
+          damageSource: "teledeath3",
+          eventId: `telefrag-double-${eventId}-${ownerPlayerId}`,
+          now: timestamp,
+        });
+        continue;
+      }
+      if (victimInvulnerable) {
         applyLocalRoomDamage({
           attackerPlayerId: ownerPlayerId,
           damage: QUAKE_MULTIPLAYER_TELEFRAG_DAMAGE,
           damageSource: "teledeath2",
           eventId: `telefrag-deflect-${eventId}-${victim.playerId}`,
+          now: timestamp,
         });
         continue;
       }
@@ -1100,11 +1503,12 @@ export function createQuakeLoopbackMultiplayerSession(
         damage: QUAKE_MULTIPLAYER_TELEFRAG_DAMAGE,
         damageSource: "teledeath",
         eventId: `telefrag-${eventId}-${victim.playerId}`,
+        now: timestamp,
       });
     }
   }
 
-  function scheduleLocalRespawn(respawnAt: number): void {
+  function scheduleLocalRespawn(respawnAt: number, currentNow = now()): void {
     const playerId = playerState?.playerId;
     if (!playerId) return;
     const previous = respawnTimers.get(playerId);
@@ -1113,8 +1517,10 @@ export function createQuakeLoopbackMultiplayerSession(
       respawnTimers.delete(playerId);
       if (!playerState || playerState.playerId !== playerId) return;
       clearPickupOwnership(playerId, now());
+      const spawn = nextLoopbackSpawnPoint();
       playerState = {
         ...quakeMultiplayerPlayerWithInventory(playerState, createQuakeMultiplayerInitialInventory()),
+        ...(spawn ? { spawnId: spawn.spawnId, origin: spawn.origin, rotX: spawn.rotX, rotY: spawn.rotY } : {}),
         alive: true,
         velocity: [0, 0, 0],
         respawnAt: undefined,
@@ -1132,11 +1538,11 @@ export function createQuakeLoopbackMultiplayerSession(
         player: playerState,
       });
       emitSnapshot();
-    }, Math.max(0, respawnAt - now()));
+    }, Math.max(0, respawnAt - currentNow));
     respawnTimers.set(playerId, timer);
   }
 
-  function scheduleSimulatedRespawn(playerId: string, respawnAt: number): void {
+  function scheduleSimulatedRespawn(playerId: string, respawnAt: number, currentNow = now()): void {
     const previous = respawnTimers.get(playerId);
     if (previous) clearTimeout(previous);
     const timer = setTimeout(() => {
@@ -1144,8 +1550,10 @@ export function createQuakeLoopbackMultiplayerSession(
       const player = simulatedPlayerOverrides.get(playerId);
       if (!player) return;
       clearPickupOwnership(playerId, now());
+      const spawn = nextLoopbackSpawnPoint();
       const respawned = {
         ...quakeMultiplayerPlayerWithInventory(player, createQuakeMultiplayerInitialInventory()),
+        ...(spawn ? { spawnId: spawn.spawnId, origin: spawn.origin, rotX: spawn.rotX, rotY: spawn.rotY } : {}),
         alive: true,
         velocity: [0, 0, 0],
         respawnAt: undefined,
@@ -1159,7 +1567,7 @@ export function createQuakeLoopbackMultiplayerSession(
         player: respawned,
       });
       emitSnapshot();
-    }, Math.max(0, respawnAt - now()));
+    }, Math.max(0, respawnAt - currentNow));
     respawnTimers.set(playerId, timer);
   }
 
@@ -1183,7 +1591,10 @@ export function createQuakeLoopbackMultiplayerSession(
     }
     const timestamp = now();
     const inventory = quakeMultiplayerPruneExpiredPowerups(quakeMultiplayerPlayerInventory(playerState), timestamp);
-    if (!quakeMultiplayerInventoryCanAcceptPickupEffect(inventory, definition.effect)) {
+    if (
+      !quakeMultiplayerPickupAlwaysAcceptsTouch(definition) &&
+      !quakeMultiplayerInventoryCanAcceptPickupEffect(inventory, definition.effect, timestamp)
+    ) {
       emitPickupRejected(message, definition, "not-needed");
       return;
     }
@@ -1222,6 +1633,9 @@ export function createQuakeLoopbackMultiplayerSession(
     }
     const targetDispatch = pickupTargetDispatchSource(definition);
     if (targetDispatch) scheduleTargetDispatch(targetDispatch, playerState.playerId, `pickup-${message.messageId}`);
+    if (definition.runtime && !leaveInPlace && updatedState.respawnAt === undefined) {
+      removePickupDefinition(definition.entityIndex);
+    }
     emitSnapshot();
   }
 
@@ -1352,11 +1766,13 @@ export function createQuakeLoopbackMultiplayerSession(
       return;
     }
     if (resolution.kind === "hurt") {
-      if (!acceptHurtTouch(resolution.definition.entityIndex, now())) return;
+      const timestamp = now();
+      if (!acceptHurtTouch(resolution.definition.entityIndex, timestamp)) return;
       const applied = applyLocalRoomDamage({
         damage: resolution.damage,
         damageSource: "trigger_hurt",
         eventId: `world-${message.messageId}`,
+        now: timestamp,
       });
       if (applied) emitSnapshot();
       return;
@@ -1457,6 +1873,27 @@ export function createQuakeLoopbackMultiplayerSession(
     pickupRespawnTimers.set(entityIndex, timer);
   }
 
+  function schedulePickupRemoval(entityIndex: number, removeAt: number): void {
+    const previous = pickupRemovalTimers.get(entityIndex);
+    if (previous) clearTimeout(previous);
+    const timer = setTimeout(() => {
+      pickupRemovalTimers.delete(entityIndex);
+      const definition = pickupDefinitions.get(entityIndex);
+      const state = pickupStates.get(entityIndex);
+      if (!definition?.runtime || !state?.available) return;
+      emitRoomEvent({
+        eventType: "pickup.expired",
+        eventId: `pickup-expired-${entityIndex}-${now()}`,
+        roomTime: currentRoomTime(),
+        pickupId: definition.pickupId,
+        entityIndex,
+      });
+      removePickupDefinition(entityIndex);
+      emitSnapshot();
+    }, Math.max(0, removeAt - now()));
+    pickupRemovalTimers.set(entityIndex, timer);
+  }
+
   function clearPickupOwnership(playerId: string, timestamp = now()): void {
     for (const [entityIndex, state] of pickupStates) {
       const next = quakeMultiplayerPickupStateWithoutOwner(state, playerId, timestamp);
@@ -1482,6 +1919,23 @@ export function createQuakeLoopbackMultiplayerSession(
     if (!playerSimulationState) return;
     playerSimulationState = pauseQuakeMultiplayerRoomPlayerSimulation(playerSimulationState, now());
     stopSimulationTicker();
+  }
+
+  function queueLoopbackPlayerInputs(inputs: readonly QuakeMultiplayerLocalInputIntent[]): void {
+    if (!quakeMultiplayerPresenceAcceptsInput(presenceStatus)) {
+      pauseLoopbackPlayerSimulation();
+      return;
+    }
+    if (!playerState || !playerSimulationState) return;
+    let nextState = playerSimulationState;
+    let accepted = false;
+    for (const input of inputs) {
+      const result = queueQuakeMultiplayerRoomInput(nextState, input);
+      nextState = result.state;
+      accepted = accepted || result.accepted;
+    }
+    playerSimulationState = nextState;
+    if (accepted) startSimulationTicker();
   }
 
   function enterIntermissionIfFragLimitReached(
@@ -1557,6 +2011,7 @@ export function createQuakeLoopbackMultiplayerSession(
     matchStatus = "active";
     clearTimers(respawnTimers);
     clearTimers(pickupRespawnTimers);
+    clearTimers(pickupRemovalTimers);
     clearTimers(targetDispatchTimers);
     clearTimers(moverStateTimers);
     simulatedPlayerOverrides.clear();
@@ -1567,6 +2022,7 @@ export function createQuakeLoopbackMultiplayerSession(
     triggerShootHealth.clear();
     moverStates.clear();
     moverShootHealth.clear();
+    clearRuntimePickupDefinitions();
     pickupStates = new Map();
     for (const definition of pickupDefinitions.values()) {
       pickupStates.set(definition.entityIndex, {
@@ -1783,7 +2239,6 @@ export function createQuakeLoopbackMultiplayerSession(
     cascadeDepth: number,
     activation: "touch" | "target" | "shoot",
   ): void {
-    if (definition.classname !== "func_button") return;
     const state = moverStates.get(definition.entityIndex) ?? "bottom";
     if (state === "moving-up" || state === "top") return;
     moverStates.set(definition.entityIndex, "moving-up");
@@ -2027,9 +2482,9 @@ export function createQuakeLoopbackMultiplayerSession(
     }
   }
 
-  function currentRoomTime(): number {
+  function currentRoomTime(at = now()): number {
     const connectedAt = currentStatus.connectedAt ?? now();
-    return Math.max(0, now() - connectedAt);
+    return Math.max(0, at - connectedAt);
   }
 
   return adapter;
@@ -2068,12 +2523,6 @@ function createLoopbackPlayerState(
     lastInputSequence: 0,
     updatedAt,
   };
-}
-
-function quakeLoopbackInitialSpawnPoint(
-  spawns: readonly QuakeMultiplayerSpawnPoint[] | undefined,
-): QuakeMultiplayerSpawnPoint | undefined {
-  return spawns?.length ? quakeMultiplayerDeathmatchSpawnOrder(spawns)[0] : undefined;
 }
 
 function createLoopbackPlayerStateFromPose(
@@ -2148,6 +2597,35 @@ function createLoopbackDefaultSimulatedPlayer(
     lastInputSequence: 0,
     updatedAt,
   };
+}
+
+function quakeMultiplayerProjectileStateFromServer(
+  projectile: QuakeMultiplayerServerProjectile,
+): QuakeMultiplayerProjectileState {
+  return {
+    projectileId: projectile.projectileId,
+    ownerPlayerId: projectile.ownerPlayerId,
+    weapon: projectile.weapon,
+    origin: projectile.origin,
+    direction: projectile.direction,
+    speed: projectile.speed,
+    spawnedAt: projectile.spawnedAt,
+    updatedAt: projectile.updatedAt,
+    expiresAt: projectile.expiresAt,
+  };
+}
+
+function quakeMultiplayerPlayerWithoutPowerup(
+  player: QuakeMultiplayerAuthoritativePlayerState,
+  finishedField: string,
+): QuakeMultiplayerAuthoritativePlayerState {
+  return quakeMultiplayerPlayerWithInventory(
+    player,
+    quakeMultiplayerInventoryWithoutPowerup(
+      quakeMultiplayerPlayerInventory(player),
+      finishedField,
+    ),
+  );
 }
 
 function loopbackPlayerId(clientId: string): string {

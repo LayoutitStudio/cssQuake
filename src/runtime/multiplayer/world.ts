@@ -56,6 +56,9 @@ const QUAKE_MULTIPLAYER_TRIGGER_ACTIVATION_CLASSNAMES =
 const QUAKE_MULTIPLAYER_MOVER_CLASSNAMES =
   new Set<QuakeMultiplayerMoverClassname>([
     "func_button",
+    "func_door",
+    "func_door_secret",
+    "func_plat",
   ]);
 
 export interface QuakeMultiplayerSceneWorldSource {
@@ -539,12 +542,15 @@ function quakeMultiplayerWorldDefinitionFromEntity(
     logic?.resolvedMover?.kind === entity.classname
   ) {
     const mover = logic.resolvedMover;
+    const endpointOrigins = quakeMultiplayerMoverEndpointOrigins(mover);
+    if (!endpointOrigins) return null;
     const target = entity.properties.target;
     const killtarget = entity.properties.killtarget;
-    const fromOrigin = quakeMultiplayerPointToRoom(mover.pos1Origin, options);
-    const toOrigin = quakeMultiplayerPointToRoom(mover.pos2Origin, options);
+    const fromOrigin = quakeMultiplayerPointToRoom(endpointOrigins.from, options);
+    const toOrigin = quakeMultiplayerPointToRoom(endpointOrigins.to, options);
     const delay = Math.max(0, quakeMultiplayerFiniteNumber(entity.properties.delay, 0));
-    const waitMs = quakeMultiplayerSecondsToMs(mover.wait);
+    const wait = mover.wait ?? mover.waitAtTop;
+    const waitMs = quakeMultiplayerSecondsToMs(wait);
     return {
       kind: "mover",
       entityIndex: entity.index,
@@ -557,8 +563,11 @@ function quakeMultiplayerWorldDefinitionFromEntity(
       shootActivates: Boolean(mover.callbacks.th_die),
       ...(mover.health !== undefined && mover.health > 0 ? { shootHealth: mover.health } : {}),
       speed: mover.speed,
-      moveMs: quakeMultiplayerMoverMoveMs(mover.travelDistance, mover.speed),
-      ...(mover.wait >= 0 ? { returnDelayMs: waitMs } : {}),
+      moveMs: quakeMultiplayerMoverMoveMs(
+        mover.travelDistance ?? quakeMultiplayerMoverEndpointDistance(endpointOrigins),
+        mover.speed,
+      ),
+      ...(wait !== undefined && wait >= 0 ? { returnDelayMs: waitMs } : {}),
       delayMs: quakeMultiplayerSecondsToMs(delay),
       fromOrigin,
       toOrigin,
@@ -602,6 +611,30 @@ function quakeMultiplayerWorldDefinitionFromEntity(
     };
   }
   return null;
+}
+
+function quakeMultiplayerMoverEndpointOrigins(
+  mover: NonNullable<QuakeMultiplayerWorldLogicEntity["resolvedMover"]>,
+): { from: QuakeVertex; to: QuakeVertex } | null {
+  if (mover.pos1Origin && mover.pos2Origin) {
+    return { from: mover.pos1Origin, to: mover.pos2Origin };
+  }
+  if (mover.kind === "func_plat" && (mover.bottomOrigin || mover.topOrigin)) {
+    const from = mover.bottomOrigin ?? mover.initialOrigin ?? mover.topOrigin;
+    const to = mover.topOrigin ?? mover.initialOrigin ?? mover.bottomOrigin;
+    return from && to ? { from, to } : null;
+  }
+  const from = mover.oldOrigin ?? mover.initialOrigin ?? mover.pos1Origin ?? mover.pos2Origin;
+  const to = mover.initialOrigin ?? mover.pos2Origin ?? mover.pos1Origin ?? mover.oldOrigin;
+  return from && to ? { from, to } : null;
+}
+
+function quakeMultiplayerMoverEndpointDistance(input: { from: QuakeVertex; to: QuakeVertex }): number {
+  return Math.hypot(
+    input.to.x - input.from.x,
+    input.to.y - input.from.y,
+    input.to.z - input.from.z,
+  );
 }
 
 function quakeMultiplayerWorldBoundsFromLogic(
@@ -1060,10 +1093,15 @@ type QuakeMultiplayerWorldLogicEntity = {
   resolvedMover?: {
     kind: string;
     speed: number;
-    wait: number;
-    pos1Origin: QuakeVertex;
-    pos2Origin: QuakeVertex;
-    travelDistance: number;
+    wait?: number;
+    waitAtTop?: number;
+    pos1Origin?: QuakeVertex;
+    pos2Origin?: QuakeVertex;
+    topOrigin?: QuakeVertex;
+    bottomOrigin?: QuakeVertex;
+    initialOrigin?: QuakeVertex;
+    oldOrigin?: QuakeVertex;
+    travelDistance?: number;
     activationSound?: string;
     health?: number;
     callbacks: {

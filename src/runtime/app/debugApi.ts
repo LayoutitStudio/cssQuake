@@ -29,6 +29,7 @@ export interface QuakeAppDebugApiOptions {
   mapExists(mapName: string): boolean;
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
   renderOrigin(): Vec3;
+  requestMultiplayerPickup(entityIndex: number): boolean;
   setCollisionBypassUntil(until: number): void;
   setMultiplayerInputPaused(paused: boolean): boolean;
   syncHud(): void;
@@ -56,6 +57,7 @@ function createQuakeAppDebugRuntime({
   mapExists,
   pointToPoly,
   renderOrigin,
+  requestMultiplayerPickup,
   setCollisionBypassUntil,
   setMultiplayerInputPaused,
   syncHud,
@@ -84,6 +86,7 @@ function createQuakeAppDebugRuntime({
       setOrigin: (origin) => runtime.controllers.player().setDebugOrigin(origin),
     },
     currentMapName: runtime.session.currentMapName,
+    damageableBrushesStats: () => runtime.controllers.damageableBrushes.snapshot(),
     damagePlayer: (amount, context) => runtime.controllers.player().damage(amount, context),
     damageWeaponTarget: (entityIndex, amount) =>
       runtime.controllers.shootables.debugDamageWeaponTarget(entityIndex, amount),
@@ -114,8 +117,14 @@ function createQuakeAppDebugRuntime({
       runtime.controllers.shootables.debugSetEnemyProjectileCaptureEnabled(enabled),
     enemyProjectileTraceStep: (dtMs) => runtime.controllers.shootables.debugStepEnemyProjectiles(dtMs),
     entities: runtime.session.entities,
-    fireWeapon: () => runtime.controllers.weapons.fire(),
-    fireWeaponDebug: (options) => runtime.controllers.weapons.debugFireProjectile(options),
+    fireWeapon: () => {
+      runtime.gameplay.resumeForDebugInput();
+      return runtime.gameplay.runWithDebugInput(() => runtime.controllers.weapons.fire());
+    },
+    fireWeaponDebug: (options) => {
+      runtime.gameplay.resumeForDebugInput();
+      return runtime.gameplay.runWithDebugInput(() => runtime.controllers.weapons.debugFireProjectile(options));
+    },
     fireballEmittersCount,
     fireballsCount,
     floorAt: (x, y, maxZ, minZ) =>
@@ -146,11 +155,13 @@ function createQuakeAppDebugRuntime({
     playerMoveDebug: () => runtime.controllers.player().debugMovement(),
     pointToPoly,
     renderOrigin,
+    requestMultiplayerPickup,
     projectileImpact: (weapon, entityIndex, origin, directDamage) =>
       runtime.controllers.weapons.debugProjectileImpact(weapon, entityIndex, origin, directDamage),
     projectileTraceCapture: () => runtime.controllers.weapons.debugProjectileCapture(),
     projectileTraceClear: () => runtime.controllers.weapons.debugClearProjectileCapture(),
     projectileTraceEnabled: (enabled) => runtime.controllers.weapons.debugSetProjectileCaptureEnabled(enabled),
+    runWithDebugInput: runtime.gameplay.runWithDebugInput,
     setUnmountedAi: (enabled) => runtime.controllers.shootables.setUnmountedAiEnabled(enabled),
     setCollisionBypassUntil,
     setShootableOrigin: (entityIndex, origin) => runtime.controllers.shootables.debugSetOrigin(entityIndex, origin),

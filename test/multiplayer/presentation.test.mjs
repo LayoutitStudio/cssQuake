@@ -6,7 +6,7 @@ import { importTsModule } from "../importTsModule.mjs";
 
 const presentation = await importTsModule("src/runtime/multiplayer/presentation.ts");
 
-function createRemotePresenterHarness() {
+function createRemotePresenterHarness(options = {}) {
   let now = 1_000;
   const callbacks = new Map();
   const damageEvents = [];
@@ -23,6 +23,7 @@ function createRemotePresenterHarness() {
     onPlayerKilled: (event, player) => killEvents.push({ event, player }),
     now: () => now,
     renderDelayMs: 0,
+    ...(options.staleAfterMs !== undefined ? { staleAfterMs: options.staleAfterMs } : {}),
     requestFrame: (callback) => {
       const handle = callbacks.size + 1;
       callbacks.set(handle, callback);
@@ -122,6 +123,103 @@ test("remote presenter ignores local player damage for remote visuals", () => {
   assert.equal(harness.damageEvents.length, 0);
 });
 
+test("remote presenter marks remote player attack frames from fired events", () => {
+  const harness = createRemotePresenterHarness();
+  const remotePlayer = createPlayer({
+    playerId: "remote-player",
+    clientId: "remote-client",
+    updatedAt: 1_000,
+    origin: [10, 20, 30],
+  });
+
+  harness.presenter.handleRoomMessage(roomSnapshot([remotePlayer]));
+  harness.flushFrame();
+
+  harness.setNow(1_150);
+  harness.presenter.handleRoomMessage(roomEvent({
+    eventType: "player.fired",
+    eventId: "fire-1",
+    roomTime: 1_150,
+    playerId: "remote-player",
+    weapon: "nailgun",
+    fireKind: "projectile",
+    origin: [10, 20, 30],
+    direction: [1, 0, 0],
+  }));
+  harness.flushFrame();
+
+  assert.equal(harness.visualStates.at(-1).state.lastAttackAt, 1_150);
+  assert.equal(harness.visualStates.at(-1).state.lastAttackWeapon, "nailgun");
+});
+
+test("remote presenter keeps later attack evidence after an earlier pain marker", () => {
+  const harness = createRemotePresenterHarness();
+  const remotePlayer = createPlayer({
+    playerId: "remote-player",
+    clientId: "remote-client",
+    updatedAt: 1_000,
+    origin: [10, 20, 30],
+  });
+
+  harness.presenter.handleRoomMessage(roomSnapshot([remotePlayer]));
+  harness.flushFrame();
+
+  harness.setNow(1_100);
+  harness.presenter.handleRoomMessage(roomEvent({
+    eventType: "player.damaged",
+    eventId: "damage-1",
+    roomTime: 1_100,
+    victimPlayerId: "remote-player",
+    attackerPlayerId: "local-player",
+    damage: 12,
+    health: 88,
+    armor: 0,
+    damageSource: "shotgun",
+  }));
+  harness.flushFrame();
+
+  harness.setNow(1_500);
+  harness.presenter.handleRoomMessage(roomEvent({
+    eventType: "player.fired",
+    eventId: "fire-1",
+    roomTime: 1_500,
+    playerId: "remote-player",
+    weapon: "rocketlauncher",
+    fireKind: "projectile",
+    origin: [10, 20, 30],
+    direction: [1, 0, 0],
+  }));
+  harness.flushFrame();
+
+  assert.equal(harness.visualStates.at(-1).state.lastPainAt, 1_100);
+  assert.equal(harness.visualStates.at(-1).state.lastAttackAt, 1_500);
+  assert.equal(harness.visualStates.at(-1).state.lastAttackWeapon, "rocketlauncher");
+});
+
+test("remote presenter ignores local player fired events for remote visuals", () => {
+  const harness = createRemotePresenterHarness();
+  const localPlayer = createPlayer({
+    playerId: "local-player",
+    clientId: "local-client",
+    updatedAt: 1_000,
+  });
+
+  harness.presenter.handleRoomMessage(roomSnapshot([localPlayer]));
+
+  harness.presenter.handleRoomMessage(roomEvent({
+    eventType: "player.fired",
+    eventId: "fire-local",
+    roomTime: 1_150,
+    playerId: "local-player",
+    weapon: "shotgun",
+    fireKind: "hitscan",
+    origin: [0, 0, 0],
+    direction: [1, 0, 0],
+  }));
+
+  assert.equal(harness.visualStates.length, 0);
+});
+
 test("remote presenter reports remote player kills before death state is applied", () => {
   const harness = createRemotePresenterHarness();
   const remotePlayer = createPlayer({
@@ -151,4 +249,29 @@ test("remote presenter reports remote player kills before death state is applied
   assert.equal(harness.killEvents[0].player.alive, true);
   assert.equal(harness.visualStates.at(-1).state.alive, false);
   assert.equal(harness.visualStates.at(-1).state.deathAt, 1_200);
+});
+
+test("remote presenter preserves a visual through one transient missing snapshot", () => {
+  const harness = createRemotePresenterHarness({ staleAfterMs: 100 });
+  const remotePlayer = createPlayer({
+    playerId: "remote-player",
+    clientId: "remote-client",
+    updatedAt: 1_000,
+    origin: [10, 20, 30],
+  });
+
+  harness.presenter.handleRoomMessage(roomSnapshot([remotePlayer]));
+  harness.flushFrame();
+
+  harness.setNow(1_050);
+  harness.presenter.handleRoomMessage(roomSnapshot([]));
+  harness.flushFrame();
+
+  assert.deepEqual(harness.removed, []);
+  assert.equal(harness.visualStates.at(-1).playerId, "remote-player");
+
+  harness.setNow(1_201);
+  harness.flushFrame();
+
+  assert.deepEqual(harness.removed, ["remote-player"]);
 });

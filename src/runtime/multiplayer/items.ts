@@ -6,6 +6,7 @@ import type {
   QuakeMultiplayerPickupDefinition,
   QuakeMultiplayerVec3,
 } from "./protocol";
+import { QUAKE_PLAYER_MINS_Z } from "../constants";
 
 const QUAKE_MULTIPLAYER_MAX_AMMO = {
   shells: 100,
@@ -23,9 +24,50 @@ const QUAKE_MULTIPLAYER_ARMOR_FLAGS = 8192 | 16384 | 32768;
 const QUAKE_MULTIPLAYER_PICKUP_REACH_DISTANCE = 3.5;
 const QUAKE_MULTIPLAYER_PICKUP_ORIGIN_HINT_MAX_HORIZONTAL_DRIFT = 3;
 const QUAKE_MULTIPLAYER_PICKUP_ORIGIN_HINT_MAX_VERTICAL_DRIFT = 8;
+const QUAKE_MULTIPLAYER_MIN_DEATH_HEALTH = -99;
+const QUAKE_MULTIPLAYER_DROPPED_BACKPACK_LIFETIME_MS = 120_000;
+const QUAKE_MULTIPLAYER_DROPPED_BACKPACK_MODEL_PATH = "progs/backpack.mdl";
+const QUAKE_MULTIPLAYER_DEATH_CLEARED_ARTIFACT_FLAGS = [
+  524_288, // IT_INVISIBILITY
+  1_048_576, // IT_INVULNERABILITY
+  2_097_152, // IT_SUIT
+  4_194_304, // IT_QUAD
+] as const;
+
+const QUAKE_MULTIPLAYER_WEAPON_ITEM_FLAGS: Record<string, number> = {
+  shotgun: 1,
+  supershotgun: 2,
+  nailgun: 4,
+  supernailgun: 8,
+  grenadelauncher: 16,
+  rocketlauncher: 32,
+  lightning: 64,
+  axe: 4096,
+};
+
+const QUAKE_MULTIPLAYER_WEAPON_PICKUP_SWITCH_RANK: Record<string, number> = {
+  lightning: 1,
+  rocketlauncher: 2,
+  supernailgun: 3,
+  grenadelauncher: 4,
+  supershotgun: 5,
+  nailgun: 6,
+  shotgun: 7,
+  axe: 7,
+};
 
 export interface QuakeMultiplayerDamageOptions {
   applyHealth?: boolean;
+}
+
+export interface QuakeMultiplayerBestWeaponOptions {
+  allowLightning?: boolean;
+}
+
+export interface QuakeMultiplayerDroppedBackpackOptions {
+  entityIndex: number;
+  now?: number;
+  player: QuakeMultiplayerAuthoritativePlayerState;
 }
 
 export function createQuakeMultiplayerInitialInventory(): QuakeMultiplayerInventoryState {
@@ -48,6 +90,7 @@ export function createQuakeMultiplayerInitialInventory(): QuakeMultiplayerInvent
 export function quakeMultiplayerInventoryCanAcceptPickupEffect(
   inventory: QuakeMultiplayerInventoryState,
   effect: QuakeMultiplayerPickupEffect,
+  now = Date.now(),
 ): boolean {
   if (inventory.health <= 0) return false;
   if (effect.health !== undefined && inventory.health < (effect.healthMax ?? 100)) return true;
@@ -66,12 +109,19 @@ export function quakeMultiplayerInventoryCanAcceptPickupEffect(
     effect.powerup &&
     !inventory.powerups.some((powerup) =>
       powerup.finishedField === effect.powerup?.finishedField &&
-      powerup.finishedAt > Date.now()
+      powerup.finishedAt > now
     )
   ) {
     return true;
   }
   return false;
+}
+
+export function quakeMultiplayerPickupAlwaysAcceptsTouch(
+  pickup: Pick<QuakeMultiplayerPickupDefinition, "classname" | "lifecycle">,
+): boolean {
+  if (pickup.classname === "item_backpack") return true;
+  return pickup.classname.startsWith("weapon_") && pickup.lifecycle?.action !== "leave";
 }
 
 export function quakeMultiplayerPlayerCanReachPickup(
@@ -139,12 +189,60 @@ export function quakeMultiplayerPickupStateRespawned(
   };
 }
 
+export function quakeMultiplayerDroppedBackpackDefinition(
+  options: QuakeMultiplayerDroppedBackpackOptions,
+): QuakeMultiplayerPickupDefinition | null {
+  const now = options.now ?? Date.now();
+  const inventory = quakeMultiplayerPlayerInventory(options.player);
+  const totalAmmo = inventory.shells + inventory.nails + inventory.rockets + inventory.cells;
+  if (totalAmmo <= 0) return null;
+  const effect: QuakeMultiplayerPickupEffect = {};
+  if (inventory.shells > 0) effect.shells = inventory.shells;
+  if (inventory.nails > 0) effect.nails = inventory.nails;
+  if (inventory.rockets > 0) effect.rockets = inventory.rockets;
+  if (inventory.cells > 0) effect.cells = inventory.cells;
+  const activeWeapon = inventory.activeWeapon.trim().toLowerCase();
+  const activeWeaponFlag = QUAKE_MULTIPLAYER_WEAPON_ITEM_FLAGS[activeWeapon];
+  if (activeWeaponFlag !== undefined && inventory.weapons.includes(activeWeapon)) {
+    effect.weapon = {
+      id: activeWeapon,
+      itemFlag: activeWeaponFlag,
+      select: true,
+    };
+  }
+  const origin: QuakeMultiplayerVec3 = [
+    options.player.origin[0],
+    options.player.origin[1],
+    options.player.origin[2] + QUAKE_PLAYER_MINS_Z,
+  ];
+  return {
+    pickupId: `dropped-backpack:${options.player.playerId}:${options.entityIndex}:${now}`,
+    entityIndex: options.entityIndex,
+    classname: "item_backpack",
+    origin,
+    effect,
+    feedback: {
+      message: "You get the backpack",
+      soundPath: "weapons/lock4.wav",
+    },
+    lifecycle: {
+      action: "remove",
+      condition: "pickup",
+    },
+    modelPath: QUAKE_MULTIPLAYER_DROPPED_BACKPACK_MODEL_PATH,
+    removeAt: now + QUAKE_MULTIPLAYER_DROPPED_BACKPACK_LIFETIME_MS,
+    runtime: true,
+  };
+}
+
 export function quakeMultiplayerApplyPickupEffect(
   inventory: QuakeMultiplayerInventoryState,
   effect: QuakeMultiplayerPickupEffect,
   now = Date.now(),
 ): QuakeMultiplayerInventoryState {
   const next = quakeMultiplayerPruneExpiredPowerups(inventory, now);
+  const previousBestWeapon = quakeMultiplayerInventoryBestWeapon(next);
+  const activeWeaponWasBest = next.activeWeapon === previousBestWeapon;
   if (effect.health !== undefined) {
     next.health = Math.min(effect.healthMax ?? 100, next.health + effect.health);
   }
@@ -160,10 +258,18 @@ export function quakeMultiplayerApplyPickupEffect(
   next.nails = clampAmmo(next.nails + (effect.nails ?? 0), QUAKE_MULTIPLAYER_MAX_AMMO.nails);
   next.rockets = clampAmmo(next.rockets + (effect.rockets ?? 0), QUAKE_MULTIPLAYER_MAX_AMMO.rockets);
   next.cells = clampAmmo(next.cells + (effect.cells ?? 0), QUAKE_MULTIPLAYER_MAX_AMMO.cells);
+  let switchedByPickupWeapon = false;
   if (effect.weapon) {
-    if (!next.weapons.includes(effect.weapon.id)) next.weapons = [...next.weapons, effect.weapon.id];
+    const weaponId = effect.weapon.id.trim().toLowerCase();
+    if (!next.weapons.includes(weaponId)) next.weapons = [...next.weapons, weaponId];
     if (effect.weapon.itemFlag !== undefined) next.itemFlags |= effect.weapon.itemFlag;
-    if (effect.weapon.select) next.activeWeapon = effect.weapon.id;
+    if (effect.weapon.select && quakeMultiplayerPickupWeaponOutranksActive(next, weaponId)) {
+      next.activeWeapon = weaponId;
+      switchedByPickupWeapon = true;
+    }
+  }
+  if (!switchedByPickupWeapon && !effect.weapon?.select && activeWeaponWasBest) {
+    next.activeWeapon = quakeMultiplayerInventoryBestWeapon(next);
   }
   if (effect.key && !next.keys.includes(effect.key)) next.keys = [...next.keys, effect.key];
   if (effect.powerup) {
@@ -206,7 +312,10 @@ export function quakeMultiplayerApplyDamageToInventory(
     }
   }
   if (options.applyHealth !== false) {
-    next.health = Math.max(0, next.health - Math.max(0, Math.ceil(rawDamage - armorDamage)));
+    next.health = Math.max(
+      QUAKE_MULTIPLAYER_MIN_DEATH_HEALTH,
+      next.health - Math.max(0, Math.ceil(rawDamage - armorDamage)),
+    );
   }
   return next;
 }
@@ -256,6 +365,34 @@ export function quakeMultiplayerPruneExpiredPowerups(
     }
   }
   next.powerups = activePowerups;
+  return next;
+}
+
+export function quakeMultiplayerInventoryWithoutPowerup(
+  inventory: QuakeMultiplayerInventoryState,
+  finishedField: string,
+): QuakeMultiplayerInventoryState {
+  const next = cloneQuakeMultiplayerInventory(inventory);
+  const removed = next.powerups.filter((powerup) => powerup.finishedField === finishedField);
+  if (!removed.length) return next;
+  next.powerups = next.powerups.filter((powerup) => powerup.finishedField !== finishedField);
+  const activeFlags = new Set(next.powerups.map((powerup) => powerup.itemFlag));
+  for (const powerup of removed) {
+    if (!activeFlags.has(powerup.itemFlag)) next.itemFlags &= ~powerup.itemFlag;
+  }
+  return next;
+}
+
+export function quakeMultiplayerInventoryWithoutDeathPowerups(
+  inventory: QuakeMultiplayerInventoryState,
+): QuakeMultiplayerInventoryState {
+  const next = cloneQuakeMultiplayerInventory(inventory);
+  const removedFlags = new Set([
+    ...QUAKE_MULTIPLAYER_DEATH_CLEARED_ARTIFACT_FLAGS,
+    ...next.powerups.map((powerup) => powerup.itemFlag),
+  ]);
+  next.powerups = [];
+  for (const itemFlag of removedFlags) next.itemFlags &= ~itemFlag;
   return next;
 }
 
@@ -324,6 +461,34 @@ export function quakeMultiplayerConsumeLightningDischargeCells(
   return next;
 }
 
+export function quakeMultiplayerInventoryBestWeapon(
+  inventory: QuakeMultiplayerInventoryState,
+  options: QuakeMultiplayerBestWeaponOptions = {},
+): string {
+  const allowLightning = options.allowLightning ?? true;
+  const priority = [
+    ...(allowLightning ? ["lightning"] : []),
+    "supernailgun",
+    "supershotgun",
+    "nailgun",
+    "shotgun",
+    "axe",
+  ];
+  return priority.find((weapon) => quakeMultiplayerInventoryCanSelectWeapon(inventory, weapon)) ?? "axe";
+}
+
+export function quakeMultiplayerInventoryWithBestWeaponIfCurrentAmmoEmpty(
+  inventory: QuakeMultiplayerInventoryState,
+  options: QuakeMultiplayerBestWeaponOptions = {},
+): QuakeMultiplayerInventoryState {
+  const next = cloneQuakeMultiplayerInventory(inventory);
+  if (quakeMultiplayerInventoryCanSelectWeapon(next, next.activeWeapon)) return next;
+  return {
+    ...next,
+    activeWeapon: quakeMultiplayerInventoryBestWeapon(next, options),
+  };
+}
+
 export function quakeMultiplayerInventoryCanSelectWeapon(
   inventory: QuakeMultiplayerInventoryState,
   weapon: string,
@@ -385,6 +550,19 @@ function cloneQuakeMultiplayerInventory(
     keys: [...inventory.keys],
     powerups: [...(inventory.powerups ?? [])],
   };
+}
+
+function quakeMultiplayerPickupWeaponOutranksActive(
+  inventory: QuakeMultiplayerInventoryState,
+  weapon: string,
+): boolean {
+  if (!quakeMultiplayerInventoryCanSelectWeapon(inventory, weapon)) return false;
+  return quakeMultiplayerWeaponPickupSwitchRank(weapon) <
+    quakeMultiplayerWeaponPickupSwitchRank(inventory.activeWeapon);
+}
+
+function quakeMultiplayerWeaponPickupSwitchRank(weapon: string): number {
+  return QUAKE_MULTIPLAYER_WEAPON_PICKUP_SWITCH_RANK[weapon.trim().toLowerCase()] ?? 7;
 }
 
 function clampAmmo(value: number, max: number): number {

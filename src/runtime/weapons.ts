@@ -621,8 +621,13 @@ function requiredString(value: string | undefined, label: string): string {
   return value;
 }
 
-function quakeProjectileRenderYaw(yaw: number): number {
+export function quakeProjectileRenderYaw(yaw: number): number {
   return quakeAliasModelRenderYaw(yaw);
+}
+
+export function quakeWeaponProjectileModelPath(weapon: QuakeWeaponId): string | null {
+  const profile = QUAKE_WEAPON_FIRE_PROFILES[weapon];
+  return profile?.kind === "projectile" ? profile.modelPath : null;
 }
 
 export function quakeWeaponFireProfileAuditFacts() {
@@ -742,6 +747,7 @@ export function createQuakeWeaponsController({
   let debugNextProjectileDamage: number | null = null;
   let projectileDebugCaptureEnabled = false;
   let projectileDebugCaptureEvents: QuakeWeaponProjectileDebugEvent[] = [];
+  let pendingFireEvent: QuakeWeaponFireEvent | null = null;
   const nextSoundAtByWeapon = new Map<QuakeWeaponId, number>();
   const nextCycleAnimationFrameByWeapon = new Map<QuakeWeaponId, number>();
   const projectiles = createQuakeProjectilesController<QuakeWeaponProjectile>({
@@ -758,6 +764,7 @@ export function createQuakeWeaponsController({
     nextFireAt = -Infinity;
     nextNailRightSign = 1;
     debugNextProjectileDamage = null;
+    pendingFireEvent = null;
     debugClearProjectileCapture();
     nextSoundAtByWeapon.clear();
     nextCycleAnimationFrameByWeapon.clear();
@@ -779,10 +786,12 @@ export function createQuakeWeaponsController({
       return false;
     }
     if (!quakeWeaponFireProfileIsRuntimeSupported(profile)) return false;
+    pendingFireEvent = null;
     nextFireAt = now + profile.cooldownMs;
     if (profile.kind === "beam" && profile.underwaterDischarge && getPlayerWaterLevel() > 1) {
       const hit = fireBeamUnderwaterDischarge(profile.underwaterDischarge);
       playWeaponFireAnimation(profile);
+      onFire?.(quakeWeaponFireEvent(profile, now));
       if (hit) onHit();
       syncCrosshairTarget();
       return true;
@@ -791,7 +800,9 @@ export function createQuakeWeaponsController({
     playWeaponFireSound(profile, now);
     const hit = fireWeaponProfile(profile, now);
     playWeaponFireAnimation(profile);
-    onFire?.(quakeWeaponFireEvent(profile, now));
+    const fireEvent = pendingFireEvent ?? quakeWeaponFireEvent(profile, now);
+    pendingFireEvent = null;
+    onFire?.(fireEvent);
     if (hit) onHit();
     syncCrosshairTarget();
     return true;
@@ -1089,15 +1100,19 @@ export function createQuakeWeaponsController({
     syncHud();
   }
 
-  function quakeWeaponFireEvent(profile: QuakeRuntimeWeaponFireProfile, now: number): QuakeWeaponFireEvent {
-    const aim = weaponAimForFire();
+  function quakeWeaponFireEvent(
+    profile: QuakeRuntimeWeaponFireProfile,
+    now: number,
+    override: Partial<Pick<QuakeWeaponFireEvent, "direction" | "origin" | "range">> = {},
+  ): QuakeWeaponFireEvent {
+    const aim = override.direction && override.origin ? null : weaponAimForFire();
     return {
       firedAt: now,
       fireKind: quakeMultiplayerFireKind(profile),
       weapon: profile.weapon,
-      origin: aim.ray.origin,
-      direction: aim.direction,
-      range: quakeWeaponFireEventRange(profile),
+      origin: override.origin ?? aim?.ray.origin ?? controls.getOrigin(),
+      direction: override.direction ?? aim?.direction ?? viewForwardDirection(),
+      range: override.range ?? quakeWeaponFireEventRange(profile),
     };
   }
 
@@ -1234,6 +1249,11 @@ export function createQuakeWeaponsController({
         : profile.splashRadius / QUAKE_COLLISION_UNIT_SCALE,
       velocity,
       weapon: profile.weapon,
+    });
+    pendingFireEvent = quakeWeaponFireEvent(profile, now, {
+      origin,
+      direction: aim.direction,
+      range: quakeWeaponFireEventRange(profile),
     });
     projectiles.spawn({
       damage,
