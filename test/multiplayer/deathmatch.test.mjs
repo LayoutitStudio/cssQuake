@@ -6,7 +6,7 @@ import { importTsModule } from "../importTsModule.mjs";
 const deathmatch = await importTsModule("src/runtime/multiplayer/deathmatch.ts");
 const constants = await importTsModule("src/runtime/constants.ts");
 
-const liveE1m7FollowupFire = {
+const lateBrushTraceFireFixture = {
   weapon: "shotgun",
   fireKind: "hitscan",
   origin: [23.04, -8.48, 5.400625],
@@ -14,11 +14,11 @@ const liveE1m7FollowupFire = {
   range: 64,
 };
 
-const liveE1m7FollowupHit = {
+const lateBrushTraceHitFixture = {
   target: {
-    playerId: "party:client-prod-dyn-2",
-    clientId: "client-prod-dyn-2",
-    displayName: "Prod Dyn 2",
+    playerId: "party:target-fixture",
+    clientId: "target-fixture",
+    displayName: "Target Fixture",
     mapName: "e1m7",
     origin: [10.383999999999983, -8.48, 5.400625],
     velocity: [0, 0, 0],
@@ -135,8 +135,8 @@ test("direct player hit accepts a late brush trace inside the target hit skin", 
 
   assert.equal(
     deathmatch.quakeMultiplayerDeathmatchHitHasLineOfSight(
-      liveE1m7FollowupFire,
-      liveE1m7FollowupHit,
+      lateBrushTraceFireFixture,
+      lateBrushTraceHitFixture,
       collisionWorld,
     ),
     true,
@@ -157,8 +157,8 @@ test("direct player hit still rejects a wall trace before the target skin", () =
 
   assert.equal(
     deathmatch.quakeMultiplayerDeathmatchHitHasLineOfSight(
-      liveE1m7FollowupFire,
-      liveE1m7FollowupHit,
+      lateBrushTraceFireFixture,
+      lateBrushTraceHitFixture,
       collisionWorld,
     ),
     false,
@@ -179,8 +179,8 @@ test("projectile direct player hit uses projectile target skin for late LOS trac
 
   assert.equal(
     deathmatch.quakeMultiplayerDeathmatchHitHasLineOfSight(
-      { ...liveE1m7FollowupFire, weapon: "rocketlauncher", fireKind: "projectile" },
-      liveE1m7FollowupHit,
+      { ...lateBrushTraceFireFixture, weapon: "rocketlauncher", fireKind: "projectile" },
+      lateBrushTraceHitFixture,
       collisionWorld,
     ),
     true,
@@ -201,8 +201,8 @@ test("projectile direct player hit still rejects traces outside projectile targe
 
   assert.equal(
     deathmatch.quakeMultiplayerDeathmatchHitHasLineOfSight(
-      { ...liveE1m7FollowupFire, weapon: "rocketlauncher", fireKind: "projectile" },
-      liveE1m7FollowupHit,
+      { ...lateBrushTraceFireFixture, weapon: "rocketlauncher", fireKind: "projectile" },
+      lateBrushTraceHitFixture,
       collisionWorld,
     ),
     false,
