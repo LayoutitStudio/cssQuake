@@ -1,4 +1,5 @@
 import {
+  QUAKE_MULTIPLAYER_MAX_INPUT_BATCH_SIZE,
   QUAKE_MULTIPLAYER_PROTOCOL_VERSION,
   sameQuakeMultiplayerRoomCompatibilityKey,
 } from "./protocol";
@@ -8,6 +9,9 @@ import type {
   QuakeMultiplayerClientEnvelope,
   QuakeMultiplayerClientMessageType,
   QuakeMultiplayerAuthoritativePickupState,
+  QuakeMultiplayerFireDecision,
+  QuakeMultiplayerFireDecisionOutcome,
+  QuakeMultiplayerFireDecisionReason,
   QuakeMultiplayerFireIntent,
   QuakeMultiplayerFireKind,
   QuakeMultiplayerInventoryState,
@@ -41,6 +45,7 @@ const CLIENT_MESSAGE_TYPES = new Set<QuakeMultiplayerClientMessageType>([
   "client.hello",
   "client.presence",
   "client.input",
+  "client.inputBatch",
   "client.fire",
   "client.damage",
   "client.pickup",
@@ -97,6 +102,28 @@ const FIRE_KINDS = new Set<QuakeMultiplayerFireKind>([
   "beam",
 ]);
 
+const FIRE_DECISION_OUTCOMES = new Set<QuakeMultiplayerFireDecisionOutcome>([
+  "discharge",
+  "hit-player",
+  "hit-world",
+  "miss",
+  "projectile-spawned",
+  "world-splash",
+]);
+
+const FIRE_DECISION_REASONS = new Set<QuakeMultiplayerFireDecisionReason>([
+  "line-of-sight-blocked",
+  "lightning-discharge",
+  "no-candidate",
+  "no-world-impact",
+  "player-direct",
+  "server-projectile-spawned",
+  "projectile-world-splash",
+  "world-before-player",
+]);
+
+const PROJECTILE_IMPACT_KINDS = new Set(["player", "world"]);
+
 const TRIGGER_ACTIVATION_CLASSNAMES = new Set([
   "trigger_multiple",
   "trigger_once",
@@ -107,6 +134,9 @@ const TRIGGER_ACTIVATION_CLASSNAMES = new Set([
 
 const MOVER_CLASSNAMES = new Set([
   "func_button",
+  "func_door",
+  "func_door_secret",
+  "func_plat",
 ]);
 
 export type QuakeMultiplayerValidationCode =
@@ -264,6 +294,8 @@ function isClientPayload(type: QuakeMultiplayerMessageType, payload: unknown): b
         PRESENCE_STATUSES.has(payload.status as QuakeMultiplayerPlayerPresenceStatus);
     case "client.input":
       return isNonEmptyString(payload.clientId) && isLocalInputIntent(payload.input);
+    case "client.inputBatch":
+      return isNonEmptyString(payload.clientId) && isLocalInputBatch(payload.inputs);
     case "client.fire":
       return isNonEmptyString(payload.clientId) && isFireIntent(payload.fire);
     case "client.damage":
@@ -303,8 +335,12 @@ function isRoomPayload(type: QuakeMultiplayerMessageType, payload: unknown): boo
         payload.players.every(isAuthoritativePlayerState) &&
         (payload.spectators === undefined ||
           (Array.isArray(payload.spectators) && payload.spectators.every(isRoomSpectatorState))) &&
+        (payload.dynamicPickups === undefined ||
+          (Array.isArray(payload.dynamicPickups) && payload.dynamicPickups.every(isPickupDefinition))) &&
         (payload.pickups === undefined ||
           (Array.isArray(payload.pickups) && payload.pickups.every(isAuthoritativePickupState))) &&
+        (payload.projectiles === undefined ||
+          (Array.isArray(payload.projectiles) && payload.projectiles.every(isProjectileState))) &&
         isNonNegativeInteger(payload.lastWorldEventSequence);
     case "room.event":
       return isNonEmptyString(payload.roomId) &&
@@ -363,6 +399,19 @@ function isLocalInputIntent(value: unknown): value is QuakeMultiplayerLocalInput
     Number.isFinite(value.rotX) &&
     Number.isFinite(value.rotY) &&
     (value.activeWeapon === undefined || isNonEmptyString(value.activeWeapon));
+}
+
+function isLocalInputBatch(value: unknown): value is readonly QuakeMultiplayerLocalInputIntent[] {
+  if (!Array.isArray(value)) return false;
+  if (value.length <= 0 || value.length > QUAKE_MULTIPLAYER_MAX_INPUT_BATCH_SIZE) return false;
+  let previousSequence = -1;
+  for (const input of value) {
+    if (!isLocalInputIntent(input) || input.inputSequence <= previousSequence) {
+      return false;
+    }
+    previousSequence = input.inputSequence;
+  }
+  return true;
 }
 
 function isMoveIntent(value: unknown): value is QuakeMultiplayerMoveIntent {
@@ -469,6 +518,9 @@ function isPickupDefinition(value: unknown): value is QuakeMultiplayerPickupDefi
       (value.feedback.message === undefined || isNonEmptyString(value.feedback.message)) &&
       (value.feedback.soundPath === undefined || isNonEmptyString(value.feedback.soundPath))
     )) &&
+    (value.modelPath === undefined || isNonEmptyString(value.modelPath)) &&
+    (value.removeAt === undefined || isNonNegativeFiniteNumber(value.removeAt)) &&
+    (value.runtime === undefined || typeof value.runtime === "boolean") &&
     (value.targetEntityIndexes === undefined || isNonNegativeIntegerArray(value.targetEntityIndexes)) &&
     (value.killtargetEntityIndexes === undefined || isNonNegativeIntegerArray(value.killtargetEntityIndexes)) &&
     (value.delayMs === undefined || isNonNegativeFiniteNumber(value.delayMs)) &&
@@ -597,6 +649,32 @@ function isRoomSpectatorState(value: unknown): value is QuakeMultiplayerRoomSpec
     (value.pingMs === undefined || isNonNegativeFiniteNumber(value.pingMs));
 }
 
+function isFireDecision(value: unknown): value is QuakeMultiplayerFireDecision {
+  if (!isRecord(value)) return false;
+  return FIRE_DECISION_OUTCOMES.has(value.outcome as QuakeMultiplayerFireDecisionOutcome) &&
+    FIRE_DECISION_REASONS.has(value.reason as QuakeMultiplayerFireDecisionReason) &&
+    (value.candidateCount === undefined || isNonNegativeFiniteNumber(value.candidateCount)) &&
+    (value.blockedCandidateCount === undefined || isNonNegativeFiniteNumber(value.blockedCandidateCount)) &&
+    (value.playerDamageCount === undefined || isNonNegativeFiniteNumber(value.playerDamageCount)) &&
+    (value.targetEntityIndex === undefined || isNonNegativeInteger(value.targetEntityIndex)) &&
+    (value.targetPlayerId === undefined || isNonEmptyString(value.targetPlayerId)) &&
+    (value.targetRewindMs === undefined || isNonNegativeFiniteNumber(value.targetRewindMs)) &&
+    (value.worldHitDistance === undefined || isNonNegativeFiniteNumber(value.worldHitDistance));
+}
+
+function isProjectileState(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return isNonEmptyString(value.projectileId) &&
+    isNonEmptyString(value.ownerPlayerId) &&
+    isNonEmptyString(value.weapon) &&
+    isVec3(value.origin) &&
+    isVec3(value.direction) &&
+    isNonNegativeFiniteNumber(value.speed) &&
+    isNonNegativeFiniteNumber(value.spawnedAt) &&
+    isNonNegativeFiniteNumber(value.updatedAt) &&
+    isNonNegativeFiniteNumber(value.expiresAt);
+}
+
 function isMatchSettings(value: unknown): boolean {
   if (!isRecord(value)) return false;
   return (value.fragLimit === undefined || isPositiveInteger(value.fragLimit)) &&
@@ -631,7 +709,18 @@ function isSharedWorldEvent(value: unknown): value is QuakeMultiplayerSharedWorl
         isNonEmptyString(value.weapon) &&
         FIRE_KINDS.has(value.fireKind as QuakeMultiplayerFireKind) &&
         isVec3(value.origin) &&
-        isVec3(value.direction);
+        isVec3(value.direction) &&
+        (value.decision === undefined || isFireDecision(value.decision));
+    case "projectile.spawned":
+      return isProjectileState(value.projectile);
+    case "projectile.impacted":
+      return isNonEmptyString(value.projectileId) &&
+        isNonEmptyString(value.ownerPlayerId) &&
+        isNonEmptyString(value.weapon) &&
+        isVec3(value.origin) &&
+        PROJECTILE_IMPACT_KINDS.has(value.impactKind as string) &&
+        isNonNegativeFiniteNumber(value.playerDamageCount) &&
+        (value.targetPlayerId === undefined || isNonEmptyString(value.targetPlayerId));
     case "player.damaged":
       return isNonEmptyString(value.victimPlayerId) &&
         (value.attackerPlayerId === undefined || isNonEmptyString(value.attackerPlayerId)) &&
@@ -664,6 +753,13 @@ function isSharedWorldEvent(value: unknown): value is QuakeMultiplayerSharedWorl
         isNonEmptyString(value.reason);
     case "pickup.respawned":
       return isAuthoritativePickupState(value.pickup);
+    case "pickup.dropped":
+      return isNonEmptyString(value.sourcePlayerId) &&
+        isPickupDefinition(value.definition) &&
+        isAuthoritativePickupState(value.pickup);
+    case "pickup.expired":
+      return isNonEmptyString(value.pickupId) &&
+        isNonNegativeInteger(value.entityIndex);
     case "world.use":
       return isNonEmptyString(value.playerId) &&
         (value.entityId === undefined || isNonEmptyString(value.entityId)) &&

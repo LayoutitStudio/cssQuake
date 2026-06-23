@@ -8,6 +8,7 @@ export const loopback = await importTsModule("src/runtime/multiplayer/loopback.t
 export const partyRoomModule = await importTsModule("src/runtime/multiplayer/partyRoom.ts");
 export const presenceRoomModule = await importTsModule("src/runtime/multiplayer/presenceRoom.ts");
 export const protocol = await importTsModule("src/runtime/multiplayer/protocol.ts");
+export const projectileAuthority = await importTsModule("src/runtime/multiplayer/projectileAuthority.ts");
 export const reconciliation = await importTsModule("src/runtime/multiplayer/reconciliation.ts");
 export const simulation = await importTsModule("src/runtime/multiplayer/simulation.ts");
 export const validation = await importTsModule("src/runtime/multiplayer/validation.ts");
@@ -25,6 +26,9 @@ export const NORMALIZED_ROOM_KEY = {
   ...ROOM_KEY,
   mapName: "e1m1",
 };
+
+const DEFAULT_DUEL_FIRE_DIRECTION = [0.9781476007338057, 0, -0.20791169081775934];
+const DEFAULT_DUEL_REVERSE_FIRE_DIRECTION = [-0.9781476007338057, 0, -0.20791169081775934];
 
 export function clientEnvelope(type, payload, options = {}) {
   return protocol.createQuakeMultiplayerEnvelope({
@@ -70,16 +74,34 @@ export function inputEnvelope(options = {}) {
   }, options);
 }
 
+export function inputBatchEnvelope(options = {}) {
+  const clientId = options.clientId ?? "client-a";
+  const inputSequences = options.inputSequences ?? [1, 2];
+  return clientEnvelope("client.inputBatch", {
+    clientId,
+    inputs: inputSequences.map((inputSequence, index) =>
+      createInput(inputSequence, {
+        sampledAt: options.sampledAt ?? options.sentAt ?? 100 + index * 10,
+        ...(options.input ?? {}),
+        ...(options.inputs?.[index] ?? {}),
+      })),
+  }, options);
+}
+
 export function fireEnvelope(options = {}) {
+  const clientId = options.clientId ?? "client-a";
+  const defaultDirection = clientId === "client-b"
+    ? DEFAULT_DUEL_REVERSE_FIRE_DIRECTION
+    : DEFAULT_DUEL_FIRE_DIRECTION;
   return clientEnvelope("client.fire", {
-    clientId: options.clientId ?? "client-a",
+    clientId,
     fire: {
       fireSequence: options.fireSequence ?? 1,
       firedAt: options.sentAt ?? 100,
       weapon: "shotgun",
       fireKind: "hitscan",
       origin: [0, 0, 0],
-      direction: [1, 0, 0],
+      direction: defaultDirection,
       range: 1024,
       ...(options.fire ?? {}),
     },
@@ -188,6 +210,7 @@ export async function createLoopbackHarness(options = {}) {
   const messages = [];
   const session = loopback.createQuakeLoopbackMultiplayerSession({
     now: options.nowProvider ?? (() => now),
+    random: () => 0.999999,
     asyncDispatch: false,
     heartbeatIntervalMs: false,
     simulationTickMs: false,

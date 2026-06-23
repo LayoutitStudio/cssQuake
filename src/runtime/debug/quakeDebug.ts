@@ -8,6 +8,7 @@ import type { QuakePlayerDamageContext } from "../player";
 import type { QuakeMoversDebugStats } from "../movers";
 import type { QuakePickupDebugStats } from "../pickups";
 import type { QuakeCanDamageResult } from "../shootables/damage";
+import type { CssQuakeDamageableBrushProgressSnapshot } from "../saveLoad";
 import type {
   QuakeEnemyProjectileDebugCapture,
   QuakeShootableEnemyAcquisitionDebugResult,
@@ -40,6 +41,7 @@ export interface QuakeDebugHooks {
   ): QuakeCanDamageResult | null;
   contentsAt(x: number, y: number, z: number): number | null;
   copyViewUrl(): Promise<string>;
+  damageableBrushesStats(): CssQuakeDamageableBrushProgressSnapshot;
   damage(amount?: number, inflictorX?: number, inflictorY?: number, inflictorZ?: number): boolean;
   damageWeaponTarget(entityIndex: number, amount?: number): boolean;
   debugMountEntity(entityIndex: number): boolean;
@@ -79,6 +81,7 @@ export interface QuakeDebugHooks {
   focusEntity(entityIndex: number, distance?: number, rotX?: number, rotY?: number): boolean;
   loadMap(mapName: string): Promise<boolean>;
   getWeaponTuning(): QuakeResolvedViewmodelTuning;
+  requestMultiplayerPickup(entityIndex: number): boolean;
   resetWeaponTuning(): QuakeResolvedViewmodelTuning;
   setExpandedLogicalCombat(enabled: boolean): boolean;
   setMountedEnemyAcquisition(enabled: boolean): boolean;
@@ -154,6 +157,7 @@ export interface QuakeDebugRuntime {
   currentMapName(): string;
   contentsAt(point: { x: number; y: number; z: number }): number | null;
   activateEntity(entityIndex: number, sourceEntityIndex?: number): boolean;
+  damageableBrushesStats(): CssQuakeDamageableBrushProgressSnapshot;
   damagePlayer(amount: number, context?: QuakePlayerDamageContext): boolean;
   damageWeaponTarget(entityIndex: number, amount: number): boolean;
   debugMountEntity(entityIndex: number): boolean;
@@ -171,7 +175,7 @@ export interface QuakeDebugRuntime {
   enemyProjectileTraceEnabled(enabled: boolean): void;
   enemyProjectileTraceStep(dtMs?: number): QuakeEnemyProjectileDebugCapture;
   entities(): ReadonlyMap<number, QuakeEntity>;
-  fireWeapon(): void;
+  fireWeapon(): boolean;
   fireWeaponDebug(options?: QuakeWeaponProjectileDebugFireOptions): boolean;
   fireballEmittersCount(): number;
   fireballsCount(): number;
@@ -200,6 +204,7 @@ export interface QuakeDebugRuntime {
   playerMoveDebug(): Record<string, unknown>;
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
   renderOrigin(): Vec3;
+  requestMultiplayerPickup(entityIndex: number): boolean;
   projectileImpact(
     weapon: QuakeWeaponId,
     entityIndex: number,
@@ -209,6 +214,7 @@ export interface QuakeDebugRuntime {
   projectileTraceCapture(): QuakeWeaponProjectileDebugCapture;
   projectileTraceClear(): void;
   projectileTraceEnabled(enabled: boolean): void;
+  runWithDebugInput<T>(callback: () => T): T;
   setCollisionBypassUntil(until: number): void;
   setShootableOrigin(entityIndex: number, origin: Vec3): boolean;
   setShootableYaw(entityIndex: number, yaw: number): boolean;
@@ -242,6 +248,7 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
       canDamageQuakeDebugTrace(runtime, inflictorX, inflictorY, inflictorZ, targetX, targetY, targetZ),
     contentsAt: (x, y, z) => contentsAtQuakeDebugPoint(runtime, x, y, z),
     copyViewUrl: () => runtime.copyViewUrl(),
+    damageableBrushesStats: () => runtime.damageableBrushesStats(),
     damage: (amount, inflictorX, inflictorY, inflictorZ) =>
       damageQuakeDebugPlayer(runtime, amount, inflictorX, inflictorY, inflictorZ),
     damageWeaponTarget: (entityIndex, amount) =>
@@ -270,6 +277,7 @@ export function installQuakeDebugHooks(enabled: boolean, runtime: QuakeDebugRunt
     loadMap: (mapName) => loadQuakeDebugMap(runtime, mapName),
     projectileImpact: (weapon, entityIndex, x, y, z, directDamage) =>
       projectileImpactQuakeDebugWeapon(runtime, weapon, entityIndex, x, y, z, directDamage),
+    requestMultiplayerPickup: (entityIndex) => requestQuakeDebugMultiplayerPickup(runtime, entityIndex),
     resetWeaponTuning: () => runtime.resetWeaponTuning(),
     setExpandedLogicalCombat: (enabled) => setQuakeDebugExpandedLogicalCombat(runtime, enabled),
     setMountedEnemyAcquisition: (enabled) => setQuakeDebugMountedEnemyAcquisition(runtime, enabled),
@@ -312,6 +320,13 @@ function touchQuakeDebugEntity(runtime: QuakeDebugRuntime, entityIndex: number):
   if (!Number.isInteger(entityIndex)) return false;
   runtime.hideMainMenu();
   return runtime.touchEntity(entityIndex);
+}
+
+function requestQuakeDebugMultiplayerPickup(runtime: QuakeDebugRuntime, entityIndex: number): boolean {
+  if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
+  if (!Number.isInteger(entityIndex)) return false;
+  runtime.hideMainMenu();
+  return runtime.requestMultiplayerPickup(entityIndex);
 }
 
 function syncQuakeDebugMultiplayerPose(runtime: QuakeDebugRuntime): boolean {
@@ -525,8 +540,7 @@ async function loadQuakeDebugMap(runtime: QuakeDebugRuntime, mapName: string): P
 function fireQuakeDebugWeapon(runtime: QuakeDebugRuntime): boolean {
   if (runtime.isLoading() || !runtime.hasCurrentScene()) return false;
   runtime.hideMainMenu();
-  runtime.fireWeapon();
-  return true;
+  return runtime.runWithDebugInput(() => runtime.fireWeapon());
 }
 
 function startQuakeDebugGameplayRecording(runtime: QuakeDebugRuntime): boolean {
@@ -548,30 +562,32 @@ async function fireProjectileTraceQuakeDebugWeapon(
   if (directDamage !== undefined && !Number.isFinite(directDamage)) return null;
   if (!Number.isFinite(timeoutMs)) return null;
   runtime.hideMainMenu();
-  runtime.projectileTraceClear();
-  runtime.projectileTraceEnabled(true);
-  const fired = runtime.fireWeaponDebug({ directDamage });
-  if (!fired) {
-    const capture = runtime.projectileTraceCapture();
-    runtime.projectileTraceEnabled(false);
-    return { capture, fired };
-  }
-
-  const deadline = performance.now() + Math.max(1, Math.min(10_000, timeoutMs));
-  while (performance.now() < deadline) {
-    const capture = runtime.projectileTraceCapture();
-    const removed = capture.events.some((event) => event.type === "remove");
-    const impacted = capture.events.some((event) => event.type === "impact" && event.impactResult === "remove");
-    if ((removed && impacted) || (impacted && capture.activeCount === 0)) {
+  return await runtime.runWithDebugInput(async () => {
+    runtime.projectileTraceClear();
+    runtime.projectileTraceEnabled(true);
+    const fired = runtime.fireWeaponDebug({ directDamage });
+    if (!fired) {
+      const capture = runtime.projectileTraceCapture();
       runtime.projectileTraceEnabled(false);
       return { capture, fired };
     }
-    await nextAnimationFrame();
-  }
 
-  const capture = runtime.projectileTraceCapture();
-  runtime.projectileTraceEnabled(false);
-  return { capture, fired };
+    const deadline = performance.now() + Math.max(1, Math.min(10_000, timeoutMs));
+    while (performance.now() < deadline) {
+      const capture = runtime.projectileTraceCapture();
+      const removed = capture.events.some((event) => event.type === "remove");
+      const impacted = capture.events.some((event) => event.type === "impact" && event.impactResult === "remove");
+      if ((removed && impacted) || (impacted && capture.activeCount === 0)) {
+        runtime.projectileTraceEnabled(false);
+        return { capture, fired };
+      }
+      await nextAnimationFrame();
+    }
+
+    const capture = runtime.projectileTraceCapture();
+    runtime.projectileTraceEnabled(false);
+    return { capture, fired };
+  });
 }
 
 function nextAnimationFrame(): Promise<void> {

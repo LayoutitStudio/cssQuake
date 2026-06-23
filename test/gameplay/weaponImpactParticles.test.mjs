@@ -34,10 +34,12 @@ function createWeaponsHarness({
   collisionWorld = null,
   damageShootable = null,
   entities = null,
+  playerWaterLevel = 0,
   shootables,
 }) {
   const damageCalls = [];
   const explosionImpacts = [];
+  const fireEvents = [];
   const impacts = [];
   const wallImpacts = [];
   let hits = 0;
@@ -61,11 +63,12 @@ function createWeaponsHarness({
     getCollisionWorld: () => collisionWorld,
     getEntities: () => entitiesByIndex,
     getPlayerEyeHeight: () => 1.7,
-    getPlayerWaterLevel: () => 0,
+    getPlayerWaterLevel: () => playerWaterLevel,
     getShootables: () => shootables,
     hasViewmodel: () => true,
     onDamageImpact: (event) => { impacts.push(event); },
     onExplosionImpact: (event) => { explosionImpacts.push(event); },
+    onFire: (event) => { fireEvents.push(event); },
     onHit: () => { hits += 1; },
     onWallImpact: (event) => { wallImpacts.push(event); },
     playFireAnimation: () => undefined,
@@ -83,7 +86,7 @@ function createWeaponsHarness({
     syncCrosshairTarget: () => undefined,
     syncHud: () => undefined,
   });
-  return { damageCalls, explosionImpacts, impacts, hits: () => hits, wallImpacts, weapons };
+  return { damageCalls, explosionImpacts, fireEvents, impacts, hits: () => hits, wallImpacts, weapons };
 }
 
 function createExploboxEntity(index) {
@@ -227,6 +230,37 @@ test("hitscan wall traces emit one aggregated gunshot wall-impact event", () => 
   assert.deepEqual(wallImpacts[0].origin, [1, 2, 3]);
   assert.equal(wallImpacts[0].targetKind, "world");
   assert.equal(wallImpacts[0].weapon, "shotgun");
+});
+
+test("projectile fire event uses the actual projectile spawn origin", () => {
+  const { fireEvents, weapons } = createWeaponsHarness({
+    activeWeapon: "rocketlauncher",
+    shootables: [],
+  });
+  weapons.debugSetProjectileCaptureEnabled(true);
+
+  assert.equal(weapons.fire(1000), true);
+
+  const fireCapture = weapons.debugProjectileCapture().events.find((event) => event.type === "fire");
+  assert.ok(fireCapture);
+  assert.equal(fireEvents.length, 1);
+  assert.deepEqual(fireEvents[0].origin, fireCapture.origin);
+  assert.deepEqual(fireEvents[0].direction, fireCapture.direction);
+  assert.equal(fireEvents[0].weapon, "rocketlauncher");
+});
+
+test("underwater lightning discharge emits a multiplayer fire event", () => {
+  const { fireEvents, weapons } = createWeaponsHarness({
+    activeWeapon: "lightning",
+    playerWaterLevel: 2,
+    shootables: [],
+  });
+
+  assert.equal(weapons.fire(1000), true);
+
+  assert.equal(fireEvents.length, 1);
+  assert.equal(fireEvents[0].weapon, "lightning");
+  assert.equal(fireEvents[0].fireKind, "beam");
 });
 
 test("projectile splash-only damage emits explosion but not damage-impact events", () => {

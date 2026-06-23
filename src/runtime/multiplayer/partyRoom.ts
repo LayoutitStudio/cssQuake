@@ -13,12 +13,14 @@ import {
   type QuakeMultiplayerAuthoritativePickupState,
   type QuakeMultiplayerAuthoritativePlayerState,
   type QuakeMultiplayerClientEnvelope,
+  type QuakeMultiplayerFireDecision,
   type QuakeMultiplayerGameplayDefinitions,
   type QuakeMultiplayerLocalInputIntent,
   type QuakeMultiplayerMapGameplayFacts,
   type QuakeMultiplayerMatchSettings,
   type QuakeMultiplayerMoverState,
   type QuakeMultiplayerPickupDefinition,
+  type QuakeMultiplayerProjectileState,
   type QuakeMultiplayerPlayerPresenceStatus,
   type QuakeMultiplayerRoomCompatibilityKey,
   type QuakeMultiplayerRoomEnvelope,
@@ -52,12 +54,15 @@ import {
   QUAKE_MULTIPLAYER_DEATHMATCH_RESPAWN_DELAY_MS,
   quakeMultiplayerDeathmatchFireFromPlayer,
   quakeMultiplayerDeathmatchFragDeltaForKill,
-  quakeMultiplayerDeathmatchHitHasLineOfSight,
-  quakeMultiplayerDeathmatchHitscanHit,
+  quakeMultiplayerDeathmatchLagCompensationMs,
   quakeMultiplayerDeathmatchLightningDischarge,
-  quakeMultiplayerDeathmatchSpawnOrder,
   quakeMultiplayerDeathmatchPlayerWithDamageMomentum,
+  quakeMultiplayerDeathmatchProjectileSplashHitsAtImpact,
+  quakeMultiplayerDeathmatchProjectileWorldSplashHits,
+  quakeMultiplayerDeathmatchSelectSpawnPoint,
+  quakeMultiplayerDeathmatchSpawnOrder,
   quakeMultiplayerDeathmatchSplashHits,
+  quakeMultiplayerDeathmatchVisibleHitDecision,
   quakeMultiplayerDeathmatchWeaponCooldownMs,
   quakeMultiplayerDeathmatchWeaponDamage,
   rejectQuakeMultiplayerClientDamageIntent,
@@ -69,7 +74,12 @@ import {
   quakeMultiplayerConsumeLightningDischargeCells,
   quakeMultiplayerConsumeWeaponAmmo,
   quakeMultiplayerDamageMultiplierForInventory,
+  quakeMultiplayerDroppedBackpackDefinition,
   quakeMultiplayerInventoryCanAcceptPickupEffect,
+  quakeMultiplayerInventoryWithBestWeaponIfCurrentAmmoEmpty,
+  quakeMultiplayerInventoryWithoutDeathPowerups,
+  quakeMultiplayerInventoryWithoutPowerup,
+  quakeMultiplayerPickupAlwaysAcceptsTouch,
   quakeMultiplayerPlayerCanReachPickup,
   quakeMultiplayerPlayerInventory,
   quakeMultiplayerPlayerPowerupActive,
@@ -109,8 +119,20 @@ import {
   createQuakeMultiplayerRoomPlayerSimulationState,
   pauseQuakeMultiplayerRoomPlayerSimulation,
   queueQuakeMultiplayerRoomInput,
+  validateQuakeMultiplayerRoomFireInputHistory,
   type QuakeMultiplayerRoomPlayerSimulationState,
 } from "./simulation";
+import {
+  quakeMultiplayerHistoricalCombatPlayers,
+  recordQuakeMultiplayerSnapshotHistory,
+  type QuakeMultiplayerSnapshotHistory,
+} from "./history";
+import {
+  advanceQuakeMultiplayerServerProjectile,
+  createQuakeMultiplayerServerProjectile,
+  quakeMultiplayerServerProjectileWeaponSupported,
+  type QuakeMultiplayerServerProjectile,
+} from "./projectileAuthority";
 import {
   CSSQUAKE_PRESENCE_ROOM_ID,
   createCssQuakePresenceUpdatePayload,
@@ -133,6 +155,7 @@ interface CssQuakeConnectionState {
 }
 
 export interface CssQuakeMultiplayerRoomOptions {
+  random?: () => number;
   trustedGameplayDefinitions?:
     | QuakeMultiplayerGameplayDefinitions
     | ((roomKey: QuakeMultiplayerRoomCompatibilityKey) => QuakeMultiplayerGameplayDefinitions | null | undefined);
@@ -191,14 +214,19 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
   private readonly triggerShootHealth = new Map<number, number>();
   private readonly respawnTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly pickupRespawnTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  private readonly pickupRemovalTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private readonly targetDispatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly moverStateTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly moverStates = new Map<number, CssQuakeMoverState>();
   private readonly moverCollisionMotions = new Map<number, CssQuakeMoverCollisionMotion>();
   private readonly moverCollisionOffsets = new Map<number, QuakeMultiplayerVec3>();
   private readonly moverShootHealth = new Map<number, number>();
+  private readonly serverProjectiles = new Map<string, QuakeMultiplayerServerProjectile>();
   private readonly disconnectRemovalTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly connectionRejectCounts = new Map<string, number>();
+  private snapshotHistory: QuakeMultiplayerSnapshotHistory = [];
+  private projectileSequence = 0;
+  private dynamicPickupSequence = 1_000_000;
   private matchRestartTimer: ReturnType<typeof setTimeout> | null = null;
   private roomSequence = 0;
   private tick = 0;
@@ -319,6 +347,10 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       case "client.input":
         this.updateConnectionAuthority(sender, authority, receivedAt);
         this.queuePlayerInput(sender, message.payload.input);
+        break;
+      case "client.inputBatch":
+        this.updateConnectionAuthority(sender, authority, receivedAt);
+        this.queuePlayerInputs(sender, message.payload.inputs);
         break;
       case "client.fire":
         this.updateConnectionAuthority(sender, authority, receivedAt);
@@ -682,6 +714,10 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
   }
 
   private queuePlayerInput(sender: Party.Connection, input: QuakeMultiplayerLocalInputIntent): void {
+    this.queuePlayerInputs(sender, [input]);
+  }
+
+  private queuePlayerInputs(sender: Party.Connection, inputs: readonly QuakeMultiplayerLocalInputIntent[]): void {
     const state = this.connectionState(sender);
     if (!state?.playerId) return;
     if (!quakeMultiplayerPresenceAcceptsInput(state.presenceStatus)) {
@@ -699,9 +735,15 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
         now: Date.now(),
         lastAcceptedInputSequence: player.lastInputSequence,
       });
-    const result = queueQuakeMultiplayerRoomInput(simulationState, input);
-    this.playerSimulationStates.set(player.playerId, result.state);
-    if (result.accepted) this.startSimulationTicker();
+    let nextState = simulationState;
+    let accepted = false;
+    for (const input of inputs) {
+      const result = queueQuakeMultiplayerRoomInput(nextState, input);
+      nextState = result.state;
+      accepted = accepted || result.accepted;
+    }
+    this.playerSimulationStates.set(player.playerId, nextState);
+    if (accepted) this.startSimulationTicker();
   }
 
   private advanceRoomSimulation(timestamp: number): boolean {
@@ -737,9 +779,76 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
           damage: hazard.damage,
           source: hazard.kind,
           eventId: `hazard-${hazard.kind}-${playerId}-${hazard.damagedAt}`,
+          now: hazard.damagedAt,
         });
       }
       advanced = true;
+    }
+    if (this.advanceServerProjectiles(timestamp)) advanced = true;
+    if (advanced) this.recordSnapshotHistory(timestamp);
+    return advanced;
+  }
+
+  private advanceServerProjectiles(timestamp: number): boolean {
+    if (!this.serverProjectiles.size) return false;
+    let advanced = false;
+    for (const [projectileId, projectile] of [...this.serverProjectiles]) {
+      const result = advanceQuakeMultiplayerServerProjectile(projectile, {
+        collisionWorld: this.trustedSceneMovement?.collisionWorld,
+        now: timestamp,
+        players: this.players.values(),
+      });
+      if (result.type === "active") {
+        this.serverProjectiles.set(projectileId, result.projectile);
+        advanced = true;
+        continue;
+      }
+      this.serverProjectiles.delete(projectileId);
+      advanced = true;
+      if (result.type === "expired") {
+        this.broadcastRoomEvent({
+          eventType: "projectile.impacted",
+          eventId: `projectile-expired-${projectileId}`,
+          roomTime: this.roomTime(timestamp),
+          projectileId,
+          ownerPlayerId: result.projectile.ownerPlayerId,
+          weapon: result.projectile.weapon,
+          origin: result.projectile.origin,
+          impactKind: "world",
+          playerDamageCount: 0,
+        });
+        continue;
+      }
+      this.broadcastRoomEvent({
+        eventType: "projectile.impacted",
+        eventId: `projectile-impacted-${projectileId}`,
+        roomTime: this.roomTime(timestamp),
+        projectileId,
+        ownerPlayerId: result.projectile.ownerPlayerId,
+        weapon: result.projectile.weapon,
+        origin: result.impact.origin,
+        impactKind: result.impact.kind,
+        playerDamageCount: result.impact.damageHits.length,
+        ...(result.impact.targetPlayerId ? { targetPlayerId: result.impact.targetPlayerId } : {}),
+      });
+      const owner = this.players.get(result.projectile.ownerPlayerId);
+      const ownerInventory = owner
+        ? quakeMultiplayerPruneExpiredPowerups(quakeMultiplayerPlayerInventory(owner), timestamp)
+        : null;
+      const damageMultiplier = ownerInventory
+        ? quakeMultiplayerDamageMultiplierForInventory(ownerInventory, timestamp)
+        : 1;
+      for (const damageHit of result.impact.damageHits) {
+        this.applyPlayerDamage({
+          attackerPlayerId: result.projectile.ownerPlayerId,
+          victimPlayerId: damageHit.target.playerId,
+          damage: damageHit.damage * damageMultiplier,
+          source: result.projectile.weapon,
+          eventId: `${projectileId}-${damageHit.target.playerId}`,
+          inflictorOrigin: result.impact.origin,
+          now: timestamp,
+        });
+      }
     }
     return advanced;
   }
@@ -754,10 +863,10 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     );
   }
 
-  private pausePlayerSimulation(playerId: string): void {
+  private pausePlayerSimulation(playerId: string, now = Date.now()): void {
     const state = this.playerSimulationStates.get(playerId);
     if (!state) return;
-    this.playerSimulationStates.set(playerId, pauseQuakeMultiplayerRoomPlayerSimulation(state, Date.now()));
+    this.playerSimulationStates.set(playerId, pauseQuakeMultiplayerRoomPlayerSimulation(state, now));
   }
 
   private handleFireIntent(
@@ -771,7 +880,9 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     if (!this.acceptActivePresenceIntent(sender, message.messageId, state)) return;
     if (!this.acceptActiveMatchIntent(sender, message.messageId)) return;
     const now = Date.now();
-    const attackerInventory = quakeMultiplayerPruneExpiredPowerups(quakeMultiplayerPlayerInventory(attacker), now);
+    const attackerInventory = quakeMultiplayerInventoryWithBestWeaponIfCurrentAmmoEmpty(
+      quakeMultiplayerPruneExpiredPowerups(quakeMultiplayerPlayerInventory(attacker), now),
+    );
     const authoritativeFire = quakeMultiplayerDeathmatchFireFromPlayer(
       quakeMultiplayerPlayerWithInventory(attacker, attackerInventory),
       message.payload.fire,
@@ -781,6 +892,19 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       this.reject(sender, {
         code: "unsupported",
         message: `Weapon ${authoritativeFire.weapon} is not enabled for multiplayer damage yet.`,
+        recoverable: true,
+        rejectedMessageId: message.messageId,
+      });
+      return;
+    }
+    const inputHistoryValidation = validateQuakeMultiplayerRoomFireInputHistory(
+      this.playerSimulationStates.get(attacker.playerId),
+      authoritativeFire,
+    );
+    if (!inputHistoryValidation.ok) {
+      this.reject(sender, {
+        code: "stale",
+        message: `Multiplayer fire timestamp is outside accepted input history (${inputHistoryValidation.reason}).`,
         recoverable: true,
         rejectedMessageId: message.messageId,
       });
@@ -804,8 +928,8 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       players: this.players.values(),
     });
     if (lightningDischarge) {
-      const nextInventory = quakeMultiplayerConsumeLightningDischargeCells(attackerInventory);
-      if (!nextInventory) {
+      const consumedInventory = quakeMultiplayerConsumeLightningDischargeCells(attackerInventory);
+      if (!consumedInventory) {
         this.reject(sender, {
           code: "unsupported",
           message: `Not enough ammo for ${authoritativeFire.weapon}.`,
@@ -814,6 +938,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
         });
         return;
       }
+      const nextInventory = quakeMultiplayerInventoryWithBestWeaponIfCurrentAmmoEmpty(consumedInventory);
       this.lastFireAtByPlayer.set(attacker.playerId, now);
       this.players.set(attacker.playerId, {
         ...quakeMultiplayerPlayerWithInventory(attacker, nextInventory),
@@ -828,6 +953,12 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
         fireKind: authoritativeFire.fireKind,
         origin: authoritativeFire.origin,
         direction: authoritativeFire.direction,
+        decision: {
+          outcome: "discharge",
+          playerDamageCount: lightningDischarge.hits.length,
+          reason: "lightning-discharge",
+          targetRewindMs: 0,
+        },
       });
       const damageMultiplier = quakeMultiplayerDamageMultiplierForInventory(nextInventory, now);
       for (const hit of lightningDischarge.hits) {
@@ -838,13 +969,14 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
           source: "lightning-discharge",
           eventId: `${message.messageId}-discharge-${hit.target.playerId}`,
           inflictorOrigin: attacker.origin,
+          now,
         });
       }
       this.broadcastSnapshot();
       return;
     }
-    const nextInventory = quakeMultiplayerConsumeWeaponAmmo(attackerInventory, authoritativeFire.weapon);
-    if (!nextInventory) {
+    const consumedInventory = quakeMultiplayerConsumeWeaponAmmo(attackerInventory, authoritativeFire.weapon);
+    if (!consumedInventory) {
       this.reject(sender, {
         code: "unsupported",
         message: `Not enough ammo for ${authoritativeFire.weapon}.`,
@@ -853,30 +985,82 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       });
       return;
     }
+    const nextInventory = quakeMultiplayerInventoryWithBestWeaponIfCurrentAmmoEmpty(consumedInventory);
     this.lastFireAtByPlayer.set(attacker.playerId, now);
     this.players.set(attacker.playerId, {
       ...quakeMultiplayerPlayerWithInventory(attacker, nextInventory),
       updatedAt: now,
     });
-    this.broadcastRoomEvent({
-      eventType: "player.fired",
-      eventId: `fire-${message.messageId}`,
-      roomTime: this.roomTime(),
-      playerId: attacker.playerId,
-      weapon: authoritativeFire.weapon,
-      fireKind: authoritativeFire.fireKind,
-      origin: authoritativeFire.origin,
-      direction: authoritativeFire.direction,
-    });
-    const hit = quakeMultiplayerDeathmatchHitscanHit(
+    const damageMultiplier = quakeMultiplayerDamageMultiplierForInventory(nextInventory, now);
+    const broadcastFired = (decision: QuakeMultiplayerFireDecision): void => {
+      this.broadcastRoomEvent({
+        eventType: "player.fired",
+        eventId: `fire-${message.messageId}`,
+        roomTime: this.roomTime(),
+        playerId: attacker.playerId,
+        weapon: authoritativeFire.weapon,
+        fireKind: authoritativeFire.fireKind,
+        origin: authoritativeFire.origin,
+        direction: authoritativeFire.direction,
+        decision,
+      });
+    };
+    if (quakeMultiplayerServerProjectileWeaponSupported(authoritativeFire.weapon)) {
+      const projectile = createQuakeMultiplayerServerProjectile({
+        fire: authoritativeFire,
+        now,
+        ownerPlayerId: attacker.playerId,
+        projectileId: `projectile-${message.messageId}-${++this.projectileSequence}`,
+      });
+      if (projectile) {
+        this.serverProjectiles.set(projectile.projectileId, projectile);
+        broadcastFired({
+          outcome: "projectile-spawned",
+          playerDamageCount: 0,
+          reason: "server-projectile-spawned",
+          targetRewindMs: 0,
+        });
+        this.broadcastRoomEvent({
+          eventType: "projectile.spawned",
+          eventId: `projectile-spawned-${projectile.projectileId}`,
+          roomTime: this.roomTime(),
+          projectile: quakeMultiplayerProjectileStateFromServer(projectile),
+        });
+        this.startSimulationTicker();
+        this.broadcastSnapshot();
+        return;
+      }
+    }
+    const targetRewindMs = quakeMultiplayerDeathmatchLagCompensationMs(attacker);
+    const combatPlayers = this.combatPlayersForFire(attacker.playerId, now - targetRewindMs);
+    const hitDecision = quakeMultiplayerDeathmatchVisibleHitDecision(
       authoritativeFire,
-      this.players.values(),
+      combatPlayers,
       attacker.playerId,
+      this.trustedSceneMovement?.collisionWorld,
     );
+    const hit = hitDecision.hit;
     const worldHit = quakeMultiplayerShootableWorldHit(authoritativeFire, this.worldDefinitions.values());
     if (worldHit && (!hit || worldHit.distance <= hit.distance)) {
-      const damage = quakeMultiplayerDeathmatchWeaponDamage(authoritativeFire.weapon) *
-        quakeMultiplayerDamageMultiplierForInventory(nextInventory, now);
+      const worldSplashHits = quakeMultiplayerDeathmatchProjectileSplashHitsAtImpact(
+        authoritativeFire,
+        worldHit.impact,
+        combatPlayers,
+        attacker.playerId,
+        this.trustedSceneMovement?.collisionWorld,
+        undefined,
+      );
+      broadcastFired({
+        blockedCandidateCount: hitDecision.blockedCandidateCount,
+        candidateCount: hitDecision.candidateCount,
+        outcome: "hit-world",
+        playerDamageCount: worldSplashHits.length,
+        reason: "world-before-player",
+        targetEntityIndex: worldHit.definition.entityIndex,
+        targetRewindMs,
+        worldHitDistance: worldHit.distance,
+      });
+      const damage = quakeMultiplayerDeathmatchWeaponDamage(authoritativeFire.weapon) * damageMultiplier;
       if (worldHit.definition.kind === "mover") {
         this.applyShootableMoverDamage(
           worldHit.definition,
@@ -892,28 +1076,70 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
           damage,
         );
       }
+      for (const damageHit of worldSplashHits) {
+        this.applyPlayerDamage({
+          attackerPlayerId: attacker.playerId,
+          victimPlayerId: damageHit.target.playerId,
+          damage: damageHit.damage * damageMultiplier,
+          source: authoritativeFire.weapon,
+          eventId: `${message.messageId}-world-splash-${damageHit.target.playerId}`,
+          inflictorOrigin: damageHit.impact,
+          now,
+        });
+      }
       this.broadcastSnapshot();
       return;
     }
     if (!hit) {
+      const worldSplashHits = quakeMultiplayerDeathmatchProjectileWorldSplashHits(
+        authoritativeFire,
+        combatPlayers,
+        attacker.playerId,
+        this.trustedSceneMovement?.collisionWorld,
+      );
+      broadcastFired({
+        blockedCandidateCount: hitDecision.blockedCandidateCount,
+        candidateCount: hitDecision.candidateCount,
+        outcome: worldSplashHits.length > 0 ? "world-splash" : "miss",
+        playerDamageCount: worldSplashHits.length,
+        reason: worldSplashHits.length > 0
+          ? "projectile-world-splash"
+          : authoritativeFire.fireKind === "projectile" && hitDecision.candidateCount === 0
+            ? "no-world-impact"
+            : hitDecision.reason,
+        targetRewindMs,
+      });
+      for (const damageHit of worldSplashHits) {
+        this.applyPlayerDamage({
+          attackerPlayerId: attacker.playerId,
+          victimPlayerId: damageHit.target.playerId,
+          damage: damageHit.damage * damageMultiplier,
+          source: authoritativeFire.weapon,
+          eventId: `${message.messageId}-wall-splash-${damageHit.target.playerId}`,
+          inflictorOrigin: damageHit.impact,
+          now,
+        });
+      }
       this.broadcastSnapshot();
       return;
     }
-    if (!quakeMultiplayerDeathmatchHitHasLineOfSight(
+    const splashHits = quakeMultiplayerDeathmatchSplashHits(
       authoritativeFire,
       hit,
-      this.trustedSceneMovement?.collisionWorld,
-    )) {
-      this.broadcastSnapshot();
-      return;
-    }
-    const damageMultiplier = quakeMultiplayerDamageMultiplierForInventory(nextInventory, now);
-    for (const damageHit of quakeMultiplayerDeathmatchSplashHits(
-      authoritativeFire,
-      hit,
-      this.players.values(),
+      combatPlayers,
       attacker.playerId,
-    )) {
+      this.trustedSceneMovement?.collisionWorld,
+    );
+    broadcastFired({
+      blockedCandidateCount: hitDecision.blockedCandidateCount,
+      candidateCount: hitDecision.candidateCount,
+      outcome: "hit-player",
+      playerDamageCount: splashHits.length,
+      reason: "player-direct",
+      targetPlayerId: hit.target.playerId,
+      targetRewindMs,
+    });
+    for (const damageHit of splashHits) {
       this.applyPlayerDamage({
         attackerPlayerId: attacker.playerId,
         victimPlayerId: damageHit.target.playerId,
@@ -921,6 +1147,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
         source: authoritativeFire.weapon,
         eventId: damageHit.direct ? message.messageId : `${message.messageId}-${damageHit.target.playerId}`,
         inflictorOrigin: authoritativeFire.fireKind === "projectile" ? damageHit.impact : attacker.origin,
+        now,
       });
     }
     this.broadcastSnapshot();
@@ -933,12 +1160,13 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     source: string;
     eventId: string;
     inflictorOrigin?: QuakeMultiplayerVec3 | null;
+    now?: number;
   }): void {
     const victim = this.players.get(input.victimPlayerId);
     if (!victim || !victim.alive) return;
     const damage = Math.max(0, input.damage);
     if (damage <= 0) return;
-    const now = Date.now();
+    const now = input.now ?? Date.now();
     const victimInventory = quakeMultiplayerPruneExpiredPowerups(quakeMultiplayerPlayerInventory(victim), now);
     const invulnerable = quakeMultiplayerPlayerPowerupActive(victim, "invincible_finished", now);
     const nextInventory = quakeMultiplayerApplyDamageToInventory(
@@ -946,15 +1174,18 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       damage,
       { applyHealth: !invulnerable },
     );
-    const died = nextInventory.health <= 0;
-    const victimFragDelta = died && input.attackerPlayerId
+    const died = !invulnerable && nextInventory.health <= 0;
+    const resolvedInventory = died
+      ? quakeMultiplayerInventoryWithoutDeathPowerups(nextInventory)
+      : nextInventory;
+    const victimFragDelta = died
       ? Math.min(0, quakeMultiplayerDeathmatchFragDeltaForKill({
           attackerPlayerId: input.attackerPlayerId,
           victimPlayerId: victim.playerId,
         }))
       : 0;
     const damagedVictim = quakeMultiplayerDeathmatchPlayerWithDamageMomentum({
-      player: quakeMultiplayerPlayerWithInventory(victim, nextInventory),
+      player: quakeMultiplayerPlayerWithInventory(victim, resolvedInventory),
       damage,
       inflictorOrigin: input.inflictorOrigin,
     });
@@ -967,6 +1198,10 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       ...(died ? { respawnAt: now + QUAKE_MULTIPLAYER_DEATHMATCH_RESPAWN_DELAY_MS } : {}),
     };
     this.players.set(victim.playerId, updatedVictim);
+    if (invulnerable) {
+      this.broadcastSnapshot();
+      return;
+    }
     if (died) {
       const attacker = input.attackerPlayerId ? this.players.get(input.attackerPlayerId) : undefined;
       let matchEnded = false;
@@ -985,7 +1220,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       this.broadcastRoomEvent({
         eventType: "player.killed",
         eventId: `kill-${input.eventId}`,
-        roomTime: this.roomTime(),
+        roomTime: this.roomTime(now),
         victimPlayerId: victim.playerId,
         ...(input.attackerPlayerId ? { attackerPlayerId: input.attackerPlayerId } : {}),
         damageSource: input.source,
@@ -994,14 +1229,15 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       if (updatedAttacker && updatedAttacker.playerId !== victim.playerId) {
         matchEnded = this.enterIntermissionIfFragLimitReached(updatedAttacker, input.eventId);
       }
+      this.dropPlayerBackpack(victim, now);
       this.clearPickupOwnership(victim.playerId, now);
-      this.pausePlayerSimulation(victim.playerId);
-      if (!matchEnded) this.schedulePlayerRespawn(victim.playerId, updatedVictim.respawnAt ?? now);
+      this.pausePlayerSimulation(victim.playerId, now);
+      if (!matchEnded) this.schedulePlayerRespawn(victim.playerId, updatedVictim.respawnAt ?? now, now);
     } else {
       this.broadcastRoomEvent({
         eventType: "player.damaged",
         eventId: `damage-${input.eventId}`,
-        roomTime: this.roomTime(),
+        roomTime: this.roomTime(now),
         victimPlayerId: victim.playerId,
         ...(input.attackerPlayerId ? { attackerPlayerId: input.attackerPlayerId } : {}),
         damage,
@@ -1013,10 +1249,10 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     this.broadcastSnapshot();
   }
 
-  private schedulePlayerRespawn(playerId: string, respawnAt: number): void {
+  private schedulePlayerRespawn(playerId: string, respawnAt: number, now = Date.now()): void {
     const previous = this.respawnTimers.get(playerId);
     if (previous) clearTimeout(previous);
-    const delay = Math.max(0, respawnAt - Date.now());
+    const delay = Math.max(0, respawnAt - now);
     const timer = setTimeout(() => {
       this.respawnTimers.delete(playerId);
       this.respawnPlayer(playerId);
@@ -1066,6 +1302,80 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     }
   }
 
+  private dynamicPickupDefinitions(): QuakeMultiplayerPickupDefinition[] {
+    return [...this.pickupDefinitions.values()].filter((definition) => definition.runtime === true);
+  }
+
+  private dropPlayerBackpack(
+    player: QuakeMultiplayerAuthoritativePlayerState,
+    now: number,
+  ): void {
+    const definition = quakeMultiplayerDroppedBackpackDefinition({
+      player,
+      entityIndex: this.dynamicPickupSequence++,
+      now,
+    });
+    if (!definition) return;
+    const pickup: QuakeMultiplayerAuthoritativePickupState = {
+      pickupId: definition.pickupId,
+      entityIndex: definition.entityIndex,
+      available: true,
+      updatedAt: now,
+    };
+    this.pickupDefinitions.set(definition.entityIndex, definition);
+    this.pickupStates.set(definition.entityIndex, pickup);
+    this.broadcastRoomEvent({
+      eventType: "pickup.dropped",
+      eventId: `pickup-drop-${definition.entityIndex}-${now}`,
+      roomTime: this.roomTime(now),
+      sourcePlayerId: player.playerId,
+      definition,
+      pickup,
+    });
+    if (definition.removeAt !== undefined) {
+      this.schedulePickupRemoval(definition.entityIndex, definition.removeAt);
+    }
+  }
+
+  private schedulePickupRemoval(entityIndex: number, removeAt: number): void {
+    const previous = this.pickupRemovalTimers.get(entityIndex);
+    if (previous) clearTimeout(previous);
+    const timer = setTimeout(() => {
+      this.pickupRemovalTimers.delete(entityIndex);
+      const definition = this.pickupDefinitions.get(entityIndex);
+      const state = this.pickupStates.get(entityIndex);
+      if (!definition?.runtime || !state?.available) return;
+      this.broadcastRoomEvent({
+        eventType: "pickup.expired",
+        eventId: `pickup-expired-${entityIndex}-${Date.now()}`,
+        roomTime: this.roomTime(),
+        pickupId: definition.pickupId,
+        entityIndex,
+      });
+      this.removePickupDefinition(entityIndex);
+      this.broadcastSnapshot();
+    }, Math.max(0, removeAt - Date.now()));
+    unrefTimer(timer);
+    this.pickupRemovalTimers.set(entityIndex, timer);
+  }
+
+  private removePickupDefinition(entityIndex: number): void {
+    this.pickupDefinitions.delete(entityIndex);
+    this.pickupStates.delete(entityIndex);
+    const timer = this.pickupRemovalTimers.get(entityIndex);
+    if (timer) clearTimeout(timer);
+    this.pickupRemovalTimers.delete(entityIndex);
+    const respawnTimer = this.pickupRespawnTimers.get(entityIndex);
+    if (respawnTimer) clearTimeout(respawnTimer);
+    this.pickupRespawnTimers.delete(entityIndex);
+  }
+
+  private clearRuntimePickupDefinitions(): void {
+    for (const definition of this.dynamicPickupDefinitions()) {
+      this.removePickupDefinition(definition.entityIndex);
+    }
+  }
+
   private registerWorldDefinitions(definitions: readonly QuakeMultiplayerWorldDefinition[]): void {
     for (const definition of definitions) {
       if (this.worldDefinitions.has(definition.entityIndex)) continue;
@@ -1100,7 +1410,10 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     }
     const now = Date.now();
     const inventory = quakeMultiplayerPruneExpiredPowerups(quakeMultiplayerPlayerInventory(player), now);
-    if (!quakeMultiplayerInventoryCanAcceptPickupEffect(inventory, definition.effect)) {
+    if (
+      !quakeMultiplayerPickupAlwaysAcceptsTouch(definition) &&
+      !quakeMultiplayerInventoryCanAcceptPickupEffect(inventory, definition.effect, now)
+    ) {
       this.broadcastPickupRejected(player.playerId, message, definition, "not-needed");
       return;
     }
@@ -1140,6 +1453,9 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     }
     const targetDispatch = this.pickupTargetDispatchSource(definition);
     if (targetDispatch) this.scheduleTargetDispatch(targetDispatch, player.playerId, `pickup-${message.messageId}`);
+    if (definition.runtime && !leaveInPlace && updatedState.respawnAt === undefined) {
+      this.removePickupDefinition(definition.entityIndex);
+    }
     this.broadcastSnapshot();
   }
 
@@ -1244,12 +1560,14 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
       return;
     }
     if (resolution.kind === "hurt") {
-      if (!this.acceptHurtTouch(resolution.definition.entityIndex, Date.now())) return;
+      const timestamp = Date.now();
+      if (!this.acceptHurtTouch(resolution.definition.entityIndex, timestamp)) return;
       this.applyPlayerDamage({
         victimPlayerId: player.playerId,
         damage: resolution.damage,
         source: "trigger_hurt",
         eventId: `world-${message.messageId}`,
+        now: timestamp,
       });
       return;
     }
@@ -1474,13 +1792,44 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     for (const victim of [...this.players.values()]) {
       if (victim.playerId === ownerPlayerId) continue;
       if (!quakeMultiplayerPlayerIntersectsTelefragVolume(victim, destinationOrigin)) continue;
-      if (quakeMultiplayerPlayerPowerupActive(victim, "invincible_finished", timestamp)) {
+      const owner = this.players.get(ownerPlayerId);
+      const victimInvulnerable = quakeMultiplayerPlayerPowerupActive(victim, "invincible_finished", timestamp);
+      const ownerInvulnerable = owner
+        ? quakeMultiplayerPlayerPowerupActive(owner, "invincible_finished", timestamp)
+        : false;
+      if (victimInvulnerable && owner && ownerInvulnerable) {
+        this.players.set(
+          victim.playerId,
+          quakeMultiplayerPlayerWithoutPowerup(victim, "invincible_finished"),
+        );
+        this.players.set(
+          owner.playerId,
+          quakeMultiplayerPlayerWithoutPowerup(owner, "invincible_finished"),
+        );
+        this.applyPlayerDamage({
+          victimPlayerId: victim.playerId,
+          damage: QUAKE_MULTIPLAYER_TELEFRAG_DAMAGE,
+          source: "teledeath3",
+          eventId: `telefrag-double-${eventId}-${victim.playerId}`,
+          now: timestamp,
+        });
+        this.applyPlayerDamage({
+          victimPlayerId: owner.playerId,
+          damage: QUAKE_MULTIPLAYER_TELEFRAG_DAMAGE,
+          source: "teledeath3",
+          eventId: `telefrag-double-${eventId}-${owner.playerId}`,
+          now: timestamp,
+        });
+        continue;
+      }
+      if (victimInvulnerable) {
         this.applyPlayerDamage({
           attackerPlayerId: ownerPlayerId,
           victimPlayerId: ownerPlayerId,
           damage: QUAKE_MULTIPLAYER_TELEFRAG_DAMAGE,
           source: "teledeath2",
           eventId: `telefrag-deflect-${eventId}-${victim.playerId}`,
+          now: timestamp,
         });
         continue;
       }
@@ -1490,6 +1839,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
         damage: QUAKE_MULTIPLAYER_TELEFRAG_DAMAGE,
         source: "teledeath",
         eventId: `telefrag-${eventId}-${victim.playerId}`,
+        now: timestamp,
       });
     }
   }
@@ -1569,7 +1919,6 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     cascadeDepth: number,
     activation: "touch" | "target" | "shoot",
   ): void {
-    if (definition.classname !== "func_button") return;
     const state = this.moverStates.get(definition.entityIndex) ?? "bottom";
     if (state === "moving-up" || state === "top") return;
     this.moverStates.set(definition.entityIndex, "moving-up");
@@ -1977,6 +2326,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     this.moverShootHealth.clear();
     this.clearTimeoutMap(this.respawnTimers);
     this.clearTimeoutMap(this.pickupRespawnTimers);
+    this.clearTimeoutMap(this.pickupRemovalTimers);
     this.clearTimeoutMap(this.targetDispatchTimers);
     this.clearTimeoutMap(this.moverStateTimers);
     this.clearTimeoutMap(this.disconnectRemovalTimers);
@@ -1987,6 +2337,8 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     this.fetchedTrustedWorldDefinitions = null;
     this.trustedGameplayDefinitionsPromise = null;
     this.trustedSceneMovement = this.options.trustedSceneMovement ?? null;
+    this.snapshotHistory = [];
+    this.dynamicPickupSequence = 1_000_000;
     this.roomSequence = 0;
     this.tick = 0;
     this.worldEventSequence = 0;
@@ -2113,22 +2465,57 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     if (!this.roomKey) return;
     this.enterIntermissionIfTimeLimitReached("snapshot");
     this.pruneExpiredPlayerPowerups();
-    this.lastScheduledSnapshotAt = Date.now();
+    const sampledAt = Date.now();
+    this.lastScheduledSnapshotAt = sampledAt;
     this.tick += 1;
+    const roomTime = this.roomTime();
+    const players = [...this.players.values()];
+    this.snapshotHistory = recordQuakeMultiplayerSnapshotHistory(this.snapshotHistory, {
+      sampledAt,
+      roomTime,
+      tick: this.tick,
+      players,
+    });
     this.broadcast("room.snapshot", {
       roomId: this.room.id,
       tick: this.tick,
-      roomTime: this.roomTime(),
+      roomTime,
       match: {
         status: this.matchStatus,
-        clockMs: this.roomTime(),
+        clockMs: roomTime,
         ...this.matchSettings,
       },
-      players: [...this.players.values()],
+      players,
       spectators: this.spectatorStates(),
+      dynamicPickups: this.dynamicPickupDefinitions(),
       pickups: [...this.pickupStates.values()],
+      projectiles: [...this.serverProjectiles.values()].map(quakeMultiplayerProjectileStateFromServer),
       lastWorldEventSequence: this.worldEventSequence,
     }, without);
+  }
+
+  private recordSnapshotHistory(sampledAt: number): void {
+    if (!this.roomKey || !this.players.size) return;
+    this.snapshotHistory = recordQuakeMultiplayerSnapshotHistory(this.snapshotHistory, {
+      sampledAt,
+      roomTime: this.roomTime(),
+      tick: this.tick,
+      players: this.players.values(),
+    });
+  }
+
+  private combatPlayersForFire(
+    attackerPlayerId: string,
+    targetTime: number,
+  ): QuakeMultiplayerAuthoritativePlayerState[] {
+    return quakeMultiplayerHistoricalCombatPlayers(
+      this.snapshotHistory,
+      this.players.values(),
+      {
+        attackerPlayerId,
+        targetTime,
+      },
+    );
   }
 
   private spectatorStates(): QuakeMultiplayerRoomSpectatorState[] {
@@ -2368,6 +2755,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     this.startedAt = timestamp;
     this.clearTimeoutMap(this.respawnTimers);
     this.clearTimeoutMap(this.pickupRespawnTimers);
+    this.clearTimeoutMap(this.pickupRemovalTimers);
     this.clearTimeoutMap(this.targetDispatchTimers);
     this.clearTimeoutMap(this.moverStateTimers);
     this.lastFireAtByPlayer.clear();
@@ -2379,6 +2767,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     this.resetMoverCollisionOffsets();
     this.moverStates.clear();
     this.moverShootHealth.clear();
+    this.clearRuntimePickupDefinitions();
     this.pickupStates.clear();
     for (const definition of this.pickupDefinitions.values()) {
       this.pickupStates.set(definition.entityIndex, {
@@ -2490,8 +2879,8 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     }) as QuakeMultiplayerRoomEnvelope;
   }
 
-  private roomTime(): number {
-    return Math.max(0, Date.now() - this.startedAt);
+  private roomTime(now = Date.now()): number {
+    return Math.max(0, now - this.startedAt);
   }
 
   private playerIdForClient(clientId: string): string {
@@ -2500,9 +2889,14 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
 
   private nextSpawnPoint(): QuakeMultiplayerSpawnPoint | null {
     if (!this.spawnPoints.length) return null;
-    const spawn = this.spawnPoints[this.spawnCursor % this.spawnPoints.length] ?? null;
-    this.spawnCursor++;
-    return spawn;
+    const selection = quakeMultiplayerDeathmatchSelectSpawnPoint(
+      this.spawnPoints,
+      this.players.values(),
+      this.options.random ? { random: this.options.random } : {},
+    );
+    if (!selection) return null;
+    this.spawnCursor = selection.nextCursor;
+    return selection.spawn;
   }
 
   private closeMalformed(connection: Party.Connection, reason: string): void {
@@ -2606,6 +3000,35 @@ function isQuakeMultiplayerVec3Like(value: unknown): boolean {
     value.length === 3 &&
     value.every(isFiniteNumber)
   );
+}
+
+function quakeMultiplayerPlayerWithoutPowerup(
+  player: QuakeMultiplayerAuthoritativePlayerState,
+  finishedField: string,
+): QuakeMultiplayerAuthoritativePlayerState {
+  return quakeMultiplayerPlayerWithInventory(
+    player,
+    quakeMultiplayerInventoryWithoutPowerup(
+      quakeMultiplayerPlayerInventory(player),
+      finishedField,
+    ),
+  );
+}
+
+function quakeMultiplayerProjectileStateFromServer(
+  projectile: QuakeMultiplayerServerProjectile,
+): QuakeMultiplayerProjectileState {
+  return {
+    projectileId: projectile.projectileId,
+    ownerPlayerId: projectile.ownerPlayerId,
+    weapon: projectile.weapon,
+    origin: projectile.origin,
+    direction: projectile.direction,
+    speed: projectile.speed,
+    spawnedAt: projectile.spawnedAt,
+    updatedAt: projectile.updatedAt,
+    expiresAt: projectile.expiresAt,
+  };
 }
 
 function firstHelloRoomKey(value: unknown): QuakeMultiplayerRoomCompatibilityKey | null {

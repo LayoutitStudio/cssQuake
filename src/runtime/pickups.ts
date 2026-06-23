@@ -219,6 +219,7 @@ export interface QuakePickupController {
   applyAuthoritativePickup: (entityIndex: number, options?: QuakeAuthoritativePickupOptions) => boolean;
   applyAuthoritativeRespawn: (entityIndex: number) => boolean;
   clear: () => void;
+  clearRuntimePickups: () => void;
   debugStats: () => QuakePickupDebugStats;
   restoreProgress: (snapshot: QuakePickupProgressSnapshot) => void;
   snapshotProgress: () => QuakePickupProgressSnapshot;
@@ -373,6 +374,12 @@ export function createQuakePickupController(options: QuakePickupControllerOption
       }
     }
     startAnimationLoop();
+  };
+
+  const clearRuntimePickups = (): void => {
+    for (const pickup of [...pickups]) {
+      if (pickup.runtime) removeRuntimePickup(pickup);
+    }
   };
 
   const addPickupState = (input: {
@@ -714,6 +721,7 @@ export function createQuakePickupController(options: QuakePickupControllerOption
     applyAuthoritativePickup,
     applyAuthoritativeRespawn,
     clear,
+    clearRuntimePickups,
     debugStats,
     restoreProgress,
     snapshotProgress,
@@ -759,6 +767,7 @@ const QUAKE_PICKUP_MODEL_PATHS: Record<string, string> = {
   item_artifact_invulnerability: "progs/invulner.mdl",
   item_artifact_envirosuit: "progs/suit.mdl",
   item_artifact_invisibility: "progs/invisibl.mdl",
+  item_backpack: "progs/backpack.mdl",
   weapon_nailgun: "progs/g_nail.mdl",
   weapon_supernailgun: "progs/g_nail2.mdl",
   weapon_supershotgun: "progs/g_shot.mdl",

@@ -47,6 +47,30 @@ test("room simulation consumes queued inputs in sequence order across fixed tick
   assert.deepEqual(third.state.pendingInputs, []);
 });
 
+test("room simulation records bounded accepted input history", () => {
+  const player = createPlayer();
+  let state = simulation.createQuakeMultiplayerRoomPlayerSimulationState({
+    playerId: player.playerId,
+    now: 0,
+  });
+  for (
+    let inputSequence = 1;
+    inputSequence <= simulation.QUAKE_MULTIPLAYER_ACCEPTED_INPUT_HISTORY_LIMIT + 3;
+    inputSequence += 1
+  ) {
+    state = simulation.queueQuakeMultiplayerRoomInput(state, createInput(inputSequence)).state;
+  }
+
+  assert.equal(state.acceptedInputHistory.length, simulation.QUAKE_MULTIPLAYER_ACCEPTED_INPUT_HISTORY_LIMIT);
+  assert.equal(state.acceptedInputHistory[0].inputSequence, 4);
+  assert.equal(state.acceptedInputHistory.at(-1).inputSequence, 35);
+
+  state = simulation.queueQuakeMultiplayerRoomInput(state, createInput(35, { sampledAt: 999 })).state;
+  assert.equal(state.acceptedInputHistory.length, simulation.QUAKE_MULTIPLAYER_ACCEPTED_INPUT_HISTORY_LIMIT);
+  assert.equal(state.acceptedInputHistory.at(-1).inputSequence, 35);
+  assert.equal(state.acceptedInputHistory.at(-1).sampledAt, 999);
+});
+
 test("room simulation still holds the last accepted input after the queue drains", () => {
   const player = createPlayer();
   let state = simulation.createQuakeMultiplayerRoomPlayerSimulationState({

@@ -32,7 +32,8 @@ export type QuakeMultiplayerClientAuthorityResult =
 export const QUAKE_MULTIPLAYER_DEFAULT_CLIENT_MESSAGE_INTERVAL_MS = {
   "client.hello": 250,
   "client.presence": 0,
-  "client.input": 10,
+  "client.input": 0,
+  "client.inputBatch": 0,
   "client.fire": 25,
   "client.damage": 100,
   "client.pickup": 150,
@@ -127,6 +128,7 @@ export function quakeMultiplayerClientIdForEnvelope(
     case "client.hello":
     case "client.presence":
     case "client.input":
+    case "client.inputBatch":
     case "client.fire":
     case "client.damage":
     case "client.pickup":
@@ -146,6 +148,11 @@ function quakeMultiplayerClientIntentSequence(
   switch (message.type) {
     case "client.input":
       return { key: "input", sequence: message.payload.input.inputSequence };
+    case "client.inputBatch":
+      return {
+        key: "input",
+        sequence: message.payload.inputs[message.payload.inputs.length - 1]?.inputSequence ?? 0,
+      };
     case "client.pose":
       return { key: "pose", sequence: message.payload.pose.poseSequence };
     case "client.fire":
