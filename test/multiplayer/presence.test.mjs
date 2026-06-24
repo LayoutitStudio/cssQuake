@@ -151,6 +151,12 @@ test("presence room aggregates active room counts and removes empty rooms", asyn
     assert.equal(snapshot.totals.connections, 3);
     assert.equal(snapshot.totals.rooms, 1);
     assert.equal(snapshot.rooms[0].roomId, "cssquake-auto-e1m1-abc123");
+    assert.equal(snapshot.history.bucketMs, presenceRoomModule.CSSQUAKE_PRESENCE_HISTORY_BUCKET_MS);
+    assert.equal(snapshot.history.retentionMs, presenceRoomModule.CSSQUAKE_PRESENCE_HISTORY_RETENTION_MS);
+    assert.equal(snapshot.history.buckets.length, 1);
+    assert.equal(snapshot.history.peaks.activePlayers, 2);
+    assert.equal(snapshot.history.buckets[0].peaks.activePlayers, 2);
+    assert.equal(snapshot.history.buckets[0].latest.activePlayers, 2);
     assert.ok(storage.alarmAt > Date.now());
 
     response = await presenceRoom.onRequest(request("POST", {
@@ -164,6 +170,71 @@ test("presence room aggregates active room counts and removes empty rooms", asyn
     assert.equal(snapshot.totals.activePlayers, 0);
     assert.equal(snapshot.totals.rooms, 0);
     assert.deepEqual(snapshot.rooms, []);
+    assert.equal(snapshot.history.buckets.length, 1);
+    assert.equal(snapshot.history.buckets[0].samples, 2);
+    assert.equal(snapshot.history.buckets[0].peaks.activePlayers, 2);
+    assert.equal(snapshot.history.buckets[0].latest.activePlayers, 0);
+  });
+});
+
+test("presence room records minute peak history and prunes old buckets", async () => {
+  await withFakeNow(10_000, async (clock) => {
+    const { room } = createFakePresenceRoom();
+    const PresenceRoom = presenceRoomModule.default;
+    const presenceRoom = new PresenceRoom(room);
+    const update = presenceRoomModule.createCssQuakePresenceUpdatePayload({
+      roomId: "cssquake-auto-e1m1-history",
+      mapName: "e1m1",
+      gameplayFactsHash: "facts-a",
+      activePlayers: 1,
+      roomPlayers: 1,
+      spectators: 0,
+      connections: 1,
+    });
+
+    let snapshot = await (await presenceRoom.onRequest(request("POST", update))).json();
+    assert.equal(snapshot.history.buckets.length, 1);
+    assert.equal(snapshot.history.buckets[0].startedAt, 0);
+    assert.equal(snapshot.history.buckets[0].peaks.activePlayers, 1);
+    assert.equal(snapshot.history.buckets[0].latest.activePlayers, 1);
+
+    clock.advance(10_000);
+    snapshot = await (await presenceRoom.onRequest(request("POST", {
+      ...update,
+      activePlayers: 0,
+      roomPlayers: 0,
+      connections: 0,
+    }))).json();
+    assert.equal(snapshot.history.buckets.length, 1);
+    assert.equal(snapshot.history.buckets[0].samples, 2);
+    assert.equal(snapshot.history.buckets[0].peaks.activePlayers, 1);
+    assert.equal(snapshot.history.buckets[0].latest.activePlayers, 0);
+
+    clock.advance(presenceRoomModule.CSSQUAKE_PRESENCE_HISTORY_BUCKET_MS);
+    snapshot = await (await presenceRoom.onRequest(request("POST", {
+      ...update,
+      activePlayers: 3,
+      roomPlayers: 3,
+      connections: 3,
+    }))).json();
+    assert.equal(snapshot.history.buckets.length, 2);
+    assert.equal(snapshot.history.peaks.activePlayers, 3);
+    assert.equal(snapshot.history.buckets.at(-1).peaks.connections, 3);
+
+    clock.advance(
+      presenceRoomModule.CSSQUAKE_PRESENCE_HISTORY_RETENTION_MS +
+        presenceRoomModule.CSSQUAKE_PRESENCE_HISTORY_BUCKET_MS,
+    );
+    snapshot = await (await presenceRoom.onRequest(request("POST", {
+      ...update,
+      roomId: "cssquake-auto-e1m1-fresh-history",
+      activePlayers: 1,
+      roomPlayers: 1,
+      connections: 1,
+    }))).json();
+    assert.equal(snapshot.history.buckets.length, 1);
+    assert.equal(snapshot.history.buckets[0].peaks.activePlayers, 1);
+    assert.equal(snapshot.history.peaks.activePlayers, 1);
   });
 });
 
