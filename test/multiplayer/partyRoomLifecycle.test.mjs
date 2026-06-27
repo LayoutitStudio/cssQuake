@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   authority,
   fireEnvelope,
+  facts,
   helloEnvelope,
   inputBatchEnvelope,
   inputEnvelope,
@@ -272,4 +273,79 @@ test("party room keeps hello authority while trusted gameplay definitions are pe
 
   assert.equal(connection.state.playerId, "party:client-a");
   assert.equal(connection.state.authority.lastEnvelopeSequence, 2);
+});
+
+test("party room falls back to hello gameplay facts when implicit trusted asset lookup misses", async () => {
+  const { room, createConnection } = createFakePartyRoom("trusted-asset-miss");
+  const RoomClass = partyRoomModule.default;
+  const assetRequests = [];
+  room.context.assets = {
+    fetch: async (assetPath) => {
+      assetRequests.push(assetPath);
+      return new Response("missing", { status: 404 });
+    },
+  };
+  const gameplayDefinitions = facts.createQuakeMultiplayerGameplayDefinitions({
+    deathmatchSpawns: [{
+      spawnId: "asset-miss-spawn",
+      classname: "info_player_deathmatch",
+      origin: [0, 0, 0],
+      rotX: 90,
+      rotY: 0,
+    }],
+    pickupDefinitions: [],
+  });
+  const partyRoom = new RoomClass(room);
+  const connection = createConnection("asset-miss-connection");
+
+  partyRoom.onConnect(connection);
+  const result = partyRoom.onMessage(JSON.stringify(helloEnvelope({
+    deathmatchSpawns: gameplayDefinitions.deathmatchSpawns,
+    gameplayFacts: gameplayDefinitions.gameplayFacts,
+    messageId: "asset-miss-hello",
+    pickupDefinitions: gameplayDefinitions.pickupDefinitions,
+    sequence: 1,
+    sentAt: Date.now(),
+  })), connection);
+  await Promise.resolve(result);
+
+  assert.deepEqual(assetRequests, ["/q/e1m1.json"]);
+  assert.equal(connection.messages.some((message) => message.type === "room.reject"), false);
+  assert.equal(connection.state.playerId, "party:client-a");
+  const snapshot = latestConnectionMessage(connection, "room.snapshot");
+  assert.equal(snapshot.payload.players.length, 1);
+});
+
+test("party room rejects hello when explicit trusted gameplay fetcher misses", async () => {
+  const { room, createConnection } = createFakePartyRoom("required-trusted-fetcher-miss");
+  const RoomClass = partyRoomModule.default;
+  const gameplayDefinitions = facts.createQuakeMultiplayerGameplayDefinitions({
+    deathmatchSpawns: [{
+      spawnId: "required-fetcher-spawn",
+      classname: "info_player_deathmatch",
+      origin: [0, 0, 0],
+      rotX: 90,
+      rotY: 0,
+    }],
+    pickupDefinitions: [],
+  });
+  const partyRoom = new RoomClass(room, {
+    trustedGameplayDefinitionsFetcher: async () => null,
+  });
+  const connection = createConnection("required-fetcher-connection");
+
+  partyRoom.onConnect(connection);
+  const result = partyRoom.onMessage(JSON.stringify(helloEnvelope({
+    deathmatchSpawns: gameplayDefinitions.deathmatchSpawns,
+    gameplayFacts: gameplayDefinitions.gameplayFacts,
+    messageId: "required-fetcher-hello",
+    pickupDefinitions: gameplayDefinitions.pickupDefinitions,
+    sequence: 1,
+    sentAt: Date.now(),
+  })), connection);
+  await Promise.resolve(result);
+
+  const reject = latestConnectionMessage(connection, "room.reject");
+  assert.equal(reject.payload.code, "wrong-map");
+  assert.equal(connection.state?.playerId, undefined);
 });
