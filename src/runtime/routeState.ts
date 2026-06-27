@@ -108,6 +108,7 @@ export function normalizeQuakeUrlAngle(value: number): number {
 export function quakeUrlForMapView(href: string, mapName: string, view: QuakeUrlView | null = null): URL {
   const url = new URL(href);
   url.searchParams.set("map", mapName);
+  url.searchParams.delete("room");
   if (view) {
     setQuakeUrlViewParam(url, quakeUrlViewValue(view));
   } else {

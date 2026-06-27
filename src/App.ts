@@ -1013,12 +1013,13 @@ function quakeMultiplayerMenuRoomId(
   mapName: string,
   forceNew: boolean,
 ): string {
+  const staticRoomId = quakeMultiplayerStaticRoomIdForMap(mapName);
   if (
     !forceNew &&
-    QUAKE_MULTIPLAYER_ROOM_ID &&
+    staticRoomId &&
     mapName === currentMapName
   ) {
-    return QUAKE_MULTIPLAYER_ROOM_ID;
+    return staticRoomId;
   }
   if (
     !forceNew &&
@@ -1091,6 +1092,13 @@ function quakeMultiplayerFallbackRoomId(mapName: string): string {
   const roomId = createQuakeMultiplayerRoomSlug(mapName);
   quakeMultiplayerFallbackRoomIds.set(mapName, roomId);
   return roomId;
+}
+
+function quakeMultiplayerStaticRoomIdForMap(mapName: string): string | null {
+  if (!QUAKE_MULTIPLAYER_ROOM_ID) return null;
+  const normalizedMapName = mapName.trim().toLowerCase();
+  if (quakeMultiplayerCompactInvite && normalizedMapName !== quakeMultiplayerCompactInvite.mapName) return null;
+  return QUAKE_MULTIPLAYER_ROOM_ID;
 }
 
 interface QuakeMultiplayerCompactInvite {
@@ -3532,7 +3540,7 @@ function applyQuakeMultiplayerInitialSpawnHint(): void {
 }
 
 function quakeMultiplayerRoomId(roomKey: QuakeMultiplayerRoomCompatibilityKey): string {
-  return QUAKE_MULTIPLAYER_ROOM_ID || quakeMultiplayerFallbackRoomId(roomKey.mapName);
+  return quakeMultiplayerStaticRoomIdForMap(roomKey.mapName) ?? quakeMultiplayerFallbackRoomId(roomKey.mapName);
 }
 
 function quakeMultiplayerMatchSettings(): { fragLimit: number; maxPlayers: number } {
@@ -3617,7 +3625,7 @@ function quakeMultiplayerDebugSnapshot(): Record<string, unknown> {
     transport: QUAKE_MULTIPLAYER_TRANSPORT,
     partyHost: QUAKE_MULTIPLAYER_TRANSPORT === "party" ? QUAKE_MULTIPLAYER_PARTY_HOST : null,
     clientId: QUAKE_MULTIPLAYER_LOCAL_CLIENT_ID,
-    roomId: QUAKE_MULTIPLAYER_ROOM_ID || quakeMultiplayerFallbackRoomId(currentMapName),
+    roomId: quakeMultiplayerStaticRoomIdForMap(currentMapName) ?? quakeMultiplayerFallbackRoomId(currentMapName),
     localPingMs: quakeMultiplayerLocalPingMs,
     sessionState: status.state,
     sessionMode: status.mode,
