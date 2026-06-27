@@ -419,7 +419,10 @@ export function buildQuakeClipCollisionWorld(collision: QuakePreparedCollision):
         bestBrush = brush;
       }
     }
-    return best === -Infinity ? null : { z: best, ...(bestBrush ? { brush: bestBrush } : {}) };
+    if (best !== -Infinity) return { z: best, ...(bestBrush ? { brush: bestBrush } : {}) };
+    // Keep player grounding aligned with the prepared floor grid when hull tracing misses a walkable brush.
+    const staticZ = staticFloorAt(x, y, maxZ, minZ);
+    return staticZ === null ? null : { z: staticZ };
   }
 
   function floorAt(x: number, y: number, maxZ = Infinity, minZ = -Infinity): number | null {
