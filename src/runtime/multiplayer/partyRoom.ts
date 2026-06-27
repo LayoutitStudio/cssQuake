@@ -179,6 +179,11 @@ interface CssQuakeTargetDispatchSource {
   soundPath?: string;
 }
 
+interface CssQuakeTrustedGameplayDefinitionsLoad {
+  promise: Promise<QuakeMultiplayerGameplayDefinitions | null>;
+  required: boolean;
+}
+
 type CssQuakeMoverState = "bottom" | "moving-up" | "top" | "moving-down";
 type CssQuakeMoverMotionState = Extract<QuakeMultiplayerMoverState, "moving-up" | "moving-down">;
 
@@ -241,6 +246,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
   private fetchedTrustedGameplayDefinitions: QuakeMultiplayerGameplayDefinitions | null = null;
   private fetchedTrustedWorldDefinitions: QuakeMultiplayerWorldDefinition[] | null = null;
   private trustedGameplayDefinitionsPromise: Promise<QuakeMultiplayerGameplayDefinitions | null> | null = null;
+  private trustedGameplayDefinitionsRequired = false;
   private trustedSceneMovement: {
     collisionWorld: QuakeCollisionWorld;
     playerEyeHeight: number;
@@ -2169,13 +2175,14 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     roomKey: QuakeMultiplayerRoomCompatibilityKey,
   ): boolean | Promise<boolean> {
     if (this.trustedGameplayDefinitions()) return true;
-    const pending = this.loadTrustedGameplayDefinitions(roomKey);
-    if (!pending) return true;
-    return pending.then((definitions) => {
+    const load = this.loadTrustedGameplayDefinitions(roomKey);
+    if (!load) return true;
+    return load.promise.then((definitions) => {
       if (definitions) {
         this.fetchedTrustedGameplayDefinitions = definitions;
         return true;
       }
+      if (!load.required) return true;
       this.reject(sender, {
         code: "wrong-map",
         message: "Could not load trusted multiplayer gameplay facts for this room.",
@@ -2188,19 +2195,29 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
 
   private loadTrustedGameplayDefinitions(
     roomKey: QuakeMultiplayerRoomCompatibilityKey,
-  ): Promise<QuakeMultiplayerGameplayDefinitions | null> | null {
-    if (this.trustedGameplayDefinitionsPromise) return this.trustedGameplayDefinitionsPromise;
+  ): CssQuakeTrustedGameplayDefinitionsLoad | null {
+    if (this.trustedGameplayDefinitionsPromise) {
+      return {
+        promise: this.trustedGameplayDefinitionsPromise,
+        required: this.trustedGameplayDefinitionsRequired,
+      };
+    }
     const customFetcher = this.options.trustedGameplayDefinitionsFetcher;
     if (customFetcher) {
+      this.trustedGameplayDefinitionsRequired = true;
       this.trustedGameplayDefinitionsPromise = Promise.resolve(customFetcher(roomKey))
         .then((definitions) => definitions ?? null)
         .catch(() => null);
-      return this.trustedGameplayDefinitionsPromise;
+      return {
+        promise: this.trustedGameplayDefinitionsPromise,
+        required: this.trustedGameplayDefinitionsRequired,
+      };
     }
     const assetFetcher = this.room.context?.assets?.fetch;
     if (typeof assetFetcher !== "function") return null;
     const sceneAssetPath = trustedQuakeMultiplayerSceneAssetPath(roomKey.sceneUrl);
     if (!sceneAssetPath) return null;
+    this.trustedGameplayDefinitionsRequired = false;
     this.trustedGameplayDefinitionsPromise = assetFetcher.call(this.room.context.assets, sceneAssetPath)
       .then(async (response) => {
         if (!response?.ok) return null;
@@ -2211,7 +2228,10 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
         return quakeMultiplayerGameplayDefinitionsFromScene(scene, {});
       })
       .catch(() => null);
-    return this.trustedGameplayDefinitionsPromise;
+    return {
+      promise: this.trustedGameplayDefinitionsPromise,
+      required: this.trustedGameplayDefinitionsRequired,
+    };
   }
 
   private removeConnection(connection: Party.Connection, reason: string): void {
@@ -2336,6 +2356,7 @@ export default class CssQuakeMultiplayerRoom implements Party.Server {
     this.fetchedTrustedGameplayDefinitions = null;
     this.fetchedTrustedWorldDefinitions = null;
     this.trustedGameplayDefinitionsPromise = null;
+    this.trustedGameplayDefinitionsRequired = false;
     this.trustedSceneMovement = this.options.trustedSceneMovement ?? null;
     this.snapshotHistory = [];
     this.dynamicPickupSequence = 1_000_000;
