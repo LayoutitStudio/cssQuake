@@ -76,7 +76,7 @@ jobs:
         run: pnpm build
 
       - name: Publish PartyKit worker
-        run: pnpm exec partykit deploy
+        run: env -u CLOUDFLARE_ACCOUNT_ID -u CLOUDFLARE_API_TOKEN pnpm exec partykit deploy
 
       - name: Publish prebuilt site
         run: |
