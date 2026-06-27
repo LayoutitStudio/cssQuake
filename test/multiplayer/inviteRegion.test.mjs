@@ -60,3 +60,13 @@ test("compact multiplayer invite routes use the encoded map after region suffixe
   assert.equal(route.mapParamValid, true);
   assert.equal(route.compactMultiplayerInvitePresent, true);
 });
+
+test("map view urls drop compact multiplayer room params", () => {
+  const url = routeState.quakeUrlForMapView(
+    "https://quake.example/play?room=06bcdfghjkau&map=e1m7&view=1,2,3,4,5,0",
+    "e1m1",
+  );
+  assert.equal(url.searchParams.get("room"), null);
+  assert.equal(url.searchParams.get("map"), "e1m1");
+  assert.equal(url.searchParams.get("view"), null);
+});

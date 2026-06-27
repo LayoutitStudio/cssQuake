@@ -39,7 +39,11 @@ import {
 import { isQuakeDebugHooksEnabled } from "./runtime/debug/quakeDebug";
 import { createQuakeDebugRecorder } from "./runtime/debug/recording";
 import { markQuakeTrace } from "./runtime/debug/traceMarks";
-import { shouldSpawnQuakeEntityForCurrentGame, shouldSpawnQuakeEntityForGameMode } from "./runtime/entities";
+import {
+  quakeEntityNumber,
+  shouldSpawnQuakeEntityForCurrentGame,
+  shouldSpawnQuakeEntityForGameMode,
+} from "./runtime/entities";
 import {
   applyQuakeInventoryDelta,
   changeQuakeInventoryWeaponByImpulse,
@@ -1013,12 +1017,13 @@ function quakeMultiplayerMenuRoomId(
   mapName: string,
   forceNew: boolean,
 ): string {
+  const staticRoomId = quakeMultiplayerStaticRoomIdForMap(mapName);
   if (
     !forceNew &&
-    QUAKE_MULTIPLAYER_ROOM_ID &&
+    staticRoomId &&
     mapName === currentMapName
   ) {
-    return QUAKE_MULTIPLAYER_ROOM_ID;
+    return staticRoomId;
   }
   if (
     !forceNew &&
@@ -1091,6 +1096,13 @@ function quakeMultiplayerFallbackRoomId(mapName: string): string {
   const roomId = createQuakeMultiplayerRoomSlug(mapName);
   quakeMultiplayerFallbackRoomIds.set(mapName, roomId);
   return roomId;
+}
+
+function quakeMultiplayerStaticRoomIdForMap(mapName: string): string | null {
+  if (!QUAKE_MULTIPLAYER_ROOM_ID) return null;
+  const normalizedMapName = mapName.trim().toLowerCase();
+  if (quakeMultiplayerCompactInvite && normalizedMapName !== quakeMultiplayerCompactInvite.mapName) return null;
+  return QUAKE_MULTIPLAYER_ROOM_ID;
 }
 
 interface QuakeMultiplayerCompactInvite {
@@ -2185,7 +2197,7 @@ function* quakeDamageableBrushWeaponTargets(): Iterable<QuakeWeaponShootableTarg
   for (const entry of quakeDamageableBrushes.snapshot().brushes) {
     if (entry.health <= 0) continue;
     const entity = entityByIndex.get(entry.entityIndex);
-    if (!entity || entity.classname !== "func_button" || entity.modelIndex === undefined) continue;
+    if (!entity || !quakeDamageableBrushCanBeWeaponTarget(entity) || entity.modelIndex === undefined) continue;
     const model = sceneResult.models.find((item) => item.index === entity.modelIndex);
     if (!model) continue;
     const min: Vec3 = [
@@ -2209,6 +2221,14 @@ function* quakeDamageableBrushWeaponTargets(): Iterable<QuakeWeaponShootableTarg
       bounds: { min, max },
     };
   }
+}
+
+function quakeDamageableBrushCanBeWeaponTarget(entity: QuakeEntity): boolean {
+  if (quakeEntityNumber(entity, "health", 0) <= 0) return false;
+  return entity.classname === "func_button" ||
+    entity.classname === "trigger_multiple" ||
+    entity.classname === "trigger_once" ||
+    entity.classname === "trigger_secret";
 }
 const quakeMultiplayerWorldRequestAt = new Map<string, number>();
 let quakeMultiplayerLastRoomEvent: Record<string, unknown> | null = null;
@@ -3532,7 +3552,7 @@ function applyQuakeMultiplayerInitialSpawnHint(): void {
 }
 
 function quakeMultiplayerRoomId(roomKey: QuakeMultiplayerRoomCompatibilityKey): string {
-  return QUAKE_MULTIPLAYER_ROOM_ID || quakeMultiplayerFallbackRoomId(roomKey.mapName);
+  return quakeMultiplayerStaticRoomIdForMap(roomKey.mapName) ?? quakeMultiplayerFallbackRoomId(roomKey.mapName);
 }
 
 function quakeMultiplayerMatchSettings(): { fragLimit: number; maxPlayers: number } {
@@ -3617,7 +3637,7 @@ function quakeMultiplayerDebugSnapshot(): Record<string, unknown> {
     transport: QUAKE_MULTIPLAYER_TRANSPORT,
     partyHost: QUAKE_MULTIPLAYER_TRANSPORT === "party" ? QUAKE_MULTIPLAYER_PARTY_HOST : null,
     clientId: QUAKE_MULTIPLAYER_LOCAL_CLIENT_ID,
-    roomId: QUAKE_MULTIPLAYER_ROOM_ID || quakeMultiplayerFallbackRoomId(currentMapName),
+    roomId: quakeMultiplayerStaticRoomIdForMap(currentMapName) ?? quakeMultiplayerFallbackRoomId(currentMapName),
     localPingMs: quakeMultiplayerLocalPingMs,
     sessionState: status.state,
     sessionMode: status.mode,
