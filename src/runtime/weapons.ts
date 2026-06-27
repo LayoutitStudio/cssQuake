@@ -1027,7 +1027,7 @@ export function createQuakeWeaponsController({
   function traceDamageableBrushTargets(ray: QuakeViewRay): QuakeUseTrace | null {
     let best: QuakeUseTrace | null = null;
     for (const target of getDamageableBrushTargets?.() ?? []) {
-      if (target.dead || !isShootableFuncButtonEntity(target.entity)) continue;
+      if (target.dead || !isWeaponTraceDamageableBrushTarget(target.entity)) continue;
       const trace = rayTraceAabb(ray, target.bounds.min, target.bounds.max, 1, target.entity);
       if (!trace) continue;
       if (!best || trace.fraction < best.fraction) best = trace;
@@ -1356,7 +1356,9 @@ export function createQuakeWeaponsController({
     const ray = viewRayFromDirection(start, normalizeVec3(delta), range);
     const worldTrace = getCollisionWorld()?.traceUse?.(ray.origin, ray.end) ?? null;
     return (
-      traceShootables(ray, worldTrace?.fraction ?? 1, projectile.profile.monsterTouchHullExpansion ?? 0) ?? worldTrace
+      traceShootables(ray, worldTrace?.fraction ?? 1, projectile.profile.monsterTouchHullExpansion ?? 0) ??
+      traceDamageableBrushTargets(ray) ??
+      worldTrace
     ) as QuakeProjectileTrace | null;
   }
 
@@ -2016,6 +2018,14 @@ function isShootableBrushEntity(entity: QuakeEntity): boolean {
 
 function isShootableFuncButtonEntity(entity: QuakeEntity): boolean {
   return entity.classname === "func_button" && quakeEntityNumber(entity, "health", 0) > 0;
+}
+
+function isWeaponTraceDamageableBrushTarget(entity: QuakeEntity): boolean {
+  if (isShootableFuncButtonEntity(entity)) return true;
+  if (quakeEntityNumber(entity, "health", 0) <= 0) return false;
+  return entity.classname === "trigger_multiple" ||
+    entity.classname === "trigger_once" ||
+    entity.classname === "trigger_secret";
 }
 
 function forwardDirection(rotX: number, rotY: number): Vec3 {

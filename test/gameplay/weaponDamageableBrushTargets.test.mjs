@@ -29,6 +29,61 @@ test("health func_button brush targets can win over earlier world trace", () => 
   assert.equal(trace?.entityIndex, 42);
 });
 
+test("health trigger brush targets can win over earlier world trace", () => {
+  const controller = createWeaponsController({
+    damageableBrushTargets: [
+      damageableBrushTarget({
+        classname: "trigger_multiple",
+        health: 1,
+        index: 138,
+      }),
+    ],
+    entities: [
+      quakeEntity({
+        classname: "trigger_multiple",
+        health: 1,
+        index: 138,
+      }),
+    ],
+  });
+
+  const trace = controller.weaponTraceAtCrosshair();
+
+  assert.equal(trace?.classname, "trigger_multiple");
+  assert.equal(trace?.entityIndex, 138);
+});
+
+test("projectiles can damage health trigger brush targets over earlier world trace", () => {
+  const damagedBrushes = [];
+  withAnimationFrameWindow((flushFrames) => {
+    const controller = createWeaponsController({
+      damageBrushEntity: (entityIndex, amount) => {
+        damagedBrushes.push({ amount, entityIndex });
+        return true;
+      },
+      damageableBrushTargets: [
+        damageableBrushTarget({
+          classname: "trigger_multiple",
+          health: 1,
+          index: 138,
+        }),
+      ],
+      entities: [
+        quakeEntity({
+          classname: "trigger_multiple",
+          health: 1,
+          index: 138,
+        }),
+      ],
+    });
+
+    assert.equal(controller.debugFireProjectile({ directDamage: 1, now: 0 }), true);
+    flushFrames();
+  });
+
+  assert.deepEqual(damagedBrushes, [{ amount: 1, entityIndex: 138 }]);
+});
+
 test("non-button damageable brush targets do not bypass world trace", () => {
   const controller = createWeaponsController({
     damageableBrushTargets: [
@@ -53,14 +108,14 @@ test("non-button damageable brush targets do not bypass world trace", () => {
   assert.equal(trace?.entityIndex, undefined);
 });
 
-function createWeaponsController({ damageableBrushTargets, entities }) {
+function createWeaponsController({ damageBrushEntity = () => false, damageableBrushTargets, entities }) {
   const entityByIndex = new Map(entities.map((entity) => [entity.index, entity]));
   return weapons.createQuakeWeaponsController({
     scene: { camera: { state: { rotX: 90, rotY: 180 } } },
     controls: { getOrigin: () => [0, 0, 0] },
     canUseGameplayInput: () => true,
     consumeAmmo: () => undefined,
-    damageBrushEntity: () => false,
+    damageBrushEntity,
     damagePlayer: () => false,
     damageShootable: () => false,
     getActiveWeapon: () => "nailgun",
@@ -98,6 +153,29 @@ function damageableBrushTarget({ classname, health, index }) {
       max: [100, 100, 100],
     },
   };
+}
+
+function withAnimationFrameWindow(callback) {
+  const previousWindow = globalThis.window;
+  const frames = [];
+  globalThis.window = {
+    requestAnimationFrame(frameCallback) {
+      frames.push(frameCallback);
+      return frames.length;
+    },
+    cancelAnimationFrame() {},
+  };
+  try {
+    callback(() => {
+      while (frames.length) frames.shift()(16);
+    });
+  } finally {
+    if (previousWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = previousWindow;
+    }
+  }
 }
 
 function quakeEntity({ classname, health, index }) {
