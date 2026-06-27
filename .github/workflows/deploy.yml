@@ -17,6 +17,9 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CSSQUAKE_R2_BUCKET: ${{ vars.CSSQUAKE_R2_BUCKET || secrets.CSSQUAKE_R2_BUCKET || 'cssquake-assets' }}
+      PARTYKIT_LOGIN: ${{ vars.PARTYKIT_LOGIN || secrets.PARTYKIT_LOGIN }}
+      PARTYKIT_TEAM: ${{ vars.PARTYKIT_TEAM || secrets.PARTYKIT_TEAM }}
+      PARTYKIT_TOKEN: ${{ secrets.PARTYKIT_TOKEN }}
       QUAKE_RENDER_BUNDLE_AVIF_EFFORT: "0"
       QUAKE_SHAREWARE_URL: ${{ secrets.QUAKE_SHAREWARE_URL }}
       VITE_CSSQUAKE_PARTY_HOST: ${{ vars.VITE_CSSQUAKE_PARTY_HOST }}
@@ -43,6 +46,8 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CSSQUAKE_R2_BUCKET"
+          test -n "$PARTYKIT_LOGIN"
+          test -n "$PARTYKIT_TOKEN"
           test -n "$VITE_CSSQUAKE_PARTY_HOST"
           test -n "$VITE_QUAKE_ASSET_ROOT"
 
@@ -69,6 +74,9 @@ jobs:
 
       - name: Build prebuilt site
         run: pnpm build
+
+      - name: Publish PartyKit worker
+        run: pnpm exec partykit deploy
 
       - name: Publish prebuilt site
         run: |
