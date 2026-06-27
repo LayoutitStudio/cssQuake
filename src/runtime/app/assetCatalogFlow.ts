@@ -1,4 +1,4 @@
-import type { QuakeAssetManifest, QuakeAssetManifestMap } from "./session";
+import type { QuakeAssetManifest, QuakeAssetManifestMap, QuakeSceneMode } from "./session";
 import {
   FALLBACK_QUAKE_ASSET_MANIFEST,
   quakeAssetManifestMapTitle,
@@ -17,7 +17,7 @@ export interface QuakeAssetCatalogFlow {
   mapExists(mapName: string): boolean;
   mapTitle(level: QuakeAssetManifestMap): string;
   mountLevelSelector(renderBitmapText?: boolean): void;
-  sceneUrl(mapName: string): string | undefined;
+  sceneUrl(mapName: string, mode?: QuakeSceneMode): string | undefined;
   selectableLevels(): QuakeAssetManifestMap[];
   setManifest(manifest: QuakeAssetManifest, options?: { renderBitmapText?: boolean }): void;
   startMap(): string;
@@ -29,6 +29,7 @@ export function createQuakeAssetCatalogFlow(
 ): QuakeAssetCatalogFlow {
   let assetManifest = FALLBACK_QUAKE_ASSET_MANIFEST;
   let mapUrls = quakeAssetManifestSceneUrlMap(assetManifest);
+  let deathmatchMapUrls = quakeAssetManifestSceneUrlMap(assetManifest, "deathmatch");
 
   function manifest(): QuakeAssetManifest {
     return assetManifest;
@@ -40,6 +41,7 @@ export function createQuakeAssetCatalogFlow(
   ): void {
     assetManifest = manifest;
     mapUrls = quakeAssetManifestSceneUrlMap(manifest);
+    deathmatchMapUrls = quakeAssetManifestSceneUrlMap(manifest, "deathmatch");
     mountLevelSelector(setOptions.renderBitmapText ?? false);
   }
 
@@ -75,8 +77,8 @@ export function createQuakeAssetCatalogFlow(
     return quakeAssetManifestMapTitle(level);
   }
 
-  function sceneUrl(mapName: string): string | undefined {
-    return mapUrls.get(mapName);
+  function sceneUrl(mapName: string, mode: QuakeSceneMode = "singleplayer"): string | undefined {
+    return (mode === "deathmatch" ? deathmatchMapUrls : mapUrls).get(mapName);
   }
 
   return {

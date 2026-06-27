@@ -105,6 +105,7 @@ export interface QuakeWeaponsControllerOptions {
   hasViewmodel(): boolean;
   getCollisionWorld(): QuakeCollisionWorld | null;
   getEntities(): ReadonlyMap<number, QuakeEntity>;
+  getDamageableBrushTargets?(): Iterable<QuakeWeaponShootableTarget>;
   getShootables(): Iterable<QuakeWeaponShootableTarget>;
   getPlayerEyeHeight(): number;
   getPlayerWaterLevel(): number;
@@ -718,6 +719,7 @@ export function createQuakeWeaponsController({
   hasViewmodel,
   getCollisionWorld,
   getEntities,
+  getDamageableBrushTargets,
   getShootables,
   getPlayerEyeHeight,
   getPlayerWaterLevel,
@@ -998,7 +1000,11 @@ export function createQuakeWeaponsController({
 
   function traceWeaponRay(ray: QuakeViewRay): QuakeUseTrace | null {
     const worldTrace = getCollisionWorld()?.traceUse?.(ray.origin, ray.end) ?? null;
-    return traceShootables(ray, worldTrace?.fraction ?? 1, 0) ?? worldTrace;
+    return (
+      traceShootables(ray, worldTrace?.fraction ?? 1, 0) ??
+      traceDamageableBrushTargets(ray) ??
+      worldTrace
+    );
   }
 
   function traceShootables(ray: QuakeViewRay, maxFraction: number, monsterTouchHullExpansion: number): QuakeUseTrace | null {
@@ -1012,6 +1018,17 @@ export function createQuakeWeaponsController({
         maxFraction,
         shootable.entity,
       );
+      if (!trace) continue;
+      if (!best || trace.fraction < best.fraction) best = trace;
+    }
+    return best;
+  }
+
+  function traceDamageableBrushTargets(ray: QuakeViewRay): QuakeUseTrace | null {
+    let best: QuakeUseTrace | null = null;
+    for (const target of getDamageableBrushTargets?.() ?? []) {
+      if (target.dead || !isShootableFuncButtonEntity(target.entity)) continue;
+      const trace = rayTraceAabb(ray, target.bounds.min, target.bounds.max, 1, target.entity);
       if (!trace) continue;
       if (!best || trace.fraction < best.fraction) best = trace;
     }
@@ -1995,6 +2012,10 @@ function isShootableBrushEntity(entity: QuakeEntity): boolean {
     entity.classname === "trigger_multiple" ||
     entity.classname === "trigger_once" ||
     entity.classname === "trigger_secret";
+}
+
+function isShootableFuncButtonEntity(entity: QuakeEntity): boolean {
+  return entity.classname === "func_button" && quakeEntityNumber(entity, "health", 0) > 0;
 }
 
 function forwardDirection(rotX: number, rotY: number): Vec3 {

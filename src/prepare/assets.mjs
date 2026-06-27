@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { execSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { availableParallelism, tmpdir } from "node:os";
 import path from "node:path";
@@ -18,6 +18,11 @@ import {
   replaceQuakeRenderBundleWorldAtlas,
 } from "./deterministicAtlas.mjs";
 import { prepareQuakeEffectSprites } from "./effectSprites.mjs";
+import {
+  QUAKE_PREPARED_SCENE_MODES,
+  quakePreparedSceneModeOutputPath,
+  quakePreparedSceneVariant,
+} from "./sceneVariants.mjs";
 import { applyQuakeWorldPlanarComponents } from "./worldPlanarComponents.mjs";
 import { QUAKE_UNIT_SCALE } from "../quakeScale.js";
 
@@ -831,23 +836,44 @@ try {
   for (const item of preparedMaps) {
     const { outputPath, prepared } = item;
     const mapName = item.mapName ?? mapNameFromPakPath(item.mapPath);
-    const preparedJson = await runPrepareDetailStep(`map ${mapName} json stringify`, () => JSON.stringify(prepared));
-    await runPrepareDetailStep(`map ${mapName} json mkdir`, () => mkdir(path.dirname(outputPath), { recursive: true }));
-    await runPrepareDetailStep(`map ${mapName} json write`, () => writeFile(outputPath, preparedJson));
-    item.size = Buffer.byteLength(preparedJson);
+    item.modeOutputPaths = {};
+    item.modeSizes = {};
+    for (const mode of QUAKE_PREPARED_SCENE_MODES) {
+      const modeOutputPath = quakePreparedSceneModeOutputPath(outputPath, mode);
+      const modePrepared = await runPrepareDetailStep(`map ${mapName} ${mode} scene variant`, () =>
+        quakePreparedSceneVariant(prepared, mode)
+      );
+      const preparedJson = await runPrepareDetailStep(`map ${mapName} ${mode} json stringify`, () =>
+        JSON.stringify(modePrepared)
+      );
+      await runPrepareDetailStep(`map ${mapName} ${mode} json mkdir`, () =>
+        mkdir(path.dirname(modeOutputPath), { recursive: true })
+      );
+      await runPrepareDetailStep(`map ${mapName} ${mode} json write`, () => writeFile(modeOutputPath, preparedJson));
+      item.modeOutputPaths[mode] = modeOutputPath;
+      item.modeSizes[mode] = Buffer.byteLength(preparedJson);
+    }
+    item.size = item.modeSizes.singleplayer;
   }
 
   if (quakePrepareMapOnly) {
     await pruneUnreferencedTextureFiles(
-      preparedMaps.map((item) => item.outputPath),
+      quakePreparedMapOutputPaths(preparedMaps),
       { removeUnreferenced: false },
     );
     await writeFileAtomic(
       manifestOutputPath,
-      stableManifestJson ?? JSON.stringify(buildQuakeAssetManifest(preparedMaps, {}, { models: {} })),
+      stableManifestJson
+        ? quakeMapOnlyManifestJsonWithSceneVariants(stableManifestJson, preparedMaps)
+        : JSON.stringify(buildQuakeAssetManifest(preparedMaps, {}, { models: {} })),
     );
-    for (const { outputPath, prepared, size } of preparedMaps) {
-      console.log(`Wrote ${path.relative(projectRoot, outputPath)} (${formatBytes(size)})`);
+    for (const { modeOutputPaths, modeSizes, prepared, size } of preparedMaps) {
+      for (const mode of QUAKE_PREPARED_SCENE_MODES) {
+        const outputPath = modeOutputPaths?.[mode];
+        const modeSize = modeSizes?.[mode];
+        if (!outputPath || !modeSize) continue;
+        console.log(`Wrote ${path.relative(projectRoot, outputPath)} (${formatBytes(modeSize)})`);
+      }
       console.log(`${prepared.label}: ${prepared.faceCount}/${prepared.sourceFaceCount} faces, ${prepared.textureCount} textures`);
     }
     console.log(
@@ -951,12 +977,17 @@ try {
       effectSprites,
     )));
     await pruneUnreferencedTextureFiles([
-      ...preparedMaps.map((item) => item.outputPath),
+      ...quakePreparedMapOutputPaths(preparedMaps),
       ...weaponModelOutputPaths,
       pickupOutputPath,
     ]);
-    for (const { outputPath, prepared, size } of preparedMaps) {
-      console.log(`Wrote ${path.relative(projectRoot, outputPath)} (${formatBytes(size)})`);
+    for (const { modeOutputPaths, modeSizes, prepared } of preparedMaps) {
+      for (const mode of QUAKE_PREPARED_SCENE_MODES) {
+        const outputPath = modeOutputPaths?.[mode];
+        const size = modeSizes?.[mode];
+        if (!outputPath || !size) continue;
+        console.log(`Wrote ${path.relative(projectRoot, outputPath)} (${formatBytes(size)})`);
+      }
       console.log(`${prepared.label}: ${prepared.faceCount}/${prepared.sourceFaceCount} faces, ${prepared.textureCount} textures`);
     }
     console.log(`Wrote ${path.relative(projectRoot, hudBaseOutputPath)}`);
@@ -2381,7 +2412,7 @@ function buildQuakeAssetManifest(
 ) {
   const preparedModelPaths = new Set(Object.keys(pickupModels?.models ?? {}));
   const preparedSoundPaths = new Set(Object.keys(soundManifest?.sounds ?? {}));
-  const maps = preparedMaps.map(({ mapName, mapPath, outputPath, prepared }) => {
+  const maps = preparedMaps.map(({ mapName, mapPath, outputPath, prepared, modeOutputPaths }) => {
     const hasGameLogicFacts = Boolean(prepared?.gameLogic);
     const gameLogicModelPaths = quakeGameLogicMapModelPaths(prepared, preparedModelPaths);
     const gameLogicSoundPaths = quakeGameLogicMapSoundPaths(prepared, preparedSoundPaths);
@@ -2393,11 +2424,16 @@ function buildQuakeAssetManifest(
       if (!modelPaths.includes(playerModelPath)) modelPaths.push(playerModelPath);
     }
     modelPaths.sort();
+    const sceneUrls = Object.fromEntries(
+      Object.entries(modeOutputPaths ?? { singleplayer: outputPath })
+        .map(([mode, modeOutputPath]) => [mode, generatedPublicUrl(modeOutputPath)]),
+    );
     return {
       mapName,
       title: quakeMapTitles.get(mapName) ?? mapName.toUpperCase(),
       pakPath: mapPath,
-      sceneUrl: generatedPublicUrl(outputPath),
+      sceneUrl: sceneUrls.singleplayer ?? generatedPublicUrl(outputPath),
+      ...(sceneUrls.deathmatch ? { sceneUrls } : {}),
       selectable: quakeSelectableMapNames.has(mapName),
       modelPaths,
       ...(gameLogicSoundPaths.length ? { soundPaths: gameLogicSoundPaths } : {}),
@@ -2421,6 +2457,41 @@ function buildQuakeAssetManifest(
   };
 }
 
+function quakePreparedMapOutputPaths(preparedMaps) {
+  return preparedMaps.flatMap((item) =>
+    item.modeOutputPaths
+      ? Object.values(item.modeOutputPaths)
+      : [item.outputPath]
+  );
+}
+
+function quakeMapOnlyManifestJsonWithSceneVariants(stableManifestJson, preparedMaps) {
+  const manifest = JSON.parse(stableManifestJson);
+  const mapsByName = new Map(preparedMaps.map((item) => [item.mapName, item]));
+  manifest.maps = manifest.maps.map((map) => {
+    const item = mapsByName.get(map.mapName);
+    if (!item) return map;
+    const sceneUrls = Object.fromEntries(
+      Object.entries(item.modeOutputPaths ?? { singleplayer: item.outputPath })
+        .map(([mode, outputPath]) => [mode, generatedPublicUrl(outputPath)]),
+    );
+    return {
+      ...map,
+      sceneUrl: sceneUrls.singleplayer ?? map.sceneUrl,
+      ...(sceneUrls.deathmatch
+        ? { sceneUrls: { ...quakeManifestMapSceneUrls(map), ...sceneUrls } }
+        : {}),
+    };
+  });
+  return JSON.stringify(manifest);
+}
+
+function quakeManifestMapSceneUrls(map) {
+  return map?.sceneUrls && typeof map.sceneUrls === "object" && !Array.isArray(map.sceneUrls)
+    ? map.sceneUrls
+    : {};
+}
+
 function quakeMultiplayerPlayerModelPathsFromPreparedModels(preparedModelPaths) {
   return QUAKE_MULTIPLAYER_PLAYER_ALIAS_MODEL_PATHS
     .filter((modelPath) => preparedModelPaths.has(modelPath));
@@ -2436,10 +2507,16 @@ async function writeQuakeAssetManifestFromGeneratedFiles() {
   const sourceProgramFacts = await loadQuakeSourceProgramFacts();
   const preparedMaps = [];
   for (const [mapPath, outputPath] of mapOutputPaths) {
+    const modeOutputPaths = { singleplayer: outputPath };
+    const deathmatchOutputPath = quakePreparedSceneModeOutputPath(outputPath, "deathmatch");
+    if (await generatedFileExists(deathmatchOutputPath)) {
+      modeOutputPaths.deathmatch = deathmatchOutputPath;
+    }
     preparedMaps.push({
       mapName: mapNameFromPakPath(mapPath),
       mapPath,
       outputPath,
+      modeOutputPaths,
       prepared: await readQuakeGeneratedJson(outputPath, `${mapNameFromPakPath(mapPath)} map`),
     });
   }
@@ -2459,6 +2536,16 @@ async function readOptionalQuakeGeneratedJson(outputPath, label) {
     return await readQuakeGeneratedJson(outputPath, label);
   } catch (error) {
     if (error?.message?.startsWith?.(`Missing generated ${label} `)) return null;
+    throw error;
+  }
+}
+
+async function generatedFileExists(outputPath) {
+  try {
+    await access(outputPath);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
     throw error;
   }
 }

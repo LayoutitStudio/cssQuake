@@ -18,6 +18,7 @@ export interface QuakeAppInputControllerOptions {
   handleDebugFlyKey(event: KeyboardEvent, pressed: boolean): boolean;
   handleMenuKeyDown(event: KeyboardEvent): boolean;
   handleMoveKey(event: KeyboardEvent, pressed: boolean): boolean;
+  handleWeaponKey(event: KeyboardEvent): boolean;
   hidePersistedLoadingConsole(): void;
   isEditableTarget(target: EventTarget | null): boolean;
   isLoading(): boolean;
@@ -95,6 +96,13 @@ export function createQuakeAppInputController(options: QuakeAppInputControllerOp
       return;
     }
     if (options.handleDebugFlyKey(event, true)) {
+      options.hidePersistedLoadingConsole();
+      return;
+    }
+    if (options.handleWeaponKey(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      options.parentKeyRelay(event, true);
       options.hidePersistedLoadingConsole();
       return;
     }

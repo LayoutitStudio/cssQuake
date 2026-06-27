@@ -10,7 +10,11 @@ import {
   QUAKE_PLAYER_MINS_Z,
   STEP_HEIGHT,
 } from "./constants";
-import { QUAKE_CONTENTS_WATER, type QuakeHazardDamage } from "./hazards";
+import {
+  QUAKE_CONTENTS_WATER,
+  quakePlayerWaterLevel,
+  type QuakeHazardDamage,
+} from "./hazards";
 import { markQuakeTrace } from "./debug/traceMarks";
 import {
   applyQuakeDamageToInventory,
@@ -33,6 +37,7 @@ import {
   quakePlayerFallDamageFromVelocityZ,
   updateQuakePlayerPhysics,
   type QuakePlayerMoveCommand,
+  type QuakePlayerWaterMoveState,
 } from "./playerPhysics";
 
 const FALL_DT_CLAMP = 0.05;
@@ -324,6 +329,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   let jumpQueued = false;
   let jumpReleased = true;
   let currentGrounded = true;
+  let lastMoveWaterLevel = 0;
   let lastMoveStepDebug: Record<string, unknown> | null = null;
   const moveCommand: QuakePlayerMoveCommand = {
     forwardMove: 0,
@@ -441,6 +447,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     stopMoveFrame();
     moveVelocity = [0, 0, 0];
     fallDamageVelocityZ = 0;
+    lastMoveWaterLevel = 0;
     stopFalling();
     stopPush();
     stopDeathToss();
@@ -516,6 +523,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     currentEyeHeight = standingEyeHeight;
     currentCrouching = false;
     currentGrounded = true;
+    lastMoveWaterLevel = 0;
     moveVelocity = [0, 0, 0];
     nextDamageAt = 0;
     lastGroundEntityIndex = null;
@@ -535,6 +543,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     standingEyeHeight = spawn.eyeHeight;
     currentEyeHeight = standingEyeHeight;
     currentCrouching = false;
+    lastMoveWaterLevel = 0;
     currentGroundZ = collisionWorld?.floorAt(
       spawn.origin[0],
       spawn.origin[1],
@@ -872,7 +881,8 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     return hasDirectionalMoveInput() ||
       Math.abs(moveAnalogX) > PLAYER_MOVE_ANALOG_DEADZONE ||
       Math.abs(moveAnalogY) > PLAYER_MOVE_ANALOG_DEADZONE ||
-      jumpQueued;
+      jumpQueued ||
+      (lastMoveWaterLevel >= 2 && Boolean(moveKeyBits & QUAKE_MOVE_JUMP_BIT));
   }
 
   function hasDirectionalMoveInput(): boolean {
@@ -880,13 +890,13 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
   }
 
   function hasMoveMotion(): boolean {
-    return !currentGrounded ||
+    return (!currentGrounded && lastMoveWaterLevel < 2) ||
       moveVelocity[0] * moveVelocity[0] + moveVelocity[1] * moveVelocity[1] > PLAYER_MOVE_STOP_SPEED_SQ ||
       Math.abs(moveVelocity[2]) > PLAYER_MOVE_STOP_SPEED ||
       hasMoveInput();
   }
 
-  function updateCurrentMoveCommand(): QuakePlayerMoveCommand {
+  function updateCurrentMoveCommand(waterLevel = lastMoveWaterLevel): QuakePlayerMoveCommand {
     let forwardMove = 0;
     let sideMove = 0;
     if (moveKeyBits & QUAKE_MOVE_FORWARD_BIT) forwardMove += QUAKE_PMOVE_FORWARD_SPEED;
@@ -902,7 +912,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
       sideMove *= QUAKE_PMOVE_SPEED_KEY_MULTIPLIER;
     }
     moveCommand.forwardMove = forwardMove;
-    moveCommand.jump = jumpQueued;
+    moveCommand.jump = jumpQueued || (waterLevel >= 2 && Boolean(moveKeyBits & QUAKE_MOVE_JUMP_BIT));
     moveCommand.sideMove = sideMove;
     moveCommand.yawDegrees = options.getYaw();
     return moveCommand;
@@ -928,13 +938,15 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     const wasGroundedAtTickStart = currentGrounded;
     const origin = options.controls.getOrigin();
     const footZ = origin[2] - currentEyeHeight;
+    const waterMove = quakePlayerCurrentWaterMove(collisionWorld, origin);
+    lastMoveWaterLevel = waterMove.waterLevel ?? 0;
     const snapGroundZ = !currentGrounded && moveVelocity[2] <= 0
       ? collisionWorld.floorAt(origin[0], origin[1], footZ + GROUND_SNAP, footZ - GROUND_SNAP)
       : null;
     const groundedForPhysics = currentGrounded || snapGroundZ !== null;
     if (snapGroundZ !== null) currentGroundZ = snapGroundZ;
     currentGrounded = groundedForPhysics;
-    const command = updateCurrentMoveCommand();
+    const command = updateCurrentMoveCommand(waterMove.waterLevel ?? 0);
     jumpQueued = false;
     const frictionScale = groundedForPhysics
       ? quakePlayerEdgeFriction(collisionWorld, origin, currentEyeHeight, moveVelocity)
@@ -947,6 +959,7 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
       options.gravity,
       options.jumpVelocity,
       frictionScale,
+      waterMove,
     );
     currentGrounded = physicsGrounded;
 
@@ -986,6 +999,8 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     moveStepDebug.resolvedZ = resolved.origin[2];
     moveStepDebug.targetZ = target[2];
     moveStepDebug.upwardGroundSnapIgnored = upwardGroundSnapIgnored;
+    moveStepDebug.waterContents = waterMove.contents ?? null;
+    moveStepDebug.waterLevel = waterMove.waterLevel ?? 0;
     lastMoveStepDebug = moveStepDebug;
     const intendedDeltaZ = target[2] - origin[2];
     const actualDeltaX = resolved.origin[0] - origin[0];
@@ -1008,6 +1023,19 @@ export function createQuakePlayerController(options: QuakePlayerControllerOption
     applyCollisionResult(resolved, origin, false, landingVelocityZ);
     if (moveFrame === null && hasMoveMotion()) scheduleMoveFrame();
   };
+
+  function quakePlayerCurrentWaterMove(
+    collisionWorld: QuakeCollisionWorld,
+    origin: [number, number, number],
+  ): QuakePlayerWaterMoveState {
+    const contentsAt = collisionWorld.contentsAt;
+    if (!contentsAt) return { contents: null, waterLevel: 0 };
+    const waterLevel = quakePlayerWaterLevel(contentsAt, origin, currentEyeHeight);
+    if (waterLevel <= 0) return { contents: null, waterLevel: 0 };
+    const footZ = origin[2] - currentEyeHeight;
+    const contents = contentsAt([origin[0], origin[1], footZ + QUAKE_COLLISION_UNIT_SCALE]) ?? null;
+    return { contents, waterLevel };
+  }
 
   function quakePlayerEdgeFriction(
     collisionWorld: QuakeCollisionWorld,

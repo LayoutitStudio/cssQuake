@@ -375,7 +375,9 @@ export function createQuakeMoversController(options: QuakeMoversControllerOption
 
   const updateMover = (state: QuakeMoverState, now: number, dt: number): boolean => {
     if (state.kind === "train") return updateTrain(state, now, dt);
-    if (distanceSq3(state.openOffset, state.closedOffset) <= COLLISION_EPSILON) return false;
+    if (distanceSq3(state.openOffset, state.closedOffset) <= COLLISION_EPSILON) {
+      return updateZeroTravelMover(state, now);
+    }
 
     if (state.mode === "opening") {
       const next = moveOffsetToward(state.offset, state.openOffset, state.speed * dt);
@@ -852,7 +854,7 @@ function createQuakeMoverState(
     }
   }
 
-  if (distanceSq3(openOffset, closedOffset) <= COLLISION_EPSILON) return null;
+  if (distanceSq3(openOffset, closedOffset) <= COLLISION_EPSILON && kind !== "button") return null;
   return {
     entity,
     model,
@@ -881,6 +883,30 @@ function createQuakeMoverState(
     ...(prebakedPlat ? { prebakedPlat } : {}),
     ...(prebakedSecretDoor ? { prebakedSecretDoor } : {}),
   };
+}
+
+function updateZeroTravelMover(state: QuakeMoverState, now: number): boolean {
+  if (state.kind !== "button") return false;
+  if (state.mode === "opening") {
+    state.offset = [...state.openOffset] as Vec3;
+    state.mode = "open";
+    state.waitUntil = state.once || state.wait < 0 || state.toggle ? Infinity : now + state.wait * 1000;
+    return true;
+  }
+  if (state.mode === "open") {
+    if (state.waitUntil !== Infinity && now >= state.waitUntil) {
+      state.mode = "closing";
+      return true;
+    }
+    return false;
+  }
+  if (state.mode === "closing") {
+    state.offset = [...state.closedOffset] as Vec3;
+    state.mode = "closed";
+    state.targetFired = false;
+    return true;
+  }
+  return false;
 }
 
 function quakeMoverKind(classname: string): QuakeMoverKind | null {

@@ -16,9 +16,12 @@ export interface QuakeAssetManifestMap {
   title?: string;
   pakPath?: string;
   sceneUrl: string;
+  sceneUrls?: Partial<Record<QuakeSceneMode, string>>;
   selectable?: boolean;
   modelPaths?: string[];
 }
+
+export type QuakeSceneMode = "singleplayer" | "deathmatch";
 
 export interface QuakeAssetManifest {
   version: number;
@@ -162,8 +165,18 @@ export function quakeAssetManifestMapTitle(level: QuakeAssetManifestMap): string
   return level.title?.trim() || level.mapName.toUpperCase();
 }
 
-export function quakeAssetManifestSceneUrlMap(manifest: QuakeAssetManifest): Map<string, string> {
-  return new Map(manifest.maps.map((map) => [map.mapName, map.sceneUrl]));
+export function quakeAssetManifestSceneUrlMap(
+  manifest: QuakeAssetManifest,
+  mode: QuakeSceneMode = "singleplayer",
+): Map<string, string> {
+  return new Map(manifest.maps.map((map) => [map.mapName, quakeAssetManifestSceneUrl(map, mode)]));
+}
+
+export function quakeAssetManifestSceneUrl(
+  map: QuakeAssetManifestMap,
+  mode: QuakeSceneMode = "singleplayer",
+): string {
+  return map.sceneUrls?.[mode] ?? map.sceneUrl;
 }
 
 export async function fetchQuakeAssetManifest(): Promise<QuakeAssetManifest> {
@@ -288,6 +301,7 @@ function normalizeQuakeAssetManifestMap(value: unknown): QuakeAssetManifestMap |
   return {
     mapName,
     sceneUrl,
+    ...(isRecord(value.sceneUrls) ? { sceneUrls: normalizeQuakeAssetManifestSceneUrls(value.sceneUrls) } : {}),
     ...(typeof value.title === "string" ? { title: value.title } : {}),
     ...(typeof value.pakPath === "string" ? { pakPath: value.pakPath } : {}),
     ...(typeof value.selectable === "boolean" ? { selectable: value.selectable } : {}),
@@ -298,6 +312,15 @@ function normalizeQuakeAssetManifestMap(value: unknown): QuakeAssetManifestMap |
         .filter(Boolean),
     } : {}),
   };
+}
+
+function normalizeQuakeAssetManifestSceneUrls(value: Record<string, unknown>): Partial<Record<QuakeSceneMode, string>> {
+  const sceneUrls: Partial<Record<QuakeSceneMode, string>> = {};
+  for (const mode of ["singleplayer", "deathmatch"] as const) {
+    const url = value[mode];
+    if (typeof url === "string" && url.trim()) sceneUrls[mode] = url.trim();
+  }
+  return sceneUrls;
 }
 
 function normalizeQuakeAssetManifestAssets(value: unknown): QuakeAssetManifest["assets"] {

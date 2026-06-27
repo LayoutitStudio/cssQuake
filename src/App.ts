@@ -42,6 +42,7 @@ import { markQuakeTrace } from "./runtime/debug/traceMarks";
 import { shouldSpawnQuakeEntityForCurrentGame, shouldSpawnQuakeEntityForGameMode } from "./runtime/entities";
 import {
   applyQuakeInventoryDelta,
+  changeQuakeInventoryWeaponByImpulse,
   createQuakeHudElements,
   selectQuakeBestInventoryWeapon,
   type QuakeKey,
@@ -140,6 +141,7 @@ import {
   fetchQuakeScene,
   type QuakeAssetManifest,
   type QuakeMapLoadOptions,
+  type QuakeSceneMode,
 } from "./runtime/app/session";
 import { createQuakePointHazardFlow } from "./runtime/app/pointHazardFlow";
 import {
@@ -223,6 +225,7 @@ import {
   quakeWeaponProjectileModelPath,
   type QuakeWeaponFireEvent,
   type QuakeWeaponFireSoundId,
+  type QuakeWeaponShootableTarget,
   type QuakeWeaponWallImpactEffect,
   type QuakeWeaponProjectileVisualHandle,
 } from "./runtime/weapons";
@@ -910,12 +913,24 @@ function currentQuakeCssView(): QuakeCssView {
 
 function shouldSpawnQuakeShootableForCurrentMode(entity: QuakeEntity): boolean {
   if (QUAKE_MULTIPLAYER_ENABLED && entity.classname.startsWith("monster_")) return false;
-  return shouldSpawnQuakeEntityForCurrentGame(entity);
+  return shouldSpawnQuakeEntityForCurrentMode(entity);
 }
 
 function shouldSpawnQuakePickupForCurrentMode(entity: QuakeEntity): boolean {
+  return shouldSpawnQuakeEntityForCurrentMode(entity);
+}
+
+function shouldSpawnQuakeEntityForCurrentMode(entity: QuakeEntity): boolean {
   if (QUAKE_MULTIPLAYER_ENABLED) return shouldSpawnQuakeEntityForGameMode(entity, { deathmatch: true });
   return shouldSpawnQuakeEntityForCurrentGame(entity);
+}
+
+function quakeSceneModeForCurrentMode(): QuakeSceneMode {
+  return QUAKE_MULTIPLAYER_ENABLED ? "deathmatch" : "singleplayer";
+}
+
+function quakeSceneUrlForCurrentMode(mapName: string): string | undefined {
+  return quakeAssetCatalog.sceneUrl(mapName, quakeSceneModeForCurrentMode());
 }
 
 function currentQuakeViewUrl(): string {
@@ -1385,6 +1400,7 @@ let quakePlayerLifecycle!: QuakePlayerLifecycleFlow;
 let quakePointerGameplay!: ReturnType<typeof createQuakePointerGameplayFlow>;
 const quakeGameplayInput = createQuakeGameplayInputFlow({
   canUseGameplayInput: canUseQuakeGameplayInput,
+  changeWeaponByImpulse: changeQuakePlayerWeaponByImpulse,
   clearMobileLookInput: () => quakePointerGameplay.clearMobileLookInput(),
   clearMobileMoveInput: () => quakePointerGameplay.clearMobileMoveInput(),
   debugFlyEnabled: () => quakeDebugFly.isEnabled(),
@@ -1955,6 +1971,7 @@ const weapons = createQuakeWeaponsController({
   hasViewmodel: viewmodel.hasWeapon,
   getCollisionWorld: () => currentCollisionWorld,
   getEntities: () => entityByIndex,
+  getDamageableBrushTargets: quakeDamageableBrushWeaponTargets,
   getShootables: shootables.weaponTargets,
   getPlayerEyeHeight: () => getPlayer().eyeHeight(),
   getPlayerWaterLevel: () =>
@@ -2161,6 +2178,38 @@ let quakeMultiplayerLastReconciledInputSequence = 0;
 let quakeMultiplayerLastInventoryFingerprint: string | null = null;
 let quakeMultiplayerApplyingWorldEvent = false;
 const quakeMultiplayerPickupRequestAt = new Map<number, number>();
+
+function* quakeDamageableBrushWeaponTargets(): Iterable<QuakeWeaponShootableTarget> {
+  const sceneResult = currentResult;
+  if (!sceneResult) return;
+  for (const entry of quakeDamageableBrushes.snapshot().brushes) {
+    if (entry.health <= 0) continue;
+    const entity = entityByIndex.get(entry.entityIndex);
+    if (!entity || entity.classname !== "func_button" || entity.modelIndex === undefined) continue;
+    const model = sceneResult.models.find((item) => item.index === entity.modelIndex);
+    if (!model) continue;
+    const min: Vec3 = [
+      (model.mins.x - quakeModelPivot.x) * QUAKE_COLLISION_UNIT_SCALE,
+      (model.mins.y - quakeModelPivot.y) * QUAKE_COLLISION_UNIT_SCALE,
+      (model.mins.z - quakeModelPivot.z) * QUAKE_COLLISION_UNIT_SCALE,
+    ];
+    const max: Vec3 = [
+      (model.maxs.x - quakeModelPivot.x) * QUAKE_COLLISION_UNIT_SCALE,
+      (model.maxs.y - quakeModelPivot.y) * QUAKE_COLLISION_UNIT_SCALE,
+      (model.maxs.z - quakeModelPivot.z) * QUAKE_COLLISION_UNIT_SCALE,
+    ];
+    yield {
+      entity,
+      dead: false,
+      origin: [
+        (min[0] + max[0]) * 0.5,
+        (min[1] + max[1]) * 0.5,
+        (min[2] + max[2]) * 0.5,
+      ],
+      bounds: { min, max },
+    };
+  }
+}
 const quakeMultiplayerWorldRequestAt = new Map<string, number>();
 let quakeMultiplayerLastRoomEvent: Record<string, unknown> | null = null;
 let quakeMultiplayerRecentRoomEvents: Record<string, unknown>[] = [];
@@ -2434,6 +2483,22 @@ function makeParseResult(polygons: Polygon[]): ParseResult {
 
 function syncQuakeHud(): void {
   quakeHudFlow.sync();
+}
+
+function changeQuakePlayerWeaponByImpulse(impulse: number): boolean {
+  if (!player || !canUseQuakeGameplayInput()) return false;
+  const result = changeQuakeInventoryWeaponByImpulse(player.inventory(), impulse);
+  if (!result) return false;
+  if (result.message) {
+    quakeTextPresentation.notify(result.message);
+    return true;
+  }
+  if (result.changed) {
+    syncQuakeHud();
+    viewmodel.syncTransform();
+    syncQuakeCrosshairTarget();
+  }
+  return true;
 }
 
 function flashQuakeBonusOverlay(): void {
@@ -3443,7 +3508,7 @@ function quakeMapLoadView(options: QuakeMapLoadOptions): QuakeCssView | null {
 
 function currentQuakeMultiplayerRoomKey(): QuakeMultiplayerRoomCompatibilityKey | null {
   if (!currentResult) return null;
-  const sceneUrl = quakeAssetCatalog.sceneUrl(currentMapName);
+  const sceneUrl = quakeSceneUrlForCurrentMode(currentMapName);
   if (!sceneUrl) return null;
   return {
     mapName: currentMapName,
@@ -5304,7 +5369,7 @@ async function loadQuake(): Promise<void> {
     routeFromLocation: quakeUrlRouteFromLocation,
     routeIsDirect: quakeUrlRouteIsDirect,
     routeShouldNormalize: quakeUrlRouteShouldNormalize,
-    sceneUrl: quakeAssetCatalog.sceneUrl,
+    sceneUrl: quakeSceneUrlForCurrentMode,
     setAssetManifest: setQuakeAssetManifest,
     setCurrentMapName: (mapName) => {
       currentMapName = mapName;
@@ -5461,7 +5526,7 @@ const quakeMapLoader = createQuakeAppMapLoader<QuakeCssView, QuakeViewmodelModel
   preloadSceneAssets: preloadQuakeSceneModelRenderBundleAssets,
   preloadWeapon: (progress) => quakeViewmodelAssets.preload(progress),
   resumeGameplayAfterMapLoad: resumeQuakeGameplayAfterMapLoad,
-  sceneUrl: quakeAssetCatalog.sceneUrl,
+  sceneUrl: quakeSceneUrlForCurrentMode,
   setGameplayStarted: setQuakeGameplayStarted,
   setLoading: setQuakeLoading,
   syncUrlView: applyQuakeUrlView,
@@ -5483,6 +5548,7 @@ const quakeInput = createQuakeAppInputController({
   handleDebugFlyKey: quakeDebugFly.handleKey,
   handleMenuKeyDown: (event) => menu.handleKeyDown(event),
   handleMoveKey: quakeGameplayInput.handleMoveKey,
+  handleWeaponKey: quakeGameplayInput.handleWeaponKey,
   hidePersistedLoadingConsole: hidePersistedQuakeLoadingConsole,
   isEditableTarget: quakeGameplayInput.isEditableTarget,
   isLoading: () => quakeAppLoading,
