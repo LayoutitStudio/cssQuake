@@ -84,6 +84,35 @@ test("projectiles can damage health trigger brush targets over earlier world tra
   assert.deepEqual(damagedBrushes, [{ amount: 1, entityIndex: 138 }]);
 });
 
+test("health trigger brush targets can use weapon source aim correction", () => {
+  const controller = createWeaponsController({
+    damageableBrushTargets: [
+      damageableBrushTarget({
+        bounds: {
+          min: [1, -0.1, -0.02],
+          max: [2, 0.1, 0.02],
+        },
+        classname: "trigger_multiple",
+        health: 1,
+        index: 270,
+      }),
+    ],
+    entities: [
+      quakeEntity({
+        classname: "trigger_multiple",
+        health: 1,
+        index: 270,
+      }),
+    ],
+    traceUse: () => null,
+  });
+
+  const trace = controller.weaponTraceAtCrosshair();
+
+  assert.equal(trace?.classname, "trigger_multiple");
+  assert.equal(trace?.entityIndex, 270);
+});
+
 test("non-button damageable brush targets do not bypass world trace", () => {
   const controller = createWeaponsController({
     damageableBrushTargets: [
@@ -108,7 +137,17 @@ test("non-button damageable brush targets do not bypass world trace", () => {
   assert.equal(trace?.entityIndex, undefined);
 });
 
-function createWeaponsController({ damageBrushEntity = () => false, damageableBrushTargets, entities }) {
+function createWeaponsController({
+  damageBrushEntity = () => false,
+  damageableBrushTargets,
+  entities,
+  traceUse = () => ({
+    classname: "worldspawn",
+    end: [0.1, 0, 0],
+    fraction: 0.01,
+    planeNormal: [-1, 0, 0],
+  }),
+}) {
   const entityByIndex = new Map(entities.map((entity) => [entity.index, entity]));
   return weapons.createQuakeWeaponsController({
     scene: { camera: { state: { rotX: 90, rotY: 180 } } },
@@ -120,14 +159,7 @@ function createWeaponsController({ damageBrushEntity = () => false, damageableBr
     damageShootable: () => false,
     getActiveWeapon: () => "nailgun",
     getAmmo: () => 100,
-    getCollisionWorld: () => ({
-      traceUse: () => ({
-        classname: "worldspawn",
-        end: [0.1, 0, 0],
-        fraction: 0.01,
-        planeNormal: [-1, 0, 0],
-      }),
-    }),
+    getCollisionWorld: () => ({ traceUse }),
     getDamageableBrushTargets: () => damageableBrushTargets,
     getEntities: () => entityByIndex,
     getPlayerEyeHeight: () => 0.92,
@@ -143,12 +175,12 @@ function createWeaponsController({ damageBrushEntity = () => false, damageableBr
   });
 }
 
-function damageableBrushTarget({ classname, health, index }) {
+function damageableBrushTarget({ bounds, classname, health, index }) {
   return {
     dead: false,
     entity: quakeEntity({ classname, health, index }),
     origin: [0, 0, 0],
-    bounds: {
+    bounds: bounds ?? {
       min: [-100, -100, -100],
       max: [100, 100, 100],
     },
