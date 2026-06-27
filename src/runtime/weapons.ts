@@ -1038,8 +1038,7 @@ export function createQuakeWeaponsController({
   function quakeAimTrace(ray: QuakeViewRay): QuakeUseTrace | null {
     const collisionWorld = getCollisionWorld();
     let best: { score: number; trace: QuakeUseTrace } | null = null;
-    for (const shootable of getShootables()) {
-      if (shootable.dead) continue;
+    for (const shootable of aimAssistTargets()) {
       const target = shootableAimPoint(shootable);
       const targetDirection = normalizeVec3([
         target[0] - ray.origin[0],
@@ -1058,6 +1057,15 @@ export function createQuakeWeaponsController({
       if (!best || score > best.score) best = { score, trace: shootableTrace };
     }
     return best?.trace ?? null;
+  }
+
+  function* aimAssistTargets(): Iterable<QuakeWeaponShootableTarget> {
+    for (const shootable of getShootables()) {
+      if (!shootable.dead) yield shootable;
+    }
+    for (const target of getDamageableBrushTargets?.() ?? []) {
+      if (!target.dead && isWeaponTraceDamageableBrushTarget(target.entity)) yield target;
+    }
   }
 
   function fireWeaponProfile(profile: QuakeRuntimeWeaponFireProfile, now: number): boolean {
