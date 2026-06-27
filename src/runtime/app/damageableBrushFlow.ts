@@ -101,6 +101,14 @@ export function createQuakeDamageableBrushFlow(
       scheduleDamageableBrushReset(entity);
       return activated;
     }
+    if (entity.classname === "func_button") {
+      const moverActivated = options.activateEntity(entity.index);
+      const targetActivated = !moverActivated && damageableBrushHasTargets(entity)
+        ? options.useTargets(entity)
+        : false;
+      scheduleDamageableBrushReset(entity);
+      return moverActivated || targetActivated;
+    }
     const activated = options.activateEntity(entity.index);
     scheduleDamageableBrushReset(entity);
     return activated;
@@ -151,6 +159,10 @@ function damageableBrushResetWait(entity: QuakeEntity): number {
 
 function damageableBrushMaxHealth(entity: QuakeEntity): number {
   return Math.max(1, Math.round(quakeEntityNumber(entity, "health", 1)));
+}
+
+function damageableBrushHasTargets(entity: QuakeEntity): boolean {
+  return Boolean(entity.properties.target || entity.properties.killtarget);
 }
 
 function isDamageableBrushEntity(entity: QuakeEntity): boolean {

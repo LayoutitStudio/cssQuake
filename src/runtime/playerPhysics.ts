@@ -1,6 +1,7 @@
 import type { Vec3 } from "@layoutit/polycss";
 
 import { COLLISION_EPSILON, QUAKE_COLLISION_UNIT_SCALE } from "./constants";
+import { QUAKE_CONTENTS_SLIME, QUAKE_CONTENTS_WATER } from "./hazards";
 
 export const QUAKE_PMOVE_DT_CLAMP = 0.05;
 export const QUAKE_PMOVE_MAX_SPEED = 320 * QUAKE_COLLISION_UNIT_SCALE;
@@ -13,6 +14,10 @@ export const QUAKE_PMOVE_EDGE_DROP = 34 * QUAKE_COLLISION_UNIT_SCALE;
 export const QUAKE_PMOVE_EDGE_FRICTION = 2;
 export const QUAKE_PLAYER_FALL_LAND_SOUND_VELOCITY = 300 * QUAKE_COLLISION_UNIT_SCALE;
 export const QUAKE_PLAYER_FALL_DAMAGE_VELOCITY = 650 * QUAKE_COLLISION_UNIT_SCALE;
+export const QUAKE_PMOVE_WATER_DAMPING = 0.8;
+export const QUAKE_PMOVE_WATER_SWIM_VELOCITY = 100 * QUAKE_COLLISION_UNIT_SCALE;
+export const QUAKE_PMOVE_SLIME_SWIM_VELOCITY = 80 * QUAKE_COLLISION_UNIT_SCALE;
+export const QUAKE_PMOVE_OTHER_LIQUID_SWIM_VELOCITY = 50 * QUAKE_COLLISION_UNIT_SCALE;
 
 const QUAKE_PMOVE_ACCELERATE = 10;
 const QUAKE_PMOVE_AIR_ACCELERATE = 10;
@@ -27,6 +32,11 @@ export interface QuakePlayerMoveCommand {
   yawDegrees: number;
 }
 
+export interface QuakePlayerWaterMoveState {
+  contents?: number | null;
+  waterLevel?: number;
+}
+
 export function updateQuakePlayerPhysics(
   velocity: Vec3,
   command: QuakePlayerMoveCommand,
@@ -35,7 +45,10 @@ export function updateQuakePlayerPhysics(
   gravity: number,
   jumpVelocity: number,
   frictionScale = 1,
+  waterMove?: QuakePlayerWaterMoveState,
 ): boolean {
+  const waterLevel = Math.max(0, Math.floor(waterMove?.waterLevel ?? 0));
+  const swimming = waterLevel >= 2;
   const yaw = (command.yawDegrees * Math.PI) / 180;
   const forwardX = -Math.cos(yaw);
   const forwardY = -Math.sin(yaw);
@@ -58,20 +71,32 @@ export function updateQuakePlayerPhysics(
     applyQuakeFriction(velocity, dt, frictionScale);
     applyQuakeAccelerate(velocity, wishDirectionX, wishDirectionY, wishSpeed, QUAKE_PMOVE_ACCELERATE, dt);
     if (command.jump) {
-      velocity[2] += jumpVelocity;
+      velocity[2] = swimming
+        ? quakePlayerSwimVelocityForContents(waterMove?.contents)
+        : velocity[2] + jumpVelocity;
       grounded = false;
     }
   } else {
     applyQuakeAirAccelerate(velocity, wishVelocityX, wishVelocityY, wishSpeed, dt);
+    if (command.jump && swimming) {
+      velocity[2] = quakePlayerSwimVelocityForContents(waterMove?.contents);
+    }
   }
 
-  if (!grounded) velocity[2] -= gravity * dt;
+  if (!grounded && !swimming) velocity[2] -= gravity * dt;
+  if (waterLevel > 0) applyQuakeWaterDamping(velocity, waterLevel, dt);
   return grounded;
 }
 
 export function quakePlayerFallDamageFromVelocityZ(velocityZ: number): number {
   // QuakeC PlayerPostThink only damages the hard land2 branch; the 300-650 band is sound-only.
   return Number.isFinite(velocityZ) && velocityZ < -QUAKE_PLAYER_FALL_DAMAGE_VELOCITY ? 5 : 0;
+}
+
+export function quakePlayerSwimVelocityForContents(contents: number | null | undefined): number {
+  if (contents === QUAKE_CONTENTS_WATER) return QUAKE_PMOVE_WATER_SWIM_VELOCITY;
+  if (contents === QUAKE_CONTENTS_SLIME) return QUAKE_PMOVE_SLIME_SWIM_VELOCITY;
+  return QUAKE_PMOVE_OTHER_LIQUID_SWIM_VELOCITY;
 }
 
 function applyQuakeFriction(velocity: Vec3, dt: number, frictionScale: number): void {
@@ -100,6 +125,13 @@ function applyQuakeAccelerate(
   const accelspeed = Math.min(addspeed, accel * dt * wishspeed);
   velocity[0] += accelspeed * wishdirX;
   velocity[1] += accelspeed * wishdirY;
+}
+
+function applyQuakeWaterDamping(velocity: Vec3, waterLevel: number, dt: number): void {
+  const damping = Math.max(0, 1 - QUAKE_PMOVE_WATER_DAMPING * waterLevel * dt);
+  velocity[0] *= damping;
+  velocity[1] *= damping;
+  velocity[2] *= damping;
 }
 
 function applyQuakeAirAccelerate(

@@ -7,6 +7,14 @@ const QUAKE_GAMEPLAY_KEY_CODES = new Set([
   "ArrowUp",
   "ControlLeft",
   "ControlRight",
+  "Digit1",
+  "Digit2",
+  "Digit3",
+  "Digit4",
+  "Digit5",
+  "Digit6",
+  "Digit7",
+  "Digit8",
   "KeyA",
   "KeyD",
   "KeyS",
@@ -18,9 +26,20 @@ const QUAKE_GAMEPLAY_KEY_CODES = new Set([
 const QUAKE_MOVE_KEY_CODES = new Set(["ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp", "KeyA", "KeyD", "KeyS", "KeyW"]);
 const QUAKE_SPEED_KEY_CODES = new Set(["ShiftLeft", "ShiftRight"]);
 const QUAKE_CROUCH_KEY_CODES = new Set(["ControlLeft", "ControlRight"]);
+const QUAKE_WEAPON_KEY_IMPULSES = new Map<string, number>([
+  ["Digit1", 1],
+  ["Digit2", 2],
+  ["Digit3", 3],
+  ["Digit4", 4],
+  ["Digit5", 5],
+  ["Digit6", 6],
+  ["Digit7", 7],
+  ["Digit8", 8],
+]);
 
 export interface QuakeGameplayInputFlowOptions {
   canUseGameplayInput(): boolean;
+  changeWeaponByImpulse(impulse: number): boolean;
   clearMobileLookInput(): void;
   clearMobileMoveInput(): void;
   debugFlyEnabled(): boolean;
@@ -43,6 +62,7 @@ export interface QuakeGameplayInputFlow {
   clearParentKeyRelay(): void;
   handleCrouchKey(event: KeyboardEvent, pressed: boolean): boolean;
   handleMoveKey(event: KeyboardEvent, pressed: boolean): boolean;
+  handleWeaponKey(event: KeyboardEvent): boolean;
   isEditableTarget(target: EventTarget | null): boolean;
   parentKeyRelay(event: KeyboardEvent, pressed: boolean): void;
   shouldPreventGameplayKeyDefault(event: KeyboardEvent): boolean;
@@ -121,6 +141,14 @@ export function createQuakeGameplayInputFlow(
     return true;
   }
 
+  function handleWeaponKey(event: KeyboardEvent): boolean {
+    if (event.repeat || options.debugFlyEnabled()) return false;
+    const impulse = quakeWeaponImpulseForGameplayKeyCode(event.code);
+    if (impulse === null) return false;
+    if (!options.canUseGameplayInput() || isEditableTarget(event.target)) return false;
+    return options.changeWeaponByImpulse(impulse);
+  }
+
   return {
     crouchKeyCodes: QUAKE_CROUCH_KEY_CODES,
     moveKeyCodes: QUAKE_MOVE_KEY_CODES,
@@ -130,8 +158,13 @@ export function createQuakeGameplayInputFlow(
     clearParentKeyRelay,
     handleCrouchKey,
     handleMoveKey,
+    handleWeaponKey,
     isEditableTarget,
     parentKeyRelay: parentKeyRelayEvent,
     shouldPreventGameplayKeyDefault,
   };
+}
+
+export function quakeWeaponImpulseForGameplayKeyCode(code: string): number | null {
+  return QUAKE_WEAPON_KEY_IMPULSES.get(code) ?? null;
 }
