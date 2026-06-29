@@ -5,10 +5,11 @@ import { build } from "esbuild";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-export async function importTsModule(specifier) {
+export async function importTsModule(specifier, options = {}) {
   const entryPoint = path.resolve(projectRoot, specifier);
   const result = await build({
     bundle: true,
+    define: options.define,
     entryPoints: [entryPoint],
     format: "esm",
     logLevel: "silent",
