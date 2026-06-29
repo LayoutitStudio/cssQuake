@@ -1280,10 +1280,12 @@ function firstQuakeRenderBundleBackgroundLayerValue(value: string): string {
   return value.split(",")[0]?.trim() ?? "";
 }
 
-function quakeRenderBundleUrlPath(url: string | undefined): string | undefined {
+export function quakeRenderBundleUrlPath(url: string | undefined): string | undefined {
   if (!url) return undefined;
   try {
-    return new URL(url, window.location.href).pathname;
+    const resolvedUrl = resolveQuakeAssetUrl(url);
+    const baseUrl = typeof window !== "undefined" ? window.location.href : "http://cssquake.local/";
+    return new URL(resolvedUrl, baseUrl).pathname;
   } catch {
     return undefined;
   }

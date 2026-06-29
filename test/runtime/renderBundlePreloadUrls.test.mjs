@@ -49,6 +49,36 @@ test("render bundles without complete asset URLs fail before runtime preload", (
   );
 });
 
+test("render bundle URL paths resolve the deployed versioned asset root before matching", async () => {
+  const { quakeRenderBundleUrlPath: deployedRenderBundleUrlPath } = await importTsModule(
+    "src/runtime/renderBundleMesh.ts",
+    {
+      define: {
+        "import.meta.env": JSON.stringify({
+          VITE_QUAKE_ASSET_ROOT: "https://assets.lowpoly.cc/q/live-sha",
+        }),
+      },
+    },
+  );
+  const previousWindow = globalThis.window;
+  globalThis.window = new Window({ url: "https://cssquake.com/?map=e1m1" });
+  try {
+    const bundlePath = deployedRenderBundleUrlPath("/q/285/b/e1m1/a5.avif");
+    const computedPath = deployedRenderBundleUrlPath(
+      "https://assets.lowpoly.cc/q/live-sha/285/b/e1m1/a5.avif",
+    );
+
+    assert.equal(bundlePath, "/q/live-sha/285/b/e1m1/a5.avif");
+    assert.equal(bundlePath, computedPath);
+  } finally {
+    if (previousWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = previousWindow;
+    }
+  }
+});
+
 test("map floor preloads select only direct floor component assets", () => {
   const urls = quakeRenderBundleFloorAssetUrls(renderBundle({
     assetUrls: [
