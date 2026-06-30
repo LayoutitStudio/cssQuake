@@ -59,7 +59,7 @@ Developer-oriented params such as `debugPolys=1`, `debugFly=1`, `debugPointer=1`
 
 ## Embedding
 
-cssQuake can run inside an iframe. Add `relayKeys=1` only if the parent page wants filtered gameplay key events from the focused game iframe:
+cssQuake can run inside an iframe. Add `relayKeys=1` if the parent page wants filtered gameplay key events from the focused game iframe:
 
 ```html
 <iframe
