@@ -23,7 +23,7 @@ After the assets exist, run the local dev server:
 pnpm dev
 ```
 
-`pnpm build` only builds the Vite app. Use `pnpm build:full` when you intentionally want to regenerate Quake assets and build the app in one command.
+`pnpm build` only builds the Vite app. Use `pnpm build:full` when you want to regenerate Quake assets and build the app in one command.
 
 For focused asset iteration, use `pnpm prepare:quake:map e1m7` or `pnpm prepare:quake:model dog`.
 
