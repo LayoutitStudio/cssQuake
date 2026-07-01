@@ -54,10 +54,19 @@ const quakeAssetOutputDir = quakeUseVersionedAssetRoot
   ? path.join(quakeOutputDir, quakeAssetVersion)
   : quakeOutputDir;
 const legacyQuakeOutputDir = path.join(generatedPublicDir, "local/quake");
-const socialImageSourcePath = path.join(projectRoot, "src/assets/cssquake-social.webp");
-const socialImageOutputPath = path.join(generatedPublicDir, "assets/cssquake-social.webp");
+const socialImageOutputBaseName = "cssquake-social-20260701";
+const socialImageStaticPublicAssets = [
+  [
+    path.join(projectRoot, "src/assets/cssquake-social.png"),
+    path.join(generatedPublicDir, `assets/${socialImageOutputBaseName}.png`),
+  ],
+  [
+    path.join(projectRoot, "src/assets/cssquake-social.webp"),
+    path.join(generatedPublicDir, `assets/${socialImageOutputBaseName}.webp`),
+  ],
+];
 const staticPublicAssets = [
-  [socialImageSourcePath, socialImageOutputPath],
+  ...socialImageStaticPublicAssets,
   [path.join(projectRoot, "src/assets/favicon.ico"), path.join(generatedPublicDir, "favicon.ico")],
   [path.join(projectRoot, "src/site/robots.txt"), path.join(generatedPublicDir, "robots.txt")],
   [path.join(projectRoot, "src/site/sitemap.xml"), path.join(generatedPublicDir, "sitemap.xml")],
@@ -996,7 +1005,9 @@ try {
     console.log(`Wrote ${path.relative(projectRoot, hudNumbersOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, hudDamageNumbersOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, hudOutputPath)}`);
-    console.log(`Wrote ${path.relative(projectRoot, socialImageOutputPath)}`);
+    for (const [, outputPath] of socialImageStaticPublicAssets) {
+      console.log(`Wrote ${path.relative(projectRoot, outputPath)}`);
+    }
     console.log(`Wrote ${path.relative(projectRoot, mainMenuOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, mainMenuPlaqueOutputPath)}`);
     console.log(`Wrote ${path.relative(projectRoot, mainMenuTitleOutputPath)}`);
