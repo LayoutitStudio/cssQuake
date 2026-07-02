@@ -25,8 +25,6 @@ pnpm dev
 
 `pnpm build` only builds the Vite app. Use `pnpm build:full` when you want to regenerate Quake assets and build the app in one command.
 
-For focused asset iteration, use `pnpm prepare:quake:map e1m7` or `pnpm prepare:quake:model dog`.
-
 ## How It Works
 
 cssQuake is built around the [PolyCSS](https://github.com/LayoutitStudio/polycss) 3D DOM rendering engine. This turns Quake geometry into real HTML elements: world faces are positioned with CSS `matrix3d(...)` transforms, textured with pixelated CSS backgrounds, and grouped into meshes instead of being drawn on a `<canvas>`.
