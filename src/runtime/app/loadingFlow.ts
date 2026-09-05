@@ -60,8 +60,9 @@ export interface QuakeLoadingFlow {
   clearDeathOverlay(): void;
   completeSceneReadiness<T>(
     modelPromise: Promise<T>,
-    mountModel: (modelPromise: Promise<T>) => Promise<void>,
+    mountModel: (modelPromise: Promise<T>, isCurrent: () => boolean) => Promise<void>,
     progress?: QuakeLoadingProgressTracker,
+    isCurrent?: () => boolean,
   ): Promise<void>;
   createProgressTracker(status?: string): QuakeLoadingProgressTracker;
   handleGameplayStarted(started: boolean): void;
@@ -79,7 +80,8 @@ export interface QuakeLoadingFlow {
 export interface QuakeLoadingStartupOptions {
   fetchManifest(): Promise<QuakeAssetManifest>;
   initializedLine: string;
-  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<void>;
+  onReady(): void;
+  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<boolean>;
   loadPickupModels(progress?: QuakeLoadingProgressTracker): Promise<void>;
   loadProgramMetadata(progress?: QuakeLoadingProgressTracker): Promise<void>;
   pakLine: string;
@@ -133,30 +135,35 @@ export function createQuakeLoadingFlow(options: QuakeLoadingFlowOptions): QuakeL
     } finally {
       completeManifestTask();
     }
-    const startupRoute = startup.routeFromLocation();
-    const startMap = startupRoute.mapName;
-    if (!startup.sceneUrl(startMap)) throw new Error(`No prepared Quake start map registered for ${startMap}.`);
     const programMetadataPromise = startup.loadProgramMetadata(progress);
     const pickupModelsPromise = startup.loadPickupModels(progress);
     const weaponPromise = startup.preloadWeapon(progress);
     if (hasPakAssets) loadingConsole.queueLine(startup.pakLine);
     await Promise.all([programMetadataPromise, pickupModelsPromise, weaponPromise]);
     if (options.isDisposed()) return;
+    // Finish bootstrap before accepting map requests; read the latest browser route.
+    const preparedRoute = startup.routeFromLocation();
+    if (!startup.routeIsDirect(preparedRoute) && !(preparedRoute.mapParamPresent && !preparedRoute.mapParamValid)) {
+      loadingConsole.queueLine(startup.initializedLine);
+      await loadingConsole.waitForQueue();
+      if (options.isDisposed()) return;
+    }
+    startup.onReady();
+    const startupRoute = startup.routeFromLocation();
+    const startMap = startupRoute.mapName;
+    if (!startup.sceneUrl(startMap)) throw new Error(`No prepared Quake start map registered for ${startMap}.`);
     startup.setCurrentMapName(startMap);
     startup.setMenuCurrentLevel(startMap);
     const shouldPrimeInvalidMapFallback = startupRoute.mapParamPresent && !startupRoute.mapParamValid;
     if (startup.routeIsDirect(startupRoute) || shouldPrimeInvalidMapFallback) {
-      await startup.loadMap(startMap, {
+      const loaded = await startup.loadMap(startMap, {
         urlMode: startup.routeIsDirect(startupRoute) && startup.routeShouldNormalize(startupRoute) ? "replace" : "none",
         view: startup.routeIsDirect(startupRoute) ? startupRoute.view : null,
       });
-      if (options.isDisposed()) return;
+      if (!loaded || options.isDisposed()) return;
       startup.syncRoutePresentation(startupRoute, { preferMenu: shouldPrimeInvalidMapFallback });
       return;
     }
-    loadingConsole.queueLine(startup.initializedLine);
-    await loadingConsole.waitForQueue();
-    if (options.isDisposed()) return;
     setLoading(false);
     if (options.isDisposed()) return;
     startup.syncRoutePresentation(startupRoute);
@@ -316,13 +323,16 @@ export function createQuakeLoadingFlow(options: QuakeLoadingFlowOptions): QuakeL
 
   async function completeSceneReadiness<T>(
     modelPromise: Promise<T>,
-    mountModel: (modelPromise: Promise<T>) => Promise<void>,
+    mountModel: (modelPromise: Promise<T>, isCurrent: () => boolean) => Promise<void>,
     progress?: QuakeLoadingProgressTracker,
+    isCurrent: () => boolean = () => true,
   ): Promise<void> {
-    await mountModel(modelPromise);
-    if (options.isDisposed()) return;
+    if (options.isDisposed() || !isCurrent()) return;
+    await mountModel(modelPromise, isCurrent);
+    if (options.isDisposed() || !isCurrent()) return;
     const completeReadinessTask = progress?.startTask("Rendered first frame");
     const readiness = await waitForReadiness();
+    if (options.isDisposed() || !isCurrent()) return;
     completeReadinessTask?.();
     const completeFunReminderTask = progress?.startTask("Don't forget to have fun!");
     completeFunReminderTask?.();

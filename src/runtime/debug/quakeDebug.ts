@@ -185,7 +185,7 @@ export interface QuakeDebugRuntime {
   hideMainMenu(): void;
   inventory(): QuakePlayerInventory;
   isLoading(): boolean;
-  loadMap(mapName: string): Promise<void>;
+  loadMap(mapName: string): Promise<boolean>;
   mapExists(mapName: string): boolean;
   getWeaponTuning(): QuakeResolvedViewmodelTuning;
   resetWeaponTuning(): QuakeResolvedViewmodelTuning;
@@ -532,7 +532,7 @@ async function loadQuakeDebugMap(runtime: QuakeDebugRuntime, mapName: string): P
   }
   if (runtime.isLoading()) return false;
   runtime.hideMainMenu();
-  await runtime.loadMap(nextMapName);
+  if (!await runtime.loadMap(nextMapName)) return false;
   runtime.hideMainMenu();
   return true;
 }

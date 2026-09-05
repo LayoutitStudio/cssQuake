@@ -25,7 +25,7 @@ export interface QuakeAppDebugApiOptions {
   fireballEmittersCount(): number;
   fireballsCount(): number;
   forwardDirection(rotX: number, rotY: number): Vec3;
-  loadMap(mapName: string): Promise<void>;
+  loadMap(mapName: string): Promise<boolean>;
   mapExists(mapName: string): boolean;
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
   renderOrigin(): Vec3;

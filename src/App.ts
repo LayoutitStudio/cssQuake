@@ -1525,8 +1525,10 @@ const menu = createQuakeMenuController({
   clearCrosshairTarget: clearQuakeCrosshairTarget,
   syncCrosshairTarget: syncQuakeCrosshairTarget,
 });
+let quakeMapLoadingReady = false;
 const quakeRoute = createQuakeRouteFlow<QuakeCssView>({
   applyView: applyQuakeUrlView,
+  canLoadMap: () => quakeMapLoadingReady,
   clearStartupState: clearQuakeMainMenuStartupState,
   currentMapName: () => currentMapName,
   currentView: currentQuakeCssView,
@@ -2930,7 +2932,7 @@ function respawnQuakePlayerFromDeath(): boolean {
   return quakePlayerLifecycle.respawnFromDeath();
 }
 
-async function startQuakeNewGame(): Promise<void> {
+async function startQuakeNewGame(): Promise<boolean> {
   requestQuakeLandscapeOnMobile(quakeApp).then((result) => {
     markQuakeTrace("landscape-lock-request", result);
   }).catch((error: unknown) => {
@@ -2939,7 +2941,7 @@ async function startQuakeNewGame(): Promise<void> {
       message: error instanceof Error ? error.message : String(error),
     });
   });
-  await quakePlayerLifecycle.startNewGame();
+  return quakePlayerLifecycle.startNewGame();
 }
 
 function resumeQuakeGameplayAfterMapLoad(): void {
@@ -5304,13 +5306,14 @@ function applyQuakeUrlView(view: QuakeCssView): void {
   syncQuakeCrosshairTarget();
 }
 
-async function loadQuakeMap(mapName: string, options: QuakeMapLoadOptions = {}): Promise<void> {
-  await quakeMapLoader.loadMap(mapName, options);
+async function loadQuakeMap(mapName: string, options: QuakeMapLoadOptions = {}): Promise<boolean> {
+  return quakeMapLoader.loadMap(mapName, options);
 }
 
 async function completeQuakeSceneReadiness(
   modelPromise = quakeViewmodelAssets.preload(),
   progress?: QuakeLoadingProgressTracker,
+  isCurrent: () => boolean = () => !quakeAppDisposed,
 ): Promise<void> {
   const completeEffectSpritesTask = progress?.startTask("Effect sprites");
   try {
@@ -5318,13 +5321,15 @@ async function completeQuakeSceneReadiness(
   } finally {
     completeEffectSpritesTask?.();
   }
+  if (!isCurrent()) return;
   const completeWorldTexturesTask = progress?.startTask("World textures");
   try {
     await world.waitForVisibleTextures();
   } finally {
     completeWorldTexturesTask?.();
   }
-  await quakeLoading.completeSceneReadiness(modelPromise, quakeViewmodelAssets.mount, progress);
+  if (!isCurrent()) return;
+  await quakeLoading.completeSceneReadiness(modelPromise, quakeViewmodelAssets.mount, progress, isCurrent);
 }
 
 function installQuakeAppDebugHooks(): void {
@@ -5381,6 +5386,7 @@ async function loadQuake(): Promise<void> {
   await quakeLoading.loadStartup({
     fetchManifest: fetchQuakeAssetManifest,
     initializedLine: QUAKE_LOADING_CONSOLE_INITIALIZED_LINE,
+    onReady: () => { quakeMapLoadingReady = true; },
     loadMap: loadQuakeMap,
     loadPickupModels,
     loadProgramMetadata,

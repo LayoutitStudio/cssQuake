@@ -47,11 +47,12 @@ export interface QuakeMapLoadOptions {
 }
 
 export interface QuakeAppMapLoader<TView> {
-  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<void>;
+  /** False means a newer load or disposal took ownership; callers must stop. */
+  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<boolean>;
 }
 
 export interface QuakeAppMapLoaderOptions<TView, TWeapon = unknown> {
-  completeSceneReadiness(weaponPromise: Promise<TWeapon>, progress: QuakeLoadingProgressTracker): Promise<void>;
+  completeSceneReadiness(weaponPromise: Promise<TWeapon>, progress: QuakeLoadingProgressTracker, isCurrent: () => boolean): Promise<void>;
   createProgressTracker(status: string): QuakeLoadingProgressTracker;
   fetchScene(url: string, mapName: string, progress: QuakeLoadingProgressTracker): Promise<QuakeScene>;
   isDisposed(): boolean;
@@ -232,35 +233,54 @@ export async function fetchQuakeScene(
 export function createQuakeAppMapLoader<TView, TWeapon = unknown>(
   options: QuakeAppMapLoaderOptions<TView, TWeapon>,
 ): QuakeAppMapLoader<TView> {
+  let generation = 0;
   return {
-    async loadMap(mapName: string, loadOptions: QuakeMapLoadOptions = {}): Promise<void> {
+    async loadMap(mapName: string, loadOptions: QuakeMapLoadOptions = {}): Promise<boolean> {
       const nextMapName = mapName.trim().toLowerCase();
       const url = options.sceneUrl(nextMapName);
       if (!url) throw new Error(`No prepared Quake map registered for ${nextMapName}.`);
+      const requestGeneration = ++generation;
+      let finished = false;
+      const isCurrent = () => !finished && requestGeneration === generation && !options.isDisposed();
       const loadingStatus = loadOptions.loadingStatus ?? `World ${nextMapName}.bsp`;
-      const progress = options.createProgressTracker(loadingStatus);
+      const tracker = options.createProgressTracker(loadingStatus);
+      const progress: QuakeLoadingProgressTracker = {
+        setStatus: (status) => { if (isCurrent()) tracker.setStatus(status); },
+        startTask: (status) => {
+          if (!isCurrent()) return () => {};
+          const complete = tracker.startTask(status);
+          return () => { if (isCurrent()) complete(); };
+        },
+      };
       options.setLoading(true, loadingStatus, { preserveConsole: loadOptions.preserveLoadingConsole });
       try {
-        const scenePromise = options.fetchScene(url, nextMapName, progress);
-        const weaponPromise = options.preloadWeapon(progress);
-        const scene = await scenePromise;
-        if (options.isDisposed()) return;
+        // Observe both promises immediately, including weapon failures while fetch is pending.
+        const [scene, weapon] = await Promise.all([
+          options.fetchScene(url, nextMapName, progress),
+          options.preloadWeapon(progress),
+        ]);
+        if (!isCurrent()) return false;
         await options.preloadSceneAssets(scene, progress);
+        if (!isCurrent()) return false;
         await options.preloadMapAssets(nextMapName, progress);
-        if (options.isDisposed()) return;
+        if (!isCurrent()) return false;
         options.onCurrentMapChange(nextMapName);
         options.mountScene(scene);
         const routeView = options.mapLoadView(loadOptions);
         if (routeView) options.syncUrlView(routeView);
         options.updateUrl(nextMapName, loadOptions.urlMode ?? "push", routeView);
-        if (options.isDisposed()) return;
-        await options.completeSceneReadiness(weaponPromise, progress);
-        if (options.isDisposed()) return;
+        if (!isCurrent()) return false;
+        await options.completeSceneReadiness(Promise.resolve(weapon), progress, isCurrent);
+        if (!isCurrent()) return false;
         if (loadOptions.resumeGameplay) options.resumeGameplayAfterMapLoad();
         options.setGameplayStarted(true);
+        return true;
       } catch (error) {
-        if (!options.isDisposed()) options.setLoading(false);
+        if (!isCurrent()) return false;
+        options.setLoading(false);
         throw error;
+      } finally {
+        finished = true;
       }
     },
   };

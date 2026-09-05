@@ -30,11 +30,11 @@ export interface QuakeMenuControllerOptions {
   levelPanel: HTMLElement | null;
   aboutPanel: HTMLElement | null;
   optionsPanel: HTMLElement | null;
-  onSelectNewGame?(): void | Promise<void>;
+  onSelectNewGame?(): void | Promise<void | boolean>;
   onShowMultiplayer?(): void;
-  onLoadGame?(): void | Promise<void>;
+  onLoadGame?(): void | Promise<void | boolean>;
   onSaveGame?(): void | Promise<void>;
-  onSelectLevel?(mapName: string): void | Promise<void>;
+  onSelectLevel?(mapName: string): void | Promise<void | boolean>;
   onSelectQuit?(): void;
   canLoadGame?(): boolean;
   canSaveGame?(): boolean;
@@ -174,10 +174,11 @@ export function createQuakeMenuController({
     syncSinglePlayerItemAvailability();
     hideMainMenu();
     Promise.resolve(onSelectNewGame())
-      .then(() => {
+      .then((loaded) => {
         startingNewGame = false;
-        clearPendingMainMenu();
         syncSinglePlayerItemAvailability();
+        if (loaded === false) return;
+        clearPendingMainMenu();
         controls.lock();
       })
       .catch((error: unknown) => {
@@ -195,9 +196,10 @@ export function createQuakeMenuController({
     syncSinglePlayerItemAvailability();
     hideMainMenu();
     Promise.resolve(onLoadGame())
-      .then(() => {
+      .then((loaded) => {
         loadingGame = false;
         syncSinglePlayerItemAvailability();
+        if (loaded === false) return;
         controls.lock();
       })
       .catch((error: unknown) => {
@@ -655,9 +657,10 @@ export function createQuakeMenuController({
     setLoadingLevel(mapName);
     hideMainMenu();
     Promise.resolve(onSelectLevel(mapName))
-      .then(() => {
-        setCurrentLevel(mapName);
+      .then((loaded) => {
         setLoadingLevel(null);
+        if (loaded === false) return;
+        setCurrentLevel(mapName);
         controls.lock();
       })
       .catch((error: unknown) => {

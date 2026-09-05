@@ -49,7 +49,7 @@ export interface QuakeEntityActivationFlowOptions {
   currentGameLogic(): QuakeGameLogicFacts | null | undefined;
   entities(): ReadonlyMap<number, QuakeEntity>;
   getOrigin(): [number, number, number];
-  loadMap(mapName: string, options: { loadingStatus: string; resumeGameplay: boolean }): Promise<void>;
+  loadMap(mapName: string, options: { loadingStatus: string; resumeGameplay: boolean }): Promise<boolean>;
   mapExists(mapName: string): boolean;
   intermission: QuakeEntityActivationIntermission;
   movers: Pick<QuakeMoversController, "activateEntity" | "forceDoorsDownAfter" | "get">;

@@ -39,7 +39,7 @@ export interface QuakePlayerLifecycleFlowOptions {
   isMainMenuOpen(): boolean;
   isMenuPanelOpen(): boolean;
   jumpVelocity: number;
-  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<void>;
+  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<boolean>;
   player(): Pick<QuakePlayerController, "respawn">;
   playDeathSound?: (soundPath: string) => boolean;
   pointerTrace(kind: string, details: Record<string, unknown>): void;
@@ -82,7 +82,7 @@ export interface QuakePlayerLifecycleFlow {
   shouldOpenMainMenuOnControlsEnd(): boolean;
   shouldResumeMainMenuOnEscape(): boolean;
   showPlayerDeath(details?: QuakePlayerDeathDetails): QuakePlayerDeathResult | void;
-  startNewGame(): Promise<void>;
+  startNewGame(): Promise<boolean>;
   suppressMainMenuOnResumeControlsEnd(): void;
 }
 
@@ -265,15 +265,14 @@ export function createQuakePlayerLifecycleFlow(
     return true;
   }
 
-  async function startNewGame(): Promise<void> {
+  async function startNewGame(): Promise<boolean> {
     const mapName = options.currentResult() ? options.currentMapName() : options.startMap();
     if (!options.currentResult()) {
-      await options.loadMap(mapName, {
+      return options.loadMap(mapName, {
         loadingStatus: `World ${mapName}.bsp`,
         preserveLoadingConsole: true,
         urlMode: "push",
       });
-      return;
     }
     options.clearMegahealthRot();
     options.clearPowerups();
@@ -283,6 +282,7 @@ export function createQuakePlayerLifecycleFlow(
     clearLevelComplete();
     options.player().respawn();
     options.setGameplayStarted(true);
+    return true;
   }
 
   function resumeGameplayAfterMapLoad(): void {
