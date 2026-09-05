@@ -1,3 +1,4 @@
+import { quakeMapLoadFailureCause, quakeMapLoadFailureIsCurrent, type QuakeMapLoadResult } from "./runtime/app/mapLoadOwnership";
 import {
   createPolyPerspectiveCamera,
   createPolyFirstPersonControls,
@@ -2429,6 +2430,7 @@ quakeEntityActivation = createQuakeEntityActivationFlow({
   world,
 });
 quakePlayerLifecycle = createQuakePlayerLifecycleFlow({
+  currentLoad: () => quakeMapLoader.currentLoad(),
   addBodyClasses: addQuakeBodyClasses,
   appLoading: () => quakeAppLoading,
   clearAttackInput: quakePointerGameplay.clearAttackInput,
@@ -2932,7 +2934,7 @@ function respawnQuakePlayerFromDeath(): boolean {
   return quakePlayerLifecycle.respawnFromDeath();
 }
 
-async function startQuakeNewGame(): Promise<boolean> {
+async function startQuakeNewGame(): Promise<QuakeMapLoadResult> {
   requestQuakeLandscapeOnMobile(quakeApp).then((result) => {
     markQuakeTrace("landscape-lock-request", result);
   }).catch((error: unknown) => {
@@ -5306,7 +5308,7 @@ function applyQuakeUrlView(view: QuakeCssView): void {
   syncQuakeCrosshairTarget();
 }
 
-async function loadQuakeMap(mapName: string, options: QuakeMapLoadOptions = {}): Promise<boolean> {
+async function loadQuakeMap(mapName: string, options: QuakeMapLoadOptions = {}): Promise<QuakeMapLoadResult> {
   return quakeMapLoader.loadMap(mapName, options);
 }
 
@@ -5479,6 +5481,7 @@ function disposeQuakeApp(): void {
 }
 
 const quakeSaveSession = createCssQuakeSaveSession({
+  currentLoad: () => quakeMapLoader.currentLoad(),
   activeWeaponView: () => ({
     rotX: scene.camera.state.rotX,
     rotY: scene.camera.state.rotY,
@@ -5670,6 +5673,8 @@ installQuakeAppDebugHooks();
   };
 
 void loadQuake().catch((error) => {
+  if (!quakeMapLoadFailureIsCurrent(error)) return;
+  error = quakeMapLoadFailureCause(error);
   console.error(error);
   if (!quakeAppDisposed) {
     if (error instanceof QuakeAssetsRegeneratingError) {

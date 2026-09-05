@@ -31,7 +31,7 @@ test("only the latest map load may mount, publish its route, or resume gameplay"
   const first = loader.loadMap("e1m1", { resumeGameplay: true });
   const second = loader.loadMap("e1m2", { resumeGameplay: true });
   pending.get("e1m2").resolve({ name: "e1m2" });
-  assert.equal(await second, true);
+  assert.equal((await second).isCurrent(), true);
   const afterSecond = [...events];
   pending.get("e1m1").resolve({ name: "e1m1" });
   assert.equal(await first, false);
@@ -99,4 +99,30 @@ test("disposal during preparation prevents any scene publication", async () => {
   pending.get("e1m1").resolve({ name: "e1m1" });
   assert.equal(await load, false);
   assert.deepEqual(events, ["loading:true"]);
+});
+
+test("a completion loses ownership when the same map reloads, including after it has resolved", async () => {
+  const { loader, pending } = harness();
+  assert.equal(loader.currentLoad(), false);
+  const first = loader.loadMap("e1m1");
+  pending.get("e1m1").resolve({ name: "e1m1" });
+  const completion = await first;
+  assert.equal(loader.currentLoad(), completion);
+  const second = loader.loadMap("e1m1");
+  assert.equal(completion.isCurrent(), false);
+  assert.equal(loader.currentLoad(), false);
+  pending.get("e1m1").resolve({ name: "e1m1" });
+  assert.equal((await second).isCurrent(), true);
+  assert.equal(completion.isCurrent(), false);
+});
+
+test("disposal revokes a successfully completed load", async () => {
+  let disposed = false;
+  const { loader, pending } = harness({ isDisposed: () => disposed });
+  const load = loader.loadMap("e1m1");
+  pending.get("e1m1").resolve({ name: "e1m1" });
+  const completion = await load;
+  disposed = true;
+  assert.equal(completion.isCurrent(), false);
+  assert.equal(loader.currentLoad(), false);
 });

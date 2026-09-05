@@ -1,3 +1,4 @@
+import { quakeMapLoadFailureIsCurrent, type QuakeMapLoadResult } from "./app/mapLoadOwnership";
 import { mountQuakeBitmapText } from "./bitmapText";
 
 interface QuakeMenuControls {
@@ -30,11 +31,11 @@ export interface QuakeMenuControllerOptions {
   levelPanel: HTMLElement | null;
   aboutPanel: HTMLElement | null;
   optionsPanel: HTMLElement | null;
-  onSelectNewGame?(): void | Promise<void | boolean>;
+  onSelectNewGame?(): void | Promise<void | QuakeMapLoadResult>;
   onShowMultiplayer?(): void;
-  onLoadGame?(): void | Promise<void | boolean>;
+  onLoadGame?(): void | Promise<void | QuakeMapLoadResult>;
   onSaveGame?(): void | Promise<void>;
-  onSelectLevel?(mapName: string): void | Promise<void | boolean>;
+  onSelectLevel?(mapName: string): void | Promise<void | QuakeMapLoadResult>;
   onSelectQuit?(): void;
   canLoadGame?(): boolean;
   canSaveGame?(): boolean;
@@ -177,15 +178,16 @@ export function createQuakeMenuController({
       .then((loaded) => {
         startingNewGame = false;
         syncSinglePlayerItemAvailability();
-        if (loaded === false) return;
+        if (loaded === false || (loaded && !loaded.isCurrent())) return;
         clearPendingMainMenu();
         controls.lock();
       })
       .catch((error: unknown) => {
-        console.error(error);
         startingNewGame = false;
-        clearPendingMainMenu();
         syncSinglePlayerItemAvailability();
+        if (!quakeMapLoadFailureIsCurrent(error)) return;
+        console.error(error);
+        clearPendingMainMenu();
         showSinglePlayerPanel();
       });
   }
@@ -199,13 +201,14 @@ export function createQuakeMenuController({
       .then((loaded) => {
         loadingGame = false;
         syncSinglePlayerItemAvailability();
-        if (loaded === false) return;
+        if (loaded === false || (loaded && !loaded.isCurrent())) return;
         controls.lock();
       })
       .catch((error: unknown) => {
-        console.error(error);
         loadingGame = false;
         syncSinglePlayerItemAvailability();
+        if (!quakeMapLoadFailureIsCurrent(error)) return;
+        console.error(error);
         showSinglePlayerPanel();
       });
   }
@@ -659,13 +662,14 @@ export function createQuakeMenuController({
     Promise.resolve(onSelectLevel(mapName))
       .then((loaded) => {
         setLoadingLevel(null);
-        if (loaded === false) return;
+        if (loaded === false || (loaded && !loaded.isCurrent())) return;
         setCurrentLevel(mapName);
         controls.lock();
       })
       .catch((error: unknown) => {
-        console.error(error);
         setLoadingLevel(null);
+        if (!quakeMapLoadFailureIsCurrent(error)) return;
+        console.error(error);
         showLevelPanel();
       });
   }

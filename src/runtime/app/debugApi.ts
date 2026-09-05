@@ -1,3 +1,4 @@
+import type { QuakeMapLoadResult } from "./mapLoadOwnership";
 import type { Vec3 } from "@layoutit/polycss";
 
 import type { QuakeDebugRecorder } from "../debug/recording";
@@ -25,7 +26,7 @@ export interface QuakeAppDebugApiOptions {
   fireballEmittersCount(): number;
   fireballsCount(): number;
   forwardDirection(rotX: number, rotY: number): Vec3;
-  loadMap(mapName: string): Promise<boolean>;
+  loadMap(mapName: string): Promise<QuakeMapLoadResult>;
   mapExists(mapName: string): boolean;
   pointToPoly(point: { x: number; y: number; z: number }): Vec3;
   renderOrigin(): Vec3;

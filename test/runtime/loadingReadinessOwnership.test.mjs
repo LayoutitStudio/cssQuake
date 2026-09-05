@@ -71,7 +71,7 @@ test("startup reads the latest route after delayed shared metadata", async () =>
     onReady: () => { ready = true; }, routeFromLocation: () => ({ mapName: map }),
     routeIsDirect: () => true, routeShouldNormalize: () => false, sceneUrl: () => "/q/map.json",
     setCurrentMapName: noop, setMenuCurrentLevel: noop, syncRoutePresentation: noop,
-    loadMap: async name => { assert.equal(ready, true); calls.push(name); return true; },
+    loadMap: async name => { assert.equal(ready, true); calls.push(name); return { isCurrent: () => true }; },
   });
   map = "e1m2";
   metadata.resolve();

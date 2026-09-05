@@ -1,3 +1,4 @@
+import type { QuakeMapLoadResult } from "./mapLoadOwnership";
 import {
   QUAKE_ASSETS_REGENERATING_ACTION,
   QUAKE_ASSETS_REGENERATING_STATUS,
@@ -81,7 +82,7 @@ export interface QuakeLoadingStartupOptions {
   fetchManifest(): Promise<QuakeAssetManifest>;
   initializedLine: string;
   onReady(): void;
-  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<boolean>;
+  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<QuakeMapLoadResult>;
   loadPickupModels(progress?: QuakeLoadingProgressTracker): Promise<void>;
   loadProgramMetadata(progress?: QuakeLoadingProgressTracker): Promise<void>;
   pakLine: string;
@@ -160,7 +161,7 @@ export function createQuakeLoadingFlow(options: QuakeLoadingFlowOptions): QuakeL
         urlMode: startup.routeIsDirect(startupRoute) && startup.routeShouldNormalize(startupRoute) ? "replace" : "none",
         view: startup.routeIsDirect(startupRoute) ? startupRoute.view : null,
       });
-      if (!loaded || options.isDisposed()) return;
+      if (!loaded || !loaded.isCurrent() || options.isDisposed()) return;
       startup.syncRoutePresentation(startupRoute, { preferMenu: shouldPrimeInvalidMapFallback });
       return;
     }

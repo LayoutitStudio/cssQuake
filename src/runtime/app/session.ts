@@ -7,6 +7,7 @@ import {
 } from "../loadingConsole";
 import { preloadQuakeRenderBundleAssets, preloadQuakeRenderBundleFloorAssets } from "../renderBundleMesh";
 import type { QuakeUrlUpdateMode, QuakeUrlView } from "../routeState";
+import { QuakeMapLoadFailure, type QuakeMapLoadResult } from "./mapLoadOwnership";
 
 export const QUAKE_ASSET_ROOT = "/q";
 export const QUAKE_MANIFEST_URL = `${QUAKE_ASSET_ROOT}/manifest.json`;
@@ -47,8 +48,10 @@ export interface QuakeMapLoadOptions {
 }
 
 export interface QuakeAppMapLoader<TView> {
-  /** False means a newer load or disposal took ownership; callers must stop. */
-  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<boolean>;
+  /** Check result.isCurrent() at the point of use, including after each await. */
+  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<QuakeMapLoadResult>;
+  /** False until the latest request has completed successfully. */
+  currentLoad(): QuakeMapLoadResult;
 }
 
 export interface QuakeAppMapLoaderOptions<TView, TWeapon = unknown> {
@@ -234,14 +237,17 @@ export function createQuakeAppMapLoader<TView, TWeapon = unknown>(
   options: QuakeAppMapLoaderOptions<TView, TWeapon>,
 ): QuakeAppMapLoader<TView> {
   let generation = 0;
+  let completed: QuakeMapLoadResult = false;
   return {
-    async loadMap(mapName: string, loadOptions: QuakeMapLoadOptions = {}): Promise<boolean> {
+    currentLoad: () => completed && completed.isCurrent() ? completed : false,
+    async loadMap(mapName: string, loadOptions: QuakeMapLoadOptions = {}): Promise<QuakeMapLoadResult> {
       const nextMapName = mapName.trim().toLowerCase();
       const url = options.sceneUrl(nextMapName);
       if (!url) throw new Error(`No prepared Quake map registered for ${nextMapName}.`);
       const requestGeneration = ++generation;
       let finished = false;
-      const isCurrent = () => !finished && requestGeneration === generation && !options.isDisposed();
+      const completion = { isCurrent: () => requestGeneration === generation && !options.isDisposed() };
+      const isCurrent = () => !finished && completion.isCurrent();
       const loadingStatus = loadOptions.loadingStatus ?? `World ${nextMapName}.bsp`;
       const tracker = options.createProgressTracker(loadingStatus);
       const progress: QuakeLoadingProgressTracker = {
@@ -274,11 +280,12 @@ export function createQuakeAppMapLoader<TView, TWeapon = unknown>(
         if (!isCurrent()) return false;
         if (loadOptions.resumeGameplay) options.resumeGameplayAfterMapLoad();
         options.setGameplayStarted(true);
-        return true;
+        completed = completion;
+        return completion;
       } catch (error) {
         if (!isCurrent()) return false;
         options.setLoading(false);
-        throw error;
+        throw new QuakeMapLoadFailure(error, completion.isCurrent);
       } finally {
         finished = true;
       }

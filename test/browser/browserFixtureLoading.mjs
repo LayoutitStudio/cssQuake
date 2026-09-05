@@ -68,7 +68,7 @@ export const loadingAssetRetryFixture = defineBrowserFixture({
 });
 
 export const loadingGameplayFixture = defineBrowserFixture({
-  id: "loading-gameplay", label: "New game, movement, jump, combat and respawn with touch controls", family: "loading",
+  id: "loading-gameplay", label: "New game, movement, combat, respawn and save/load with touch controls", family: "loading",
   artifact: "bench/results/quake/loading-gameplay.json", mapName: "e1m1",
   run: async ({ browser, baseUrl, options }) => {
     // Touch availability uses the product input path without headless pointer-lock support.
@@ -114,11 +114,48 @@ export const loadingGameplayFixture = defineBrowserFixture({
       assert.equal(respawned.loading, false);
       await page.waitForTimeout(650); // The preceding shot still owns its source weapon cooldown.
       assert.equal(await page.evaluate(() => window.__cssQuakeDebug.fire()), true);
+      const openSinglePlayer = async () => {
+        await page.waitForTimeout(1100); // Let the existing death/resume menu suppression expire.
+        await page.keyboard.press("Escape");
+        await page.locator('[data-quake-main-menu-action="single-player"]').click();
+      };
+      await page.evaluate(() => window.__cssQuakeDebug.damage(17));
+      await openSinglePlayer();
+      await page.locator('[data-quake-single-player-action="save"]').click();
+      const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("cssquake.save.v1")));
+      assert.equal(saved.mapName, "e1m1");
+      const savedState = await snapshot();
+      assert.equal(savedState.health, 83);
+      await page.waitForTimeout(650);
+      assert.equal(await page.evaluate(() => window.__cssQuakeDebug.fire()), true);
+      assert.equal((await snapshot()).shells, savedState.shells - 1);
+      await openSinglePlayer();
+      await page.locator('[data-quake-single-player-action="load"]').click();
+      await page.waitForFunction(health => window.__cssQuakeDebug.stats().playerHealth === health && !document.body.classList.contains("quake-menu-open"), savedState.health);
+      const restoredSameMap = await snapshot();
+      assert.equal(restoredSameMap.shells, savedState.shells);
+      assert.equal(restoredSameMap.weapon, savedState.weapon);
+      assert.equal(await page.evaluate(() => window.__cssQuakeDebug.loadMap("e1m2")), true);
+      await waitForDebugMapReady(page, { ...options, mapName: "e1m2" });
+      await openSinglePlayer();
+      await page.locator('[data-quake-single-player-action="load"]').click();
+      await waitForDebugMapReady(page, { ...options, mapName: "e1m1" });
+      await page.waitForFunction(health => window.__cssQuakeDebug.stats().playerHealth === health, savedState.health);
+      const restoredOtherMap = await snapshot();
+      assert.equal(restoredOtherMap.shells, savedState.shells);
+      assert.equal(restoredOtherMap.weapon, savedState.weapon);
+      assert.ok(Math.hypot(...restoredOtherMap.origin.map((value, axis) => value - saved.view.origin[axis])) < 0.1, "Load Game must restore the saved camera/player location");
+      await openSinglePlayer();
+      await page.locator('[data-quake-single-player-action="new-game"]').click();
+      await page.waitForFunction(() => window.__cssQuakeDebug.stats().playerHealth === 100);
+      const restarted = await snapshot();
+      assert.equal(restarted.map, "e1m1");
+      assert.equal(restarted.shells, spawned.shells);
       // Existing menu/respawn lock calls are unsupported in headless Chromium. Keep that
       // limitation visible, and fail on every other console or page error.
       const unsupportedPointerLock = errors.filter(error => error === "The root document of this element is not valid for pointer lock.");
       assertNoPageErrors(errors.filter(error => !unsupportedPointerLock.includes(error)));
-      return { generatedAt: new Date().toISOString(), browser: browser.version(), inputMode: "touch-capable browser with keyboard movement", unsupportedPointerLock, spawned, moved, jumped, shot, respawned };
+      return { generatedAt: new Date().toISOString(), browser: browser.version(), inputMode: "touch-capable browser with keyboard movement", unsupportedPointerLock, spawned, moved, jumped, shot, respawned, savedState, restoredSameMap, restoredOtherMap, restarted };
     } finally { await page.close(); }
   },
 });

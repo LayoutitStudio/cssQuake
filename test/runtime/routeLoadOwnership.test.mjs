@@ -38,7 +38,7 @@ test("history navigation while loading keeps the latest map and suppresses stale
   assert.deepEqual(presentations, []);
   loading = false;
   currentMap = "e1m1";
-  calls[1].resolve(true);
+  calls[1].resolve({ isCurrent: () => true });
   await tick();
   assert.deepEqual(presentations, ["present"]);
 });

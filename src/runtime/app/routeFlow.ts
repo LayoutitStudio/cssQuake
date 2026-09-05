@@ -1,3 +1,4 @@
+import { quakeMapLoadFailureCause, quakeMapLoadFailureIsCurrent, type QuakeMapLoadResult } from "./mapLoadOwnership";
 import {
   parseQuakeUrlRouteFromLocation,
   quakeUrlForMapView,
@@ -25,7 +26,7 @@ export interface QuakeRouteFlowOptions<TView> {
   hideMainMenu(): void;
   isDisposed(): boolean;
   isLoading(): boolean;
-  loadMap(mapName: string, options: QuakeMapLoadOptions): Promise<boolean>;
+  loadMap(mapName: string, options: QuakeMapLoadOptions): Promise<QuakeMapLoadResult>;
   mapExists(mapName: string): boolean;
   menuEnabled: boolean;
   compactMultiplayerInviteMapName?: (inviteId: string) => string | null;
@@ -153,12 +154,13 @@ export function createQuakeRouteFlow<TView>(
     const isCurrent = () => !options.isDisposed() && generation === navigationGeneration;
     void options.loadMap(route.mapName, { urlMode: "none", view: route.view })
       .then((loaded) => {
-        if (loaded && isCurrent() && !options.isLoading() && options.currentMapName() === route.mapName) {
+        if (loaded && loaded.isCurrent() && isCurrent() && !options.isLoading() && options.currentMapName() === route.mapName) {
           syncPresentation(route);
         }
       })
       .catch((error) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || !quakeMapLoadFailureIsCurrent(error)) return;
+        error = quakeMapLoadFailureCause(error);
         console.error(error);
         if (error instanceof QuakeAssetsRegeneratingError) {
           options.setAssetsRegenerating(error.message);
