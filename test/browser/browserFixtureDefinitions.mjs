@@ -1,7 +1,7 @@
 import { combatBudgetFixture, logicalTargetabilityFixture } from "./browserFixtureCombat.mjs";
 import { liquidDamageFixture, mapLogicFixture, pickupFixture } from "./browserFixtureMapLogic.mjs";
 import { monsterDomFixture } from "./browserFixtureMonster.mjs";
-import { loadingAssetRetryFixture, loadingGameplayFixture, loadingHistoryFixture } from "./browserFixtureLoading.mjs";
+import { loadingAssetRetryFixture, loadingGameplayFixture, loadingHistoryFixture, loadingCollisionPreflightFixture } from "./browserFixtureLoading.mjs";
 import {
   ogreGrenadeChainFixture,
   ogreGrenadeBounceFixture,
@@ -29,6 +29,7 @@ export const browserFixtures = [
   liquidDamageFixture,
   pickupFixture,
   loadingHistoryFixture,
+  loadingCollisionPreflightFixture,
   loadingAssetRetryFixture,
   loadingGameplayFixture,
 ];

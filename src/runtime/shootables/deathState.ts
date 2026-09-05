@@ -56,6 +56,7 @@ export interface QuakeShootableDeathStateRuntimeOptions {
   chainDurationMs(classname: string, chain: string, runner: QuakeMonsterStateRunner): number;
   clearAttackState(shootable: QuakeShootableState): void;
   countHandles(shootable: QuakeShootableState): number;
+  hasHandle(shootable: QuakeShootableState): boolean;
   destroyZombieGib(shootable: QuakeShootableState, context: QuakeShootableDamageContext): boolean;
   dropBackpack?: (drop: QuakeMonsterBackpackDropRuntime) => boolean | void;
   flashShootable(shootable: QuakeShootableState): void;
@@ -211,7 +212,7 @@ export function createQuakeShootableDeathStateRuntime(
     enemy.nextAnimationFrameAt = Infinity;
     if (corpseFrameIndex === undefined) return;
     enemy.animationFrameIndex = corpseFrameIndex;
-    if (shootable.handle) options.activateAnimationFrame(shootable, corpseFrameIndex);
+    if (options.hasHandle(shootable)) options.activateAnimationFrame(shootable, corpseFrameIndex);
   }
 
   function syncZombiePainDownStep(

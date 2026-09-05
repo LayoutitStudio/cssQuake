@@ -60,7 +60,7 @@ test("a newer same-map load between completion and save restoration prevents app
     fetchScene: () => new Promise(resolve => pending.push(resolve)),
     preloadWeapon: async () => ({}), preloadSceneAssets: async () => {}, preloadMapAssets: async () => {},
     completeSceneReadiness: async () => {}, isDisposed: () => false, mapLoadView: () => null,
-    mountScene: noop, onCurrentMapChange: noop, resumeGameplayAfterMapLoad: noop,
+    prepareScene: () => noop, onCurrentMapChange: noop, resumeGameplayAfterMapLoad: noop,
     sceneUrl: name => `/q/${name}.json`, setLoading: noop, syncUrlView: noop, updateUrl: noop,
     setGameplayStarted: () => {
       if (++started === 1) queueMicrotask(() => { nextLoad = loader.loadMap("e1m1"); });

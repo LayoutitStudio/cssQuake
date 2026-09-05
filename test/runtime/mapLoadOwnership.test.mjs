@@ -17,7 +17,7 @@ function harness(overrides = {}) {
     createProgressTracker: () => ({ setStatus() {}, startTask: () => () => events.push("progress") }),
     fetchScene: (_url, name) => { const request = deferred(); pending.set(name, request); return request.promise; },
     isDisposed: () => false, mapLoadView: () => null,
-    mountScene: scene => events.push(`mount:${scene.name}`), onCurrentMapChange: name => events.push(`map:${name}`),
+    prepareScene: scene => () => events.push(`mount:${scene.name}`), onCurrentMapChange: name => events.push(`map:${name}`),
     preloadMapAssets: async () => {}, preloadSceneAssets: async () => {}, preloadWeapon: async () => ({}),
     resumeGameplayAfterMapLoad: () => events.push("resume"), sceneUrl: name => `/q/${name}.json`,
     setGameplayStarted: () => events.push("gameplay"), setLoading: value => events.push(`loading:${value}`),

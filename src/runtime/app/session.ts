@@ -60,7 +60,7 @@ export interface QuakeAppMapLoaderOptions<TView, TWeapon = unknown> {
   fetchScene(url: string, mapName: string, progress: QuakeLoadingProgressTracker): Promise<QuakeScene>;
   isDisposed(): boolean;
   mapLoadView(options: QuakeMapLoadOptions): TView | null;
-  mountScene(scene: QuakeScene): void;
+  prepareScene(scene: QuakeScene): () => void;
   onCurrentMapChange(mapName: string): void;
   preloadMapAssets(mapName: string, progress: QuakeLoadingProgressTracker): Promise<void>;
   preloadSceneAssets(scene: QuakeScene, progress: QuakeLoadingProgressTracker): Promise<void>;
@@ -270,8 +270,9 @@ export function createQuakeAppMapLoader<TView, TWeapon = unknown>(
         if (!isCurrent()) return false;
         await options.preloadMapAssets(nextMapName, progress);
         if (!isCurrent()) return false;
+        const mountPreparedScene = options.prepareScene(scene);
         options.onCurrentMapChange(nextMapName);
-        options.mountScene(scene);
+        mountPreparedScene();
         const routeView = options.mapLoadView(loadOptions);
         if (routeView) options.syncUrlView(routeView);
         options.updateUrl(nextMapName, loadOptions.urlMode ?? "push", routeView);

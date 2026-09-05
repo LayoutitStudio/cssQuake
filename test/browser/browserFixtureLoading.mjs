@@ -159,3 +159,43 @@ export const loadingGameplayFixture = defineBrowserFixture({
     } finally { await page.close(); }
   },
 });
+
+export const loadingCollisionPreflightFixture = defineBrowserFixture({
+  id: "loading-collision-preflight", label: "Invalid collision preserves the mounted map", family: "loading",
+  artifact: "bench/results/quake/loading-collision-preflight.json", maps: ["e1m1", "e1m2"],
+  run: async ({ browser, baseUrl, options }) => runDebugMapFixture({
+    browser, baseUrl, options, mapName: "e1m1",
+    run: async ({ page, pageErrors }) => {
+      // Keep the old player and its actual world DOM; corrupt only the next map response.
+      const before = await page.evaluate(() => {
+        const stats = window.__cssQuakeDebug.stats();
+        window.__retainedWorldProbe = document.querySelector(".quake-world-mesh");
+        return { map: stats.mapName, origin: stats.origin, health: stats.playerHealth };
+      });
+      let intercepted = false;
+      await page.route("**/e1m2.json", async route => {
+        const response = await route.fetch();
+        const scene = await response.json();
+        scene.collision = null;
+        intercepted = true;
+        await route.fulfill({ response, json: scene });
+      });
+      const result = await page.evaluate(async () => {
+        let error;
+        try { await window.__cssQuakeDebug.loadMap("e1m2"); } catch (cause) { error = cause.message; }
+        const stats = window.__cssQuakeDebug.stats();
+        return { error, map: stats.mapName, origin: stats.origin, health: stats.playerHealth,
+          retainedWorld: window.__retainedWorldProbe?.isConnected === true,
+          loading: stats.loading };
+      });
+      assert.equal(intercepted, true);
+      assert.match(result.error, /missing collision data/);
+      assert.deepEqual(result, { error: result.error, ...before, retainedWorld: true, loading: false });
+      await page.unroute("**/e1m2.json");
+      assert.equal(await page.evaluate(() => window.__cssQuakeDebug.loadMap("e1m2")), true);
+      await waitForDebugMapReady(page, { ...options, mapName: "e1m2" });
+      assertNoPageErrors(pageErrors);
+      return { generatedAt: new Date().toISOString(), browser: browser.version(), before, result, retry: "e1m2" };
+    },
+  }),
+});

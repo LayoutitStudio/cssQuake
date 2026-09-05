@@ -21,7 +21,7 @@ test("a load superseded between resolution and the menu continuation cannot lock
     fetchScene: (_url, name) => new Promise(resolve => pending.set(name, resolve)),
     preloadWeapon: async () => ({}), preloadSceneAssets: async () => {}, preloadMapAssets: async () => {},
     completeSceneReadiness: async () => { loading = false; },
-    isDisposed: () => false, mapLoadView: () => null, mountScene() {},
+    isDisposed: () => false, mapLoadView: () => null, prepareScene: () => () => {},
     onCurrentMapChange: name => { currentMap = name; },
     resumeGameplayAfterMapLoad() {}, sceneUrl: name => `/q/${name}.json`,
     setLoading: value => { loading = value; }, syncUrlView() {}, updateUrl() {},
@@ -86,7 +86,7 @@ for (const action of ["new-game", "load", "level"]) {
         fetchScene: (_url, name) => new Promise((resolve, reject) => pending.set(name, { resolve, reject })),
         preloadWeapon: async () => ({}), preloadSceneAssets: async () => {}, preloadMapAssets: async () => {},
         completeSceneReadiness: async () => {}, isDisposed: () => false, mapLoadView: () => null,
-        mountScene() {}, onCurrentMapChange() {}, resumeGameplayAfterMapLoad() {},
+        prepareScene: () => () => {}, onCurrentMapChange() {}, resumeGameplayAfterMapLoad() {},
         sceneUrl: name => `/q/${name}.json`, syncUrlView() {}, updateUrl() {}, setGameplayStarted() {},
         setLoading: active => {
           if (!active && supersede) queueMicrotask(() => { nextLoad = loader.loadMap("e1m2"); });
