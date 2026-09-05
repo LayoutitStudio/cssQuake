@@ -7,6 +7,7 @@ import {
 } from "../loadingConsole";
 import { preloadQuakeRenderBundleAssets, preloadQuakeRenderBundleFloorAssets } from "../renderBundleMesh";
 import type { QuakeUrlUpdateMode, QuakeUrlView } from "../routeState";
+import { QuakeMapLoadFailure, type QuakeMapLoadResult } from "./mapLoadOwnership";
 
 export const QUAKE_ASSET_ROOT = "/q";
 export const QUAKE_MANIFEST_URL = `${QUAKE_ASSET_ROOT}/manifest.json`;
@@ -47,16 +48,19 @@ export interface QuakeMapLoadOptions {
 }
 
 export interface QuakeAppMapLoader<TView> {
-  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<void>;
+  /** Check result.isCurrent() at the point of use, including after each await. */
+  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<QuakeMapLoadResult>;
+  /** False until the latest request has completed successfully. */
+  currentLoad(): QuakeMapLoadResult;
 }
 
 export interface QuakeAppMapLoaderOptions<TView, TWeapon = unknown> {
-  completeSceneReadiness(weaponPromise: Promise<TWeapon>, progress: QuakeLoadingProgressTracker): Promise<void>;
+  completeSceneReadiness(weaponPromise: Promise<TWeapon>, progress: QuakeLoadingProgressTracker, isCurrent: () => boolean): Promise<void>;
   createProgressTracker(status: string): QuakeLoadingProgressTracker;
   fetchScene(url: string, mapName: string, progress: QuakeLoadingProgressTracker): Promise<QuakeScene>;
   isDisposed(): boolean;
   mapLoadView(options: QuakeMapLoadOptions): TView | null;
-  mountScene(scene: QuakeScene): void;
+  prepareScene(scene: QuakeScene): () => void;
   onCurrentMapChange(mapName: string): void;
   preloadMapAssets(mapName: string, progress: QuakeLoadingProgressTracker): Promise<void>;
   preloadSceneAssets(scene: QuakeScene, progress: QuakeLoadingProgressTracker): Promise<void>;
@@ -232,35 +236,59 @@ export async function fetchQuakeScene(
 export function createQuakeAppMapLoader<TView, TWeapon = unknown>(
   options: QuakeAppMapLoaderOptions<TView, TWeapon>,
 ): QuakeAppMapLoader<TView> {
+  let generation = 0;
+  let completed: QuakeMapLoadResult = false;
   return {
-    async loadMap(mapName: string, loadOptions: QuakeMapLoadOptions = {}): Promise<void> {
+    currentLoad: () => completed && completed.isCurrent() ? completed : false,
+    async loadMap(mapName: string, loadOptions: QuakeMapLoadOptions = {}): Promise<QuakeMapLoadResult> {
       const nextMapName = mapName.trim().toLowerCase();
       const url = options.sceneUrl(nextMapName);
       if (!url) throw new Error(`No prepared Quake map registered for ${nextMapName}.`);
+      const requestGeneration = ++generation;
+      let finished = false;
+      const completion = { isCurrent: () => requestGeneration === generation && !options.isDisposed() };
+      const isCurrent = () => !finished && completion.isCurrent();
       const loadingStatus = loadOptions.loadingStatus ?? `World ${nextMapName}.bsp`;
-      const progress = options.createProgressTracker(loadingStatus);
+      const tracker = options.createProgressTracker(loadingStatus);
+      const progress: QuakeLoadingProgressTracker = {
+        setStatus: (status) => { if (isCurrent()) tracker.setStatus(status); },
+        startTask: (status) => {
+          if (!isCurrent()) return () => {};
+          const complete = tracker.startTask(status);
+          return () => { if (isCurrent()) complete(); };
+        },
+      };
       options.setLoading(true, loadingStatus, { preserveConsole: loadOptions.preserveLoadingConsole });
       try {
-        const scenePromise = options.fetchScene(url, nextMapName, progress);
-        const weaponPromise = options.preloadWeapon(progress);
-        const scene = await scenePromise;
-        if (options.isDisposed()) return;
+        // Observe both promises immediately, including weapon failures while fetch is pending.
+        const [scene, weapon] = await Promise.all([
+          options.fetchScene(url, nextMapName, progress),
+          options.preloadWeapon(progress),
+        ]);
+        if (!isCurrent()) return false;
         await options.preloadSceneAssets(scene, progress);
+        if (!isCurrent()) return false;
         await options.preloadMapAssets(nextMapName, progress);
-        if (options.isDisposed()) return;
+        if (!isCurrent()) return false;
+        const mountPreparedScene = options.prepareScene(scene);
         options.onCurrentMapChange(nextMapName);
-        options.mountScene(scene);
+        mountPreparedScene();
         const routeView = options.mapLoadView(loadOptions);
         if (routeView) options.syncUrlView(routeView);
         options.updateUrl(nextMapName, loadOptions.urlMode ?? "push", routeView);
-        if (options.isDisposed()) return;
-        await options.completeSceneReadiness(weaponPromise, progress);
-        if (options.isDisposed()) return;
+        if (!isCurrent()) return false;
+        await options.completeSceneReadiness(Promise.resolve(weapon), progress, isCurrent);
+        if (!isCurrent()) return false;
         if (loadOptions.resumeGameplay) options.resumeGameplayAfterMapLoad();
         options.setGameplayStarted(true);
+        completed = completion;
+        return completion;
       } catch (error) {
-        if (!options.isDisposed()) options.setLoading(false);
-        throw error;
+        if (!isCurrent()) return false;
+        options.setLoading(false);
+        throw new QuakeMapLoadFailure(error, completion.isCurrent);
+      } finally {
+        finished = true;
       }
     },
   };

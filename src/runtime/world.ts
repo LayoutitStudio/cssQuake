@@ -1128,6 +1128,13 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     }
   };
 
+  function observeTextureReadiness(promise: Promise<void>): Promise<void> {
+    // Visibility also preloads during play, when no readiness caller is waiting.
+    // Keep the original rejected promise so a readiness check still fails.
+    void promise.catch(() => {});
+    return promise;
+  }
+
   const waitForVisibleAtlasPages = (): Promise<void> => visibleAtlasPageReadyPromise;
   const waitForVisibleTextures = (): Promise<void> =>
     Promise.all([
@@ -1149,7 +1156,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     const exposedPages = currentPages.length ? currentPages : allPages;
     const warmPages = prewarmPages.length ? prewarmPages : exposedPages;
     setVisibleAtlasResidencyPages(exposedPages);
-    visibleAtlasPrewarmReadyPromise = preloadQuakeRenderBundleAtlasPages(currentRenderBundle, warmPages);
+    visibleAtlasPrewarmReadyPromise = observeTextureReadiness(preloadQuakeRenderBundleAtlasPages(currentRenderBundle, warmPages));
   };
 
   const setVisibleAtlasResidencyPages = (pageIndexes: readonly number[]): void => {
@@ -1160,7 +1167,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     const pageKey = nextPages.join(",");
     if (pageKey !== visibleAtlasPageKey) {
       visibleAtlasPageKey = pageKey;
-      visibleAtlasPageReadyPromise = preloadQuakeRenderBundleAtlasPages(currentRenderBundle, nextPages);
+      visibleAtlasPageReadyPromise = observeTextureReadiness(preloadQuakeRenderBundleAtlasPages(currentRenderBundle, nextPages));
     }
   };
 
@@ -1173,7 +1180,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
         exposeQuakeRenderBundleAtlasPages(currentHandle.element, currentRenderBundle, nextPages);
         visibleAtlasPageSet = new Set(nextPages);
         visibleAtlasPageKey = pageKey;
-        visibleAtlasPageReadyPromise = preloadQuakeRenderBundleAtlasPages(currentRenderBundle, nextPages);
+        visibleAtlasPageReadyPromise = observeTextureReadiness(preloadQuakeRenderBundleAtlasPages(currentRenderBundle, nextPages));
       }
     }
     syncMountedWorldTextureReadiness();
@@ -1184,10 +1191,10 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
       visibleWorldTextureReadyPromise = Promise.resolve();
       return;
     }
-    visibleWorldTextureReadyPromise = preloadQuakeRenderBundleElementAssets(
+    visibleWorldTextureReadyPromise = observeTextureReadiness(preloadQuakeRenderBundleElementAssets(
       currentHandle.element,
       mountedWorldTextureElements(),
-    );
+    ));
   };
 
   const mountedWorldTextureElements = (): HTMLElement[] => {
@@ -1224,7 +1231,7 @@ export function createQuakeWorldController(options: QuakeWorldControllerOptions)
     visibleAtlasPageSet.add(pageIndex);
     visibleAtlasPageKey = [...visibleAtlasPageSet].sort((a, b) => a - b).join(",");
     const pagePromise = preloadQuakeRenderBundleAtlasPages(currentRenderBundle, [pageIndex]);
-    visibleAtlasPageReadyPromise = Promise.all([visibleAtlasPageReadyPromise, pagePromise]).then(() => undefined);
+    visibleAtlasPageReadyPromise = observeTextureReadiness(Promise.all([visibleAtlasPageReadyPromise, pagePromise]).then(() => undefined));
   };
 
   const addQuakeLightstyleRenderBundleMesh = (renderBundle: QuakePreparedRenderBundle): PolyMeshHandle => {

@@ -27,6 +27,7 @@ function createCombatRuntime(options = {}) {
   const sounds = [];
   const traces = [];
   const runtime = createQuakeEnemyCombatRuntime({
+    isVisible: (shootable) => shootable.visible,
     damagePlayer: options.damagePlayer ?? (() => true),
     getPlayerOrigin: () => [0, 0, 0],
     hasLineOfSight: () => true,

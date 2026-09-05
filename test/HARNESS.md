@@ -77,3 +77,11 @@ Enemy projectile chain fixtures use debug-only hooks exposed through `window.__c
 Debug poses with `{ gameplay: true }` synchronize the player controller origin and bypass the click-to-play pause gate only for the explicit debug gameplay sync. Use that shape for browser fixtures that need pickup, hazard, or trigger collision to run headlessly.
 
 Mover/pusher browser coverage is intentionally deferred. The existing ignored local pusher fixture fails on the E1M4 train/knight crush watchpoint, so it should not become a committed acceptance gate until either the fixture expectation or product behavior is repaired.
+
+## Ownership regression checks
+
+`pnpm test` includes scene disposal/preflight checks and 36 shootable controller scenarios with 648 checkpoints. The scenarios compare health, origin, targets, animation events, mesh publication and pending callbacks against commit `7d796145b9a972f9da5e399a6802e86f8450ea83`. They use a controlled clock and recording mesh handles; browser fixtures cover actual prepared rendering.
+
+`test/runtime/captureShootableOwnership.mjs <exact-reference-directory> <output.json>` verifies the reference source dependencies against their pinned Git blobs before capturing results. Review any reference change independently of the implementation under test.
+
+The `loading` browser family covers held-request history navigation, asset retry, collision preflight failure/retry, and a touch-capable New Game/movement/combat/death/save/load lifecycle. It requires complete prepared assets and runs headlessly.

@@ -3,9 +3,6 @@ import type { QuakeIdleDeadline, QuakeWindowWithIdle } from "./state";
 interface QuakePrewarmShootableState {
   dead: boolean;
   entity: { index: number };
-  frameHandles: Map<number, unknown>;
-  handle: unknown | null;
-  visible: boolean;
 }
 
 const QUAKE_SHOOTABLE_PREWARM_MIN_IDLE_MS = 4;
@@ -24,6 +21,9 @@ export interface QuakeShootablePrewarmQueues<TShootable extends QuakePrewarmShoo
 }
 
 export interface QuakeShootablePrewarmQueueOptions<TShootable extends QuakePrewarmShootableState> {
+  hasHandle(shootable: TShootable): boolean;
+  isVisible(shootable: TShootable): boolean;
+  hasFrame(shootable: TShootable, frameIndex: number): boolean;
   canPoolAnimationFrame(shootable: TShootable): boolean;
   canPrewarmShootable(shootable: TShootable): boolean;
   ensureAnimationFrame(shootable: TShootable, frameIndex: number): void;
@@ -103,7 +103,7 @@ export function createQuakeShootablePrewarmQueues<TShootable extends QuakePrewar
       queuedPrewarmIndexes.delete(entityIndex);
       if (!desiredPrewarmIndexes.has(entityIndex)) continue;
       const shootable = options.getShootable(entityIndex);
-      if (!shootable || shootable.dead || shootable.handle) continue;
+      if (!shootable || shootable.dead || options.hasHandle(shootable)) continue;
       if (!options.canPrewarmShootable(shootable)) continue;
       options.mountShootable(shootable);
       options.setShootableVisible(shootable, false);
@@ -114,8 +114,8 @@ export function createQuakeShootablePrewarmQueues<TShootable extends QuakePrewar
   }
 
   function scheduleAnimationFrame(shootable: TShootable, frameIndex: number): void {
-    if (!shootable.visible || !options.canPoolAnimationFrame(shootable)) return;
-    if (shootable.frameHandles.has(frameIndex)) return;
+    if (!options.isVisible(shootable) || !options.canPoolAnimationFrame(shootable)) return;
+    if (options.hasFrame(shootable, frameIndex)) return;
     const key = animationFramePrewarmKey(shootable.entity.index, frameIndex);
     if (queuedAnimationFramePrewarms.has(key)) return;
     queuedAnimationFramePrewarms.add(key);
@@ -156,8 +156,8 @@ export function createQuakeShootablePrewarmQueues<TShootable extends QuakePrewar
       if (!item) break;
       queuedAnimationFramePrewarms.delete(animationFramePrewarmKey(item.entityIndex, item.frameIndex));
       const shootable = options.getShootable(item.entityIndex);
-      if (!shootable || shootable.dead || !shootable.visible || !options.canPoolAnimationFrame(shootable)) continue;
-      if (shootable.frameHandles.has(item.frameIndex)) continue;
+      if (!shootable || shootable.dead || !options.isVisible(shootable) || !options.canPoolAnimationFrame(shootable)) continue;
+      if (options.hasFrame(shootable, item.frameIndex)) continue;
       options.ensureAnimationFrame(shootable, item.frameIndex);
       options.trimAnimationFrameHandles(shootable);
       prepared++;

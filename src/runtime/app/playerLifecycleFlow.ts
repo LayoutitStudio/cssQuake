@@ -1,3 +1,4 @@
+import type { QuakeMapLoadResult } from "./mapLoadOwnership";
 import type { QuakeScene } from "../../types/quake";
 import type { QuakePlayerController, QuakePlayerDeathDetails, QuakePlayerDeathResult } from "../player";
 import type { QuakeMapLoadOptions } from "./session";
@@ -29,6 +30,7 @@ export interface QuakePlayerLifecycleFlowOptions {
   controls: QuakePlayerLifecycleControls;
   currentCollisionWorld(): unknown | null;
   currentMapName(): string;
+  currentLoad(): QuakeMapLoadResult;
   currentResult(): QuakeScene | null;
   exitPointerLockIfHost(): void;
   focusHost(): void;
@@ -39,7 +41,7 @@ export interface QuakePlayerLifecycleFlowOptions {
   isMainMenuOpen(): boolean;
   isMenuPanelOpen(): boolean;
   jumpVelocity: number;
-  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<void>;
+  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<QuakeMapLoadResult>;
   player(): Pick<QuakePlayerController, "respawn">;
   playDeathSound?: (soundPath: string) => boolean;
   pointerTrace(kind: string, details: Record<string, unknown>): void;
@@ -82,7 +84,7 @@ export interface QuakePlayerLifecycleFlow {
   shouldOpenMainMenuOnControlsEnd(): boolean;
   shouldResumeMainMenuOnEscape(): boolean;
   showPlayerDeath(details?: QuakePlayerDeathDetails): QuakePlayerDeathResult | void;
-  startNewGame(): Promise<void>;
+  startNewGame(): Promise<QuakeMapLoadResult>;
   suppressMainMenuOnResumeControlsEnd(): void;
 }
 
@@ -265,16 +267,17 @@ export function createQuakePlayerLifecycleFlow(
     return true;
   }
 
-  async function startNewGame(): Promise<void> {
+  async function startNewGame(): Promise<QuakeMapLoadResult> {
     const mapName = options.currentResult() ? options.currentMapName() : options.startMap();
-    if (!options.currentResult()) {
-      await options.loadMap(mapName, {
+    const loaded = options.currentLoad();
+    if (!options.currentResult() || !loaded) {
+      return options.loadMap(mapName, {
         loadingStatus: `World ${mapName}.bsp`,
         preserveLoadingConsole: true,
         urlMode: "push",
       });
-      return;
     }
+    if (!loaded.isCurrent()) return false;
     options.clearMegahealthRot();
     options.clearPowerups();
     options.clearMoveInput();
@@ -283,6 +286,7 @@ export function createQuakePlayerLifecycleFlow(
     clearLevelComplete();
     options.player().respawn();
     options.setGameplayStarted(true);
+    return loaded;
   }
 
   function resumeGameplayAfterMapLoad(): void {

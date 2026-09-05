@@ -69,6 +69,7 @@ export interface QuakeEnemyCombatRuntimeOptions extends QuakeEnemyCombatContext 
   damagePlayer(amount: number, context?: QuakePlayerDamageContext): boolean;
   getPlayerOrigin(): [number, number, number];
   isGameplayPaused?: () => boolean;
+  isVisible(shootable: QuakeShootableState): boolean;
   markTrace(kind: string, shootable: QuakeShootableState, details?: QuakeEnemyCombatTraceDetails): void;
   playSound?(soundPath: string, options?: QuakeEnemyCombatSoundOptions): boolean;
   shootableBoundsForDamage(shootable: QuakeShootableState): QuakeBounds;
@@ -408,7 +409,7 @@ export function createQuakeEnemyCombatRuntime(options: QuakeEnemyCombatRuntimeOp
       event.originOffsetUnits,
     );
     const fireProjectile = (fireNow: number, target: Vec3): void => {
-      if (shootable.dead || !shootable.enemy || !shootable.visible) return;
+      if (shootable.dead || !shootable.enemy || !options.isVisible(shootable)) return;
       options.spawnProjectile(shootable, enemy, start, target, profile, fireNow);
       options.markTrace("enemy-quakec-event", shootable, {
         call: event.call,

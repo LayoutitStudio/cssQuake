@@ -1,3 +1,4 @@
+import type { QuakeMapLoadResult } from "./mapLoadOwnership";
 import {
   createCssQuakeSaveSlot as createCssQuakeSaveSlotV1,
   readCssQuakeSaveSlot,
@@ -11,7 +12,7 @@ type CssQuakeSaveSlotInput = Parameters<typeof createCssQuakeSaveSlotV1>[0];
 export interface CssQuakeSaveSessionController {
   canLoad(): boolean;
   canSave(): boolean;
-  load(): Promise<void>;
+  load(): Promise<QuakeMapLoadResult>;
   save(): void;
 }
 
@@ -31,9 +32,10 @@ export interface CssQuakeSaveSessionOptions {
   clearPowerupTimers(): void;
   clearWeaponViewPunch(): void;
   currentMapName(): string;
+  currentLoad(): QuakeMapLoadResult;
   currentOrigin(): [number, number, number];
   hasCurrentScene(mapName?: string): boolean;
-  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<void>;
+  loadMap(mapName: string, options?: QuakeMapLoadOptions): Promise<QuakeMapLoadResult>;
   mapExists(mapName: string): boolean;
   notify(message: string): void;
   resetActiveTriggers(): void;
@@ -107,26 +109,28 @@ export function createCssQuakeSaveSession(options: CssQuakeSaveSessionOptions): 
     }
   }
 
-  async function load(): Promise<void> {
+  async function load(): Promise<QuakeMapLoadResult> {
     const slot = readCssQuakeSaveSlot();
     if (!slot || !options.mapExists(slot.mapName)) {
       options.notify("No saved game");
-      return;
+      return false;
     }
     options.clearAttackInput();
     options.clearMoveInput();
     options.clearMobileMoveInput();
-    if (!options.hasCurrentScene(slot.mapName)) {
-      await options.loadMap(slot.mapName, {
+    let loaded = options.currentLoad();
+    if (!loaded || !options.hasCurrentScene(slot.mapName)) {
+      loaded = await options.loadMap(slot.mapName, {
         loadingStatus: "Loading save",
         resumeGameplay: false,
         urlMode: "push",
       });
     }
-    if (!options.hasCurrentScene(slot.mapName)) return;
+    if (!loaded || !loaded.isCurrent() || !options.hasCurrentScene(slot.mapName)) return false;
     applySaveSlot(slot);
     options.trace("progress-load", { mapName: slot.mapName, savedAt: slot.savedAt });
     options.notify("Game loaded");
+    return loaded;
   }
 
   function applySaveSlot(slot: CssQuakeSaveSlotV1): void {
