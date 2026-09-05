@@ -1,0 +1,1050 @@
+{
+  "commit": "7d796145b9a972f9da5e399a6802e86f8450ea83",
+  "compilerVersion": "5.9.3",
+  "diagnostics": [
+    {
+      "file": "src/App.ts",
+      "code": 2339,
+      "message": "Property 'checked' does not exist on type 'HTMLButtonElement'.",
+      "source": "checked"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2322,
+      "message": "Type 'QuakeMoversDebugStats' is not assignable to type 'Record<string, unknown>'.\n  Index signature for type 'string' is missing in type 'QuakeMoversDebugStats'.",
+      "source": "movers.debugStats()"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2322,
+      "message": "Type 'QuakePickupDebugStats' is not assignable to type 'Record<string, unknown>'.\n  Index signature for type 'string' is missing in type 'QuakePickupDebugStats'.",
+      "source": "getPickups().debugStats()"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2322,
+      "message": "Type 'QuakePlayerMovementDebug' is not assignable to type 'Record<string, unknown>'.\n  Index signature for type 'string' is missing in type 'QuakePlayerMovementDebug'.",
+      "source": "getPlayer().debugMovement()"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2322,
+      "message": "Type 'QuakePlayerProgressSnapshot' is not assignable to type 'Record<string, unknown>'.\n  Index signature for type 'string' is missing in type 'QuakePlayerProgressSnapshot'.",
+      "source": "getPlayer().snapshotProgress()"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2322,
+      "message": "Type 'QuakeTargetsProgressSnapshot' is not assignable to type 'Record<string, unknown>'.\n  Index signature for type 'string' is missing in type 'QuakeTargetsProgressSnapshot'.",
+      "source": "targetSystem.snapshotProgress()"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2322,
+      "message": "Type 'QuakeTriggersDebugStats' is not assignable to type 'Record<string, unknown>'.\n  Index signature for type 'string' is missing in type 'QuakeTriggersDebugStats'.",
+      "source": "triggerSystem.debugStats()"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2322,
+      "message": "Type 'QuakeViewmodelDebugSnapshot' is not assignable to type 'Record<string, unknown>'.\n  Index signature for type 'string' is missing in type 'QuakeViewmodelDebugSnapshot'.",
+      "source": "viewmodel.debugSnapshot()"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2322,
+      "message": "Type '(target: EventTarget | null) => string | null' is not assignable to type '(target: EventTarget | null) => string'.\n  Type 'string | null' is not assignable to type 'string'.\n    Type 'null' is not assignable to type 'string'.",
+      "source": "eventTargetLabel"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2322,
+      "message": "Type '(kind: string, details?: QuakePointerTraceDetails) => void' is not assignable to type '(kind: string, details: Record<string, unknown>) => void'.\n  Types of parameters 'details' and 'details' are incompatible.\n    Type 'Record<string, unknown>' is not assignable to type 'QuakePointerTraceDetails'.\n      'string' index signatures are incompatible.\n        Type 'unknown' is not assignable to type 'QuakePointerTraceValue'.",
+      "source": "pointerTrace"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeLandscapeRequestResult' is not assignable to parameter of type 'QuakeTraceMarkDetails'.\n  Index signature for type 'string' is missing in type 'QuakeLandscapeRequestResult'.",
+      "source": "result"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2352,
+      "message": "Conversion of type 'NonNullable<T>' to type 'PromiseLike<unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Property 'then' is missing in type 'NonNullable<T>' but required in type 'PromiseLike<unknown>'.",
+      "source": "result as PromiseLike<unknown>"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2741,
+      "message": "Property 'color' is missing in type '{ activeFrameSet: undefined; animationFrames: QuakePickupModelAnimationFrame[]; attackFrameIndexesByWeapon: Record<string, readonly number[]>; clientId: string; ... 10 more ...; zOffset: number; }' but required in type 'QuakeRemotePlayerMeshMount'.",
+      "source": "return"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerVec3' is not assignable to parameter of type 'Vec3'.\n  The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type 'Vec3'.",
+      "source": "state.renderOrigin"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2552,
+      "message": "Cannot find name 'QuakeWeaponWallImpactEvent'. Did you mean 'QuakeWeaponWallImpactEffect'?",
+      "source": "QuakeWeaponWallImpactEvent"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerVec3' is not assignable to parameter of type 'Vec3'.\n  The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type 'Vec3'.",
+      "source": "projectile.origin"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerVec3' is not assignable to parameter of type 'Vec3'.\n  The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type 'Vec3'.",
+      "source": "event.origin"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 4104,
+      "message": "The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type '[number, number, number]'.",
+      "source": "origin"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 4104,
+      "message": "The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type '[number, number, number]'.",
+      "source": "origin"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerEnvelope<\"client\", \"client.world\", { clientId: string; event: { eventType: string; eventId: string; roomTime: number; entityIndex: number; change: string; data: { clientId: string; }; }; }>' is not assignable to parameter of type 'QuakeMultiplayerClientEnvelope'.\n  Type 'QuakeMultiplayerEnvelope<\"client\", \"client.world\", { clientId: string; event: { eventType: string; eventId: string; roomTime: number; entityIndex: number; change: string; data: { clientId: string; }; }; }>' is not assignable to type 'QuakeMultiplayerClientWorldEnvelope'.\n    Type '{ clientId: string; event: { eventType: string; eventId: string; roomTime: number; entityIndex: number; change: string; data: { clientId: string; }; }; }' is not assignable to type 'QuakeMultiplayerClientWorldPayload'.\n      Type '{ clientId: string; event: { eventType: string; eventId: string; roomTime: number; entityIndex: number; change: string; data: { clientId: string; }; }; }' is not assignable to type '{ clientId: string; event: { eventType: \"world.changed\"; eventId: string; roomTime: number; entityId?: string | undefined; entityIndex?: number | undefined; change: string; data?: Record<string, QuakeMultiplayerJson> | undefined; }; intent?: undefined; }'.\n        The types of 'event.eventType' are incompatible between these types.\n          Type 'string' is not assignable to type '\"world.changed\"'.",
+      "source": "createQuakeMultiplayerEnvelope({\n    direction: \"client\",\n    type: \"client.world\",\n    roomKey,\n    sequence: ++quakeMultiplayerClientSequence,\n    sentAt: Date.now(),\n    payload: {\n      clientId: QUAKE_MULTIPLAYER_LOCAL_CLIENT_ID,\n      event: {\n        eventType: \"world.changed\",\n        eventId: `world-local-${quakeMultiplayerClientSequence}`,\n        roomTime: 0,\n        entityIndex,\n        change,\n        data: {\n          ...data,\n          clientId: QUAKE_MULTIPLAYER_LOCAL_CLIENT_ID,\n        },\n      },\n    },\n  })"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerEnvelope<\"client\", \"client.hello\", { deathmatchSpawns: readonly QuakeMultiplayerSpawnPoint[] | undefined; pickupDefinitions: readonly QuakeMultiplayerPickupDefinition[] | undefined; ... 5 more ...; capabilities: string[]; }>' is not assignable to parameter of type 'QuakeMultiplayerClientEnvelope'.\n  Type 'QuakeMultiplayerEnvelope<\"client\", \"client.hello\", { deathmatchSpawns: readonly QuakeMultiplayerSpawnPoint[] | undefined; pickupDefinitions: readonly QuakeMultiplayerPickupDefinition[] | undefined; ... 5 more ...; capabilities: string[]; }>' is not assignable to type 'QuakeMultiplayerClientHelloEnvelope'.\n    Type '{ deathmatchSpawns: readonly QuakeMultiplayerSpawnPoint[] | undefined; pickupDefinitions: readonly QuakeMultiplayerPickupDefinition[] | undefined; ... 5 more ...; capabilities: string[]; }' is not assignable to type 'QuakeMultiplayerClientHelloPayload'.\n      Types of property 'deathmatchSpawns' are incompatible.\n        Type 'readonly QuakeMultiplayerSpawnPoint[] | undefined' is not assignable to type 'QuakeMultiplayerSpawnPoint[] | undefined'.\n          The type 'readonly QuakeMultiplayerSpawnPoint[]' is 'readonly' and cannot be assigned to the mutable type 'QuakeMultiplayerSpawnPoint[]'.",
+      "source": "createQuakeMultiplayerEnvelope({\n    direction: \"client\",\n    type: \"client.hello\",\n    roomKey,\n    sequence: ++quakeMultiplayerClientSequence,\n    sentAt: Date.now(),\n    payload: {\n      clientId: QUAKE_MULTIPLAYER_LOCAL_CLIENT_ID,\n      displayName: QUAKE_MULTIPLAYER_LOCAL_DISPLAY_NAME,\n      color: QUAKE_MULTIPLAYER_LOCAL_COLOR,\n      matchSettings: quakeMultiplayerMatchSettings(),\n      capabilities: [QUAKE_MULTIPLAYER_TRANSPORT, \"pose-sample\", \"gameplay-facts-v1\"],\n      ...(gameplayFacts ? { gameplayFacts } : {}),\n      deathmatchSpawns,\n      pickupDefinitions,\n    },\n  })"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerEnvelope<\"client\", \"client.pose\", { clientId: string; prototypeOnly: boolean; pose: { poseSequence: number; sampledAt: number; origin: [number, number, number]; velocity: number[]; rotX: number; rotY: number; grounded: boolean; alive: boolean; }; }>' is not assignable to parameter of type 'QuakeMultiplayerClientEnvelope'.\n  Type 'QuakeMultiplayerEnvelope<\"client\", \"client.pose\", { clientId: string; prototypeOnly: boolean; pose: { poseSequence: number; sampledAt: number; origin: [number, number, number]; velocity: number[]; rotX: number; rotY: number; grounded: boolean; alive: boolean; }; }>' is not assignable to type 'QuakeMultiplayerClientPoseEnvelope'.\n    Type '{ clientId: string; prototypeOnly: boolean; pose: { poseSequence: number; sampledAt: number; origin: [number, number, number]; velocity: number[]; rotX: number; rotY: number; grounded: boolean; alive: boolean; }; }' is not assignable to type 'QuakeMultiplayerClientPosePayload'.\n      Types of property 'prototypeOnly' are incompatible.\n        Type 'boolean' is not assignable to type 'true'.",
+      "source": "createQuakeMultiplayerEnvelope({\n    direction: \"client\",\n    type: \"client.pose\",\n    roomKey,\n    sequence: ++quakeMultiplayerClientSequence,\n    sentAt,\n    payload: {\n      clientId: QUAKE_MULTIPLAYER_LOCAL_CLIENT_ID,\n      prototypeOnly: true,\n      pose: {\n        poseSequence: ++quakeMultiplayerPoseSequence,\n        sampledAt: sentAt,\n        origin,\n        velocity: [0, 0, 0],\n        rotX: scene.camera.state.rotX ?? 88,\n        rotY: scene.camera.state.rotY ?? 270,\n        grounded: true,\n        alive: !quakePlayerDead,\n      },\n    },\n  })"
+    },
+    {
+      "file": "src/App.ts",
+      "code": 2322,
+      "message": "Type '(kind: string, details?: QuakeTraceMarkDetails) => void' is not assignable to type '(name: string, details: Record<string, unknown>) => void'.\n  Types of parameters 'details' and 'details' are incompatible.\n    Type 'Record<string, unknown>' is not assignable to type 'QuakeTraceMarkDetails'.\n      'string' index signatures are incompatible.\n        Type 'unknown' is not assignable to type 'QuakeTraceMarkValue'.",
+      "source": "trace"
+    },
+    {
+      "file": "src/generated/quakeMonsterLogic.ts",
+      "code": 2322,
+      "message": "Type 'null' is not assignable to type 'number'.",
+      "source": "\"frameIndex\""
+    },
+    {
+      "file": "src/generated/quakeMonsterLogic.ts",
+      "code": 2322,
+      "message": "Type 'null' is not assignable to type 'number'.",
+      "source": "\"frameIndex\""
+    },
+    {
+      "file": "src/generated/quakeMonsterLogic.ts",
+      "code": 2322,
+      "message": "Type 'null' is not assignable to type 'number'.",
+      "source": "\"frameIndex\""
+    },
+    {
+      "file": "src/generated/quakeMonsterLogic.ts",
+      "code": 2322,
+      "message": "Type 'null' is not assignable to type 'number'.",
+      "source": "\"frameIndex\""
+    },
+    {
+      "file": "src/generated/quakeMonsterLogic.ts",
+      "code": 2322,
+      "message": "Type 'null' is not assignable to type 'number'.",
+      "source": "\"frameIndex\""
+    },
+    {
+      "file": "src/generated/quakeMonsterLogic.ts",
+      "code": 2322,
+      "message": "Type 'null' is not assignable to type 'number'.",
+      "source": "\"frameIndex\""
+    },
+    {
+      "file": "src/generated/quakeProgramFacts.ts",
+      "code": 2322,
+      "message": "Type '\"worldspawn\"' is not assignable to type 'QuakeProgramEntityKind'.",
+      "source": "\"kind\""
+    },
+    {
+      "file": "src/prepare/gameLogicFacts.ts",
+      "code": 18048,
+      "message": "'spawnflag.value' is possibly 'undefined'.",
+      "source": "spawnflag.value"
+    },
+    {
+      "file": "src/prepare/gameLogicFacts.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "value"
+    },
+    {
+      "file": "src/prepare/gameLogicFacts.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeGameLogicProgramValue | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "...values"
+    },
+    {
+      "file": "src/prepare/gameLogicFacts.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeGameLogicProgramValue | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "...values"
+    },
+    {
+      "file": "src/prepare/gameLogicFacts.ts",
+      "code": 18048,
+      "message": "'callbackFact.assignments' is possibly 'undefined'.",
+      "source": "callbackFact.assignments"
+    },
+    {
+      "file": "src/prepare/gameLogicFacts.ts",
+      "code": 18048,
+      "message": "'callbackFact.assignments' is possibly 'undefined'.",
+      "source": "callbackFact.assignments"
+    },
+    {
+      "file": "src/prepare/scene.ts",
+      "code": 18048,
+      "message": "'headNode' is possibly 'undefined'.",
+      "source": "headNode"
+    },
+    {
+      "file": "src/prepare/scene.ts",
+      "code": 18048,
+      "message": "'headNode' is possibly 'undefined'.",
+      "source": "headNode"
+    },
+    {
+      "file": "src/runtime/app/debugApi.ts",
+      "code": 2322,
+      "message": "Type 'QuakePlayerMovementDebug' is not assignable to type 'Record<string, unknown>'.\n  Index signature for type 'string' is missing in type 'QuakePlayerMovementDebug'.",
+      "source": "runtime.controllers.player().debugMovement()"
+    },
+    {
+      "file": "src/runtime/app/debugApi.ts",
+      "code": 2322,
+      "message": "Type 'QuakeTriggersDebugStats' is not assignable to type 'Record<string, unknown>'.\n  Index signature for type 'string' is missing in type 'QuakeTriggersDebugStats'.",
+      "source": "runtime.controllers.triggers.debugStats()"
+    },
+    {
+      "file": "src/runtime/app/impactParticleFlow.ts",
+      "code": 2367,
+      "message": "This comparison appears to be unintentional because the types '\"blood\" | \"wall\"' and '\"explosion\"' have no overlap.",
+      "source": "kind === \"explosion\""
+    },
+    {
+      "file": "src/runtime/app/textPresentationFlow.ts",
+      "code": 2339,
+      "message": "Property 'generatedText' does not exist on type 'QuakeGameLogicResolvedMoverFact'.\n  Property 'generatedText' does not exist on type 'QuakeGameLogicResolvedFuncButtonFact'.",
+      "source": "generatedText"
+    },
+    {
+      "file": "src/runtime/collision.ts",
+      "code": 2339,
+      "message": "Property 'origin' does not exist on type 'never'.",
+      "source": "origin"
+    },
+    {
+      "file": "src/runtime/debug/quakeDebug.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "targetX"
+    },
+    {
+      "file": "src/runtime/debug/quakeDebug.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "targetY"
+    },
+    {
+      "file": "src/runtime/debug/quakeDebug.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "targetZ"
+    },
+    {
+      "file": "src/runtime/debug/quakeDebug.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "targetX"
+    },
+    {
+      "file": "src/runtime/debug/quakeDebug.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "targetY"
+    },
+    {
+      "file": "src/runtime/debug/quakeDebug.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "targetZ"
+    },
+    {
+      "file": "src/runtime/debug/recording.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeWorldVisibilityChurnStats' is not assignable to parameter of type 'Record<string, unknown>'.\n  Index signature for type 'string' is missing in type 'QuakeWorldVisibilityChurnStats'.",
+      "source": "first.snapshot.world.visibilityChurn"
+    },
+    {
+      "file": "src/runtime/debug/recording.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeShootablesVisibilityChurnStats' is not assignable to parameter of type 'Record<string, unknown>'.\n  Index signature for type 'string' is missing in type 'QuakeShootablesVisibilityChurnStats'.",
+      "source": "first.snapshot.shootables.visibilityChurn"
+    },
+    {
+      "file": "src/runtime/hazards.ts",
+      "code": 18047,
+      "message": "'amount' is possibly 'null'.",
+      "source": "amount"
+    },
+    {
+      "file": "src/runtime/hazards.ts",
+      "code": 2322,
+      "message": "Type 'number | null' is not assignable to type 'number'.\n  Type 'null' is not assignable to type 'number'.",
+      "source": "amount"
+    },
+    {
+      "file": "src/runtime/menu.ts",
+      "code": 2322,
+      "message": "Type 'HTMLButtonElement | null' is not assignable to type 'HTMLElement'.\n  Type 'null' is not assignable to type 'HTMLElement'.",
+      "source": "multiplayerBackButton()"
+    },
+    {
+      "file": "src/runtime/movers.ts",
+      "code": 18048,
+      "message": "'state.prebakedPlat' is possibly 'undefined'.",
+      "source": "state.prebakedPlat"
+    },
+    {
+      "file": "src/runtime/multiplayer/deathmatch.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerVec3' is not assignable to parameter of type 'Vec3'.\n  The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type 'Vec3'.",
+      "source": "fire.origin"
+    },
+    {
+      "file": "src/runtime/multiplayer/deathmatch.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerVec3' is not assignable to parameter of type 'Vec3'.\n  The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type 'Vec3'.",
+      "source": "fire.origin"
+    },
+    {
+      "file": "src/runtime/multiplayer/deathmatch.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerVec3' is not assignable to parameter of type 'Vec3'.\n  The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type 'Vec3'.",
+      "source": "input.attacker.origin as QuakeMultiplayerVec3"
+    },
+    {
+      "file": "src/runtime/multiplayer/deathmatch.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerVec3' is not assignable to parameter of type 'Vec3'.\n  The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type 'Vec3'.",
+      "source": "origin"
+    },
+    {
+      "file": "src/runtime/multiplayer/facts.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerPickupEffect' is not assignable to parameter of type 'Record<string, unknown>'.\n  Index signature for type 'string' is missing in type 'QuakeMultiplayerPickupEffect'.",
+      "source": "pickup.effect"
+    },
+    {
+      "file": "src/runtime/multiplayer/facts.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerPickupLifecycle' is not assignable to parameter of type 'Record<string, unknown>'.\n  Index signature for type 'string' is missing in type 'QuakeMultiplayerPickupLifecycle'.",
+      "source": "pickup.lifecycle"
+    },
+    {
+      "file": "src/runtime/multiplayer/facts.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerPickupFeedback' is not assignable to parameter of type 'Record<string, unknown>'.\n  Index signature for type 'string' is missing in type 'QuakeMultiplayerPickupFeedback'.",
+      "source": "pickup.feedback"
+    },
+    {
+      "file": "src/runtime/multiplayer/loopback.ts",
+      "code": 2322,
+      "message": "Type '{ rotX: number; rotY: number; updatedAt: number; playerId?: string | undefined; clientId?: string | undefined; displayName?: string | undefined; color?: string; mapName?: string | undefined; ... 12 more ...; respawnAt?: number; }' is not assignable to type 'QuakeMultiplayerAuthoritativePlayerState'.\n  Types of property 'playerId' are incompatible.\n    Type 'string | undefined' is not assignable to type 'string'.\n      Type 'undefined' is not assignable to type 'string'.",
+      "source": "playerState"
+    },
+    {
+      "file": "src/runtime/multiplayer/loopback.ts",
+      "code": 2367,
+      "message": "This comparison appears to be unintentional because the types 'number' and 'boolean' have no overlap.",
+      "source": "snapshotIntervalMs === false"
+    },
+    {
+      "file": "src/runtime/multiplayer/loopback.ts",
+      "code": 2345,
+      "message": "Argument of type '{ alive: boolean; velocity: number[]; respawnAt: undefined; updatedAt: number; spawnId?: string; origin: QuakeMultiplayerVec3; rotX: number; rotY: number; playerId: string; clientId: string; ... 10 more ...; pingMs?: number; }' is not assignable to parameter of type 'QuakeMultiplayerAuthoritativePlayerState'.\n  Types of property 'velocity' are incompatible.\n    Type 'number[]' is not assignable to type 'QuakeMultiplayerVec3'.\n      Target requires 3 element(s) but source may have fewer.",
+      "source": "respawned"
+    },
+    {
+      "file": "src/runtime/multiplayer/loopback.ts",
+      "code": 2322,
+      "message": "Type '{ alive: boolean; velocity: number[]; respawnAt: undefined; updatedAt: number; spawnId?: string; origin: QuakeMultiplayerVec3; rotX: number; rotY: number; playerId: string; clientId: string; ... 10 more ...; pingMs?: number; }' is not assignable to type 'QuakeMultiplayerAuthoritativePlayerState'.\n  Types of property 'velocity' are incompatible.\n    Type 'number[]' is not assignable to type 'QuakeMultiplayerVec3'.\n      Target requires 3 element(s) but source may have fewer.",
+      "source": "player"
+    },
+    {
+      "file": "src/runtime/multiplayer/movement.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerVec3' is not assignable to parameter of type '[number, number, number]'.\n  The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type '[number, number, number]'.",
+      "source": "target"
+    },
+    {
+      "file": "src/runtime/multiplayer/movement.ts",
+      "code": 4104,
+      "message": "The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type '[number, number, number]'.",
+      "source": "origin"
+    },
+    {
+      "file": "src/runtime/multiplayer/movement.ts",
+      "code": 2540,
+      "message": "Cannot assign to '2' because it is a read-only property.",
+      "source": "2"
+    },
+    {
+      "file": "src/runtime/multiplayer/movement.ts",
+      "code": 2540,
+      "message": "Cannot assign to '2' because it is a read-only property.",
+      "source": "2"
+    },
+    {
+      "file": "src/runtime/multiplayer/partyRoom.ts",
+      "code": 2420,
+      "message": "Class 'CssQuakeMultiplayerRoom' incorrectly implements interface 'Server'.\n  Property 'options' is private in type 'CssQuakeMultiplayerRoom' but not in type 'Server'.",
+      "source": "CssQuakeMultiplayerRoom"
+    },
+    {
+      "file": "src/runtime/multiplayer/partyRoom.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerVec3' is not assignable to parameter of type 'Vec3'.\n  The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type 'Vec3'.",
+      "source": "offset"
+    },
+    {
+      "file": "src/runtime/multiplayer/partyRoom.ts",
+      "code": 2322,
+      "message": "Type 'Promise<QuakeMultiplayerGameplayDefinitions | null> | null' is not assignable to type 'Promise<QuakeMultiplayerGameplayDefinitions | null>'.\n  Type 'null' is not assignable to type 'Promise<QuakeMultiplayerGameplayDefinitions | null>'.",
+      "source": "promise"
+    },
+    {
+      "file": "src/runtime/multiplayer/partyRoom.ts",
+      "code": 2345,
+      "message": "Argument of type 'Extract<QuakeMultiplayerRoomSnapshotEnvelope, { type: TType; }>[\"payload\"] | Extract<QuakeMultiplayerRoomEventEnvelope, { ...; }>[\"payload\"] | Extract<...>[\"payload\"] | Extract<...>[\"payload\"] | Extract<...>[\"payload\"] | Extract<...>[\"payload\"]' is not assignable to parameter of type 'Extract<QuakeMultiplayerRoomSnapshotEnvelope, { type: TType; }>[\"payload\"] & Extract<QuakeMultiplayerRoomEventEnvelope, { ...; }>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"]'.\n  Type 'Extract<QuakeMultiplayerRoomSnapshotEnvelope, { type: TType; }>[\"payload\"]' is not assignable to type 'Extract<QuakeMultiplayerRoomSnapshotEnvelope, { type: TType; }>[\"payload\"] & Extract<QuakeMultiplayerRoomEventEnvelope, { ...; }>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"]'.\n    Type 'QuakeMultiplayerRoomSnapshotPayload' is not assignable to type 'Extract<QuakeMultiplayerRoomSnapshotEnvelope, { type: TType; }>[\"payload\"] & Extract<QuakeMultiplayerRoomEventEnvelope, { ...; }>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"]'.\n      Type 'QuakeMultiplayerRoomSnapshotPayload' is not assignable to type 'Extract<QuakeMultiplayerRoomEventEnvelope, { type: TType; }>[\"payload\"]'.\n        Type 'QuakeMultiplayerRoomSnapshotPayload' is missing the following properties from type 'QuakeMultiplayerRoomEventPayload': sequence, event\n          Type 'Extract<QuakeMultiplayerRoomSnapshotEnvelope, { type: TType; }>[\"payload\"]' is not assignable to type 'Extract<QuakeMultiplayerRoomEventEnvelope, { type: TType; }>[\"payload\"]'.\n            Type 'Extract<QuakeMultiplayerRoomSnapshotEnvelope, { type: TType; }>' is not assignable to type 'Extract<QuakeMultiplayerRoomEventEnvelope, { type: TType; }>'.\n              Type '{ type: TType; } & QuakeMultiplayerRoomSnapshotEnvelope' is not assignable to type 'Extract<QuakeMultiplayerRoomEventEnvelope, { type: TType; }>'.",
+      "source": "payload"
+    },
+    {
+      "file": "src/runtime/multiplayer/partyRoom.ts",
+      "code": 2345,
+      "message": "Argument of type 'Extract<QuakeMultiplayerRoomSnapshotEnvelope, { type: TType; }>[\"payload\"] | Extract<QuakeMultiplayerRoomEventEnvelope, { ...; }>[\"payload\"] | Extract<...>[\"payload\"] | Extract<...>[\"payload\"] | Extract<...>[\"payload\"] | Extract<...>[\"payload\"]' is not assignable to parameter of type 'Extract<QuakeMultiplayerRoomSnapshotEnvelope, { type: TType; }>[\"payload\"] & Extract<QuakeMultiplayerRoomEventEnvelope, { ...; }>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"]'.\n  Type 'Extract<QuakeMultiplayerRoomSnapshotEnvelope, { type: TType; }>[\"payload\"]' is not assignable to type 'Extract<QuakeMultiplayerRoomSnapshotEnvelope, { type: TType; }>[\"payload\"] & Extract<QuakeMultiplayerRoomEventEnvelope, { ...; }>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"]'.\n    Type 'QuakeMultiplayerRoomSnapshotPayload' is not assignable to type 'Extract<QuakeMultiplayerRoomSnapshotEnvelope, { type: TType; }>[\"payload\"] & Extract<QuakeMultiplayerRoomEventEnvelope, { ...; }>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"] & Extract<...>[\"payload\"]'.\n      Type 'QuakeMultiplayerRoomSnapshotPayload' is not assignable to type 'Extract<QuakeMultiplayerRoomEventEnvelope, { type: TType; }>[\"payload\"]'.\n        Type 'QuakeMultiplayerRoomSnapshotPayload' is missing the following properties from type 'QuakeMultiplayerRoomEventPayload': sequence, event\n          Type 'Extract<QuakeMultiplayerRoomSnapshotEnvelope, { type: TType; }>[\"payload\"]' is not assignable to type 'Extract<QuakeMultiplayerRoomEventEnvelope, { type: TType; }>[\"payload\"]'.\n            Type 'Extract<QuakeMultiplayerRoomSnapshotEnvelope, { type: TType; }>' is not assignable to type 'Extract<QuakeMultiplayerRoomEventEnvelope, { type: TType; }>'.\n              Type '{ type: TType; } & QuakeMultiplayerRoomSnapshotEnvelope' is not assignable to type 'Extract<QuakeMultiplayerRoomEventEnvelope, { type: TType; }>'.",
+      "source": "payload"
+    },
+    {
+      "file": "src/runtime/multiplayer/partyRoom.ts",
+      "code": 2322,
+      "message": "Type 'unknown' is not assignable to type 'number'.",
+      "source": "assetManifestVersion"
+    },
+    {
+      "file": "src/runtime/multiplayer/partyRoom.ts",
+      "code": 1360,
+      "message": "Type 'typeof CssQuakeMultiplayerRoom' does not satisfy the expected type 'Worker'.\n  Types of construct signatures are incompatible.\n    Type 'new (room: Room, options?: CssQuakeMultiplayerRoomOptions) => CssQuakeMultiplayerRoom' is not assignable to type 'new (room: Room) => Server'.\n      Type 'CssQuakeMultiplayerRoom' is not assignable to type 'Server'.\n        Property 'options' is private in type 'CssQuakeMultiplayerRoom' but not in type 'Server'.",
+      "source": "satisfies"
+    },
+    {
+      "file": "src/runtime/multiplayer/projectileAuthority.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerVec3' is not assignable to parameter of type 'Vec3'.\n  The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type 'Vec3'.",
+      "source": "origin"
+    },
+    {
+      "file": "src/runtime/multiplayer/simulation.ts",
+      "code": 18048,
+      "message": "'selected.input' is possibly 'undefined'.",
+      "source": "selected.input"
+    },
+    {
+      "file": "src/runtime/multiplayer/simulation.ts",
+      "code": 18048,
+      "message": "'selected.input' is possibly 'undefined'.",
+      "source": "selected.input"
+    },
+    {
+      "file": "src/runtime/multiplayer/simulation.ts",
+      "code": 18048,
+      "message": "'selected.input' is possibly 'undefined'.",
+      "source": "selected.input"
+    },
+    {
+      "file": "src/runtime/multiplayer/simulation.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerVec3' is not assignable to parameter of type 'Vec3'.\n  The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type 'Vec3'.",
+      "source": "player.origin as QuakeMultiplayerVec3"
+    },
+    {
+      "file": "src/runtime/multiplayer/simulation.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerVec3' is not assignable to parameter of type 'Vec3'.\n  The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type 'Vec3'.",
+      "source": "quakeMultiplayerLiquidContentsPoint(player.origin, playerEyeHeight)"
+    },
+    {
+      "file": "src/runtime/multiplayer/simulation.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerVec3' is not assignable to parameter of type 'Vec3'.\n  The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type 'Vec3'.",
+      "source": "player.origin as QuakeMultiplayerVec3"
+    },
+    {
+      "file": "src/runtime/multiplayer/simulation.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeMultiplayerVec3' is not assignable to parameter of type 'Vec3'.\n  The type 'QuakeMultiplayerVec3' is 'readonly' and cannot be assigned to the mutable type 'Vec3'.",
+      "source": "quakeMultiplayerLiquidContentsPoint(player.origin, eyeHeight)"
+    },
+    {
+      "file": "src/runtime/multiplayer/validation.ts",
+      "code": 2345,
+      "message": "Argument of type 'unknown' is not assignable to parameter of type 'number'.",
+      "source": "value.sentAt"
+    },
+    {
+      "file": "src/runtime/multiplayer/validation.ts",
+      "code": 2352,
+      "message": "Conversion of type 'Record<string, unknown>' to type 'QuakeMultiplayerAnyEnvelope' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Type 'Record<string, unknown>' is missing the following properties from type 'QuakeMultiplayerEnvelope<\"room\", \"room.pong\", QuakeMultiplayerPongPayload>': protocolVersion, direction, type, messageId, and 4 more.",
+      "source": "value as QuakeMultiplayerAnyEnvelope"
+    },
+    {
+      "file": "src/runtime/multiplayer/validation.ts",
+      "code": 2352,
+      "message": "Conversion of type 'Record<string, unknown>' to type 'QuakeMultiplayerAnyEnvelope' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Type 'Record<string, unknown>' is missing the following properties from type 'QuakeMultiplayerEnvelope<\"room\", \"room.pong\", QuakeMultiplayerPongPayload>': protocolVersion, direction, type, messageId, and 4 more.",
+      "source": "value as QuakeMultiplayerAnyEnvelope"
+    },
+    {
+      "file": "src/runtime/multiplayer/validation.ts",
+      "code": 18046,
+      "message": "'value' is of type 'unknown'.",
+      "source": "value"
+    },
+    {
+      "file": "src/runtime/multiplayer/validation.ts",
+      "code": 18046,
+      "message": "'value' is of type 'unknown'.",
+      "source": "value"
+    },
+    {
+      "file": "src/runtime/multiplayer/validation.ts",
+      "code": 18046,
+      "message": "'value' is of type 'unknown'.",
+      "source": "value"
+    },
+    {
+      "file": "src/runtime/multiplayer/world.ts",
+      "code": 2322,
+      "message": "Type 'QuakeMultiplayerShootableWorldHit' is not assignable to type 'QuakeMultiplayerShootableMoverHit | null'.\n  Type 'QuakeMultiplayerShootableTriggerHit' is not assignable to type 'QuakeMultiplayerShootableMoverHit'.\n    Types of property 'definition' are incompatible.\n      Type '{ kind: \"trigger\"; entityIndex: number; classname: QuakeMultiplayerTriggerActivationClassname; bounds?: QuakeMultiplayerWorldBounds | undefined; ... 13 more ...; soundPath?: string | undefined; }' is missing the following properties from type '{ kind: \"mover\"; entityIndex: number; classname: QuakeMultiplayerMoverClassname; bounds?: QuakeMultiplayerWorldBounds | undefined; ... 12 more ...; soundPath?: string | undefined; }': speed, moveMs, fromOrigin, toOrigin",
+      "source": "hit"
+    },
+    {
+      "file": "src/runtime/multiplayer/world.ts",
+      "code": 2322,
+      "message": "Type '{ kind: \"trigger\"; entityIndex: number; classname: QuakeMultiplayerTriggerActivationClassname; bounds?: QuakeMultiplayerWorldBounds | undefined; ... 13 more ...; soundPath?: string | undefined; } | { ...; }' is not assignable to type '{ kind: \"trigger\"; entityIndex: number; classname: QuakeMultiplayerTriggerActivationClassname; bounds?: QuakeMultiplayerWorldBounds | undefined; ... 13 more ...; soundPath?: string | undefined; }'.\n  Type '{ kind: \"mover\"; entityIndex: number; classname: QuakeMultiplayerMoverClassname; bounds?: QuakeMultiplayerWorldBounds | undefined; ... 12 more ...; soundPath?: string | undefined; }' is missing the following properties from type '{ kind: \"trigger\"; entityIndex: number; classname: QuakeMultiplayerTriggerActivationClassname; bounds?: QuakeMultiplayerWorldBounds | undefined; ... 13 more ...; soundPath?: string | undefined; }': oneShot, waitMs",
+      "source": "definition"
+    },
+    {
+      "file": "src/runtime/multiplayer/world.ts",
+      "code": 2339,
+      "message": "Property 'destinationEntityIndex' does not exist on type 'QuakeMultiplayerWorldDefinition'.\n  Property 'destinationEntityIndex' does not exist on type '{ kind: \"changelevel\"; entityIndex: number; classname: \"trigger_changelevel\"; bounds?: QuakeMultiplayerWorldBounds | undefined; targetMap: string; }'.",
+      "source": "destinationEntityIndex"
+    },
+    {
+      "file": "src/runtime/multiplayer/world.ts",
+      "code": 2339,
+      "message": "Property 'targetMap' does not exist on type 'QuakeMultiplayerWorldDefinition'.\n  Property 'targetMap' does not exist on type '{ kind: \"teleport\"; entityIndex: number; classname: \"trigger_teleport\"; bounds?: QuakeMultiplayerWorldBounds | undefined; destinationEntityIndex: number; ... 4 more ...; activationWindowMs?: number | undefined; }'.",
+      "source": "targetMap"
+    },
+    {
+      "file": "src/runtime/multiplayer/world.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "wait"
+    },
+    {
+      "file": "src/runtime/multiplayer/world.ts",
+      "code": 2322,
+      "message": "Type 'QuakeMultiplayerVec3' is not assignable to type 'QuakeMultiplayerJson'.\n  Type 'readonly [number, number, number]' is not assignable to type '{ [key: string]: QuakeMultiplayerJson; }'.\n    Index signature for type 'string' is missing in type 'readonly [number, number, number]'.",
+      "source": "authoritativeOrigin"
+    },
+    {
+      "file": "src/runtime/multiplayer/world.ts",
+      "code": 2322,
+      "message": "Type 'QuakeMultiplayerVec3 | null' is not assignable to type 'QuakeMultiplayerJson'.\n  Type 'QuakeMultiplayerVec3' is not assignable to type 'QuakeMultiplayerJson'.\n    Type 'readonly [number, number, number]' is not assignable to type '{ [key: string]: QuakeMultiplayerJson; }'.\n      Index signature for type 'string' is missing in type 'readonly [number, number, number]'.",
+      "source": "hintOrigin"
+    },
+    {
+      "file": "src/runtime/multiplayer/world.ts",
+      "code": 18048,
+      "message": "'angle' is possibly 'undefined'.",
+      "source": "angle"
+    },
+    {
+      "file": "src/runtime/orientation.ts",
+      "code": 2339,
+      "message": "Property 'lock' does not exist on type 'ScreenOrientation'.",
+      "source": "lock"
+    },
+    {
+      "file": "src/runtime/orientation.ts",
+      "code": 2339,
+      "message": "Property 'lock' does not exist on type 'ScreenOrientation'.",
+      "source": "lock"
+    },
+    {
+      "file": "src/runtime/pickups.ts",
+      "code": 18048,
+      "message": "'rule.delaySeconds' is possibly 'undefined'.",
+      "source": "rule.delaySeconds"
+    },
+    {
+      "file": "src/runtime/player.ts",
+      "code": 2322,
+      "message": "Type 'unknown' is not assignable to type 'number'.",
+      "source": "value"
+    },
+    {
+      "file": "src/runtime/player.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | null | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "value"
+    },
+    {
+      "file": "src/runtime/renderBundleMesh.ts",
+      "code": 18048,
+      "message": "'leaf' is possibly 'undefined'.",
+      "source": "leaf"
+    },
+    {
+      "file": "src/runtime/renderBundleMesh.ts",
+      "code": 18048,
+      "message": "'polyIndex' is possibly 'undefined'.",
+      "source": "polyIndex"
+    },
+    {
+      "file": "src/runtime/renderBundleMesh.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number | null'.\n  Type 'undefined' is not assignable to type 'number | null'.",
+      "source": "return"
+    },
+    {
+      "file": "src/runtime/renderBundleMesh.ts",
+      "code": 18048,
+      "message": "'faceIndex' is possibly 'undefined'.",
+      "source": "faceIndex"
+    },
+    {
+      "file": "src/runtime/renderBundleMesh.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number | null'.\n  Type 'undefined' is not assignable to type 'number | null'.",
+      "source": "faceIndex"
+    },
+    {
+      "file": "src/runtime/renderBundleMesh.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakePackedRenderBundleLeafFrameStyle' is not assignable to parameter of type '[matrix?: string | undefined, background?: string | null | undefined, extraStyle?: string | null | undefined]'.\n  Type at position 0 in source is not compatible with type at position 0 in target.\n    Type 'string | null | undefined' is not assignable to type 'string | undefined'.\n      Type 'null' is not assignable to type 'string | undefined'.",
+      "source": "frameStyle"
+    },
+    {
+      "file": "src/runtime/renderBundleMesh.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakePackedRenderBundleLeafFrameStyle' is not assignable to parameter of type '[matrix?: string | undefined, background?: string | null | undefined, extraStyle?: string | null | undefined]'.\n  Type at position 0 in source is not compatible with type at position 0 in target.\n    Type 'string | null | undefined' is not assignable to type 'string | undefined'.\n      Type 'null' is not assignable to type 'string | undefined'.",
+      "source": "frameStyle"
+    },
+    {
+      "file": "src/runtime/renderBundleMesh.ts",
+      "code": 2345,
+      "message": "Argument of type 'string | null | undefined' is not assignable to parameter of type 'string | undefined'.\n  Type 'null' is not assignable to type 'string | undefined'.",
+      "source": "firstExtraStyle"
+    },
+    {
+      "file": "src/runtime/renderBundleMesh.ts",
+      "code": 2345,
+      "message": "Argument of type 'string | null | undefined' is not assignable to parameter of type 'string | undefined'.\n  Type 'null' is not assignable to type 'string | undefined'.",
+      "source": "extraStyle"
+    },
+    {
+      "file": "src/runtime/shootables.ts",
+      "code": 2322,
+      "message": "Type '{ entityIndex: number; classname: string; modelSource: string | null; origin: number[]; leafIndex: number | null; enemy: boolean; dead: boolean; health: number; visible: boolean; mounted: boolean; ... 57 more ...; moveGoalDecisions: { ...; }[]; }[]' is not assignable to type 'QuakeShootableDebugCullingEntry[]'.\n  Type '{ entityIndex: number; classname: string; modelSource: string | null; origin: number[]; leafIndex: number | null; enemy: boolean; dead: boolean; health: number; visible: boolean; mounted: boolean; ... 57 more ...; moveGoalDecisions: { ...; }[]; }' is not assignable to type 'QuakeShootableDebugCullingEntry'.\n    Types of property 'origin' are incompatible.\n      Type 'number[]' is not assignable to type '[number, number, number]'.\n        Target requires 3 element(s) but source may have fewer.",
+      "source": "entries"
+    },
+    {
+      "file": "src/runtime/shootables.ts",
+      "code": 2322,
+      "message": "Type 'QuakeEnemyTargetReference | { kind: \"player\"; }' is not assignable to type 'QuakeEnemyTargetReference | null'.\n  Type '{ kind: \"player\"; }' is missing the following properties from type 'QuakeEnemyTargetReference': classname, id",
+      "source": "enemy.currentTarget"
+    },
+    {
+      "file": "src/runtime/shootables.ts",
+      "code": 18048,
+      "message": "'touch.minVelocityUnits' is possibly 'undefined'.",
+      "source": "touch.minVelocityUnits"
+    },
+    {
+      "file": "src/runtime/shootables.ts",
+      "code": 2339,
+      "message": "Property 'origin' does not exist on type 'QuakeDamageActorReference'.\n  Property 'origin' does not exist on type '{ kind: \"player\"; classname: \"player\"; id: \"player\"; }'.",
+      "source": "origin"
+    },
+    {
+      "file": "src/runtime/shootables.ts",
+      "code": 2339,
+      "message": "Property 'origin' does not exist on type 'QuakeDamageActorReference'.\n  Property 'origin' does not exist on type '{ kind: \"player\"; classname: \"player\"; id: \"player\"; }'.",
+      "source": "origin"
+    },
+    {
+      "file": "src/runtime/shootables/combatFacts.ts",
+      "code": 2352,
+      "message": "Conversion of type '{ readonly monster_army: { readonly callbacks: { readonly th_stand: \"army_stand1\"; readonly th_walk: \"army_walk1\"; readonly th_run: \"army_run1\"; readonly th_missile: \"army_atk1\"; readonly th_pain: \"army_pain\"; readonly th_die: \"army_die\"; }; ... 5 more ...; readonly spawnProfile: { ...; }; }; ... 7 more ...; readonl...' to type 'Readonly<Record<string, { chains: Record<string, { states: QuakeMonsterFrameState[]; }>; }>>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Property '\"monster_army\"' is incompatible with index signature.\n    Type '{ readonly callbacks: { readonly th_stand: \"army_stand1\"; readonly th_walk: \"army_walk1\"; readonly th_run: \"army_run1\"; readonly th_missile: \"army_atk1\"; readonly th_pain: \"army_pain\"; readonly th_die: \"army_die\"; }; ... 5 more ...; readonly spawnProfile: { ...; }; }' is not comparable to type '{ chains: Record<string, { states: QuakeMonsterFrameState[]; }>; }'.\n      Types of property 'chains' are incompatible.\n        Type '{ readonly stand: { readonly start: \"army_stand1\"; readonly states: readonly [{ readonly calls: readonly [\"ai_stand\"]; readonly frame: \"stand1\"; readonly frameIndex: 0; readonly movement: readonly [{ readonly call: \"ai_stand\"; readonly distanceUnits: 0; }]; readonly name: \"army_stand1\"; readonly next: \"army_stand2\";...' is not comparable to type 'Record<string, { states: QuakeMonsterFrameState[]; }>'.\n          Property '\"stand\"' is incompatible with index signature.\n            Type '{ readonly start: \"army_stand1\"; readonly states: readonly [{ readonly calls: readonly [\"ai_stand\"]; readonly frame: \"stand1\"; readonly frameIndex: 0; readonly movement: readonly [{ readonly call: \"ai_stand\"; readonly distanceUnits: 0; }]; readonly name: \"army_stand1\"; readonly next: \"army_stand2\"; readonly sounds: ...' is not comparable to type '{ states: QuakeMonsterFrameState[]; }'.\n              Types of property 'states' are incompatible.\n                The type 'readonly [{ readonly calls: readonly [\"ai_stand\"]; readonly frame: \"stand1\"; readonly frameIndex: 0; readonly movement: readonly [{ readonly call: \"ai_stand\"; readonly distanceUnits: 0; }]; readonly name: \"army_stand1\"; readonly next: \"army_stand2\"; readonly sounds: readonly []; }, ... 6 more ..., { ...; }]' is 'readonly' and cannot be assigned to the mutable type 'QuakeMonsterFrameState[]'.",
+      "source": "QUAKE_MONSTER_LOGIC as Readonly<Record<string, {\n  chains: Record<string, { states: QuakeMonsterFrameState[] }>;\n}>>"
+    },
+    {
+      "file": "src/runtime/shootables/enemyAcquisition.ts",
+      "code": 18048,
+      "message": "'scale' is possibly 'undefined'.",
+      "source": "scale"
+    },
+    {
+      "file": "src/runtime/shootables/enemyAcquisition.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "scale"
+    },
+    {
+      "file": "src/runtime/shootables/enemyCombat.ts",
+      "code": 2339,
+      "message": "Property 'origin' does not exist on type 'QuakeDamageActorReference'.\n  Property 'origin' does not exist on type '{ kind: \"player\"; classname: \"player\"; id: \"player\"; }'.",
+      "source": "origin"
+    },
+    {
+      "file": "src/runtime/shootables/enemyCombat.ts",
+      "code": 2339,
+      "message": "Property 'origin' does not exist on type 'QuakeDamageActorReference'.\n  Property 'origin' does not exist on type '{ kind: \"player\"; classname: \"player\"; id: \"player\"; }'.",
+      "source": "origin"
+    },
+    {
+      "file": "src/runtime/shootables/enemyCombat.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "policy.cooldownMs"
+    },
+    {
+      "file": "src/runtime/text.ts",
+      "code": 18048,
+      "message": "'value' is possibly 'undefined'.",
+      "source": "value"
+    },
+    {
+      "file": "src/runtime/text.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "value"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2322,
+      "message": "Type 'string | undefined' is not assignable to type 'string | null'.\n  Type 'undefined' is not assignable to type 'string | null'.",
+      "source": "profile.modelPath"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'bounce' does not exist on type 'QuakeLinearProjectileFireProfile | QuakeUnsupportedProjectileFireProfile'.\n  Property 'bounce' does not exist on type 'QuakeUnsupportedProjectileFireProfile'.",
+      "source": "bounce"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'directDamageRandom' does not exist on type 'QuakeLinearProjectileFireProfile | QuakeUnsupportedProjectileFireProfile'.\n  Property 'directDamageRandom' does not exist on type 'QuakeUnsupportedProjectileFireProfile'.",
+      "source": "directDamageRandom"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'explodeOnExpire' does not exist on type 'QuakeLinearProjectileFireProfile | QuakeUnsupportedProjectileFireProfile'.\n  Property 'explodeOnExpire' does not exist on type 'QuakeUnsupportedProjectileFireProfile'.",
+      "source": "explodeOnExpire"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'forwardOffsetUnits' does not exist on type 'QuakeLinearProjectileFireProfile | QuakeUnsupportedProjectileFireProfile'.\n  Property 'forwardOffsetUnits' does not exist on type 'QuakeUnsupportedProjectileFireProfile'.",
+      "source": "forwardOffsetUnits"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'gravity' does not exist on type 'QuakeLinearProjectileFireProfile | QuakeUnsupportedProjectileFireProfile'.\n  Property 'gravity' does not exist on type 'QuakeUnsupportedProjectileFireProfile'.",
+      "source": "gravity"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'lifetimeMs' does not exist on type 'QuakeLinearProjectileFireProfile | QuakeUnsupportedProjectileFireProfile'.\n  Property 'lifetimeMs' does not exist on type 'QuakeUnsupportedProjectileFireProfile'.",
+      "source": "lifetimeMs"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'monsterTouchHullExpansion' does not exist on type 'QuakeLinearProjectileFireProfile | QuakeUnsupportedProjectileFireProfile'.\n  Property 'monsterTouchHullExpansion' does not exist on type 'QuakeUnsupportedProjectileFireProfile'.",
+      "source": "monsterTouchHullExpansion"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'rightOffsetUnits' does not exist on type 'QuakeLinearProjectileFireProfile | QuakeUnsupportedProjectileFireProfile'.\n  Property 'rightOffsetUnits' does not exist on type 'QuakeUnsupportedProjectileFireProfile'.",
+      "source": "rightOffsetUnits"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'sourceZOffsetUnits' does not exist on type 'QuakeLinearProjectileFireProfile | QuakeUnsupportedProjectileFireProfile'.\n  Property 'sourceZOffsetUnits' does not exist on type 'QuakeUnsupportedProjectileFireProfile'.",
+      "source": "sourceZOffsetUnits"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'explosionBackoff' does not exist on type 'QuakeLinearProjectileFireProfile | QuakeUnsupportedProjectileFireProfile'.\n  Property 'explosionBackoff' does not exist on type 'QuakeUnsupportedProjectileFireProfile'.",
+      "source": "explosionBackoff"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'splashDamage' does not exist on type 'QuakeLinearProjectileFireProfile | QuakeUnsupportedProjectileFireProfile'.\n  Property 'splashDamage' does not exist on type 'QuakeUnsupportedProjectileFireProfile'.",
+      "source": "splashDamage"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'splashIgnoresDirectHit' does not exist on type 'QuakeLinearProjectileFireProfile | QuakeUnsupportedProjectileFireProfile'.\n  Property 'splashIgnoresDirectHit' does not exist on type 'QuakeUnsupportedProjectileFireProfile'.",
+      "source": "splashIgnoresDirectHit"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'splashRadius' does not exist on type 'QuakeLinearProjectileFireProfile | QuakeUnsupportedProjectileFireProfile'.\n  Property 'splashRadius' does not exist on type 'QuakeUnsupportedProjectileFireProfile'.",
+      "source": "splashRadius"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'verticalVelocity' does not exist on type 'QuakeLinearProjectileFireProfile | QuakeUnsupportedProjectileFireProfile'.\n  Property 'verticalVelocity' does not exist on type 'QuakeUnsupportedProjectileFireProfile'.",
+      "source": "verticalVelocity"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'damageEndForwardOffsetUnits' does not exist on type 'QuakeBeamFireProfile | QuakeUnsupportedBeamFireProfile'.\n  Property 'damageEndForwardOffsetUnits' does not exist on type 'QuakeUnsupportedBeamFireProfile'.",
+      "source": "damageEndForwardOffsetUnits"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'damageSourceZOffsetUnits' does not exist on type 'QuakeBeamFireProfile | QuakeUnsupportedBeamFireProfile'.\n  Property 'damageSourceZOffsetUnits' does not exist on type 'QuakeUnsupportedBeamFireProfile'.",
+      "source": "damageSourceZOffsetUnits"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'damageTraceOffsetUnits' does not exist on type 'QuakeBeamFireProfile | QuakeUnsupportedBeamFireProfile'.\n  Property 'damageTraceOffsetUnits' does not exist on type 'QuakeUnsupportedBeamFireProfile'.",
+      "source": "damageTraceOffsetUnits"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'sourceZOffsetUnits' does not exist on type 'QuakeBeamFireProfile | QuakeUnsupportedBeamFireProfile'.\n  Property 'sourceZOffsetUnits' does not exist on type 'QuakeUnsupportedBeamFireProfile'.",
+      "source": "sourceZOffsetUnits"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'tempEntity' does not exist on type 'QuakeBeamFireProfile | QuakeUnsupportedBeamFireProfile'.\n  Property 'tempEntity' does not exist on type 'QuakeUnsupportedBeamFireProfile'.",
+      "source": "tempEntity"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2339,
+      "message": "Property 'underwaterDischarge' does not exist on type 'QuakeBeamFireProfile | QuakeUnsupportedBeamFireProfile'.\n  Property 'underwaterDischarge' does not exist on type 'QuakeUnsupportedBeamFireProfile'.",
+      "source": "underwaterDischarge"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "directDamage"
+    },
+    {
+      "file": "src/runtime/weapons.ts",
+      "code": 2722,
+      "message": "Cannot invoke an object which is possibly 'undefined'.",
+      "source": "collisionWorld.traceUse"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | null | undefined' is not assignable to parameter of type 'number | null'.\n  Type 'undefined' is not assignable to type 'number | null'.",
+      "source": "nextLeafIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2322,
+      "message": "Type 'number | null | undefined' is not assignable to type 'number | null'.\n  Type 'undefined' is not assignable to type 'number | null'.",
+      "source": "visibleLeafIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2322,
+      "message": "Type 'number | null | undefined' is not assignable to type 'number | null'.\n  Type 'undefined' is not assignable to type 'number | null'.",
+      "source": "visibleLeafIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2322,
+      "message": "Type 'number | null | undefined' is not assignable to type 'number | null'.\n  Type 'undefined' is not assignable to type 'number | null'.",
+      "source": "nextLeafIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2322,
+      "message": "Type 'number | null | undefined' is not assignable to type 'number | null'.\n  Type 'undefined' is not assignable to type 'number | null'.",
+      "source": "visibleLeafIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2322,
+      "message": "Type 'number | null | undefined' is not assignable to type 'number | null'.\n  Type 'undefined' is not assignable to type 'number | null'.",
+      "source": "nextLeafIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2322,
+      "message": "Type 'number | null | undefined' is not assignable to type 'number | null'.\n  Type 'undefined' is not assignable to type 'number | null'.",
+      "source": "visibleLeafIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2322,
+      "message": "Type 'number | null | undefined' is not assignable to type 'number | null'.\n  Type 'undefined' is not assignable to type 'number | null'.",
+      "source": "nextLeafIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "currentLeafIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "currentLeafIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "currentLeafIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2322,
+      "message": "Type 'number | null | undefined' is not assignable to type 'number | null'.\n  Type 'undefined' is not assignable to type 'number | null'.",
+      "source": "currentLeafIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2322,
+      "message": "Type 'number | null | undefined' is not assignable to type 'number | null'.\n  Type 'undefined' is not assignable to type 'number | null'.",
+      "source": "currentLeafIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 18048,
+      "message": "'pageIndex' is possibly 'undefined'.",
+      "source": "pageIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "pageIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "pageIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "pageIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2322,
+      "message": "Type 'number | undefined' is not assignable to type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "pageIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 18048,
+      "message": "'atlasPageIndex' is possibly 'undefined'.",
+      "source": "atlasPageIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2345,
+      "message": "Argument of type 'QuakeRenderBundleLeafMetadata' is not assignable to parameter of type 'QuakeVisibilityLeafMetadata'.\n  Type 'QuakeRenderBundleLeafMetadata' is missing the following properties from type 'QuakeVisibilityLeafMetadata': leafIndex, contents, bounds, faceIndexes, and 3 more.",
+      "source": "metadata"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "modelIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "modelIndex"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2339,
+      "message": "Property 'l' does not exist on type 'QuakeVisibilityLeafMetadata'.",
+      "source": "l"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2339,
+      "message": "Property 'l' does not exist on type 'QuakeVisibilityLeafMetadata'.",
+      "source": "l"
+    },
+    {
+      "file": "src/runtime/world.ts",
+      "code": 2345,
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
+      "source": "styleId"
+    }
+  ]
+}

@@ -26,8 +26,10 @@
     "test:browser": "node test/browser/runBrowserFixtures.mjs",
     "test:harness": "node test/runHarnessPlan.mjs",
     "test:perf": "node test/perf/runPerfPreflight.mjs",
-    "test:dev": "pnpm test && pnpm test:perf",
-    "test:all": "pnpm test && pnpm test:assets && pnpm test:browser:smoke && pnpm test:browser && pnpm test:perf"
+    "test:dev": "pnpm typecheck && pnpm test && pnpm test:perf",
+    "test:all": "pnpm typecheck && pnpm test && pnpm test:assets && pnpm test:browser:smoke && pnpm test:browser && pnpm test:perf",
+    "typecheck": "node test/typescript/check.mjs",
+    "typecheck:all": "tsc --noEmit"
   },
   "dependencies": {
     "@layoutit/polycss": "^0.2.6",
@@ -42,6 +44,7 @@
     "partykit": "0.0.115",
     "playwright": "^1.60.0",
     "sharp": "^0.34.5",
+    "typescript": "5.9.3",
     "vite": "^7.3.1"
   }
 }
